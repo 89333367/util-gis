@@ -107,6 +107,26 @@
                             </relocations>
                             <shadedArtifactAttached>true</shadedArtifactAttached>
                             <shadedClassifierName>shaded</shadedClassifierName>
+                            <filters>
+                                <filter>
+                                    <artifact>*:*</artifact>
+                                    <excludes>
+                                        <exclude>assets/**</exclude>
+                                        <exclude>license/**</exclude>
+                                        <exclude>META-INF/**</exclude>
+                                        <exclude>mozilla/**</exclude>
+                                        <exclude>schema/**</exclude>
+                                        <exclude>model/**</exclude>
+                                        <exclude>*.crx</exclude>
+                                        <exclude>*.properties</exclude>
+                                        <exclude>*.xml</exclude>
+                                        <exclude>*.ini</exclude>
+                                        <exclude>*.html</exclude>
+                                        <exclude>*.mappings</exclude>
+                                        <exclude>*.png</exclude>
+                                    </excludes>
+                                </filter>
+                            </filters>
                         </configuration>
                     </execution>
                 </executions>
