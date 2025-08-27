@@ -42,7 +42,7 @@
         <dependency>
             <groupId>cn.hutool</groupId>
             <artifactId>hutool-all</artifactId>
-            <version>5.8.39</version>
+            <version>5.8.40</version>
         </dependency>
         <!-- JTS 核心 -->
         <!-- https://central.sonatype.com/artifact/org.locationtech.jts/jts-core/versions -->
@@ -111,7 +111,7 @@
                                 <filter>
                                     <artifact>*:*</artifact>
                                     <excludes>
-                                        <exclude>assets/**</exclude>
+                                        <!--<exclude>assets/**</exclude>
                                         <exclude>license/**</exclude>
                                         <exclude>META-INF/**</exclude>
                                         <exclude>mozilla/**</exclude>
@@ -123,7 +123,7 @@
                                         <exclude>*.ini</exclude>
                                         <exclude>*.html</exclude>
                                         <exclude>*.mappings</exclude>
-                                        <exclude>*.png</exclude>
+                                        <exclude>*.png</exclude>-->
                                     </excludes>
                                 </filter>
                             </filters>
