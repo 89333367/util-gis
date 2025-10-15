@@ -18,6 +18,11 @@ public class TrackPoint extends CoordinatePoint {
     private double speed;
 
     /**
+     * 方向角 0~360
+     */
+    private int heading;
+
+    /**
      * 有效性标记
      */
     private boolean valid;
@@ -36,6 +41,22 @@ public class TrackPoint extends CoordinatePoint {
         this.ts = ts;
         this.speed = speed;
         this.valid = valid;
+    }
+
+    /**
+     * 构造函数
+     *
+     * @param lon     经度
+     * @param lat     纬度
+     * @param ts      时间戳
+     * @param speed   速度
+     * @param heading 方向角
+     */
+    public TrackPoint(long ts, double lon, double lat, double speed, int heading) {
+        super(lon, lat);
+        this.ts = ts;
+        this.speed = speed;
+        this.heading = heading;
     }
 
     /**
@@ -70,5 +91,14 @@ public class TrackPoint extends CoordinatePoint {
 
     public void setValid(boolean valid) {
         this.valid = valid;
+    }
+
+
+    public int getHeading() {
+        return heading;
+    }
+
+    public void setHeading(int heading) {
+        this.heading = heading;
     }
 }

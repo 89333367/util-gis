@@ -16,7 +16,6 @@ import org.locationtech.jts.simplify.DouglasPeuckerSimplifier;
 import sunyu.util.pojo.CoordinatePoint;
 import sunyu.util.pojo.TrackPoint;
 
-import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
@@ -125,9 +124,8 @@ public class GisUtil implements AutoCloseable {
      *
      * @return CoordinateReferenceSystem对象
      *
-     * @throws Exception 解析异常
      */
-    private CoordinateReferenceSystem getCachedCRS(String wkt) throws Exception {
+    private CoordinateReferenceSystem getCachedCRS(String wkt) {
         return config.crsCache.computeIfAbsent(wkt, key -> {
             try {
                 return CRS.parseWKT(key);
@@ -135,31 +133,6 @@ public class GisUtil implements AutoCloseable {
                 throw new RuntimeException("Failed to parse CRS WKT", e);
             }
         });
-    }
-
-    /**
-     * 计算两点之间的速度（km/h）
-     * 通过计算两点间距离和时间差来得出速度值
-     *
-     * @param a       起始点，包含经纬度信息
-     * @param b       结束点，包含经纬度信息
-     * @param deltaMs 时间差（毫秒），两点间的时间间隔
-     *
-     * @return 速度（km/h），最小值为0.1 km/h以防止零速度
-     */
-    private double calcSpeed(CoordinatePoint a, CoordinatePoint b, long deltaMs) {
-        // 使用haversine公式计算两点间的地理距离（米）
-        double dist = haversine(a, b);
-        // 处理时间差为0的情况
-        if (deltaMs <= 0) {
-            return 0.1; // 返回最小速度
-        }
-        // 将时间差从毫秒转换为小时，用于速度计算
-        // 公式: 毫秒 / 1000 = 秒，秒 / 3600 = 小时
-        double hours = deltaMs / 1000.0 / 3600.0;
-        // 计算速度（km/h）并确保最小值为0.1 km/h，防止出现0速度
-        // 公式: 速度 = 距离(km) / 时间(h) = (距离(m) / 1000) / 时间(h)
-        return Math.max(dist / hours, 0.1);
     }
 
 
@@ -171,9 +144,8 @@ public class GisUtil implements AutoCloseable {
      *
      * @return CoordinateReferenceSystem对象，对应区域的最佳投影系统
      *
-     * @throws Exception 解析WKT时可能抛出异常，如格式错误或不支持的投影
      */
-    private CoordinateReferenceSystem pickCrs(double lon) throws Exception {
+    private CoordinateReferenceSystem pickCrs(double lon) {
         // 中国区域使用CGCS2000 3度分带投影（经度72°至138°）
         // CGCS2000是中国2000国家大地坐标系，3度分带适用于中国大部分地区
         if (lon >= 72 && lon <= 138) {
@@ -248,7 +220,7 @@ public class GisUtil implements AutoCloseable {
                                   double simplifyM,
                                   double maxEdgeLenM) throws Exception {
         // 如果轨迹点少于3个，无法构成有效几何形状，抛出异常
-        if (seg.size() < 3) throw new IllegalArgumentException("不足 3 点");
+        if (seg.size() < 3) throw new IllegalArgumentException("不足 3 点，无法计算轮廓");
 
         // 将轨迹点转换为坐标数组，提取经纬度信息
         Coordinate[] coords = seg.stream()
@@ -289,45 +261,92 @@ public class GisUtil implements AutoCloseable {
 
 
     /**
-     * 计算三点构成的转弯半径
-     * 通过三点坐标计算车辆转弯时的近似半径
+     * 计算轨迹段的面积（mu单位）
+     * 通过构建轨迹轮廓并计算面积，结果以亩为单位
      *
-     * @param a 第一个点（前点）
-     * @param b 第二个点（当前点）
-     * @param c 第三个点（后点）
+     * @param seg            轨迹段，至少需要3个点
+     * @param leftWidthM     左侧宽度（米），轨迹线左侧的扩展距离
+     * @param rightWidthM    右侧宽度（米），轨迹线右侧的扩展距离
+     * @param simplifyM      简化阈值（米），用于轨迹点简化以提高性能
+     * @param maxEdgeLengthM 最大边缘长度（米），控制轮廓的精细程度
      *
-     * @return 转弯半径（米），值越大表示转弯越平缓，值越小表示转弯越急
+     * @return 面积（mu），以亩为单位，保留3位小数
+     *
+     * @throws Exception 可能抛出异常，如坐标转换错误或几何操作失败
      */
-    private double turnRadius(CoordinatePoint a, CoordinatePoint b, CoordinatePoint c) {
-        // 计算三边长度，使用haversine公式获得精确地理距离
-        double ab = haversine(a, b);  // 第一点到第二点的距离
-        double bc = haversine(b, c);  // 第二点到第三点的距离
-        double ca = haversine(c, a);  // 第三点到第一点的距离（闭合边）
+    public double calcMu(List<TrackPoint> seg,
+                         double leftWidthM,
+                         double rightWidthM,
+                         double simplifyM,
+                         double maxEdgeLengthM) throws Exception {
+        // 添加输入验证
+        if (seg == null || seg.size() < 3) {
+            throw new IllegalArgumentException("轨迹段至少需要3个点");
+        }
+        if (leftWidthM < 0 || rightWidthM < 0 || simplifyM < 0 || maxEdgeLengthM < 0) {
+            throw new IllegalArgumentException("所有参数必须为非负数");
+        }
 
-        // 如果任意一边长度为0，说明存在重复点，无法构成有效三角形，返回无穷大
-        if (ab * bc * ca == 0) return Double.MAX_VALUE;
-
-        // 检查三点是否共线（通过检查三角形面积是否接近0）
-        // 使用向量叉积判断三点是否共线
-        double crossProduct = (b.getLon() - a.getLon()) * (c.getLat() - a.getLat()) -
-                (c.getLon() - a.getLon()) * (b.getLat() - a.getLat());
-        if (Math.abs(crossProduct) < 1e-10) return Double.MAX_VALUE;
-
-        // 计算半周长，用于海伦公式计算三角形面积
-        double s = (ab + bc + ca) / 2;
-        // 使用海伦公式计算三角形面积
-        // 面积 = √[s(s-a)(s-b)(s-c)]
-        // Math.max(0, ...) 防止计算误差导致负数
-        double area = Math.sqrt(Math.max(0, s * (s - ab) * (s - bc) * (s - ca)));
-
-        // 加强保护：确保分母不为零或接近零
-        double denominator = 4 * area + 1e-10;
-        if (denominator < 1e-10) return Double.MAX_VALUE;
-
-        // 计算转弯半径，公式为：R = (a*b*c)/(4*area)
-        return (ab * bc * ca) / denominator;
+        // 构建轨迹轮廓几何对象
+        Geometry outline = buildOutline(seg, leftWidthM, rightWidthM, simplifyM, maxEdgeLengthM);
+        return calcMu(outline);
     }
 
+
+    /**
+     * 计算轮廓面积(mu单位)
+     *
+     * @param outline 轮廓
+     *
+     * @return 面积（mu），以亩为单位，保留3位小数
+     */
+    public double calcMu(Geometry outline) {
+        // 计算面积并转换为mu单位（亩）
+        // g.getArea() 获取几何对象面积（平方米）
+        // * config.MU_PER_SQ_METER 转换为亩
+        // * 1000.0 和 / 1000.0 实现保留3位小数的四舍五入
+        return Math.round(outline.getArea() * config.MU_PER_SQ_METER * 1000.0) / 1000.0;
+    }
+
+
+    /**
+     * 将轨迹段转换为WKT格式
+     * 生成轨迹轮廓的WKT（Well-Known Text）表示，便于GIS软件处理
+     *
+     * @param seg            轨迹段，至少需要3个点
+     * @param leftWidthM     左侧宽度（米），轨迹线左侧的扩展距离
+     * @param rightWidthM    右侧宽度（米），轨迹线右侧的扩展距离
+     * @param simplifyM      简化阈值（米），用于轨迹点简化以提高性能
+     * @param maxEdgeLengthM 最大边缘长度（米），控制轮廓的精细程度
+     *
+     * @return WKT字符串，表示轨迹轮廓的几何形状
+     *
+     * @throws Exception 可能抛出异常，如坐标转换错误或几何操作失败
+     */
+    public String toWkt(List<TrackPoint> seg,
+                        double leftWidthM,
+                        double rightWidthM,
+                        double simplifyM,
+                        double maxEdgeLengthM) throws Exception {
+        // 添加输入验证
+        if (seg == null || seg.size() < 3) {
+            throw new IllegalArgumentException("轨迹段至少需要3个点");
+        }
+        if (leftWidthM < 0 || rightWidthM < 0 || simplifyM < 0 || maxEdgeLengthM < 0) {
+            throw new IllegalArgumentException("所有参数必须为非负数");
+        }
+
+        // 构建轨迹轮廓几何对象
+        Geometry g = buildOutline(seg, leftWidthM, rightWidthM, simplifyM, maxEdgeLengthM);
+        // 转换回WGS84坐标系统，确保输出为标准地理坐标
+        // 使用第一个轨迹点的原始经度来选择正确的投影坐标系
+        CoordinateReferenceSystem src = pickCrs(seg.get(0).getLon());  // 使用原始经度值
+        CoordinateReferenceSystem tgt = CRS.decode(config.WGS84, true);
+        MathTransform tx = CRS.findMathTransform(src, tgt, true);
+        Geometry wgs = JTS.transform(g, tx);
+        // 返回WKT字符串表示
+        return wgs.toText();
+    }
 
     /**
      * 使用haversine公式计算两点间距离
@@ -431,424 +450,6 @@ public class GisUtil implements AutoCloseable {
         }
 
         return 1.0 / metersPerDegree;
-    }
-
-
-    /**
-     * 检查轨迹段持续时间是否符合最小作业时间要求
-     */
-    private boolean isDurationValid(List<TrackPoint> segment, long minDurationMs) {
-        if (segment == null || segment.size() < 2) return false;
-        long firstTs = segment.get(0).getTs();
-        long lastTs = segment.get(segment.size() - 1).getTs();
-        return (lastTs - firstTs) >= minDurationMs;
-    }
-
-
-    /**
-     * 判断当前点是否属于田间轨迹段（允许局部异常）
-     */
-    private boolean isFieldSegment(
-            List<TrackPoint> points, int index,
-            List<TrackPoint> buffer,
-            double maxSpeed, double minTurnRadiusM,
-            double maxDirectionChange, int directionWindow,
-            int speedWindow, double outlierRatio) {
-
-        TrackPoint curr = points.get(index);
-        // 1. 速度必须低于阈值
-        if (curr.getSpeed() > maxSpeed) {
-            return false;
-        }
-
-        // 2. 检查局部转弯半径（允许一定比例的异常点）
-        if (index > 1 && index < points.size() - 1) {
-            int windowSize = Math.min(directionWindow, points.size());
-            int start = Math.max(0, index - windowSize / 2);
-            int end = Math.min(points.size() - 1, index + windowSize / 2);
-            int badCount = 0;
-
-            for (int j = start + 1; j < end - 1; j++) {
-                TrackPoint prev = points.get(j - 1);
-                TrackPoint next = points.get(j + 1);
-                double r = turnRadius(prev, points.get(j), next);
-                if (r < minTurnRadiusM) badCount++;
-            }
-
-            // 允许一定比例的异常点（如 20%）
-            double badRatio = (double) badCount / (end - start);
-            if (badRatio > outlierRatio) {
-                return false;
-            }
-        }
-
-        // 3. 检查方向变化率（使用滑动窗口平滑）
-        if (index > 1 && index < points.size() - 1) {
-            int windowSize = Math.min(speedWindow, points.size());
-            int start = Math.max(0, index - windowSize / 2);
-            int end = Math.min(points.size() - 1, index + windowSize / 2);
-
-            double totalDirectionChange = 0;
-            int count = 0;
-
-            for (int j = start + 1; j < end; j++) {
-                TrackPoint prev = points.get(j - 1);
-                TrackPoint next = points.get(j + 1);
-                double dx1 = prev.getLon() - curr.getLon();
-                double dy1 = prev.getLat() - curr.getLat();
-                double dx2 = next.getLon() - curr.getLon();
-                double dy2 = next.getLat() - curr.getLat();
-
-                double angle1 = Math.atan2(dy1, dx1);
-                double angle2 = Math.atan2(dy2, dx2);
-                double angleDiff = Math.abs(angle2 - angle1);
-                totalDirectionChange += Math.toDegrees(angleDiff);
-                count++;
-            }
-
-            if (count > 0) {
-                double avgDirectionChange = totalDirectionChange / count;
-                double dist = 1.0; // 假设平均点间距为1米
-                double rate = avgDirectionChange / dist;
-                if (rate > maxDirectionChange) {
-                    return false;
-                }
-            }
-        }
-
-        // 4. 检查速度波动（使用滑动窗口标准差）
-        if (!buffer.isEmpty()) {
-            int windowSize = Math.min(speedWindow, buffer.size());
-            List<Double> speeds = new ArrayList<>();
-            for (int j = buffer.size() - windowSize; j < buffer.size(); j++) {
-                speeds.add(buffer.get(j).getSpeed());
-            }
-            speeds.add(curr.getSpeed());
-
-            double avg = speeds.stream().mapToDouble(d -> d).average().orElse(0);
-            double variance = speeds.stream()
-                    .mapToDouble(d -> (d - avg) * (d - avg))
-                    .sum() / speeds.size();
-            double std = Math.sqrt(variance);
-
-            // 速度标准差过大，可能为道路（如频繁加速/减速）
-            if (std > 5.0) {
-                return false;
-            }
-        }
-
-        return true;
-    }
-
-
-    /**
-     * 填充缺失的轨迹点信息
-     * 为已有的TrackPoint对象补充时间戳和速度信息
-     *
-     * @param points TrackPoint列表，需要补充时间戳和速度信息
-     *
-     * @return 补充信息后的TrackPoint列表（原列表）
-     */
-    public List<TrackPoint> fillMissing(List<TrackPoint> points) {
-        // 如果输入为空或为空列表，直接返回原列表
-        if (points == null || points.isEmpty()) return points;
-
-        // 当前时间作为基准时间，用于生成时间戳
-        long base = System.currentTimeMillis();
-
-        // 先全部填上 ts（时间戳）、valid=true（有效标记）、speed=0（初始速度）
-        for (int i = 0; i < points.size(); i++) {
-            TrackPoint p = points.get(i);
-            // 设置时间戳，基于基准时间递增（每秒一个点）
-            p.setTs(base + i * 1000L);
-            // 速度初始设为0.0，有效标记设为true
-            p.setSpeed(0.0);
-            p.setValid(true);
-        }
-
-        // 只有当点数大于1时才计算速度
-        if (points.size() > 1) {
-            // 计算瞬时速度（首尾特殊处理）
-            for (int i = 0; i < points.size(); i++) {
-                if (i == 0) {
-                    // 首点：用第二点的速度作为近似值
-                    points.get(i).setSpeed(calcSpeed(points.get(i), points.get(i + 1), 1000));
-                } else if (i == points.size() - 1) {
-                    // 终点：用倒数第二点速度作为近似值
-                    points.get(i).setSpeed(calcSpeed(points.get(i - 1), points.get(i), 1000));
-                } else {
-                    // 中间点：用前后两点计算速度，获得更准确的瞬时速度
-                    points.get(i).setSpeed(calcSpeed(points.get(i - 1), points.get(i + 1), 2000));
-                }
-            }
-        }
-        return points;
-    }
-
-
-    /**
-     * 合并静态点（停留点）
-     * 将时间上连续且距离相近的点合并，识别停留区域
-     * 特别地：连续速度为0的点，即使经纬度漂移，也视为同一个停留点
-     *
-     * @param points             轨迹点列表，应包含有效的时间戳和位置信息
-     * @param epsilonM           合并距离阈值（米），距离小于此值的点将被考虑合并
-     * @param maxStayMs          最大停留时间（毫秒），停留时间超过此值的点不会被合并
-     * @param speedZeroThreshold 速度为0的阈值（km/h），速度小于等于该值的点视为静止（如0.1 km/h）
-     *
-     * @return 合并后的轨迹点列表，每个点代表一个停留区域
-     */
-    public List<TrackPoint> mergeStaticPoints(List<TrackPoint> points,
-                                              double epsilonM,
-                                              long maxStayMs,
-                                              double speedZeroThreshold) {
-        if (points == null) {
-            return new ArrayList<>();
-        }
-
-        // 过滤出有效的轨迹点（valid=true）
-        List<TrackPoint> valid = points.stream()
-                .filter(TrackPoint::getValid)
-                .collect(Collectors.toList());
-
-        if (valid.isEmpty()) {
-            return new ArrayList<>();
-        }
-
-        List<TrackPoint> res = new ArrayList<>();
-        int i = 0;
-
-        while (i < valid.size()) {
-            int j = i + 1;
-            TrackPoint start = valid.get(i);
-            long t0 = start.getTs();
-            double lat0 = start.getLat();
-            double lon0 = start.getLon();
-            double speed0 = start.getSpeed();
-
-            // 检查是否为静止点（速度为0或接近0）
-            boolean isStatic = speed0 <= speedZeroThreshold;
-
-            // 如果是静止点，继续查找连续的静止点
-            if (isStatic) {
-                while (j < valid.size()) {
-                    TrackPoint curr = valid.get(j);
-                    double speed = curr.getSpeed();
-                    long ts = curr.getTs();
-
-                    // 若当前点速度不为0 或 时间超出最大允许停留时间，则结束合并
-                    if (speed > speedZeroThreshold || (ts - t0) > maxStayMs) {
-                        break;
-                    }
-
-                    // 检查是否在最大漂移范围内
-                    if (haversine(start, curr) >= epsilonM) {
-                        break;
-                    }
-
-                    j++;
-                }
-            } else {
-                // 否则使用原有逻辑：基于距离和时间合并
-                while (j < valid.size()) {
-                    TrackPoint curr = valid.get(j);
-                    long ts = curr.getTs();
-                    double dist = haversine(start, curr);
-
-                    if (dist >= epsilonM || (ts - t0) > maxStayMs) {
-                        break;
-                    }
-
-                    j++;
-                }
-            }
-
-            // 合并停留区域内的所有点为一个代表点（使用平均位置和时间）
-            int count = j - i;
-            if (count >= 1) {
-                double avgLon = 0, avgLat = 0;
-                long avgTs = 0;
-                double avgSpeed = 0;
-
-                for (int k = i; k < j; k++) {
-                    TrackPoint p = valid.get(k);
-                    avgLon += p.getLon();
-                    avgLat += p.getLat();
-                    avgTs += p.getTs();
-                    avgSpeed += p.getSpeed();
-                }
-
-                avgLon /= count;
-                avgLat /= count;
-                avgTs /= count;
-                avgSpeed /= count;
-
-                // 若所有点速度都为0，则保留速度为0（防止平均后非0）
-                if (isStatic) {
-                    avgSpeed = 0.0;
-                }
-
-                TrackPoint representative = new TrackPoint(avgLon, avgLat, avgTs, avgSpeed, true);
-                res.add(representative);
-            }
-
-            // 移动到下一个未处理的点
-            i = j;
-        }
-
-        return res;
-    }
-
-
-    /**
-     * 根据道路特征和田间作业特征，切割出田间轨迹段
-     * 新增条件：轨迹段持续时间必须 ≥ minDurationMs（如 1 分钟）
-     *
-     * @param points             轨迹点列表（必须包含速度信息）
-     * @param maxSpeed           最大田间速度（km/h），超过视为道路
-     * @param minTurnRadiusM     最小转弯半径（米），小于该值可能为道路急转弯
-     * @param maxDirectionChange 最大方向变化率（度/米），超过视为道路特征
-     * @param minSegmentSize     最小有效段点数（如 5 点）
-     * @param directionWindow    方向变化率计算窗口大小（点数），用于平滑方向变化率
-     * @param speedWindow        速度窗口大小（点数），用于检测速度波动
-     * @param outlierRatio       允许的异常点比例（0.0~1.0），允许局部不符合条件的点
-     * @param minDurationMs      最小作业持续时间（毫秒），如 60000（1 分钟）
-     *
-     * @return List<List<TrackPoint>> 分割后的田间轨迹段列表（仅保留符合特征的段）
-     */
-    public List<List<TrackPoint>> splitByRoad(
-            List<TrackPoint> points,
-            double maxSpeed,
-            double minTurnRadiusM,
-            double maxDirectionChange,
-            int minSegmentSize,
-            int directionWindow,
-            int speedWindow,
-            double outlierRatio,
-            long minDurationMs) {
-
-        List<List<TrackPoint>> segments = new ArrayList<>();
-        if (points == null || points.size() < 3) return segments;
-
-        List<TrackPoint> buffer = new ArrayList<>();
-        for (int i = 0; i < points.size(); i++) {
-            TrackPoint curr = points.get(i);
-
-            // 过滤无效点
-            if (!curr.getValid()) {
-                if (!buffer.isEmpty()) {
-                    // 提交缓冲区前检查持续时间
-                    if (isDurationValid(buffer, minDurationMs)) {
-                        if (buffer.size() >= minSegmentSize) {
-                            segments.add(new ArrayList<>(buffer));
-                        }
-                    }
-                    buffer.clear();
-                }
-                continue;
-            }
-
-            // 判断是否属于田间轨迹（允许局部异常）
-            boolean isField = isFieldSegment(points, i, buffer, maxSpeed, minTurnRadiusM, maxDirectionChange, directionWindow, speedWindow, outlierRatio);
-
-            if (isField) {
-                buffer.add(curr);
-            } else {
-                // 遇到道路点，提交缓冲区前检查持续时间
-                if (!buffer.isEmpty()) {
-                    if (isDurationValid(buffer, minDurationMs) && buffer.size() >= minSegmentSize) {
-                        segments.add(new ArrayList<>(buffer));
-                    }
-                    buffer.clear();
-                }
-            }
-        }
-
-        // 提交最后的缓冲区前检查持续时间
-        if (!buffer.isEmpty()) {
-            if (isDurationValid(buffer, minDurationMs) && buffer.size() >= minSegmentSize) {
-                segments.add(buffer);
-            }
-        }
-
-        return segments;
-    }
-
-
-    /**
-     * 计算轨迹段的面积（mu单位）
-     * 通过构建轨迹轮廓并计算面积，结果以亩为单位
-     *
-     * @param seg            轨迹段，至少需要3个点
-     * @param leftWidthM     左侧宽度（米），轨迹线左侧的扩展距离
-     * @param rightWidthM    右侧宽度（米），轨迹线右侧的扩展距离
-     * @param simplifyM      简化阈值（米），用于轨迹点简化以提高性能
-     * @param maxEdgeLengthM 最大边缘长度（米），控制轮廓的精细程度
-     *
-     * @return 面积（mu），以亩为单位，保留3位小数
-     *
-     * @throws Exception 可能抛出异常，如坐标转换错误或几何操作失败
-     */
-    public double calcMu(List<TrackPoint> seg,
-                         double leftWidthM,
-                         double rightWidthM,
-                         double simplifyM,
-                         double maxEdgeLengthM) throws Exception {
-        // 添加输入验证
-        if (seg == null || seg.size() < 3) {
-            throw new IllegalArgumentException("轨迹段至少需要3个点");
-        }
-        if (leftWidthM < 0 || rightWidthM < 0 || simplifyM < 0 || maxEdgeLengthM < 0) {
-            throw new IllegalArgumentException("所有参数必须为非负数");
-        }
-
-        // 构建轨迹轮廓几何对象
-        Geometry g = buildOutline(seg, leftWidthM, rightWidthM, simplifyM, maxEdgeLengthM);
-        // 计算面积并转换为mu单位（亩）
-        // g.getArea() 获取几何对象面积（平方米）
-        // * config.MU_PER_SQ_METER 转换为亩
-        // * 1000.0 和 / 1000.0 实现保留3位小数的四舍五入
-        return Math.round(g.getArea() * config.MU_PER_SQ_METER * 1000.0) / 1000.0;
-    }
-
-
-    /**
-     * 将轨迹段转换为WKT格式
-     * 生成轨迹轮廓的WKT（Well-Known Text）表示，便于GIS软件处理
-     *
-     * @param seg            轨迹段，至少需要3个点
-     * @param leftWidthM     左侧宽度（米），轨迹线左侧的扩展距离
-     * @param rightWidthM    右侧宽度（米），轨迹线右侧的扩展距离
-     * @param simplifyM      简化阈值（米），用于轨迹点简化以提高性能
-     * @param maxEdgeLengthM 最大边缘长度（米），控制轮廓的精细程度
-     *
-     * @return WKT字符串，表示轨迹轮廓的几何形状
-     *
-     * @throws Exception 可能抛出异常，如坐标转换错误或几何操作失败
-     */
-    public String toWkt(List<TrackPoint> seg,
-                        double leftWidthM,
-                        double rightWidthM,
-                        double simplifyM,
-                        double maxEdgeLengthM) throws Exception {
-        // 添加输入验证
-        if (seg == null || seg.size() < 3) {
-            throw new IllegalArgumentException("轨迹段至少需要3个点");
-        }
-        if (leftWidthM < 0 || rightWidthM < 0 || simplifyM < 0 || maxEdgeLengthM < 0) {
-            throw new IllegalArgumentException("所有参数必须为非负数");
-        }
-
-        // 构建轨迹轮廓几何对象
-        Geometry g = buildOutline(seg, leftWidthM, rightWidthM, simplifyM, maxEdgeLengthM);
-        // 转换回WGS84坐标系统，确保输出为标准地理坐标
-        // 使用第一个轨迹点的原始经度来选择正确的投影坐标系
-        CoordinateReferenceSystem src = pickCrs(seg.get(0).getLon());  // 使用原始经度值
-        CoordinateReferenceSystem tgt = CRS.decode(config.WGS84, true);
-        MathTransform tx = CRS.findMathTransform(src, tgt, true);
-        Geometry wgs = JTS.transform(g, tx);
-        // 返回WKT字符串表示
-        return wgs.toText();
     }
 
 
