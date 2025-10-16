@@ -1,5 +1,6 @@
 package sunyu.util;
 
+import cn.hutool.core.bean.BeanUtil;
 import cn.hutool.log.Log;
 import cn.hutool.log.LogFactory;
 import org.geotools.api.referencing.crs.CoordinateReferenceSystem;
@@ -16,13 +17,13 @@ import org.locationtech.jts.simplify.DouglasPeuckerSimplifier;
 import sunyu.util.pojo.CoordinatePoint;
 import sunyu.util.pojo.TrackPoint;
 
+import java.util.Comparator;
 import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
 /**
  * GIS工具类，用于轨迹处理、空间计算等
- * 提供轨迹点填充、停留点合并、道路分割、面积计算和几何形状转换等功能
  *
  * @author SunYu
  */
@@ -204,27 +205,45 @@ public class GisUtil implements AutoCloseable {
      * 构建轨迹轮廓
      * 通过轨迹点生成带宽度的轮廓多边形，用于面积计算等操作
      *
-     * @param seg         轨迹点列表，至少需要3个点
-     * @param left        左侧宽度（米），轨迹线左侧的扩展距离
-     * @param right       右侧宽度（米），轨迹线右侧的扩展距离
-     * @param simplifyM   简化阈值（米），用于轨迹点简化以提高性能
-     * @param maxEdgeLenM 最大边缘长度（米），控制轮廓的精细程度
+     * @param seg            轨迹点列表，至少需要3个点
+     * @param leftWidthM     左侧宽度（米），轨迹线左侧的扩展距离
+     * @param rightWidthM    右侧宽度（米），轨迹线右侧的扩展距离
+     * @param simplifyM      简化阈值（米），用于轨迹点简化以提高性能
+     *                       推荐值范围：
+     *                       低精度场景：10-50米（如农田作业粗略估算）
+     *                       中等精度场景：5-10米（一般农业机械作业）
+     *                       高精度场景：1-5米（精细化农业作业）
+     * @param maxEdgeLengthM 最大边缘长度（米），控制轮廓的精细程度
+     *                       推荐值范围：
+     *                       粗略轮廓：50-100米
+     *                       标准轮廓：20-50米
+     *                       精细轮廓：5-20米
      *
      * @return Geometry对象，表示生成的轮廓多边形
      *
      * @throws Exception 可能抛出异常，如坐标转换错误或几何操作失败
      */
     private Geometry buildOutline(List<TrackPoint> seg,
-                                  double left,
-                                  double right,
+                                  double leftWidthM,
+                                  double rightWidthM,
                                   double simplifyM,
-                                  double maxEdgeLenM) throws Exception {
+                                  double maxEdgeLengthM) throws Exception {
         // 如果轨迹点少于3个，无法构成有效几何形状，抛出异常
-        if (seg.size() < 3) throw new IllegalArgumentException("不足 3 点，无法计算轮廓");
+        // 添加输入验证
+        if (seg == null || seg.size() < 3) {
+            throw new IllegalArgumentException("轨迹段至少需要3个点");
+        }
+        if (leftWidthM < 0 || rightWidthM < 0 || simplifyM < 0 || maxEdgeLengthM < 0) {
+            throw new IllegalArgumentException("所有参数必须为非负数");
+        }
 
-        // 将轨迹点转换为坐标数组，提取经纬度信息
-        Coordinate[] coords = seg.stream()
-                .map(p -> new Coordinate(p.getLon(), p.getLat()))  // 将TrackPoint转换为Coordinate
+        // 先按时间戳排序，确保轨迹点的时序正确
+        List<TrackPoint> sortedSeg = seg.stream()
+                .sorted(Comparator.comparing(TrackPoint::getTime))
+                .collect(Collectors.toList());
+        // 将排序后的轨迹点转换为坐标数组
+        Coordinate[] coords = sortedSeg.stream()
+                .map(p -> new Coordinate(p.getLon(), p.getLat()))
                 .toArray(Coordinate[]::new);
         // 创建原始线段，由所有轨迹点连接而成
         LineString rawLine = config.geometryFactory.createLineString(coords);
@@ -246,17 +265,17 @@ public class GisUtil implements AutoCloseable {
         // 这样可以提高性能并减少几何错误
         Geometry strip;
         // 直接使用 equals 判定左右宽度相等（如果业务允许精确比较）
-        if (left == right) {
-            strip = proj.buffer(left);
+        if (leftWidthM == rightWidthM) {
+            strip = proj.buffer(leftWidthM);
         } else {
             // 优化：先创建联合缓冲区，减少几何操作次数
-            Geometry leftBuffer = proj.buffer(left);
-            Geometry rightBuffer = proj.buffer(right);
+            Geometry leftBuffer = proj.buffer(leftWidthM);
+            Geometry rightBuffer = proj.buffer(rightWidthM);
             strip = leftBuffer.union(rightBuffer);
         }
 
         // 使用凹包算法生成轮廓，maxEdgeLenM控制轮廓边缘的最大长度
-        return ConcaveHull.concaveHullByLength(strip, maxEdgeLenM);
+        return ConcaveHull.concaveHullByLength(strip, maxEdgeLengthM);
     }
 
 
@@ -268,7 +287,15 @@ public class GisUtil implements AutoCloseable {
      * @param leftWidthM     左侧宽度（米），轨迹线左侧的扩展距离
      * @param rightWidthM    右侧宽度（米），轨迹线右侧的扩展距离
      * @param simplifyM      简化阈值（米），用于轨迹点简化以提高性能
+     *                       推荐值范围：
+     *                       低精度场景：10-50米（如农田作业粗略估算）
+     *                       中等精度场景：5-10米（一般农业机械作业）
+     *                       高精度场景：1-5米（精细化农业作业）
      * @param maxEdgeLengthM 最大边缘长度（米），控制轮廓的精细程度
+     *                       推荐值范围：
+     *                       粗略轮廓：50-100米
+     *                       标准轮廓：20-50米
+     *                       精细轮廓：5-20米
      *
      * @return 面积（mu），以亩为单位，保留3位小数
      *
@@ -279,14 +306,6 @@ public class GisUtil implements AutoCloseable {
                          double rightWidthM,
                          double simplifyM,
                          double maxEdgeLengthM) throws Exception {
-        // 添加输入验证
-        if (seg == null || seg.size() < 3) {
-            throw new IllegalArgumentException("轨迹段至少需要3个点");
-        }
-        if (leftWidthM < 0 || rightWidthM < 0 || simplifyM < 0 || maxEdgeLengthM < 0) {
-            throw new IllegalArgumentException("所有参数必须为非负数");
-        }
-
         // 构建轨迹轮廓几何对象
         Geometry outline = buildOutline(seg, leftWidthM, rightWidthM, simplifyM, maxEdgeLengthM);
         return calcMu(outline);
@@ -317,7 +336,15 @@ public class GisUtil implements AutoCloseable {
      * @param leftWidthM     左侧宽度（米），轨迹线左侧的扩展距离
      * @param rightWidthM    右侧宽度（米），轨迹线右侧的扩展距离
      * @param simplifyM      简化阈值（米），用于轨迹点简化以提高性能
+     *                       推荐值范围：
+     *                       低精度场景：10-50米（如农田作业粗略估算）
+     *                       中等精度场景：5-10米（一般农业机械作业）
+     *                       高精度场景：1-5米（精细化农业作业）
      * @param maxEdgeLengthM 最大边缘长度（米），控制轮廓的精细程度
+     *                       推荐值范围：
+     *                       粗略轮廓：50-100米
+     *                       标准轮廓：20-50米
+     *                       精细轮廓：5-20米
      *
      * @return WKT字符串，表示轨迹轮廓的几何形状
      *
@@ -328,14 +355,6 @@ public class GisUtil implements AutoCloseable {
                         double rightWidthM,
                         double simplifyM,
                         double maxEdgeLengthM) throws Exception {
-        // 添加输入验证
-        if (seg == null || seg.size() < 3) {
-            throw new IllegalArgumentException("轨迹段至少需要3个点");
-        }
-        if (leftWidthM < 0 || rightWidthM < 0 || simplifyM < 0 || maxEdgeLengthM < 0) {
-            throw new IllegalArgumentException("所有参数必须为非负数");
-        }
-
         // 构建轨迹轮廓几何对象
         Geometry g = buildOutline(seg, leftWidthM, rightWidthM, simplifyM, maxEdgeLengthM);
         // 转换回WGS84坐标系统，确保输出为标准地理坐标
@@ -765,9 +784,8 @@ public class GisUtil implements AutoCloseable {
      * @return BD09坐标点
      */
     public CoordinatePoint gcj02ToBd09(double lon, double lat) {
-        double x = lon, y = lat;
-        double z = Math.sqrt(x * x + y * y) + 0.00002 * Math.sin(y * Math.PI);
-        double theta = Math.atan2(y, x) + 0.000003 * Math.cos(x * Math.PI);
+        double z = Math.sqrt(lon * lon + lat * lat) + 0.00002 * Math.sin(lat * Math.PI);
+        double theta = Math.atan2(lat, lon) + 0.000003 * Math.cos(lon * Math.PI);
         double bd_lon = z * Math.cos(theta) + 0.0065;
         double bd_lat = z * Math.sin(theta) + 0.006;
         return new CoordinatePoint(bd_lon, bd_lat);
@@ -941,7 +959,9 @@ public class GisUtil implements AutoCloseable {
         return points.stream()
                 .map(p -> {
                     CoordinatePoint result = gcj02ToBd09(p.getLon(), p.getLat());
-                    return new TrackPoint(result.getLon(), result.getLat(), p.getTs(), p.getSpeed(), p.getValid());
+                    TrackPoint tp = new TrackPoint(result.getLon(), result.getLat());
+                    BeanUtil.copyProperties(p, tp, "lon", "lat");
+                    return tp;
                 })
                 .collect(Collectors.toList());
     }
@@ -956,8 +976,10 @@ public class GisUtil implements AutoCloseable {
     public List<TrackPoint> bd09ToGcj02TrackPoints(List<TrackPoint> points) {
         return points.stream()
                 .map(p -> {
-                    CoordinatePoint result = bd09ToGcj02(p.getLon(), p.getLat());
-                    return new TrackPoint(result.getLon(), result.getLat(), p.getTs(), p.getSpeed(), p.getValid());
+                    CoordinatePoint result = gcj02ToBd09(p.getLon(), p.getLat());
+                    TrackPoint tp = new TrackPoint(result.getLon(), result.getLat());
+                    BeanUtil.copyProperties(p, tp, "lon", "lat");
+                    return tp;
                 })
                 .collect(Collectors.toList());
     }
@@ -972,8 +994,10 @@ public class GisUtil implements AutoCloseable {
     public List<TrackPoint> wgs84ToBd09TrackPoints(List<TrackPoint> points) {
         return points.stream()
                 .map(p -> {
-                    CoordinatePoint result = wgs84ToBd09(p.getLon(), p.getLat());
-                    return new TrackPoint(result.getLon(), result.getLat(), p.getTs(), p.getSpeed(), p.getValid());
+                    CoordinatePoint result = gcj02ToBd09(p.getLon(), p.getLat());
+                    TrackPoint tp = new TrackPoint(result.getLon(), result.getLat());
+                    BeanUtil.copyProperties(p, tp, "lon", "lat");
+                    return tp;
                 })
                 .collect(Collectors.toList());
     }
@@ -988,8 +1012,10 @@ public class GisUtil implements AutoCloseable {
     public List<TrackPoint> bd09ToWgs84TrackPoints(List<TrackPoint> points) {
         return points.stream()
                 .map(p -> {
-                    CoordinatePoint result = bd09ToWgs84(p.getLon(), p.getLat());
-                    return new TrackPoint(result.getLon(), result.getLat(), p.getTs(), p.getSpeed(), p.getValid());
+                    CoordinatePoint result = gcj02ToBd09(p.getLon(), p.getLat());
+                    TrackPoint tp = new TrackPoint(result.getLon(), result.getLat());
+                    BeanUtil.copyProperties(p, tp, "lon", "lat");
+                    return tp;
                 })
                 .collect(Collectors.toList());
     }

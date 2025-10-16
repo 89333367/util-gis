@@ -33,7 +33,10 @@
     <repositories>
         <repository>
             <id>osgeo</id>
+            <name>OSGeo Release Repository</name>
             <url>https://repo.osgeo.org/repository/release/</url>
+            <snapshots><enabled>false</enabled></snapshots>
+            <releases><enabled>true</enabled></releases>
         </repository>
     </repositories>
 
@@ -66,6 +69,12 @@
         <dependency>
             <groupId>org.geotools</groupId>
             <artifactId>gt-geojson</artifactId>
+            <version>33.2</version>
+        </dependency>
+        <!-- GeoTools 核心 & 投影操作 (关键依赖) -->
+        <dependency>
+            <groupId>org.geotools</groupId>
+            <artifactId>gt-referencing</artifactId>
             <version>33.2</version>
         </dependency>
         <!-- https://central.sonatype.com/artifact/org.opengis/geoapi/versions -->
