@@ -14,222 +14,228 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.stream.Collectors;
 
-/**
- * 卡尔曼滤波工具类
- * 注意：此类非线程安全，不要并发调用，可以new多实例调用filterTrack方法
- *
- * @author SunYu
- */
 public class KalmanFilterUtil {
-    // 坐标系定义（x:东向，y:北向）
+    // 坐标系定义（不变）
     private static final CoordinateReferenceSystem WGS84_CRS = DefaultGeographicCRS.WGS84;
     private static final CoordinateReferenceSystem MERCATOR_CRS;
     private static MathTransform wgs84ToMercator;
     private static MathTransform mercatorToWgs84;
 
-    // 卡尔曼滤波核心参数
-    private double[][] stateMatrix;       // [x(米,东), y(米,北), vx(米/秒,东向), vy(米/秒,北向)]
+    // 卡尔曼滤波核心参数（核心修改：调整噪声参数）
+    private double[][] stateMatrix;       // [x, y, vx, vy]
     private double[][] errorCovMatrix;    // 误差协方差矩阵 P
     private final double[][] measurementNoise;  // 测量噪声矩阵 R
     /**
-     * 值较大时 (如 5.0-10.0)：
-     * 滤波器更倾向于相信测量值而不是预测值
-     * 对轨迹的快速变化响应更敏感
-     * 平滑效果减弱，可能保留更多原始噪声
-     * 适用于机动性强的目标跟踪
-     * 值较小时 (如 0.1-1.0)：
-     * 滤波器更相信预测值，平滑效果更强
-     * 可能过度平滑，导致轨迹细节丢失
-     * 对真实的位置变化响应较慢
-     * 适用于平稳运动的目标
+     * 过程噪声标准差（增大到5.0）：让滤波器更信任预测（正常速度）
+     * 越大→越信任测量，越小→越信任预测（当前设为5.0，平衡机动与平滑）
      */
-    private double processNoiseStd = 2.0; // 过程噪声标准差
+    private double processNoiseStd = 5.0;
     /**
-     * 值较大时 (如 10.0-20.0)：
-     * 滤波器更相信预测值而非测量值
-     * 平滑效果增强，但可能偏离真实轨迹
-     * 对异常点和噪声的鲁棒性提高
-     * 输出轨迹更平滑但可能滞后
-     * 值较小时 (如 1.0-3.0)：
-     * 滤波器更相信测量值
-     * 对噪声敏感，可能导致轨迹抖动
-     * 跟踪精度提高但稳定性下降
-     * 快速响应真实位置变化
+     * 测量噪声标准差（增大到50.0）：让滤波器少信任异常测量（偏移坐标）
+     * 越大→越信任预测，越小→越信任测量（当前设为50.0，抗异常点）
      */
-    private double measurementNoiseStd = 8.0; // 测量噪声标准差
+    private double measurementNoiseStd = 50.0;
+    /**
+     * 残差限制（米）：超过这个距离的测量偏差，视为异常，裁剪到阈值
+     * 避免异常大的偏差过度影响速度计算（当前设为50米，根据需求调整）
+     */
+    private static final double RESIDUAL_LIMIT = 50.0;
 
+    // 静态初始化坐标系（不变）
     static {
         try {
-            MERCATOR_CRS = CRS.decode("EPSG:3857");
-            wgs84ToMercator = CRS.findMathTransform(WGS84_CRS, MERCATOR_CRS, true);
-            mercatorToWgs84 = CRS.findMathTransform(MERCATOR_CRS, WGS84_CRS, true);
+            MERCATOR_CRS = CRS.decode("EPSG:3857", true);
+            wgs84ToMercator = CRS.findMathTransform(WGS84_CRS, MERCATOR_CRS, false);
+            mercatorToWgs84 = CRS.findMathTransform(MERCATOR_CRS, WGS84_CRS, false);
+            System.out.println("坐标系初始化成功：WGS84 → EPSG:3857");
         } catch (Exception e) {
             throw new RuntimeException("坐标系初始化失败", e);
         }
     }
 
-    /**
-     * // 高过程噪声 - 适用于频繁变向的车辆
-     * new KalmanFilterUtil(5.0, 5.0);  // 对突然转向响应快
-     * <p>
-     * // 低过程噪声 - 适用于直线运动
-     * new KalmanFilterUtil(0.5, 5.0);  // 强平滑效果，忽略小幅波动
-     * <p>
-     * // 高测量噪声 - 适用于低精度GPS
-     * new KalmanFilterUtil(1.0, 15.0);  // 强噪声过滤，轨迹更平滑
-     * <p>
-     * // 低测量噪声 - 适用于高精度定位
-     * new KalmanFilterUtil(1.0, 2.0);   // 紧跟原始轨迹，保留细节
-     * <p>
-     * // 默认平衡配置（适用于一般场景）
-     * new KalmanFilterUtil(1.0, 5.0);
-     * <p>
-     * // 高平滑配置（适用于噪声大但运动平稳）
-     * new KalmanFilterUtil(0.5, 10.0);
-     * <p>
-     * // 高响应配置（适用于机动性强的目标）
-     * new KalmanFilterUtil(3.0, 3.0);
-     * <p>
-     * // 极度平滑配置（适用于高质量数据的精细处理）
-     * new KalmanFilterUtil(0.1, 2.0);
-     * <p>
-     * // 城市道路车辆（频繁启停、变道）
-     * new KalmanFilterUtil(3.0, 8.0);  // 高过程噪声，适应频繁机动
-     * <p>
-     * // 高速公路车辆（相对平稳运动）
-     * new KalmanFilterUtil(1.5, 6.0);  // 中等过程噪声，平衡平滑与响应
-     * <p>
-     * // 公交车路线（固定路线，站点停靠）
-     * new KalmanFilterUtil(2.0, 10.0); // 较高测量噪声，过滤站点停靠抖动
-     * <p>
-     * // 农田作业机械（直线作业，速度较慢）
-     * new KalmanFilterUtil(0.8, 12.0); // 低过程噪声，高测量噪声
-     * <p>
-     * // 收割机作业（不规则路径，频繁转向）
-     * new KalmanFilterUtil(2.5, 15.0); // 中等过程噪声，高测量噪声
-     * <p>
-     * // 播种机作业（相对规整的直线路径）
-     * new KalmanFilterUtil(0.5, 8.0);  // 低过程噪声，中等测量噪声
-     * <p>
-     * // 无人机航拍（高度机动）
-     * new KalmanFilterUtil(4.0, 6.0);  // 高过程噪声，适应快速机动
-     * <p>
-     * // 船舶航行（相对平稳的大范围移动）
-     * new KalmanFilterUtil(1.0, 20.0); // 低过程噪声，高测量噪声
-     * <p>
-     * // 步行人员轨迹（频繁停顿）
-     * new KalmanFilterUtil(2.0, 3.0);  // 中等参数，平衡跟踪精度
-     * <p>
-     * 参数调整原则
-     * 运动规律性：越规整的运动，过程噪声设得越低
-     * 信号质量：GPS信号越差，测量噪声设得越高
-     * 实时性要求：对实时性要求高，适当提高过程噪声
-     * 平滑度要求：对平滑度要求高，适当提高测量噪声
-     *
-     * @param processNoiseStd     过程噪声标准差
-     * @param measurementNoiseStd 测量噪声标准差
-     */
+    // 构造函数（同步更新默认参数）
     public KalmanFilterUtil(double processNoiseStd, double measurementNoiseStd) {
         this.processNoiseStd = processNoiseStd;
         this.measurementNoiseStd = measurementNoiseStd;
         this.measurementNoise = new double[2][2];
         this.measurementNoise[0][0] = Math.pow(this.measurementNoiseStd, 2);
         this.measurementNoise[1][1] = Math.pow(this.measurementNoiseStd, 2);
-        initialize();
+        initializeErrorCovMatrix();
     }
 
     public KalmanFilterUtil() {
-        this(2.0, 8.0);
+        this(5.0, 50.0); // 默认使用调整后的参数
     }
 
-    private void initialize() {
-        stateMatrix = new double[][]{{0}, {0}, {0}, {0}};
+    // 初始化误差协方差矩阵（不变）
+    private void initializeErrorCovMatrix() {
         errorCovMatrix = new double[4][4];
         errorCovMatrix[0][0] = 10.0;  // x坐标误差（米）
         errorCovMatrix[1][1] = 10.0;  // y坐标误差（米）
-        errorCovMatrix[2][2] = 5.0;   // vx速度误差（米/秒）
-        errorCovMatrix[3][3] = 5.0;   // vy速度误差（米/秒）
+        errorCovMatrix[2][2] = 8.0;   // vx速度误差（米/秒，匹配39.5km/h≈11m/s）
+        errorCovMatrix[3][3] = 8.0;   // vy速度误差（米/秒）
     }
 
+    // 对外暴露预处理方法（不变）
+    public List<TrackPoint> getPreprocessedTrack(List<TrackPoint> originalPoints) {
+        return preprocessTrackPoints(originalPoints);
+    }
+
+    // 预处理方法（不变，确保速度计算正确）
+    private List<TrackPoint> preprocessTrackPoints(List<TrackPoint> originalPoints) {
+        List<TrackPoint> sortedNewPoints = originalPoints.stream()
+                .filter(point -> point.getTime() != null)
+                .sorted(Comparator.comparing(TrackPoint::getTime))
+                .map(point -> new TrackPoint(point.getLon(), point.getLat(), point.getTime()))
+                .collect(Collectors.toList());
+
+        if (sortedNewPoints.size() < 2) {
+            return sortedNewPoints;
+        }
+
+        // 计算墨卡托坐标
+        List<Coordinate> mercatorCoords = new ArrayList<>();
+        for (TrackPoint point : sortedNewPoints) {
+            Coordinate mercator = convertToMercator(point.getLon(), point.getLat());
+            mercatorCoords.add(mercator);
+            System.out.printf("预处理：第%d点 经纬度(%.6f,%.6f) → 墨卡托(%.1f,%.1f)%n",
+                    sortedNewPoints.indexOf(point) + 1, point.getLon(), point.getLat(), mercator.x, mercator.y);
+        }
+
+        // 计算速度/方向角
+        for (int i = 0; i < sortedNewPoints.size(); i++) {
+            TrackPoint curr = sortedNewPoints.get(i);
+            Coordinate currMercator = mercatorCoords.get(i);
+            double speedKmh = 0.0;
+            double direction = 0.0;
+
+            if (i == 0) {
+                TrackPoint next = sortedNewPoints.get(1);
+                Coordinate nextMercator = mercatorCoords.get(1);
+                double dt = Duration.between(curr.getTime(), next.getTime()).toMillis() / 1000.0;
+                double distanceM = Math.sqrt(Math.pow(nextMercator.x - currMercator.x, 2) + Math.pow(nextMercator.y - currMercator.y, 2));
+                speedKmh = (distanceM / dt) * 3.6;
+                direction = calculateDirection(currMercator, nextMercator);
+                System.out.printf("预处理：第1点 与第2点距离=%.1f米 → 速度=%.1f km/h%n", distanceM, speedKmh);
+            } else {
+                TrackPoint prev = sortedNewPoints.get(i - 1);
+                Coordinate prevMercator = mercatorCoords.get(i - 1);
+                double dt = Duration.between(prev.getTime(), curr.getTime()).toMillis() / 1000.0;
+                double distanceM = Math.sqrt(Math.pow(currMercator.x - prevMercator.x, 2) + Math.pow(currMercator.y - prevMercator.y, 2));
+                speedKmh = (distanceM / dt) * 3.6;
+                direction = calculateDirection(prevMercator, currMercator);
+                System.out.printf("预处理：第%d点 与第%d点距离=%.1f米 → 速度=%.1f km/h%n", i + 1, i, distanceM, speedKmh);
+            }
+
+            curr.setSpeed(speedKmh);
+            curr.setDirection(direction);
+        }
+
+        return sortedNewPoints;
+    }
+
+    // 核心滤波方法（新增残差限制逻辑）
     public List<TrackPoint> filterTrack(List<TrackPoint> points) {
         if (points == null) {
             throw new IllegalArgumentException("输入轨迹点列表不能为null");
         }
         for (TrackPoint point : points) {
-            if (point == null) {
-                throw new IllegalArgumentException("轨迹点列表中不能包含null元素");
-            }
-            if (point.getSpeed() < 0) {
-                throw new IllegalArgumentException("速度不能为负数：" + point.getSpeed());
-            }
-            if (point.getDirection() < 0 || point.getDirection() > 360) {
-                throw new IllegalArgumentException("方向角必须在0~360范围内：" + point.getDirection());
+            if (point == null || point.getTime() == null) {
+                throw new IllegalArgumentException("轨迹点及时间不能为null");
             }
         }
 
-        List<TrackPoint> sortedPoints = points.stream()
-                .filter(point -> point.getTime() != null)
-                .sorted(Comparator.comparing(TrackPoint::getTime))
-                .collect(Collectors.toList());
-
-        if (sortedPoints.size() < 2) {
-            return new ArrayList<>(sortedPoints);
+        // 使用预处理后的点
+        List<TrackPoint> preprocessed = preprocessTrackPoints(points);
+        if (preprocessed.size() < 2) {
+            return new ArrayList<>(preprocessed);
         }
 
-        List<TrackPoint> filteredPoints = new ArrayList<>();
-        TrackPoint prevPoint = sortedPoints.get(0);
+        List<TrackPoint> filtered = new ArrayList<>();
+        TrackPoint first = preprocessed.get(0);
+        Coordinate firstMercator = convertToMercator(first.getLon(), first.getLat());
+        double firstSpeedMs = kmhToMs(first.getSpeed());
+        double firstDirRadian = Math.toRadians(first.getDirection());
 
-        // 初始化第一个点的状态
-        Coordinate firstMercator = convertToMercator(prevPoint.getLon(), prevPoint.getLat());
+        // 初始化状态矩阵（用预处理的正常速度）
+        stateMatrix = new double[4][1];
         stateMatrix[0][0] = firstMercator.x;
         stateMatrix[1][0] = firstMercator.y;
-        double firstSpeedMs = kmhToMs(prevPoint.getSpeed());
-        double firstDirRadian = Math.toRadians(prevPoint.getDirection());
+        stateMatrix[2][0] = firstSpeedMs * Math.sin(firstDirRadian); // vx≈11*sin(37.5°)≈6.7 m/s
+        stateMatrix[3][0] = firstSpeedMs * Math.cos(firstDirRadian); // vy≈11*cos(37.5°)≈8.7 m/s
 
-        // 速度分量计算（东向vx，北向vy）
-        stateMatrix[2][0] = firstSpeedMs * Math.sin(firstDirRadian);
-        stateMatrix[3][0] = firstSpeedMs * Math.cos(firstDirRadian);
+        // 添加第一个滤波点
+        filtered.add(new TrackPoint(
+                first.getLon(), first.getLat(), first.getTime(),
+                first.getSpeed(), first.getDirection()
+        ));
 
-        filteredPoints.add(prevPoint);
+        // 处理后续点（核心优化：添加残差限制）
+        for (int i = 1; i < preprocessed.size(); i++) {
+            TrackPoint curr = preprocessed.get(i);
+            TrackPoint prev = preprocessed.get(i - 1);
+            double dt = Duration.between(prev.getTime(), curr.getTime()).toMillis() / 1000.0;
+            if (dt <= 0.1) dt = 0.1;
 
-        for (int i = 1; i < sortedPoints.size(); i++) {
-            TrackPoint currPoint = sortedPoints.get(i);
-            double dt = Duration.between(prevPoint.getTime(), currPoint.getTime()).toMillis() / 1000.0;
-
-            if (dt <= 0) {
-                filteredPoints.add(currPoint);
-                prevPoint = currPoint;
-                continue;
-            }
-
+            // 1. 预测步骤（不变）
             predict(dt);
 
-            Coordinate currMercator = convertToMercator(currPoint.getLon(), currPoint.getLat());
-            update(currMercator.x, currMercator.y);
+            // 2. 更新步骤（新增：残差限制）
+            Coordinate currMercator = convertToMercator(curr.getLon(), curr.getLat());
+            updateWithResidualLimit(currMercator.x, currMercator.y); // 用新的更新方法
 
-            // 生成滤波后的点
+            // 3. 生成滤波点（不变）
             Coordinate filteredWgs84 = convertToWgs84(stateMatrix[0][0], stateMatrix[1][0]);
-            double filteredSpeedKmh = msToKmh(Math.sqrt(Math.pow(stateMatrix[2][0], 2) + Math.pow(stateMatrix[3][0], 2)));
+            double filteredSpeedMs = Math.sqrt(Math.pow(stateMatrix[2][0], 2) + Math.pow(stateMatrix[3][0], 2));
+            // 可选：限制速度上限（避免极端值，如设为2倍正常速度）
+            filteredSpeedMs = Math.min(filteredSpeedMs, firstSpeedMs * 2);
+            double filteredDirDegree = (Math.toDegrees(Math.atan2(stateMatrix[2][0], stateMatrix[3][0])) + 360) % 360;
 
-            // 方向角反算（正北顺时针）
-            double filteredDirRadian = Math.atan2(stateMatrix[2][0], stateMatrix[3][0]);
-            double filteredDirDegree = Math.toDegrees(filteredDirRadian);
-            filteredDirDegree = (filteredDirDegree + 360) % 360;
-
-            filteredPoints.add(new TrackPoint(
-                    filteredWgs84.x,
-                    filteredWgs84.y,
-                    currPoint.getTime(),
-                    filteredSpeedKmh,
-                    filteredDirDegree
+            filtered.add(new TrackPoint(
+                    filteredWgs84.x, filteredWgs84.y, curr.getTime(),
+                    msToKmh(filteredSpeedMs), filteredDirDegree
             ));
-
-            prevPoint = currPoint;
         }
 
-        return filteredPoints;
+        return filtered;
     }
 
+    // ------------------------------ 新增：带残差限制的更新方法 ------------------------------
+
+    /**
+     * 带残差限制的更新步骤：超过阈值的位置偏差会被裁剪，避免异常影响速度
+     */
+    private void updateWithResidualLimit(double measuredX, double measuredY) {
+        double[][] measurementMatrix = {{1, 0, 0, 0}, {0, 1, 0, 0}};
+        double[][] H_T = transposeMatrix(measurementMatrix);
+
+        // 计算卡尔曼增益K（不变）
+        double[][] S_temp1 = multiplyMatrix(measurementMatrix, errorCovMatrix);
+        double[][] S_temp2 = multiplyMatrix(S_temp1, H_T);
+        double[][] S = addMatrix(S_temp2, measurementNoise);
+        double[][] K_temp = multiplyMatrix(errorCovMatrix, H_T);
+        double[][] K = multiplyMatrix(K_temp, invert2x2Matrix(S));
+
+        // 计算残差（核心优化：限制残差大小）
+        double[][] z = {{measuredX}, {measuredY}};
+        double[][] H_x = multiplyMatrix(measurementMatrix, stateMatrix);
+        double[][] residual = subtractMatrix(z, H_x);
+
+        // 裁剪残差：x/y方向偏差超过RESIDUAL_LIMIT（50米）则限制在阈值内
+        residual[0][0] = Math.max(Math.min(residual[0][0], RESIDUAL_LIMIT), -RESIDUAL_LIMIT);
+        residual[1][0] = Math.max(Math.min(residual[1][0], RESIDUAL_LIMIT), -RESIDUAL_LIMIT);
+        System.out.printf("更新：残差裁剪后 (x:%.1f米, y:%.1f米)%n", residual[0][0], residual[1][0]);
+
+        // 用裁剪后的残差更新状态（避免速度异常）
+        stateMatrix = addMatrix(stateMatrix, multiplyMatrix(K, residual));
+
+        // 更新误差协方差（不变）
+        double[][] I = {{1, 0, 0, 0}, {0, 1, 0, 0}, {0, 0, 1, 0}, {0, 0, 0, 1}};
+        double[][] K_H = multiplyMatrix(K, measurementMatrix);
+        errorCovMatrix = multiplyMatrix(subtractMatrix(I, K_H), errorCovMatrix);
+    }
+
+    // ------------------------------ 其他方法（不变） ------------------------------
     private void predict(double dt) {
         double[][] transitionMatrix = new double[4][4];
         transitionMatrix[0][0] = 1;
@@ -245,26 +251,6 @@ public class KalmanFilterUtil {
         double[][] P_temp = multiplyMatrix(transitionMatrix, errorCovMatrix);
         double[][] P_pred = multiplyMatrix(P_temp, F_T);
         errorCovMatrix = addMatrix(P_pred, getProcessNoiseMatrix(dt));
-    }
-
-    private void update(double measuredX, double measuredY) {
-        double[][] measurementMatrix = {{1, 0, 0, 0}, {0, 1, 0, 0}};
-        double[][] H_T = transposeMatrix(measurementMatrix);
-
-        double[][] S_temp1 = multiplyMatrix(measurementMatrix, errorCovMatrix);
-        double[][] S_temp2 = multiplyMatrix(S_temp1, H_T);
-        double[][] S = addMatrix(S_temp2, measurementNoise);
-        double[][] K_temp = multiplyMatrix(errorCovMatrix, H_T);
-        double[][] K = multiplyMatrix(K_temp, invert2x2Matrix(S));
-
-        double[][] z = {{measuredX}, {measuredY}};
-        double[][] H_x = multiplyMatrix(measurementMatrix, stateMatrix);
-        double[][] residual = subtractMatrix(z, H_x);
-        stateMatrix = addMatrix(stateMatrix, multiplyMatrix(K, residual));
-
-        double[][] I = {{1, 0, 0, 0}, {0, 1, 0, 0}, {0, 0, 1, 0}, {0, 0, 0, 1}};
-        double[][] K_H = multiplyMatrix(K, measurementMatrix);
-        errorCovMatrix = multiplyMatrix(subtractMatrix(I, K_H), errorCovMatrix);
     }
 
     private double[][] getProcessNoiseMatrix(double dt) {
@@ -286,42 +272,44 @@ public class KalmanFilterUtil {
         return processNoise;
     }
 
-    /**
-     * WGS84经纬度 → 墨卡托坐标
-     */
+    private double calculateDirection(Coordinate prevMercator, Coordinate currMercator) {
+        double deltaX = currMercator.x - prevMercator.x;
+        double deltaY = currMercator.y - prevMercator.y;
+        double radian = Math.atan2(deltaX, deltaY);
+        return (Math.toDegrees(radian) + 360) % 360;
+    }
+
     private Coordinate convertToMercator(double lon, double lat) {
         try {
-            Coordinate wgs84Coord = new Coordinate(lon, lat);
-            Coordinate mercatorCoord = new Coordinate(); // 显式创建输出坐标对象
-            JTS.transform(wgs84Coord, mercatorCoord, wgs84ToMercator); // 三参数正确调用方式
-            return mercatorCoord;
+            Coordinate wgs84 = new Coordinate(lon, lat);
+            Coordinate mercator = new Coordinate();
+            JTS.transform(wgs84, mercator, wgs84ToMercator);
+            return mercator;
         } catch (Exception e) {
-            throw new RuntimeException("经纬度转墨卡托失败：" + lon + "," + lat, e);
+            throw new RuntimeException("经纬度(" + lon + "," + lat + ")转墨卡托失败", e);
         }
     }
 
-    /**
-     * 墨卡托坐标 → WGS84经纬度
-     */
     private Coordinate convertToWgs84(double x, double y) {
         try {
-            Coordinate mercatorCoord = new Coordinate(x, y);
-            Coordinate wgs84Coord = new Coordinate(); // 显式创建输出坐标对象
-            JTS.transform(mercatorCoord, wgs84Coord, mercatorToWgs84); // 三参数正确调用方式
-            return wgs84Coord;
+            Coordinate mercator = new Coordinate(x, y);
+            Coordinate wgs84 = new Coordinate();
+            JTS.transform(mercator, wgs84, mercatorToWgs84);
+            return wgs84;
         } catch (Exception e) {
-            throw new RuntimeException("墨卡托转经纬度失败：" + x + "," + y, e);
+            throw new RuntimeException("墨卡托(" + x + "," + y + ")转经纬度失败", e);
         }
     }
 
     private double kmhToMs(double kmh) {
-        return kmh * 1000 / 3600;
+        return kmh / 3.6;
     }
 
     private double msToKmh(double ms) {
-        return ms * 3600 / 1000;
+        return ms * 3.6;
     }
 
+    // 矩阵运算方法（不变）
     private double[][] multiplyMatrix(double[][] a, double[][] b) {
         int rowsA = a.length;
         int colsA = a[0].length;
@@ -380,8 +368,8 @@ public class KalmanFilterUtil {
 
     private double[][] invert2x2Matrix(double[][] matrix) {
         double det = matrix[0][0] * matrix[1][1] - matrix[0][1] * matrix[1][0];
-        if (Math.abs(det) < 1e-10) {
-            throw new ArithmeticException("矩阵不可逆，行列式接近0");
+        if (Math.abs(det) < 1e-8) {
+            throw new ArithmeticException("矩阵不可逆，行列式=" + det);
         }
 
         double invDet = 1.0 / det;

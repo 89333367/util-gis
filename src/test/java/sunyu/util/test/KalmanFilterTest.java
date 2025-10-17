@@ -7,123 +7,89 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 
-/**
- * 卡尔曼滤波工具使用测试类
- */
 public class KalmanFilterTest {
     public static void main(String[] args) {
-        // 1. 第一步：创建模拟轨迹数据（包含正常点+异常点，模拟真实定位场景）
-        List<TrackPoint> originalTrack = createSimulateTrackData();
-        System.out.println("=== 原始轨迹点数量：" + originalTrack.size() + " ===");
-        printTrackPoints("原始轨迹", originalTrack);
+        // 1. 创建原始轨迹（仅含经纬度+时间）
+        List<TrackPoint> originalTrack = createOriginalTrack();
+        System.out.println("==================== 1. 原始轨迹（速度/方向角默认0） ====================");
+        printTrack(originalTrack, "原始");
 
-        // 2. 第二步：初始化卡尔曼滤波工具
+        // 2. 初始化工具类，正确获取预处理后的轨迹（调用工具类暴露的方法）
         KalmanFilterUtil kalmanFilter = new KalmanFilterUtil();
+        List<TrackPoint> preprocessedTrack = kalmanFilter.getPreprocessedTrack(originalTrack); // 关键修复：调用public方法
+        System.out.println("\n==================== 2. 预处理后轨迹（速度/方向角已计算） ====================");
+        printTrack(preprocessedTrack, "预处理后");
 
-        // 3. 第三步：执行轨迹滤波（核心调用）
+        // 3. 执行滤波
         List<TrackPoint> filteredTrack = kalmanFilter.filterTrack(originalTrack);
-        System.out.println("\n=== 滤波后轨迹点数量：" + filteredTrack.size() + " ===");
-        printTrackPoints("滤波后轨迹", filteredTrack);
+        System.out.println("\n==================== 3. 滤波后轨迹（异常点已修正） ====================");
+        printTrack(filteredTrack, "滤波后");
 
-        // 4. 第四步：对比关键异常点的滤波效果
-        compareAbnormalPoints(originalTrack, filteredTrack);
+        // 4. 对比异常点效果
+        System.out.println("\n==================== 4. 异常点修正对比 ====================");
+        compareAbnormalPoints(preprocessedTrack, filteredTrack);
     }
 
     /**
-     * 模拟创建轨迹数据：沿「东经116.3°→116.4°，北纬39.9°→40.0°」移动，中间插入2个异常点
-     *
-     * @return 包含正常点和异常点的轨迹列表
+     * 创建原始轨迹（含2个异常点）
      */
-    private static List<TrackPoint> createSimulateTrackData() {
-        List<TrackPoint> trackPoints = new ArrayList<>();
-        LocalDateTime baseTime = LocalDateTime.of(2025, 10, 16, 10, 0, 0); // 基础时间
+    private static List<TrackPoint> createOriginalTrack() {
+        List<TrackPoint> track = new ArrayList<>();
+        LocalDateTime baseTime = LocalDateTime.of(2025, 10, 16, 10, 0, 0);
 
-        // 生成10个连续点，其中第4个、第8个是异常点（故意偏移经纬度）
         for (int i = 0; i < 10; i++) {
-            // 正常点规律：每10秒移动0.01°经度、0.01°纬度
-            double normalLon = 116.3 + (i * 0.01); // 经度：116.3 → 116.4
-            double normalLat = 39.9 + (i * 0.01); // 纬度：39.9 → 40.0
+            double normalLon = 116.3 + (i * 0.0006); // 每10秒约66米
+            double normalLat = 39.9 + (i * 0.0006);
 
-            // 速度：模拟车辆行驶，30~40 km/h
-            double speed = 30 + (Math.random() * 10);
-            // 方向角：大致东北方向（45°左右，微小波动）
-            double direction = 45 + (Math.random() * 5) - 2.5;
-
-            // 插入异常点（第4个点：i=3；第8个点：i=7）
-            double actualLon = normalLon;
-            double actualLat = normalLat;
+            // 异常点：第4个（i=3）、第8个（i=7）
             if (i == 3) {
-                actualLon += 0.05; // 经度异常偏移+0.05°（约5公里）
-                actualLat += 0.04; // 纬度异常偏移+0.04°
+                normalLon += 0.002;  // 偏移约222米
+                normalLat += 0.0015;
             }
             if (i == 7) {
-                actualLon -= 0.03; // 经度异常偏移-0.03°
-                actualLat += 0.06; // 纬度异常偏移+0.06°
+                normalLon -= 0.0018; // 偏移约199米
+                normalLat += 0.0022;
             }
 
-            // 添加到轨迹列表（时间每步加10秒）
-            trackPoints.add(new TrackPoint(
-                    actualLon,
-                    actualLat,
-                    baseTime.plusSeconds(i * 10), // 时间递增
-                    speed,
-                    direction
-            ));
+            // 仅传经纬度+时间，速度/方向角默认0.0
+            track.add(new TrackPoint(normalLon, normalLat, baseTime.plusSeconds(i * 10)));
         }
-        return trackPoints;
+        return track;
     }
 
     /**
-     * 打印轨迹点详情（经纬度、时间、速度）
-     *
-     * @param trackName   轨迹名称（用于区分原始/滤波后）
-     * @param trackPoints 轨迹点列表
+     * 打印轨迹详情（正确打印新对象的速度）
      */
-    private static void printTrackPoints(String trackName, List<TrackPoint> trackPoints) {
-        for (int i = 0; i < trackPoints.size(); i++) {
-            TrackPoint point = trackPoints.get(i);
-            System.out.printf(
-                    "%s 第%d点：经度=%.6f，纬度=%.6f，时间=%s，速度=%.1f km/h\n",
-                    trackName,
-                    (i + 1),
-                    point.getLon(),
-                    point.getLat(),
-                    point.getTime(),
-                    point.getSpeed()
-            );
+    private static void printTrack(List<TrackPoint> track, String type) {
+        System.out.printf("%-2s | %-20s | %-12s | %-12s | %-10s | %-10s%n",
+                "序号", "时间", "经度(°)", "纬度(°)", "速度(km/h)", "方向角(°)");
+        System.out.println("-------------------------------------------------------------------------------------------------");
+        for (int i = 0; i < track.size(); i++) {
+            TrackPoint p = track.get(i);
+            System.out.printf("%-2d | %-20s | %-12.6f | %-12.6f | %-10.1f | %-10.1f%n",
+                    i + 1, p.getTime(), p.getLon(), p.getLat(), p.getSpeed(), p.getDirection());
         }
     }
 
     /**
-     * 对比原始轨迹与滤波轨迹的异常点修正效果
-     *
-     * @param original 原始轨迹
-     * @param filtered 滤波后轨迹
+     * 对比异常点修正效果（用预处理后的轨迹vs滤波后）
      */
-    private static void compareAbnormalPoints(List<TrackPoint> original, List<TrackPoint> filtered) {
-        System.out.println("\n=== 异常点滤波效果对比 ===");
-        // 只对比之前插入的2个异常点（索引3和7，对应第4、第8个点）
-        int[] abnormalIndexes = {3, 7};
-        for (int index : abnormalIndexes) {
-            TrackPoint originalPoint = original.get(index);
-            TrackPoint filteredPoint = filtered.get(index);
+    private static void compareAbnormalPoints(List<TrackPoint> preprocessed, List<TrackPoint> filtered) {
+        int[] abnormalIndexes = {3, 7}; // 第4个、第8个点（索引3、7）
+        for (int idx : abnormalIndexes) {
+            TrackPoint pre = preprocessed.get(idx);
+            TrackPoint fil = filtered.get(idx);
 
-            // 计算经纬度偏移修正量（单位：度，1度≈111公里）
-            double lonCorrection = Math.abs(originalPoint.getLon() - filteredPoint.getLon());
-            double latCorrection = Math.abs(originalPoint.getLat() - filteredPoint.getLat());
+            double lonOffset = Math.abs(pre.getLon() - fil.getLon());
+            double latOffset = Math.abs(pre.getLat() - fil.getLat());
 
-            System.out.printf(
-                    "第%d个异常点：\n" +
-                            "  原始经纬度：(%.6f, %.6f)\n" +
-                            "  滤波后经纬度：(%.6f, %.6f)\n" +
-                            "  修正偏移：经度%.6f°，纬度%.6f°（约合经度%.1f米，纬度%.1f米）\n",
-                    (index + 1),
-                    originalPoint.getLon(), originalPoint.getLat(),
-                    filteredPoint.getLon(), filteredPoint.getLat(),
-                    lonCorrection, latCorrection,
-                    lonCorrection * 111000, // 1度≈111000米
-                    latCorrection * 111000
-            );
+            System.out.printf("第%d个异常点：%n", idx + 1);
+            System.out.printf("  预处理后：经纬度(%.6f,%.6f)，速度%.1f km/h%n",
+                    pre.getLon(), pre.getLat(), pre.getSpeed());
+            System.out.printf("  滤波后：经纬度(%.6f,%.6f)，速度%.1f km/h%n",
+                    fil.getLon(), fil.getLat(), fil.getSpeed());
+            System.out.printf("  修正偏移：经度%.6f°(%.1f米)，纬度%.6f°(%.1f米)%n%n",
+                    lonOffset, lonOffset * 111000, latOffset, latOffset * 111000);
         }
     }
 }
