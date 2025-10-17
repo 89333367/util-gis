@@ -28,8 +28,32 @@ public class KalmanFilterUtil {
     private double[][] stateMatrix;       // [x(米,东), y(米,北), vx(米/秒,东向), vy(米/秒,北向)]
     private double[][] errorCovMatrix;    // 误差协方差矩阵 P
     private final double[][] measurementNoise;  // 测量噪声矩阵 R
-    private final double processNoiseStd; // 过程噪声标准差
-    private final double measurementNoiseStd; // 测量噪声标准差
+    /**
+     * 值较大时 (如 5.0-10.0)：
+     * 滤波器更倾向于相信测量值而不是预测值
+     * 对轨迹的快速变化响应更敏感
+     * 平滑效果减弱，可能保留更多原始噪声
+     * 适用于机动性强的目标跟踪
+     * 值较小时 (如 0.1-1.0)：
+     * 滤波器更相信预测值，平滑效果更强
+     * 可能过度平滑，导致轨迹细节丢失
+     * 对真实的位置变化响应较慢
+     * 适用于平稳运动的目标
+     */
+    private double processNoiseStd = 2.0; // 过程噪声标准差
+    /**
+     * 值较大时 (如 10.0-20.0)：
+     * 滤波器更相信预测值而非测量值
+     * 平滑效果增强，但可能偏离真实轨迹
+     * 对异常点和噪声的鲁棒性提高
+     * 输出轨迹更平滑但可能滞后
+     * 值较小时 (如 1.0-3.0)：
+     * 滤波器更相信测量值
+     * 对噪声敏感，可能导致轨迹抖动
+     * 跟踪精度提高但稳定性下降
+     * 快速响应真实位置变化
+     */
+    private double measurementNoiseStd = 8.0; // 测量噪声标准差
 
     static {
         try {
@@ -41,6 +65,67 @@ public class KalmanFilterUtil {
         }
     }
 
+    /**
+     * // 高过程噪声 - 适用于频繁变向的车辆
+     * new KalmanFilterUtil(5.0, 5.0);  // 对突然转向响应快
+     * <p>
+     * // 低过程噪声 - 适用于直线运动
+     * new KalmanFilterUtil(0.5, 5.0);  // 强平滑效果，忽略小幅波动
+     * <p>
+     * // 高测量噪声 - 适用于低精度GPS
+     * new KalmanFilterUtil(1.0, 15.0);  // 强噪声过滤，轨迹更平滑
+     * <p>
+     * // 低测量噪声 - 适用于高精度定位
+     * new KalmanFilterUtil(1.0, 2.0);   // 紧跟原始轨迹，保留细节
+     * <p>
+     * // 默认平衡配置（适用于一般场景）
+     * new KalmanFilterUtil(1.0, 5.0);
+     * <p>
+     * // 高平滑配置（适用于噪声大但运动平稳）
+     * new KalmanFilterUtil(0.5, 10.0);
+     * <p>
+     * // 高响应配置（适用于机动性强的目标）
+     * new KalmanFilterUtil(3.0, 3.0);
+     * <p>
+     * // 极度平滑配置（适用于高质量数据的精细处理）
+     * new KalmanFilterUtil(0.1, 2.0);
+     * <p>
+     * // 城市道路车辆（频繁启停、变道）
+     * new KalmanFilterUtil(3.0, 8.0);  // 高过程噪声，适应频繁机动
+     * <p>
+     * // 高速公路车辆（相对平稳运动）
+     * new KalmanFilterUtil(1.5, 6.0);  // 中等过程噪声，平衡平滑与响应
+     * <p>
+     * // 公交车路线（固定路线，站点停靠）
+     * new KalmanFilterUtil(2.0, 10.0); // 较高测量噪声，过滤站点停靠抖动
+     * <p>
+     * // 农田作业机械（直线作业，速度较慢）
+     * new KalmanFilterUtil(0.8, 12.0); // 低过程噪声，高测量噪声
+     * <p>
+     * // 收割机作业（不规则路径，频繁转向）
+     * new KalmanFilterUtil(2.5, 15.0); // 中等过程噪声，高测量噪声
+     * <p>
+     * // 播种机作业（相对规整的直线路径）
+     * new KalmanFilterUtil(0.5, 8.0);  // 低过程噪声，中等测量噪声
+     * <p>
+     * // 无人机航拍（高度机动）
+     * new KalmanFilterUtil(4.0, 6.0);  // 高过程噪声，适应快速机动
+     * <p>
+     * // 船舶航行（相对平稳的大范围移动）
+     * new KalmanFilterUtil(1.0, 20.0); // 低过程噪声，高测量噪声
+     * <p>
+     * // 步行人员轨迹（频繁停顿）
+     * new KalmanFilterUtil(2.0, 3.0);  // 中等参数，平衡跟踪精度
+     * <p>
+     * 参数调整原则
+     * 运动规律性：越规整的运动，过程噪声设得越低
+     * 信号质量：GPS信号越差，测量噪声设得越高
+     * 实时性要求：对实时性要求高，适当提高过程噪声
+     * 平滑度要求：对平滑度要求高，适当提高测量噪声
+     *
+     * @param processNoiseStd     过程噪声标准差
+     * @param measurementNoiseStd 测量噪声标准差
+     */
     public KalmanFilterUtil(double processNoiseStd, double measurementNoiseStd) {
         this.processNoiseStd = processNoiseStd;
         this.measurementNoiseStd = measurementNoiseStd;
@@ -51,7 +136,7 @@ public class KalmanFilterUtil {
     }
 
     public KalmanFilterUtil() {
-        this(1.0, 5.0);
+        this(2.0, 8.0);
     }
 
     private void initialize() {
