@@ -16,6 +16,9 @@ import java.util.stream.Collectors;
 
 /**
  * 卡尔曼滤波工具类
+ * 注意：此类非线程安全，不要并发调用，可以new多实例调用filterTrack方法
+ *
+ * @author SunYu
  */
 public class KalmanFilterUtil {
     // 坐标系定义（x:东向，y:北向）
@@ -149,6 +152,21 @@ public class KalmanFilterUtil {
     }
 
     public List<TrackPoint> filterTrack(List<TrackPoint> points) {
+        if (points == null) {
+            throw new IllegalArgumentException("输入轨迹点列表不能为null");
+        }
+        for (TrackPoint point : points) {
+            if (point == null) {
+                throw new IllegalArgumentException("轨迹点列表中不能包含null元素");
+            }
+            if (point.getSpeed() < 0) {
+                throw new IllegalArgumentException("速度不能为负数：" + point.getSpeed());
+            }
+            if (point.getDirection() < 0 || point.getDirection() > 360) {
+                throw new IllegalArgumentException("方向角必须在0~360范围内：" + point.getDirection());
+            }
+        }
+
         List<TrackPoint> sortedPoints = points.stream()
                 .filter(point -> point.getTime() != null)
                 .sorted(Comparator.comparing(TrackPoint::getTime))

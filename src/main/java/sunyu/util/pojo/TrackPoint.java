@@ -20,7 +20,7 @@ public class TrackPoint extends CoordinatePoint {
     private double speed;
 
     /**
-     * 方向角 0~360
+     * 方向角 0~360 度
      */
     private double direction;
 
