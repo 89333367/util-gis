@@ -13,6 +13,7 @@ import org.locationtech.jts.geom.Coordinate;
 import org.locationtech.jts.geom.Geometry;
 import org.locationtech.jts.geom.GeometryFactory;
 import org.locationtech.jts.geom.LineString;
+import org.locationtech.jts.io.WKTReader;
 import org.locationtech.jts.simplify.DouglasPeuckerSimplifier;
 import sunyu.util.pojo.CoordinatePoint;
 import sunyu.util.pojo.TrackPoint;
@@ -313,18 +314,47 @@ public class GisUtil implements AutoCloseable {
 
 
     /**
-     * 计算轮廓面积(mu单位)
+     * 计算地理坐标系下几何图形的面积（mu单位）
+     * 通过坐标转换将地理坐标转换为投影坐标后计算面积，结果以亩为单位
      *
-     * @param outline 轮廓
+     * @param outline 地理坐标系下的几何图形（WGS84）
      *
      * @return 面积（mu），以亩为单位，保留3位小数
+     *
+     * @throws RuntimeException 如果坐标转换过程中发生错误
      */
-    public double calcMu(Geometry outline) {
-        // 计算面积并转换为mu单位（亩）
-        // g.getArea() 获取几何对象面积（平方米）
-        // * config.MU_PER_SQ_METER 转换为亩
-        // * 1000.0 和 / 1000.0 实现保留3位小数的四舍五入
-        return Math.round(outline.getArea() * config.MU_PER_SQ_METER * 1000.0) / 1000.0;
+    public double calcMu(Geometry outline) throws RuntimeException {
+        try {
+            // 如果几何图形已经是投影坐标系，则直接计算面积
+            if (!outline.getGeometryType().equals("Point") && outline.getArea() > 0) {
+                // 检查是否可能是投影坐标系（面积较大）
+                // 一个合理的阈值判断，如果面积已经很大（超过1平方千米），可能已经是投影坐标
+                if (outline.getArea() > 1000000) {
+                    return Math.round(outline.getArea() * config.MU_PER_SQ_METER * 1000.0) / 1000.0;
+                }
+            }
+
+            // 否则认为是地理坐标系，需要转换到投影坐标系再计算面积
+            // 获取几何图形的中心点经度用于选择合适的投影
+            double centroidLon = outline.getCentroid().getCoordinate().getX();
+
+            // 定义源坐标系统（WGS84地理坐标系）
+            CoordinateReferenceSystem src = CRS.decode(config.WGS84, true);
+            // 根据中心点经度选择最佳目标坐标系统（投影坐标系）
+            CoordinateReferenceSystem tgt = pickCrs(centroidLon);
+            // 获取从源坐标系到目标坐标系的数学变换对象
+            MathTransform tx = CRS.findMathTransform(src, tgt, true);
+            // 对几何图形进行坐标转换，从地理坐标转为投影坐标
+            Geometry proj = JTS.transform(outline, tx);
+
+            // 计算面积并转换为mu单位（亩）
+            // proj.getArea() 获取几何对象面积（平方米）
+            // * config.MU_PER_SQ_METER 转换为亩
+            // * 1000.0 和 / 1000.0 实现保留3位小数的四舍五入
+            return Math.round(proj.getArea() * config.MU_PER_SQ_METER * 1000.0) / 1000.0;
+        } catch (Exception e) {
+            throw new RuntimeException("计算面积时出错: " + e.getMessage(), e);
+        }
     }
 
 
@@ -366,6 +396,46 @@ public class GisUtil implements AutoCloseable {
         // 返回WKT字符串表示
         return wgs.toText();
     }
+
+
+    /**
+     * 从WKT字符串创建Geometry对象
+     * 支持POLYGON和MULTIPOLYGON两种几何类型
+     *
+     * @param wkt WKT字符串，必须是POLYGON或MULTIPOLYGON类型
+     *
+     * @return 解析后的Geometry对象
+     *
+     * @throws IllegalArgumentException 如果WKT字符串为空或不支持的几何类型
+     * @throws RuntimeException         如果解析过程中发生错误
+     */
+    public Geometry fromWkt(String wkt) {
+        // 输入验证
+        if (wkt == null || wkt.trim().isEmpty()) {
+            throw new IllegalArgumentException("WKT字符串不能为空");
+        }
+
+        try {
+            // 使用WKTReader来解析WKT字符串
+            WKTReader wktReader = new WKTReader(config.geometryFactory);
+            Geometry geometry = wktReader.read(wkt);
+
+            if (geometry == null) {
+                throw new RuntimeException("无法解析WKT字符串: " + wkt);
+            }
+
+            // 检查几何类型是否受支持
+            String geometryType = geometry.getGeometryType().toUpperCase();
+            if (!("POLYGON".equals(geometryType) || "MULTIPOLYGON".equals(geometryType))) {
+                throw new IllegalArgumentException("不支持的几何类型: " + geometryType + "。仅支持POLYGON和MULTIPOLYGON");
+            }
+
+            return geometry;
+        } catch (org.locationtech.jts.io.ParseException e) {
+            throw new RuntimeException("解析WKT字符串时出错: " + e.getMessage(), e);
+        }
+    }
+
 
     /**
      * 使用haversine公式计算两点间距离
