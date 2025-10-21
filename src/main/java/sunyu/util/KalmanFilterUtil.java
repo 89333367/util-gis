@@ -2,12 +2,12 @@ package sunyu.util;
 
 import cn.hutool.log.Log;
 import cn.hutool.log.LogFactory;
-import org.geotools.api.referencing.crs.CoordinateReferenceSystem;
-import org.geotools.api.referencing.operation.MathTransform;
 import org.geotools.geometry.jts.JTS;
 import org.geotools.referencing.CRS;
 import org.geotools.referencing.crs.DefaultGeographicCRS;
 import org.locationtech.jts.geom.Coordinate;
+import org.opengis.referencing.crs.CoordinateReferenceSystem;
+import org.opengis.referencing.operation.MathTransform;
 import sunyu.util.pojo.TrackPoint;
 
 import java.time.Duration;
@@ -110,8 +110,6 @@ public class KalmanFilterUtil {
             wgs84ToMercator = CRS.findMathTransform(WGS84_CRS, MERCATOR_CRS, false);
             // 创建墨卡托→经纬度的转换工具，用于最终输出
             mercatorToWgs84 = CRS.findMathTransform(MERCATOR_CRS, WGS84_CRS, false);
-            // 打印初始化成功日志，便于调试确认环境正常
-            log.info("坐标系初始化成功：WGS84（经纬度）→ EPSG:3857（墨卡托）");
         } catch (Exception e) {
             // 坐标系初始化失败会导致后续所有转换异常，因此直接抛出运行时异常终止程序
             throw new RuntimeException("坐标系初始化失败，请检查GeoTools依赖（建议版本33.0+）", e);
@@ -210,9 +208,6 @@ public class KalmanFilterUtil {
             Coordinate mercator = convertToMercator(point.getLon(), point.getLat());
             // 加入墨卡托坐标列表，与轨迹点一一对应
             mercatorCoords.add(mercator);
-            // 打印转换日志，便于调试确认转换是否正确（如经纬度116.3→墨卡托x≈12946456.8米）
-            log.trace("预处理：第 {} 点 经纬度( {} , {} ) → 墨卡托( {} , {} )",
-                    sortedNewPoints.indexOf(point) + 1, point.getLon(), point.getLat(), mercator.x, mercator.y);
         }
 
         // 3. 遍历计算每个点的速度和方向角：
@@ -242,7 +237,6 @@ public class KalmanFilterUtil {
                 // 计算方向角（°）：基于墨卡托坐标的东向和北向偏移，正北为0°顺时针递增
                 direction = calculateDirection(currMercator, nextMercator);
                 // 打印日志，调试确认速度计算是否正确
-                log.trace("预处理：第1点 与第2点距离= {} 米 → 速度= {} km/h", distanceM, speedKmh);
             } else {
                 // 处理非第1个点：用前一个点计算
                 // 获取前一个轨迹点
@@ -258,7 +252,6 @@ public class KalmanFilterUtil {
                 // 计算方向角（°）：基于前一个点到当前点的偏移
                 direction = calculateDirection(prevMercator, currMercator);
                 // 打印日志，调试确认速度计算是否正确
-                log.trace("预处理：第 {} 点 与第 {} 点距离= {} 米 → 速度= {} km/h", i + 1, i, distanceM, speedKmh);
             }
 
             // 将计算好的速度和方向角设置到当前新轨迹点（覆盖默认0值）
@@ -412,8 +405,6 @@ public class KalmanFilterUtil {
         // 原因：若测量值跳变200米，残差200米会导致状态更新过大，速度瞬间几百km/h
         residual[0][0] = Math.max(Math.min(residual[0][0], RESIDUAL_LIMIT), -RESIDUAL_LIMIT); // x方向残差裁剪
         residual[1][0] = Math.max(Math.min(residual[1][0], RESIDUAL_LIMIT), -RESIDUAL_LIMIT); // y方向残差裁剪
-        // 打印裁剪后的残差日志，调试确认是否处理了异常偏差
-        log.trace("更新：残差裁剪后 (x: {} 米, y: {} 米)", residual[0][0], residual[1][0]);
 
         // 5. 更新状态矩阵：用裁剪后的残差修正预测状态
         // x_new = x_pred + K * residual （新状态=预测状态 + 增益*偏差，平衡预测和测量）

@@ -3,13 +3,13 @@ package sunyu.util;
 import cn.hutool.core.bean.BeanUtil;
 import cn.hutool.log.Log;
 import cn.hutool.log.LogFactory;
-import org.geotools.api.referencing.crs.CoordinateReferenceSystem;
-import org.geotools.api.referencing.operation.MathTransform;
 import org.geotools.geojson.geom.GeometryJSON;
 import org.geotools.geometry.jts.JTS;
 import org.geotools.referencing.CRS;
 import org.locationtech.jts.geom.*;
 import org.locationtech.jts.io.WKTReader;
+import org.opengis.referencing.crs.CoordinateReferenceSystem;
+import org.opengis.referencing.operation.MathTransform;
 import sunyu.util.pojo.CoordinatePoint;
 import sunyu.util.pojo.TrackPoint;
 
@@ -162,33 +162,17 @@ public class GisUtil implements AutoCloseable {
      * @throws Exception 坐标转换异常
      */
     private Geometry webMercatorToWgs84(Geometry g) throws Exception {
-        log.debug("开始Web Mercator到WGS84转换");
-        log.debug("转换前几何类型: {}, 坐标范围: X[{}, {}], Y[{}, {}]",
-                g.getGeometryType(),
-                g.getEnvelopeInternal().getMinX(), g.getEnvelopeInternal().getMaxX(),
-                g.getEnvelopeInternal().getMinY(), g.getEnvelopeInternal().getMaxY());
-
         try {
             CoordinateReferenceSystem src = getCachedCRS(config.WEB_MERCATOR);
             CoordinateReferenceSystem tgt = getCachedCRS(config.WGS84);
             MathTransform tx = CRS.findMathTransform(src, tgt, true);
             Geometry result = JTS.transform(g, tx);
 
-            log.debug("初步转换后几何类型: {}, 坐标范围: X[{}, {}], Y[{}, {}]",
-                    result.getGeometryType(),
-                    result.getEnvelopeInternal().getMinX(), result.getEnvelopeInternal().getMaxX(),
-                    result.getEnvelopeInternal().getMinY(), result.getEnvelopeInternal().getMaxY());
-
             // 验证转换后的坐标是否在合理范围内
             if (!isValidWgs84Geometry(result)) {
-                log.warn("转换后的几何图形坐标超出WGS84范围，尝试使用更精确的转换");
                 // 如果转换失败，尝试使用不同的转换方法
                 MathTransform tx2 = CRS.findMathTransform(src, tgt, false);
                 result = JTS.transform(g, tx2);
-                log.debug("二次转换后几何类型: {}, 坐标范围: X[{}, {}], Y[{}, {}]",
-                        result.getGeometryType(),
-                        result.getEnvelopeInternal().getMinX(), result.getEnvelopeInternal().getMaxX(),
-                        result.getEnvelopeInternal().getMinY(), result.getEnvelopeInternal().getMaxY());
             }
 
             return result;
@@ -304,26 +288,21 @@ public class GisUtil implements AutoCloseable {
         }
 
         try {
-            log.debug("原始轨迹点数量: {}", seg.size());
-            log.debug("过滤后轨迹点数量: {}", sortedSeg.size());
             double minLon = sortedSeg.stream().mapToDouble(TrackPoint::getLon).min().orElse(0);
             double maxLon = sortedSeg.stream().mapToDouble(TrackPoint::getLon).max().orElse(0);
             double minLat = sortedSeg.stream().mapToDouble(TrackPoint::getLat).min().orElse(0);
             double maxLat = sortedSeg.stream().mapToDouble(TrackPoint::getLat).max().orElse(0);
-            log.debug("轨迹范围: 经度[{}, {}], 纬度[{}, {}]", minLon, maxLon, minLat, maxLat);
 
             // 使用新的基于点缓冲区的方法
             Geometry result = buildOutlineByPointBuffers(sortedSeg, leftWidthM, rightWidthM);
 
             // 如果结果是MultiPolygon且包含多个部分，直接返回
             if (result instanceof MultiPolygon && result.getNumGeometries() > 1) {
-                log.debug("基于点缓冲区生成MultiPolygon，包含{}个部分", result.getNumGeometries());
                 return result;
             }
 
             // 如果是单个Polygon，检查是否需要进一步分割
             if (result instanceof Polygon || (result instanceof MultiPolygon && result.getNumGeometries() == 1)) {
-                log.debug("基于点缓冲区生成单个Polygon，检查是否需要进一步处理");
                 // 可以在这里添加额外的处理逻辑
                 return result;
             }
@@ -348,8 +327,6 @@ public class GisUtil implements AutoCloseable {
      * @throws Exception 坐标转换异常
      */
     private Geometry buildOutlineByPointBuffers(List<TrackPoint> seg, double leftWidthM, double rightWidthM) throws Exception {
-        log.debug("开始基于点缓冲区构建轮廓，轨迹点数: {}, 左侧宽度: {}米, 右侧宽度: {}米", seg.size(), leftWidthM, rightWidthM);
-
         try {
             // 如果左右宽度相同，使用简单的点缓冲区方法
             if (Math.abs(leftWidthM - rightWidthM) < 0.001) {
@@ -375,8 +352,6 @@ public class GisUtil implements AutoCloseable {
      * @throws Exception 坐标转换异常
      */
     private Geometry buildOutlineBySimpleBuffers(List<TrackPoint> seg, double widthM) throws Exception {
-        log.debug("使用简单缓冲区方法，宽度: {}米", widthM);
-
         // 为每个点创建缓冲区
         List<Geometry> pointBuffers = new ArrayList<>();
 
@@ -393,20 +368,14 @@ public class GisUtil implements AutoCloseable {
             pointBuffers.add(buffer);
         }
 
-        log.debug("总共创建了{}个点缓冲区", pointBuffers.size());
-
         // 合并所有缓冲区
         Geometry union = pointBuffers.get(0);
         for (int i = 1; i < pointBuffers.size(); i++) {
             union = union.union(pointBuffers.get(i));
         }
 
-        log.debug("合并后的几何类型: {}, 部份数量: {}", union.getGeometryType(), union.getNumGeometries());
-
         // 转换回WGS84坐标系
         Geometry result = webMercatorToWgs84(union);
-        log.debug("最终几何类型: {}, 部份数量: {}", result.getGeometryType(), result.getNumGeometries());
-
         return result;
     }
 
@@ -422,8 +391,6 @@ public class GisUtil implements AutoCloseable {
      * @throws Exception 坐标转换异常
      */
     private Geometry buildOutlineByComplexBuffers(List<TrackPoint> seg, double leftWidthM, double rightWidthM) throws Exception {
-        log.debug("使用复杂缓冲区方法，左侧宽度: {}米, 右侧宽度: {}米", leftWidthM, rightWidthM);
-
         // 为每个线段创建缓冲区
         List<Geometry> segmentBuffers = new ArrayList<>();
 
@@ -447,20 +414,14 @@ public class GisUtil implements AutoCloseable {
             segmentBuffers.add(buffer);
         }
 
-        log.debug("总共创建了{}个线段缓冲区", segmentBuffers.size());
-
         // 合并所有缓冲区
         Geometry union = segmentBuffers.get(0);
         for (int i = 1; i < segmentBuffers.size(); i++) {
             union = union.union(segmentBuffers.get(i));
         }
 
-        log.debug("合并后的几何类型: {}, 部份数量: {}", union.getGeometryType(), union.getNumGeometries());
-
         // 转换回WGS84坐标系
         Geometry result = webMercatorToWgs84(union);
-        log.debug("最终几何类型: {}, 部份数量: {}", result.getGeometryType(), result.getNumGeometries());
-
         return result;
     }
 
@@ -503,7 +464,6 @@ public class GisUtil implements AutoCloseable {
 
                 // 检查是否相交或接触
                 if (existingPolygon.intersects(polygon) || existingPolygon.touches(polygon)) {
-                    log.debug("发现相交多边形，正在合并");
                     // 合并多边形
                     Geometry union = existingPolygon.union(polygon);
                     result.set(i, union);
@@ -519,7 +479,6 @@ public class GisUtil implements AutoCloseable {
 
         // 递归合并直到没有更多可以合并的多边形
         if (result.size() < polygons.size()) {
-            log.debug("递归合并多边形: {} -> {}", polygons.size(), result.size());
             return mergeIntersectingPolygons(result);
         }
 
@@ -536,55 +495,30 @@ public class GisUtil implements AutoCloseable {
      * @return WKT字符串，表示几何图形
      */
     public String toWkt(Geometry g) {
-        log.debug("开始toWkt转换");
-        log.debug("输入几何类型: {}, 坐标范围: X[{}, {}], Y[{}, {}]",
-                g.getGeometryType(),
-                g.getEnvelopeInternal().getMinX(), g.getEnvelopeInternal().getMaxX(),
-                g.getEnvelopeInternal().getMinY(), g.getEnvelopeInternal().getMaxY());
-        log.debug("输入几何包含子几何数量: {}", g.getNumGeometries());
-
         try {
             // 检查几何图形是否已经是WGS84坐标系并且坐标有效
             if (isLikelyWgs84(g) && hasValidCoordinates(g)) {
-                log.debug("几何图形可能是WGS84坐标系且坐标有效，直接返回WKT");
                 String wkt = g.toText();
                 return wkt;
-            } else {
-                log.debug("几何图形需要转换或坐标无效");
             }
 
             // 转换到WGS84坐标系
-            log.debug("开始坐标转换");
             Geometry wgs = webMercatorToWgs84(g);
-            log.debug("转换后几何类型: {}, 坐标范围: X[{}, {}], Y[{}, {}]",
-                    wgs.getGeometryType(),
-                    wgs.getEnvelopeInternal().getMinX(), wgs.getEnvelopeInternal().getMaxX(),
-                    wgs.getEnvelopeInternal().getMinY(), wgs.getEnvelopeInternal().getMaxY());
-            log.debug("转换后几何包含子几何数量: {}", wgs.getNumGeometries());
-
             // 验证转换后的几何图形
             if (!isValidWgs84Geometry(wgs) || !hasValidCoordinates(wgs)) {
-                log.warn("转换后的几何图形仍包含无效坐标，尝试清理几何图形");
                 // 尝试清理几何图形
                 wgs = wgs.buffer(0);
                 if (!isValidWgs84Geometry(wgs) || !hasValidCoordinates(wgs)) {
-                    log.error("清理后的几何图形仍包含无效坐标，返回原始几何图形");
                     String wkt = g.toText();
-                    log.debug("生成的WKT: {}", wkt);
                     return wkt;
-                } else {
-                    log.debug("清理后几何图形坐标有效");
                 }
             }
 
             String wkt = wgs.toText();
-            log.debug("WKT转换完成，WKT长度: {}", wkt.length());
-            log.debug("生成的WKT: {}", wkt);
             return wkt;
         } catch (Exception e) {
             log.error("坐标转换失败: " + e.getMessage(), e);
             String wkt = g.toText();
-            log.debug("生成的WKT: {}", wkt);
             return wkt;
         }
     }

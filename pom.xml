@@ -7,10 +7,10 @@
     <groupId>sunyu.util</groupId>
     <artifactId>util-gis</artifactId>
     <!-- {util.version}_{jdk.version}_{architecture.version} -->
-    <version>1.0_jdk11_x64</version>
+    <version>1.0_jdk8_x64</version>
 
     <properties>
-        <java.version>11</java.version>
+        <java.version>1.8</java.version>
         <maven.compiler.source>${java.version}</maven.compiler.source>
         <maven.compiler.target>${java.version}</maven.compiler.target>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
@@ -63,23 +63,23 @@
         <dependency>
             <groupId>org.geotools</groupId>
             <artifactId>gt-epsg-hsql</artifactId>
-            <version>33.3</version>
+            <version>28.6.1</version>
         </dependency>
         <dependency>
             <groupId>org.geotools</groupId>
             <artifactId>gt-main</artifactId>
-            <version>33.3</version>
+            <version>28.6.1</version>
         </dependency>
         <dependency>
             <groupId>org.geotools</groupId>
             <artifactId>gt-geojson</artifactId>
-            <version>33.3</version>
+            <version>28.6.1</version>
         </dependency>
         <!-- GeoTools 核心 & 投影操作 (关键依赖) -->
         <dependency>
             <groupId>org.geotools</groupId>
             <artifactId>gt-referencing</artifactId>
-            <version>33.3</version>
+            <version>28.6.1</version>
         </dependency>
         <!-- https://central.sonatype.com/artifact/org.opengis/geoapi/versions -->
         <dependency>
@@ -107,8 +107,32 @@
         <dependency>
             <groupId>com.zaxxer</groupId>
             <artifactId>HikariCP</artifactId>
-            <!--<version>4.0.3</version>-->
-            <version>7.0.2</version>
+            <version>4.0.3</version>
+            <!--<version>7.0.2</version>-->
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <artifactId>jackson-databind</artifactId>
+            <groupId>com.fasterxml.jackson.core</groupId>
+            <version>2.13.5</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <artifactId>jackson-datatype-jdk8</artifactId>
+            <groupId>com.fasterxml.jackson.datatype</groupId>
+            <version>2.13.5</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <artifactId>jackson-datatype-jsr310</artifactId>
+            <groupId>com.fasterxml.jackson.datatype</groupId>
+            <version>2.13.5</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <artifactId>jackson-module-parameter-names</artifactId>
+            <groupId>com.fasterxml.jackson.module</groupId>
+            <version>2.13.5</version>
             <scope>test</scope>
         </dependency>
         <dependency>
