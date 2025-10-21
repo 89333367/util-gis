@@ -103,7 +103,7 @@ public class TestGisUtil {
                         }
                         try {
                             Geometry g = gisUtil.buildOutline(l, jobWidth);
-                            log.debug("轮廓创建完毕 {}", g);
+                            log.debug("轮廓创建完毕");
                             String wkt = gisUtil.toWkt(g);
                             log.debug("WKT {}", wkt);
                             double wktMu = gisUtil.calcMu(wkt);
@@ -114,9 +114,11 @@ public class TestGisUtil {
                             log.error(e);
                         }
                     }
+                    break;
                 }
                 page++;
             }
+            break;
         }
     }
 
