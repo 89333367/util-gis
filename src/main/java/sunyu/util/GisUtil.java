@@ -8,10 +8,8 @@ import org.geotools.api.referencing.operation.MathTransform;
 import org.geotools.geojson.geom.GeometryJSON;
 import org.geotools.geometry.jts.JTS;
 import org.geotools.referencing.CRS;
-import org.locationtech.jts.algorithm.hull.ConcaveHull;
 import org.locationtech.jts.geom.*;
 import org.locationtech.jts.io.WKTReader;
-import org.locationtech.jts.simplify.DouglasPeuckerSimplifier;
 import sunyu.util.pojo.CoordinatePoint;
 import sunyu.util.pojo.TrackPoint;
 
@@ -353,35 +351,13 @@ public class GisUtil implements AutoCloseable {
         log.debug("开始基于点缓冲区构建轮廓，轨迹点数: {}, 左侧宽度: {}米, 右侧宽度: {}米", seg.size(), leftWidthM, rightWidthM);
 
         try {
-            // 计算平均宽度
-            double avgWidth = (leftWidthM + rightWidthM) / 2.0;
-            log.debug("平均宽度: {}米", avgWidth);
-
-            // 为每个点创建缓冲区
-            List<Geometry> pointBuffers = new ArrayList<>();
-
-            for (int i = 0; i < seg.size(); i++) {
-                TrackPoint point = seg.get(i);
-                Coordinate coord = new Coordinate(point.getLon(), point.getLat());
-                Geometry pointGeom = config.geometryFactory.createPoint(coord);
-
-                // 转换到Web Mercator投影坐标系
-                Geometry projPoint = wgs84ToWebMercator(pointGeom);
-
-                // 创建缓冲区
-                Geometry buffer = projPoint.buffer(avgWidth);
-                pointBuffers.add(buffer);
+            // 如果左右宽度相同，使用简单的点缓冲区方法
+            if (Math.abs(leftWidthM - rightWidthM) < 0.001) {
+                return buildOutlineBySimpleBuffers(seg, leftWidthM);
+            } else {
+                // 如果左右宽度不同，使用更复杂的方法
+                return buildOutlineByComplexBuffers(seg, leftWidthM, rightWidthM);
             }
-
-            // 合并所有缓冲区
-            Geometry union = pointBuffers.get(0);
-            for (int i = 1; i < pointBuffers.size(); i++) {
-                union = union.union(pointBuffers.get(i));
-            }
-
-            // 转换回WGS84坐标系
-            Geometry result = webMercatorToWgs84(union);
-            return result;
         } catch (Exception e) {
             log.error("基于点缓冲区构建轮廓失败: " + e.getMessage(), e);
             throw e;
@@ -389,183 +365,105 @@ public class GisUtil implements AutoCloseable {
     }
 
     /**
-     * 通过几何分析分割轨迹
-     * 先生成整体轮廓，然后分析是否可以分割为多个不连通的部分
+     * 使用相同左右宽度构建轮廓
      *
-     * @param points      轨迹点
-     * @param leftWidthM  左侧宽度
-     * @param rightWidthM 右侧宽度
-     * @param simplifyM   简化阈值
+     * @param seg    轨迹点列表
+     * @param widthM 宽度（米）
      *
-     * @return 分割后的轨迹段列表
+     * @return 生成的几何对象
+     *
+     * @throws Exception 坐标转换异常
      */
-    private List<List<TrackPoint>> splitByGeometricAnalysis(List<TrackPoint> points,
-                                                            double leftWidthM, double rightWidthM, double simplifyM) {
-        List<List<TrackPoint>> result = new ArrayList<>();
+    private Geometry buildOutlineBySimpleBuffers(List<TrackPoint> seg, double widthM) throws Exception {
+        log.debug("使用简单缓冲区方法，宽度: {}米", widthM);
 
-        try {
-            // 先用较大的简化阈值生成一个整体的轮廓
-            Geometry overallOutline = buildSingleOutline(points, leftWidthM, rightWidthM, simplifyM * 2, 20.0);
+        // 为每个点创建缓冲区
+        List<Geometry> pointBuffers = new ArrayList<>();
 
-            if (overallOutline == null) {
-                result.add(points);
-                return result;
-            }
+        for (int i = 0; i < seg.size(); i++) {
+            TrackPoint point = seg.get(i);
+            Coordinate coord = new Coordinate(point.getLon(), point.getLat());
+            Geometry pointGeom = config.geometryFactory.createPoint(coord);
 
-            log.debug("整体轮廓几何类型: {}", overallOutline.getGeometryType());
-            log.debug("整体轮廓面积: {}", overallOutline.getArea());
+            // 转换到Web Mercator投影坐标系
+            Geometry projPoint = wgs84ToWebMercator(pointGeom);
 
-            // 如果是MultiPolygon，说明已经自然分开了
-            if (overallOutline instanceof MultiPolygon) {
-                MultiPolygon mp = (MultiPolygon) overallOutline;
-                log.debug("整体轮廓已经是MultiPolygon，包含{}个部分", mp.getNumGeometries());
-
-                // 尝试将原始点分配给对应的多边形
-                for (int i = 0; i < mp.getNumGeometries(); i++) {
-                    Polygon polygon = (Polygon) mp.getGeometryN(i);
-                    List<TrackPoint> segmentPoints = new ArrayList<>();
-
-                    // 为每个点找到最近的多边形
-                    for (TrackPoint point : points) {
-                        Coordinate coord = new Coordinate(point.getLon(), point.getLat());
-                        Geometry pointGeom = config.geometryFactory.createPoint(coord);
-
-                        if (pointGeom.within(polygon)) {
-                            segmentPoints.add(point);
-                        }
-                    }
-
-                    if (segmentPoints.size() >= 3) {
-                        // 按时间排序
-                        segmentPoints.sort(Comparator.comparing(TrackPoint::getTime));
-                        result.add(segmentPoints);
-                        log.debug("通过几何分析分割出包含{}个点的段", segmentPoints.size());
-                    }
-                }
-
-                // 如果成功分割，返回结果
-                if (result.size() > 1) {
-                    return result;
-                }
-            }
-
-            // 如果没有成功分割，尝试使用凸包分析
-            log.debug("尝试使用凸包分析进行分割");
-            return splitByConvexHullAnalysis(points);
-        } catch (Exception e) {
-            log.warn("几何分析分割失败: " + e.getMessage());
-            result.add(points);
-            return result;
-        }
-    }
-
-    /**
-     * 通过凸包分析分割轨迹
-     *
-     * @param points 轨迹点
-     *
-     * @return 分割后的轨迹段列表
-     */
-    private List<List<TrackPoint>> splitByConvexHullAnalysis(List<TrackPoint> points) {
-        List<List<TrackPoint>> result = new ArrayList<>();
-
-        // 简单方法：使用K-means思想，通过距离阈值进行聚类
-        List<List<TrackPoint>> clusters = new ArrayList<>();
-        boolean[] assigned = new boolean[points.size()];
-
-        // 从第一个未分配的点开始创建聚类
-        for (int i = 0; i < points.size(); i++) {
-            if (assigned[i]) continue;
-
-            List<TrackPoint> cluster = new ArrayList<>();
-            TrackPoint seedPoint = points.get(i);
-            cluster.add(seedPoint);
-            assigned[i] = true;
-
-            // 查找附近的点
-            for (int j = i + 1; j < points.size(); j++) {
-                if (assigned[j]) continue;
-
-                TrackPoint candidate = points.get(j);
-                double distance = haversine(seedPoint, candidate);
-
-                // 如果距离小于阈值，归为一类
-                if (distance < 20) {  // 20米阈值
-                    cluster.add(candidate);
-                    assigned[j] = true;
-                }
-            }
-
-            // 只有足够多的点才认为是一个有效聚类
-            if (cluster.size() >= 10) {
-                // 按时间排序
-                cluster.sort(Comparator.comparing(TrackPoint::getTime));
-                clusters.add(cluster);
-                log.debug("通过凸包分析发现一个聚类，包含{}个点", cluster.size());
-            }
+            // 创建缓冲区
+            Geometry buffer = projPoint.buffer(widthM);
+            pointBuffers.add(buffer);
         }
 
-        // 如果发现多个聚类，返回这些聚类
-        if (clusters.size() > 1) {
-            log.debug("通过凸包分析成功分割为{}个聚类", clusters.size());
-            return clusters;
+        log.debug("总共创建了{}个点缓冲区", pointBuffers.size());
+
+        // 合并所有缓冲区
+        Geometry union = pointBuffers.get(0);
+        for (int i = 1; i < pointBuffers.size(); i++) {
+            union = union.union(pointBuffers.get(i));
         }
 
-        // 否则返回原始点集
-        result.add(points);
+        log.debug("合并后的几何类型: {}, 部份数量: {}", union.getGeometryType(), union.getNumGeometries());
+
+        // 转换回WGS84坐标系
+        Geometry result = webMercatorToWgs84(union);
+        log.debug("最终几何类型: {}, 部份数量: {}", result.getGeometryType(), result.getNumGeometries());
+
         return result;
     }
 
     /**
-     * 根据距离分割轨迹段
-     * 如果相邻点之间的距离超过指定阈值，则将其分为不同的段
+     * 使用不同左右宽度构建轮廓
      *
-     * @param points            轨迹点列表
-     * @param distanceThreshold 距离阈值（米）
+     * @param seg         轨迹点列表
+     * @param leftWidthM  左侧宽度（米）
+     * @param rightWidthM 右侧宽度（米）
      *
-     * @return 分割后的轨迹段列表
+     * @return 生成的几何对象
+     *
+     * @throws Exception 坐标转换异常
      */
-    private List<List<TrackPoint>> splitSegmentsByDistance(List<TrackPoint> points, double distanceThreshold) {
-        List<List<TrackPoint>> segments = new ArrayList<>();
-        List<TrackPoint> currentSegment = new ArrayList<>();
+    private Geometry buildOutlineByComplexBuffers(List<TrackPoint> seg, double leftWidthM, double rightWidthM) throws Exception {
+        log.debug("使用复杂缓冲区方法，左侧宽度: {}米, 右侧宽度: {}米", leftWidthM, rightWidthM);
 
-        if (points.isEmpty()) {
-            return segments;
+        // 为每个线段创建缓冲区
+        List<Geometry> segmentBuffers = new ArrayList<>();
+
+        for (int i = 0; i < seg.size() - 1; i++) {
+            TrackPoint point1 = seg.get(i);
+            TrackPoint point2 = seg.get(i + 1);
+
+            // 创建线段
+            Coordinate[] coords = {
+                    new Coordinate(point1.getLon(), point1.getLat()),
+                    new Coordinate(point2.getLon(), point2.getLat())
+            };
+            LineString line = config.geometryFactory.createLineString(coords);
+
+            // 转换到Web Mercator投影坐标系
+            LineString projLine = (LineString) wgs84ToWebMercator(line);
+
+            // 创建缓冲区（使用左右宽度的平均值作为近似）
+            double avgWidth = (leftWidthM + rightWidthM) / 2.0;
+            Geometry buffer = projLine.buffer(avgWidth);
+            segmentBuffers.add(buffer);
         }
 
-        currentSegment.add(points.get(0));
-        log.debug("开始分割轨迹段，总点数: {}, 距离阈值: {}米", points.size(), distanceThreshold);
+        log.debug("总共创建了{}个线段缓冲区", segmentBuffers.size());
 
-        for (int i = 1; i < points.size(); i++) {
-            TrackPoint prevPoint = points.get(i - 1);
-            TrackPoint currPoint = points.get(i);
-
-            // 计算两点间距离
-            double distance = haversine(prevPoint, currPoint);
-
-            if (distance > distanceThreshold) {
-                // 距离超过阈值，开始新的段
-                log.debug("发现距离超过阈值的点对(距离:{}米)，当前段包含{}个点", distance, currentSegment.size());
-                if (currentSegment.size() >= 3) {
-                    segments.add(new ArrayList<>(currentSegment));
-                    log.debug("添加新段，当前总段数: {}", segments.size());
-                }
-                currentSegment.clear();
-            }
-
-            currentSegment.add(currPoint);
+        // 合并所有缓冲区
+        Geometry union = segmentBuffers.get(0);
+        for (int i = 1; i < segmentBuffers.size(); i++) {
+            union = union.union(segmentBuffers.get(i));
         }
 
-        // 添加最后一个段（如果它有足够的点）
-        log.debug("处理最后一段，包含{}个点", currentSegment.size());
-        if (currentSegment.size() >= 3) {
-            segments.add(new ArrayList<>(currentSegment));
-            log.debug("添加最后一段，当前总段数: {}", segments.size());
-        }
+        log.debug("合并后的几何类型: {}, 部份数量: {}", union.getGeometryType(), union.getNumGeometries());
 
-        log.debug("轨迹分割完成，总共分割为{}段", segments.size());
-        return segments;
+        // 转换回WGS84坐标系
+        Geometry result = webMercatorToWgs84(union);
+        log.debug("最终几何类型: {}, 部份数量: {}", result.getGeometryType(), result.getNumGeometries());
+
+        return result;
     }
+
 
     /**
      * 使用haversine公式计算两点间距离
@@ -586,57 +484,6 @@ public class GisUtil implements AutoCloseable {
         return config.R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
     }
 
-    /**
-     * 强制按最大间隔分割轨迹
-     *
-     * @param points 轨迹点列表
-     * @param maxGap 最大间隔距离
-     *
-     * @return 分割后的轨迹段列表
-     */
-    private List<List<TrackPoint>> forceSplitByMaxGap(List<TrackPoint> points, double maxGap) {
-        List<List<TrackPoint>> segments = new ArrayList<>();
-        List<TrackPoint> currentSegment = new ArrayList<>();
-
-        if (points.isEmpty()) {
-            return segments;
-        }
-
-        double splitThreshold = Math.max(80, maxGap * 0.8); // 使用最大间隔的80%作为分割阈值，但不低于80米
-        log.debug("强制分割阈值: {}米", splitThreshold);
-
-        currentSegment.add(points.get(0));
-
-        for (int i = 1; i < points.size(); i++) {
-            TrackPoint prevPoint = points.get(i - 1);
-            TrackPoint currPoint = points.get(i);
-
-            // 计算两点间距离
-            double distance = haversine(prevPoint, currPoint);
-
-            if (distance > splitThreshold) {
-                // 距离超过阈值，开始新的段
-                log.debug("强制分割点对(距离:{}米)，当前段包含{}个点", distance, currentSegment.size());
-                if (currentSegment.size() >= 3) {
-                    segments.add(new ArrayList<>(currentSegment));
-                    log.debug("添加新段，当前总段数: {}", segments.size());
-                }
-                currentSegment.clear();
-            }
-
-            currentSegment.add(currPoint);
-        }
-
-        // 添加最后一个段（如果它有足够的点）
-        log.debug("处理最后一段，包含{}个点", currentSegment.size());
-        if (currentSegment.size() >= 3) {
-            segments.add(new ArrayList<>(currentSegment));
-            log.debug("添加最后一段，当前总段数: {}", segments.size());
-        }
-
-        log.debug("强制轨迹分割完成，总共分割为{}段", segments.size());
-        return segments;
-    }
 
     /**
      * 合并相交的多边形
@@ -679,124 +526,6 @@ public class GisUtil implements AutoCloseable {
         return result;
     }
 
-    /**
-     * 为单个轨迹段构建轮廓
-     *
-     * @param seg            轨迹点列表
-     * @param leftWidthM     左侧宽度（米）
-     * @param rightWidthM    右侧宽度（米）
-     * @param simplifyM      简化阈值（米）
-     * @param maxEdgeLengthM 最大边缘长度（米）
-     *
-     * @return 生成的轮廓多边形
-     *
-     * @throws Exception 坐标转换或几何操作异常
-     */
-    private Geometry buildSingleOutline(List<TrackPoint> seg,
-                                        double leftWidthM,
-                                        double rightWidthM,
-                                        double simplifyM,
-                                        double maxEdgeLengthM) throws Exception {
-        try {
-            // 将排序后的轨迹点转换为坐标数组
-            Coordinate[] coords = seg.stream()
-                    .map(p -> new Coordinate(p.getLon(), p.getLat()))
-                    .toArray(Coordinate[]::new);
-
-            // 创建原始线段，由所有轨迹点连接而成
-            LineString rawLine = config.geometryFactory.createLineString(coords);
-            log.debug("原始线段点数: {}", rawLine.getNumPoints());
-            log.debug("原始线段坐标范围: X[{}, {}], Y[{}, {}]",
-                    rawLine.getEnvelopeInternal().getMinX(), rawLine.getEnvelopeInternal().getMaxX(),
-                    rawLine.getEnvelopeInternal().getMinY(), rawLine.getEnvelopeInternal().getMaxY());
-
-            // 使用Douglas-Peucker算法简化线段，减少点数提高性能
-            double degPerMeter = degreesPerMeterAtLat(seg.get(0).getLat());
-            LineString simple = (LineString) DouglasPeuckerSimplifier.simplify(rawLine, simplifyM * degPerMeter);
-            log.debug("简化后线段点数: {}", simple.getNumPoints());
-
-            // 转换到Web Mercator投影坐标系进行计算
-            LineString projLine = (LineString) wgs84ToWebMercator(simple);
-            log.debug("投影后线段点数: {}", projLine.getNumPoints());
-            log.debug("投影后坐标范围: X[{}, {}], Y[{}, {}]",
-                    projLine.getEnvelopeInternal().getMinX(), projLine.getEnvelopeInternal().getMaxX(),
-                    projLine.getEnvelopeInternal().getMinY(), projLine.getEnvelopeInternal().getMaxY());
-
-            // 创建缓冲区
-            Geometry strip;
-            if (leftWidthM == rightWidthM) {
-                strip = projLine.buffer(leftWidthM);
-                log.debug("创建单侧缓冲区，宽度: {}米", leftWidthM);
-            } else {
-                Geometry leftBuffer = projLine.buffer(leftWidthM);
-                Geometry rightBuffer = projLine.buffer(rightWidthM);
-                strip = leftBuffer.union(rightBuffer);
-                log.debug("创建双侧缓冲区，左侧宽度: {}米, 右侧宽度: {}米", leftWidthM, rightWidthM);
-            }
-            log.debug("缓冲区几何类型: {}, 坐标范围: X[{}, {}], Y[{}, {}]",
-                    strip.getGeometryType(),
-                    strip.getEnvelopeInternal().getMinX(), strip.getEnvelopeInternal().getMaxX(),
-                    strip.getEnvelopeInternal().getMinY(), strip.getEnvelopeInternal().getMaxY());
-
-            // 在使用凹包算法前添加参数调整
-            double adjustedMaxEdgeLengthM = Math.max(maxEdgeLengthM, 0.1); // 确保参数不为0或负数
-            log.debug("凹包算法参数 - maxEdgeLengthM: {}", adjustedMaxEdgeLengthM);
-
-            // 使用凹包算法生成轮廓
-            Geometry hull;
-            try {
-                hull = ConcaveHull.concaveHullByLength(strip, adjustedMaxEdgeLengthM);
-                log.debug("凹包算法成功执行");
-            } catch (org.locationtech.jts.triangulate.quadedge.LocateFailureException e) {
-                log.warn("凹包算法三角剖分失败，尝试使用较小的maxEdgeLengthM值: " + e.getMessage());
-                // 尝试使用更小的参数值
-                try {
-                    hull = ConcaveHull.concaveHullByLength(strip, adjustedMaxEdgeLengthM / 2);
-                    log.debug("使用较小参数的凹包算法成功执行");
-                } catch (Exception ex) {
-                    log.warn("凹包算法仍然失败，使用凸包: " + ex.getMessage());
-                    hull = strip.convexHull();
-                    log.debug("使用凸包算法成功执行");
-                }
-            } catch (Exception e) {
-                log.warn("凹包算法失败，使用凸包作为备选: " + e.getMessage());
-                hull = strip.convexHull();
-                log.debug("使用凸包算法成功执行");
-            }
-
-            log.debug("凹包后几何类型: {}, 坐标范围: X[{}, {}], Y[{}, {}]",
-                    hull.getGeometryType(),
-                    hull.getEnvelopeInternal().getMinX(), hull.getEnvelopeInternal().getMaxX(),
-                    hull.getEnvelopeInternal().getMinY(), hull.getEnvelopeInternal().getMaxY());
-
-            // 转换回WGS84坐标系
-            log.debug("开始转换回WGS84坐标系");
-            Geometry result = webMercatorToWgs84(hull);
-            log.debug("转换后几何类型: {}, 坐标范围: X[{}, {}], Y[{}, {}]",
-                    result.getGeometryType(),
-                    result.getEnvelopeInternal().getMinX(), result.getEnvelopeInternal().getMaxX(),
-                    result.getEnvelopeInternal().getMinY(), result.getEnvelopeInternal().getMaxY());
-
-            // 验证结果并清理
-            if (!isValidWgs84Geometry(result)) {
-                log.warn("转换后的几何图形包含无效坐标，尝试清理几何图形");
-                result = result.buffer(0); // 清理几何图形
-                if (!isValidWgs84Geometry(result)) {
-                    log.error("清理后的几何图形仍包含无效坐标");
-                    return null;
-                } else {
-                    log.debug("清理后几何图形坐标有效");
-                }
-            }
-
-            log.debug("最终结果几何类型: {}, 点数: {}", result.getGeometryType(), result.getNumPoints());
-            return result;
-        } catch (Exception e) {
-            log.error("构建单个轨迹轮廓失败: " + e.getMessage(), e);
-            return null;
-        }
-    }
-
 
     /**
      * 将几何图形转换为WKT格式
@@ -805,10 +534,8 @@ public class GisUtil implements AutoCloseable {
      * @param g 几何图形对象
      *
      * @return WKT字符串，表示几何图形
-     *
-     * @throws Exception 坐标转换异常
      */
-    public String toWkt(Geometry g) throws Exception {
+    public String toWkt(Geometry g) {
         log.debug("开始toWkt转换");
         log.debug("输入几何类型: {}, 坐标范围: X[{}, {}], Y[{}, {}]",
                 g.getGeometryType(),
@@ -1421,44 +1148,4 @@ public class GisUtil implements AutoCloseable {
         return lon < 72.004 || lon > 137.8347 || lat < 0.8293 || lat > 55.8271;
     }
 
-    /**
-     * 分析轨迹点之间的最大间隔，用于调试目的
-     *
-     * @param points 轨迹点列表
-     *
-     * @return 最大间隔距离（米）
-     */
-    public double analyzeMaxGap(List<TrackPoint> points) {
-        if (points == null || points.size() < 2) {
-            return 0;
-        }
-
-        double maxGap = 0;
-        int maxGapIndex = 0;
-
-        // 按时间排序
-        List<TrackPoint> sortedPoints = points.stream()
-                .sorted(Comparator.comparing(TrackPoint::getTime))
-                .collect(Collectors.toList());
-
-        for (int i = 1; i < sortedPoints.size(); i++) {
-            TrackPoint prev = sortedPoints.get(i - 1);
-            TrackPoint curr = sortedPoints.get(i);
-            double gap = haversine(prev, curr);
-            if (gap > maxGap) {
-                maxGap = gap;
-                maxGapIndex = i;
-            }
-        }
-
-        log.info("轨迹分析: 最大间隔距离={}米, 位置在索引{}", maxGap, maxGapIndex);
-        if (maxGap > 50) {  // 如果间隔超过50米就记录详细信息
-            TrackPoint prev = sortedPoints.get(maxGapIndex - 1);
-            TrackPoint curr = sortedPoints.get(maxGapIndex);
-            log.info("最大间隔点对: 点1({},{}) -> 点2({},{})",
-                    prev.getLon(), prev.getLat(), curr.getLon(), curr.getLat());
-        }
-
-        return maxGap;
-    }
 }
