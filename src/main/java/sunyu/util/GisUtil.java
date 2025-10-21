@@ -25,6 +25,7 @@ import java.util.stream.Collectors;
 
 /**
  * GIS工具类，用于轨迹处理、空间计算等
+ * 使用统一的Web Mercator投影系统（EPSG:3857）简化坐标转换
  *
  * @author SunYu
  */
@@ -72,6 +73,9 @@ public class GisUtil implements AutoCloseable {
         // WGS84坐标系的EPSG代码，用于定义地理坐标系统
         private final String WGS84 = "EPSG:4326";
 
+        // Web Mercator投影系统的EPSG代码，用于统一投影坐标系统
+        private final String WEB_MERCATOR = "EPSG:3857";
+
         // 地球半径（米），用于Haversine公式计算两点间距离
         private final double R = 6371000;
 
@@ -87,7 +91,6 @@ public class GisUtil implements AutoCloseable {
         // GeometryFactory缓存，避免重复创建
         private final GeometryFactory geometryFactory = new GeometryFactory();
     }
-
 
     /**
      * 构建器类，用于构建GisUtil实例
@@ -122,116 +125,182 @@ public class GisUtil implements AutoCloseable {
     /**
      * 从缓存中获取或创建CoordinateReferenceSystem
      *
-     * @param wkt WKT字符串
+     * @param code EPSG代码
      *
      * @return CoordinateReferenceSystem对象
-     *
      */
-    private CoordinateReferenceSystem getCachedCRS(String wkt) {
-        return config.crsCache.computeIfAbsent(wkt, key -> {
+    private CoordinateReferenceSystem getCachedCRS(String code) {
+        return config.crsCache.computeIfAbsent(code, key -> {
             try {
-                return CRS.parseWKT(key);
+                return CRS.decode(key, true);
             } catch (Exception e) {
-                throw new RuntimeException("Failed to parse CRS WKT", e);
+                throw new RuntimeException("Failed to parse CRS: " + key, e);
             }
         });
     }
 
-
     /**
-     * 根据经度选择合适的坐标参考系统（CRS）
-     * 不同区域使用不同的投影系统以提高计算精度
+     * 将WGS84坐标转换为Web Mercator投影坐标
      *
-     * @param lon 经度值，用于判断所在区域
+     * @param g WGS84坐标系下的几何图形
      *
-     * @return CoordinateReferenceSystem对象，对应区域的最佳投影系统
+     * @return Web Mercator投影坐标系下的几何图形
      *
+     * @throws Exception 坐标转换异常
      */
-    private CoordinateReferenceSystem pickCrs(double lon) {
-        // 中国区域使用CGCS2000 3度分带投影（经度72°至138°）
-        // CGCS2000是中国2000国家大地坐标系，3度分带适用于中国大部分地区
-        if (lon >= 72 && lon <= 138) {
-            return getCachedCRS(
-                    "PROJCS[\"CGCS2000 / 3-degree Gauss-Kruger zone 39N\","
-                            + "GEOGCS[\"CGCS2000\","
-                            + "DATUM[\"CGCS2000\",SPHEROID[\"CGCS2000\",6378137,298.257222101]],"
-                            + "PRIMEM[\"Greenwich\",0],UNIT[\"degree\",0.0174532925199433]],"
-                            + "PROJECTION[\"Transverse_Mercator\"],"
-                            + "PARAMETER[\"central_meridian\",117],"
-                            + "PARAMETER[\"scale_factor\",1],"
-                            + "PARAMETER[\"false_easting\",39500000],"
-                            + "PARAMETER[\"false_northing\",0],"
-                            + "UNIT[\"metre\",1]]");
-        }
-        // 北美区域使用NAD83 Albers投影（经度-140°至-50°）
-        // Albers投影是一种等积圆锥投影，适用于北美大陆
-        if (lon >= -140 && lon <= -50) {
-            return getCachedCRS(
-                    "PROJCS[\"NAD83 / Conus Albers\","
-                            + "GEOGCS[\"NAD83\","
-                            + "DATUM[\"NAD83\",SPHEROID[\"GRS 1980\",6378137,298.257222101]],"
-                            + "PRIMEM[\"Greenwich\",0],UNIT[\"degree\",0.0174532925199433]],"
-                            + "PROJECTION[\"Albers_Conic_Equal_Area\"],"
-                            + "PARAMETER[\"standard_parallel_1\",29.5],"
-                            + "PARAMETER[\"standard_parallel_2\",45.5],"
-                            + "PARAMETER[\"central_meridian\",-96],"
-                            + "PARAMETER[\"latitude_of_origin\",37.5],"
-                            + "UNIT[\"metre\",1]]");
-        }
-        // 欧洲区域使用ETRS89 LAEA投影（经度-30°至60°）
-        // LAEA（Lambert Azimuthal Equal-Area）投影是一种等积方位投影
-        if (lon >= -30 && lon <= 60) {
-            return getCachedCRS(
-                    "PROJCS[\"ETRS89-extended / LAEA Europe\","
-                            + "GEOGCS[\"ETRS89\","
-                            + "DATUM[\"ETRS89\",SPHEROID[\"GRS 1980\",6378137,298.257222101]],"
-                            + "PRIMEM[\"Greenwich\",0],UNIT[\"degree\",0.0174532925199433]],"
-                            + "PROJECTION[\"Lambert_Azimuthal_Equal_Area\"],"
-                            + "PARAMETER[\"latitude_of_origin\",52],"
-                            + "PARAMETER[\"central_meridian\",10],"
-                            + "UNIT[\"metre\",1]]");
-        }
-        // 其他区域使用世界Mollweide投影（全球等积伪圆柱投影）
-        // Mollweide投影是一种等积投影，适用于全球范围的地图显示
-        return getCachedCRS(
-                "PROJCS[\"World_Mollweide\","
-                        + "GEOGCS[\"WGS 84\","
-                        + "DATUM[\"WGS_1984\",SPHEROID[\"WGS 84\",6378137,298.257223563]],"
-                        + "PRIMEM[\"Greenwich\",0],UNIT[\"degree\",0.0174532925199433]],"
-                        + "PROJECTION[\"Mollweide\"],PARAMETER[\"central_meridian\",0],"
-                        + "UNIT[\"metre\",1]]");
+    private Geometry wgs84ToWebMercator(Geometry g) throws Exception {
+        log.debug("开始WGS84到Web Mercator转换");
+        log.debug("转换前几何类型: {}, 坐标范围: X[{}, {}], Y[{}, {}]",
+                g.getGeometryType(),
+                g.getEnvelopeInternal().getMinX(), g.getEnvelopeInternal().getMaxX(),
+                g.getEnvelopeInternal().getMinY(), g.getEnvelopeInternal().getMaxY());
+
+        CoordinateReferenceSystem src = getCachedCRS(config.WGS84);
+        CoordinateReferenceSystem tgt = getCachedCRS(config.WEB_MERCATOR);
+        MathTransform tx = CRS.findMathTransform(src, tgt, true);
+        Geometry result = JTS.transform(g, tx);
+
+        log.debug("转换后几何类型: {}, 坐标范围: X[{}, {}], Y[{}, {}]",
+                result.getGeometryType(),
+                result.getEnvelopeInternal().getMinX(), result.getEnvelopeInternal().getMaxX(),
+                result.getEnvelopeInternal().getMinY(), result.getEnvelopeInternal().getMaxY());
+
+        return result;
     }
 
     /**
-     * 构建轨迹轮廓
-     * 通过轨迹点生成带宽度的轮廓多边形，用于面积计算等操作
+     * 将Web Mercator投影坐标转换为WGS84坐标
      *
-     * @param seg            轨迹点列表，至少需要3个点
-     * @param leftWidthM     左侧宽度（米），轨迹线左侧的扩展距离
-     * @param rightWidthM    右侧宽度（米），轨迹线右侧的扩展距离
-     * @param simplifyM      简化阈值（米），用于轨迹点简化以提高性能
-     *                       推荐值范围：
-     *                       低精度场景：10-50米（如农田作业粗略估算）
-     *                       中等精度场景：5-10米（一般农业机械作业）
-     *                       高精度场景：1-5米（精细化农业作业）
-     * @param maxEdgeLengthM 最大边缘长度（米），控制轮廓的精细程度
-     *                       推荐值范围：
-     *                       粗略轮廓：50-100米
-     *                       标准轮廓：20-50米
-     *                       精细轮廓：5-20米
+     * @param g Web Mercator投影坐标系下的几何图形
+     *
+     * @return WGS84坐标系下的几何图形
+     *
+     * @throws Exception 坐标转换异常
+     */
+    private Geometry webMercatorToWgs84(Geometry g) throws Exception {
+        log.debug("开始Web Mercator到WGS84转换");
+        log.debug("转换前几何类型: {}, 坐标范围: X[{}, {}], Y[{}, {}]",
+                g.getGeometryType(),
+                g.getEnvelopeInternal().getMinX(), g.getEnvelopeInternal().getMaxX(),
+                g.getEnvelopeInternal().getMinY(), g.getEnvelopeInternal().getMaxY());
+
+        try {
+            CoordinateReferenceSystem src = getCachedCRS(config.WEB_MERCATOR);
+            CoordinateReferenceSystem tgt = getCachedCRS(config.WGS84);
+            MathTransform tx = CRS.findMathTransform(src, tgt, true);
+            Geometry result = JTS.transform(g, tx);
+
+            log.debug("初步转换后几何类型: {}, 坐标范围: X[{}, {}], Y[{}, {}]",
+                    result.getGeometryType(),
+                    result.getEnvelopeInternal().getMinX(), result.getEnvelopeInternal().getMaxX(),
+                    result.getEnvelopeInternal().getMinY(), result.getEnvelopeInternal().getMaxY());
+
+            // 验证转换后的坐标是否在合理范围内
+            if (!isValidWgs84Geometry(result)) {
+                log.warn("转换后的几何图形坐标超出WGS84范围，尝试使用更精确的转换");
+                // 如果转换失败，尝试使用不同的转换方法
+                MathTransform tx2 = CRS.findMathTransform(src, tgt, false);
+                result = JTS.transform(g, tx2);
+                log.debug("二次转换后几何类型: {}, 坐标范围: X[{}, {}], Y[{}, {}]",
+                        result.getGeometryType(),
+                        result.getEnvelopeInternal().getMinX(), result.getEnvelopeInternal().getMaxX(),
+                        result.getEnvelopeInternal().getMinY(), result.getEnvelopeInternal().getMaxY());
+            }
+
+            return result;
+        } catch (Exception e) {
+            log.error("Web Mercator到WGS84坐标转换失败: " + e.getMessage(), e);
+            throw e;
+        }
+    }
+
+
+    /**
+     * 验证WGS84坐标系下的几何图形坐标是否在合理范围内
+     *
+     * @param g WGS84坐标系下的几何图形
+     *
+     * @return 如果坐标在合理范围内返回true，否则返回false
+     */
+    private boolean isValidWgs84Geometry(Geometry g) {
+        Coordinate[] coordinates = g.getCoordinates();
+        for (Coordinate coord : coordinates) {
+            // 检查经度是否在[-180, 180]范围内
+            if (Math.abs(coord.x) > 180) {
+                return false;
+            }
+            // 检查纬度是否在[-90, 90]范围内
+            if (Math.abs(coord.y) > 90) {
+                return false;
+            }
+            // 检查坐标是否为0,0（通常为无效坐标）
+            if (coord.x == 0 && coord.y == 0) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+
+    /**
+     * 构建轨迹轮廓（重载方法，使用统一宽度）
+     * 通过轨迹点生成带宽度的轮廓多边形，左右宽度相同（各为总宽度的一半）
+     *
+     * @param seg         轨迹点列表，至少需要3个点，要求点位坐标系为WGS84
+     * @param totalWidthM 总宽度（米），轨迹线两侧的扩展距离之和
      *
      * @return Geometry对象，表示生成的轮廓多边形
      *
      * @throws Exception 可能抛出异常，如坐标转换错误或几何操作失败
      */
-    private Geometry buildOutline(List<TrackPoint> seg,
-                                  double leftWidthM,
-                                  double rightWidthM,
-                                  double simplifyM,
-                                  double maxEdgeLengthM) throws Exception {
+    public Geometry buildOutline(List<TrackPoint> seg, double totalWidthM) throws Exception {
+        double halfWidth = totalWidthM / 2.0;
+        return buildOutline(seg, halfWidth, halfWidth, 5.0, 20.0);
+    }
+
+    /**
+     * 构建轨迹轮廓（重载方法，使用统一宽度）
+     * 通过轨迹点生成带宽度的轮廓多边形，左右宽度相同（各为总宽度的一半）
+     *
+     * @param seg            轨迹点列表，至少需要3个点，要求点位坐标系为WGS84
+     * @param totalWidthM    总宽度（米），轨迹线两侧的扩展距离之和
+     * @param simplifyM      简化阈值（米），用于轨迹点简化以提高性能
+     * @param maxEdgeLengthM 最大边缘长度（米），控制轮廓的精细程度
+     *
+     * @return Geometry对象，表示生成的轮廓多边形
+     *
+     * @throws Exception 可能抛出异常，如坐标转换错误或几何操作失败
+     */
+    public Geometry buildOutline(List<TrackPoint> seg,
+                                 double totalWidthM,
+                                 double simplifyM,
+                                 double maxEdgeLengthM) throws Exception {
+        double halfWidth = totalWidthM / 2.0;
+        return buildOutline(seg, halfWidth, halfWidth, simplifyM, maxEdgeLengthM);
+    }
+
+    /**
+     * 构建轨迹轮廓
+     * 通过轨迹点生成带宽度的轮廓多边形，用于面积计算等操作
+     * 使用统一的Web Mercator投影系统进行计算，避免复杂的投影选择
+     *
+     * @param seg            轨迹点列表，至少需要3个点，坐标系必须为WGS84
+     * @param leftWidthM     左侧宽度（米），轨迹线左侧的扩展距离
+     * @param rightWidthM    右侧宽度（米），轨迹线右侧的扩展距离
+     * @param simplifyM      简化阈值（米），用于轨迹点简化以提高性能
+     * @param maxEdgeLengthM 最大边缘长度（米），控制轮廓的精细程度
+     *
+     * @return Geometry对象，表示生成的轮廓多边形，返回WGS84坐标系中的几何对象
+     *
+     * @throws Exception 可能抛出异常，如坐标转换错误或几何操作失败
+     */
+    public Geometry buildOutline(List<TrackPoint> seg,
+                                 double leftWidthM,
+                                 double rightWidthM,
+                                 double simplifyM,
+                                 double maxEdgeLengthM) throws Exception {
         // 如果轨迹点少于3个，无法构成有效几何形状，抛出异常
-        // 添加输入验证
-        if (seg == null || seg.size() < 3) {
+        if (seg == null) {
             throw new IllegalArgumentException("轨迹段至少需要3个点");
         }
         if (leftWidthM < 0 || rightWidthM < 0 || simplifyM < 0 || maxEdgeLengthM < 0) {
@@ -239,85 +308,237 @@ public class GisUtil implements AutoCloseable {
         }
 
         // 先按时间戳排序，确保轨迹点的时序正确
+        // 过滤掉无效的轨迹点（经纬度为0或超出范围的点）
         List<TrackPoint> sortedSeg = seg.stream()
                 .sorted(Comparator.comparing(TrackPoint::getTime))
+                .filter(p -> Math.abs(p.getLon()) <= 180 && Math.abs(p.getLat()) <= 90)
+                .filter(p -> !(p.getLon() == 0 && p.getLat() == 0)) // 过滤掉经纬度都为0的点
                 .collect(Collectors.toList());
-        // 将排序后的轨迹点转换为坐标数组
-        Coordinate[] coords = sortedSeg.stream()
-                .map(p -> new Coordinate(p.getLon(), p.getLat()))
-                .toArray(Coordinate[]::new);
-        // 创建原始线段，由所有轨迹点连接而成
-        LineString rawLine = config.geometryFactory.createLineString(coords);
-        // 使用Douglas-Peucker算法简化线段，减少点数提高性能
-        // 使用起点纬度计算更精确的简化阈值
-        double degPerMeter = degreesPerMeterAtLat(seg.get(0).getLat());
-        LineString simple = (LineString) DouglasPeuckerSimplifier.simplify(rawLine, simplifyM * degPerMeter);
 
-        // 定义源坐标系统（WGS84地理坐标系）
-        CoordinateReferenceSystem src = CRS.decode(config.WGS84, true);
-        // 根据第一个点的经度选择最佳目标坐标系统（投影坐标系）
-        CoordinateReferenceSystem tgt = pickCrs(seg.get(0).getLon()); // 使用原始经度值而不是投影后的x值
-        // 获取从源坐标系到目标坐标系的数学变换对象
-        MathTransform tx = CRS.findMathTransform(src, tgt, true);
-        // 对简化后的线段进行坐标转换，从地理坐标转为投影坐标
-        LineString proj = (LineString) JTS.transform(simple, tx);
-
-        // 创建单侧缓冲区然后合并，而不是创建两个独立的缓冲区
-        // 这样可以提高性能并减少几何错误
-        Geometry strip;
-        // 直接使用 equals 判定左右宽度相等（如果业务允许精确比较）
-        if (leftWidthM == rightWidthM) {
-            strip = proj.buffer(leftWidthM);
-        } else {
-            // 优化：先创建联合缓冲区，减少几何操作次数
-            Geometry leftBuffer = proj.buffer(leftWidthM);
-            Geometry rightBuffer = proj.buffer(rightWidthM);
-            strip = leftBuffer.union(rightBuffer);
+        if (sortedSeg.size() < 3) {
+            throw new IllegalArgumentException("轨迹段至少需要3个有效点");
         }
 
-        // 使用凹包算法生成轮廓，maxEdgeLenM控制轮廓边缘的最大长度
-        return ConcaveHull.concaveHullByLength(strip, maxEdgeLengthM);
+        try {
+            log.debug("原始轨迹点数量: {}", seg.size());
+            log.debug("过滤后轨迹点数量: {}", sortedSeg.size());
+            double minLon = sortedSeg.stream().mapToDouble(TrackPoint::getLon).min().orElse(0);
+            double maxLon = sortedSeg.stream().mapToDouble(TrackPoint::getLon).max().orElse(0);
+            double minLat = sortedSeg.stream().mapToDouble(TrackPoint::getLat).min().orElse(0);
+            double maxLat = sortedSeg.stream().mapToDouble(TrackPoint::getLat).max().orElse(0);
+            log.debug("轨迹范围: 经度[{}, {}], 纬度[{}, {}]", minLon, maxLon, minLat, maxLat);
+
+            // 将排序后的轨迹点转换为坐标数组
+            Coordinate[] coords = sortedSeg.stream()
+                    .map(p -> new Coordinate(p.getLon(), p.getLat()))
+                    .toArray(Coordinate[]::new);
+
+            // 创建原始线段，由所有轨迹点连接而成
+            LineString rawLine = config.geometryFactory.createLineString(coords);
+            log.debug("原始线段点数: {}", rawLine.getNumPoints());
+            log.debug("原始线段坐标范围: X[{}, {}], Y[{}, {}]",
+                    rawLine.getEnvelopeInternal().getMinX(), rawLine.getEnvelopeInternal().getMaxX(),
+                    rawLine.getEnvelopeInternal().getMinY(), rawLine.getEnvelopeInternal().getMaxY());
+
+            // 使用Douglas-Peucker算法简化线段，减少点数提高性能
+            double degPerMeter = degreesPerMeterAtLat(seg.get(0).getLat());
+            LineString simple = (LineString) DouglasPeuckerSimplifier.simplify(rawLine, simplifyM * degPerMeter);
+            log.debug("简化后线段点数: {}", simple.getNumPoints());
+
+            // 转换到Web Mercator投影坐标系进行计算
+            LineString projLine = (LineString) wgs84ToWebMercator(simple);
+            log.debug("投影后线段点数: {}", projLine.getNumPoints());
+            log.debug("投影后坐标范围: X[{}, {}], Y[{}, {}]",
+                    projLine.getEnvelopeInternal().getMinX(), projLine.getEnvelopeInternal().getMaxX(),
+                    projLine.getEnvelopeInternal().getMinY(), projLine.getEnvelopeInternal().getMaxY());
+
+            // 创建缓冲区
+            Geometry strip;
+            if (leftWidthM == rightWidthM) {
+                strip = projLine.buffer(leftWidthM);
+                log.debug("创建单侧缓冲区，宽度: {}米", leftWidthM);
+            } else {
+                Geometry leftBuffer = projLine.buffer(leftWidthM);
+                Geometry rightBuffer = projLine.buffer(rightWidthM);
+                strip = leftBuffer.union(rightBuffer);
+                log.debug("创建双侧缓冲区，左侧宽度: {}米, 右侧宽度: {}米", leftWidthM, rightWidthM);
+            }
+            log.debug("缓冲区几何类型: {}, 坐标范围: X[{}, {}], Y[{}, {}]",
+                    strip.getGeometryType(),
+                    strip.getEnvelopeInternal().getMinX(), strip.getEnvelopeInternal().getMaxX(),
+                    strip.getEnvelopeInternal().getMinY(), strip.getEnvelopeInternal().getMaxY());
+
+            // 在使用凹包算法前添加参数调整
+            double adjustedMaxEdgeLengthM = Math.max(maxEdgeLengthM, 0.1); // 确保参数不为0或负数
+            log.debug("凹包算法参数 - maxEdgeLengthM: {}", adjustedMaxEdgeLengthM);
+
+            // 使用凹包算法生成轮廓
+            Geometry hull;
+            try {
+                hull = ConcaveHull.concaveHullByLength(strip, adjustedMaxEdgeLengthM);
+                log.debug("凹包算法成功执行");
+            } catch (org.locationtech.jts.triangulate.quadedge.LocateFailureException e) {
+                log.warn("凹包算法三角剖分失败，尝试使用较小的maxEdgeLengthM值: " + e.getMessage());
+                // 尝试使用更小的参数值
+                try {
+                    hull = ConcaveHull.concaveHullByLength(strip, adjustedMaxEdgeLengthM / 2);
+                    log.debug("使用较小参数的凹包算法成功执行");
+                } catch (Exception ex) {
+                    log.warn("凹包算法仍然失败，使用凸包: " + ex.getMessage());
+                    hull = strip.convexHull();
+                    log.debug("使用凸包算法成功执行");
+                }
+            } catch (Exception e) {
+                log.warn("凹包算法失败，使用凸包作为备选: " + e.getMessage());
+                hull = strip.convexHull();
+                log.debug("使用凸包算法成功执行");
+            }
+
+            log.debug("凹包后几何类型: {}, 坐标范围: X[{}, {}], Y[{}, {}]",
+                    hull.getGeometryType(),
+                    hull.getEnvelopeInternal().getMinX(), hull.getEnvelopeInternal().getMaxX(),
+                    hull.getEnvelopeInternal().getMinY(), hull.getEnvelopeInternal().getMaxY());
+
+            // 转换回WGS84坐标系
+            log.debug("开始转换回WGS84坐标系");
+            Geometry result = webMercatorToWgs84(hull);
+            log.debug("转换后几何类型: {}, 坐标范围: X[{}, {}], Y[{}, {}]",
+                    result.getGeometryType(),
+                    result.getEnvelopeInternal().getMinX(), result.getEnvelopeInternal().getMaxX(),
+                    result.getEnvelopeInternal().getMinY(), result.getEnvelopeInternal().getMaxY());
+
+            // 验证结果并清理
+            if (!isValidWgs84Geometry(result)) {
+                log.warn("转换后的几何图形包含无效坐标，尝试清理几何图形");
+                result = result.buffer(0); // 清理几何图形
+                if (!isValidWgs84Geometry(result)) {
+                    log.error("清理后的几何图形仍包含无效坐标");
+                } else {
+                    log.debug("清理后几何图形坐标有效");
+                }
+            }
+
+            log.debug("最终结果几何类型: {}, 点数: {}", result.getGeometryType(), result.getNumPoints());
+            return result;
+        } catch (Exception e) {
+            log.error("构建轨迹轮廓失败: " + e.getMessage(), e);
+            throw new Exception("构建轨迹轮廓失败: " + e.getMessage(), e);
+        }
     }
 
 
     /**
-     * 计算轨迹段的面积（mu单位）
-     * 通过构建轨迹轮廓并计算面积，结果以亩为单位
+     * 将几何图形转换为WKT格式
+     * 确保输出为WGS84坐标系的标准地理坐标
      *
-     * @param seg            轨迹段，至少需要3个点
-     * @param leftWidthM     左侧宽度（米），轨迹线左侧的扩展距离
-     * @param rightWidthM    右侧宽度（米），轨迹线右侧的扩展距离
-     * @param simplifyM      简化阈值（米），用于轨迹点简化以提高性能
-     *                       推荐值范围：
-     *                       低精度场景：10-50米（如农田作业粗略估算）
-     *                       中等精度场景：5-10米（一般农业机械作业）
-     *                       高精度场景：1-5米（精细化农业作业）
-     * @param maxEdgeLengthM 最大边缘长度（米），控制轮廓的精细程度
-     *                       推荐值范围：
-     *                       粗略轮廓：50-100米
-     *                       标准轮廓：20-50米
-     *                       精细轮廓：5-20米
+     * @param g 几何图形对象
      *
-     * @return 面积（mu），以亩为单位，保留3位小数
+     * @return WKT字符串，表示几何图形
      *
-     * @throws Exception 可能抛出异常，如坐标转换错误或几何操作失败
+     * @throws Exception 坐标转换异常
      */
-    public double calcMu(List<TrackPoint> seg,
-                         double leftWidthM,
-                         double rightWidthM,
-                         double simplifyM,
-                         double maxEdgeLengthM) throws Exception {
-        // 构建轨迹轮廓几何对象
-        Geometry outline = buildOutline(seg, leftWidthM, rightWidthM, simplifyM, maxEdgeLengthM);
-        return calcMu(outline);
+    public String toWkt(Geometry g) throws Exception {
+        log.debug("开始toWkt转换");
+        log.debug("输入几何类型: {}, 坐标范围: X[{}, {}], Y[{}, {}]",
+                g.getGeometryType(),
+                g.getEnvelopeInternal().getMinX(), g.getEnvelopeInternal().getMaxX(),
+                g.getEnvelopeInternal().getMinY(), g.getEnvelopeInternal().getMaxY());
+
+        try {
+            // 检查几何图形是否已经是WGS84坐标系并且坐标有效
+            if (isLikelyWgs84(g) && hasValidCoordinates(g)) {
+                log.debug("几何图形可能是WGS84坐标系且坐标有效，直接返回WKT");
+                return g.toText();
+            } else {
+                log.debug("几何图形需要转换或坐标无效");
+            }
+
+            // 转换到WGS84坐标系
+            log.debug("开始坐标转换");
+            Geometry wgs = webMercatorToWgs84(g);
+            log.debug("转换后几何类型: {}, 坐标范围: X[{}, {}], Y[{}, {}]",
+                    wgs.getGeometryType(),
+                    wgs.getEnvelopeInternal().getMinX(), wgs.getEnvelopeInternal().getMaxX(),
+                    wgs.getEnvelopeInternal().getMinY(), wgs.getEnvelopeInternal().getMaxY());
+
+            // 验证转换后的几何图形
+            if (!isValidWgs84Geometry(wgs) || !hasValidCoordinates(wgs)) {
+                log.warn("转换后的几何图形仍包含无效坐标，尝试清理几何图形");
+                // 尝试清理几何图形
+                wgs = wgs.buffer(0);
+                if (!isValidWgs84Geometry(wgs) || !hasValidCoordinates(wgs)) {
+                    log.error("清理后的几何图形仍包含无效坐标，返回原始几何图形");
+                    return g.toText();
+                } else {
+                    log.debug("清理后几何图形坐标有效");
+                }
+            }
+
+            String wkt = wgs.toText();
+            log.debug("WKT转换完成，WKT长度: {}", wkt.length());
+            return wkt;
+        } catch (Exception e) {
+            log.error("坐标转换失败: " + e.getMessage(), e);
+            return g.toText();
+        }
+    }
+
+    /**
+     * 检查几何图形中的坐标是否有效（没有接近零的异常值）
+     *
+     * @param g 几何图形对象
+     *
+     * @return 如果坐标有效返回true，否则返回false
+     */
+    private boolean hasValidCoordinates(Geometry g) {
+        Coordinate[] coordinates = g.getCoordinates();
+        for (Coordinate coord : coordinates) {
+            // 检查是否存在非常接近0但非0的坐标值，这通常表示转换错误
+            if ((Math.abs(coord.x) < 1e-10 && Math.abs(coord.x) > 0) ||
+                    (Math.abs(coord.y) < 1e-10 && Math.abs(coord.y) > 0)) {
+                return false;
+            }
+            // 检查坐标是否为0,0（通常为无效坐标）
+            if (coord.x == 0 && coord.y == 0) {
+                return false;
+            }
+        }
+        return true;
     }
 
 
     /**
-     * 计算地理坐标系下几何图形的面积（mu单位）
-     * 通过坐标转换将地理坐标转换为投影坐标后计算面积，结果以亩为单位
+     * 判断几何图形是否可能已经是WGS84坐标系
      *
-     * @param outline 地理坐标系下的几何图形（WGS84）
+     * @param g 几何图形对象
+     *
+     * @return 如果可能是WGS84坐标系返回true，否则返回false
+     */
+    private boolean isLikelyWgs84(Geometry g) {
+        Coordinate[] coordinates = g.getCoordinates();
+        int invalidCount = 0;
+        int totalCount = coordinates.length;
+
+        for (Coordinate coord : coordinates) {
+            // 更严格的判断：如果坐标值非常接近0（在误差范围内）或者超出地理范围，则认为不是WGS84坐标系
+            if (Math.abs(coord.x) > 180 || Math.abs(coord.y) > 90 ||
+                    (Math.abs(coord.x) < 1e-10 && Math.abs(coord.x) > 0) ||
+                    (Math.abs(coord.y) < 1e-10 && Math.abs(coord.y) > 0) ||
+                    (coord.x == 0 && coord.y == 0)) {
+                invalidCount++;
+            }
+        }
+
+        // 如果超过5%的坐标点有问题，认为不是WGS84坐标系
+        return (double) invalidCount / totalCount < 0.05;
+    }
+
+
+    /**
+     * 计算几何图形的面积（mu单位）
+     * 通过坐标转换将几何图形转换为投影坐标后计算面积，结果以亩为单位
+     *
+     * @param outline 几何图形
      *
      * @return 面积（mu），以亩为单位，保留3位小数
      *
@@ -325,81 +546,31 @@ public class GisUtil implements AutoCloseable {
      */
     public double calcMu(Geometry outline) throws RuntimeException {
         try {
-            // 如果几何图形已经是投影坐标系，则直接计算面积
-            if (!outline.getGeometryType().equals("Point") && outline.getArea() > 0) {
-                // 检查是否可能是投影坐标系（面积较大）
-                // 一个合理的阈值判断，如果面积已经很大（超过1平方千米），可能已经是投影坐标
-                if (outline.getArea() > 1000000) {
-                    return Math.round(outline.getArea() * config.MU_PER_SQ_METER * 1000.0) / 1000.0;
-                }
-            }
-
-            // 否则认为是地理坐标系，需要转换到投影坐标系再计算面积
-            // 获取几何图形的中心点经度用于选择合适的投影
-            double centroidLon = outline.getCentroid().getCoordinate().getX();
-
-            // 定义源坐标系统（WGS84地理坐标系）
-            CoordinateReferenceSystem src = CRS.decode(config.WGS84, true);
-            // 根据中心点经度选择最佳目标坐标系统（投影坐标系）
-            CoordinateReferenceSystem tgt = pickCrs(centroidLon);
-            // 获取从源坐标系到目标坐标系的数学变换对象
-            MathTransform tx = CRS.findMathTransform(src, tgt, true);
-            // 对几何图形进行坐标转换，从地理坐标转为投影坐标
-            Geometry proj = JTS.transform(outline, tx);
+            // 转换到Web Mercator投影坐标系计算面积
+            Geometry proj = wgs84ToWebMercator(outline);
 
             // 计算面积并转换为mu单位（亩）
-            // proj.getArea() 获取几何对象面积（平方米）
-            // * config.MU_PER_SQ_METER 转换为亩
-            // * 1000.0 和 / 1000.0 实现保留3位小数的四舍五入
             return Math.round(proj.getArea() * config.MU_PER_SQ_METER * 1000.0) / 1000.0;
         } catch (Exception e) {
             throw new RuntimeException("计算面积时出错: " + e.getMessage(), e);
         }
     }
 
-
     /**
-     * 将轨迹段转换为WKT格式
-     * 生成轨迹轮廓的WKT（Well-Known Text）表示，便于GIS软件处理
+     * wkt计算亩数（WGS84坐标系）
+     * 直接计算WGS84坐标系下几何图形的面积，结果以亩为单位
      *
-     * @param seg            轨迹段，至少需要3个点
-     * @param leftWidthM     左侧宽度（米），轨迹线左侧的扩展距离
-     * @param rightWidthM    右侧宽度（米），轨迹线右侧的扩展距离
-     * @param simplifyM      简化阈值（米），用于轨迹点简化以提高性能
-     *                       推荐值范围：
-     *                       低精度场景：10-50米（如农田作业粗略估算）
-     *                       中等精度场景：5-10米（一般农业机械作业）
-     *                       高精度场景：1-5米（精细化农业作业）
-     * @param maxEdgeLengthM 最大边缘长度（米），控制轮廓的精细程度
-     *                       推荐值范围：
-     *                       粗略轮廓：50-100米
-     *                       标准轮廓：20-50米
-     *                       精细轮廓：5-20米
+     * @param wkt wkt字符串，要求为WGS84坐标系
      *
-     * @return WKT字符串，表示轨迹轮廓的几何形状
-     *
-     * @throws Exception 可能抛出异常，如坐标转换错误或几何操作失败
+     * @return 面积（mu），以亩为单位，保留3位小数
      */
-    public String toWkt(List<TrackPoint> seg,
-                        double leftWidthM,
-                        double rightWidthM,
-                        double simplifyM,
-                        double maxEdgeLengthM) throws Exception {
-        // 构建轨迹轮廓几何对象
-        Geometry g = buildOutline(seg, leftWidthM, rightWidthM, simplifyM, maxEdgeLengthM);
-        // 转换回WGS84坐标系统，确保输出为标准地理坐标
-        // 使用第一个轨迹点的原始经度来选择正确的投影坐标系
-        CoordinateReferenceSystem src = pickCrs(seg.get(0).getLon());  // 使用原始经度值
-        CoordinateReferenceSystem tgt = CRS.decode(config.WGS84, true);
-        MathTransform tx = CRS.findMathTransform(src, tgt, true);
-        Geometry wgs = JTS.transform(g, tx);
-        // 返回WKT字符串表示
-        return wgs.toText();
+    public double calcMu(String wkt) {
+        Geometry geometry = fromWkt(wkt);
+        return calcMu(geometry);
     }
 
-
     /**
-     * 从WKT字符串创建Geometry对象
+     * 从WKT字符串创建Geometry对象,WKT字符串必须是WGS84坐标系
      * 支持POLYGON和MULTIPOLYGON两种几何类型
      *
      * @param wkt WKT字符串，必须是POLYGON或MULTIPOLYGON类型
@@ -410,13 +581,11 @@ public class GisUtil implements AutoCloseable {
      * @throws RuntimeException         如果解析过程中发生错误
      */
     public Geometry fromWkt(String wkt) {
-        // 输入验证
         if (wkt == null || wkt.trim().isEmpty()) {
             throw new IllegalArgumentException("WKT字符串不能为空");
         }
 
         try {
-            // 使用WKTReader来解析WKT字符串
             WKTReader wktReader = new WKTReader(config.geometryFactory);
             Geometry geometry = wktReader.read(wkt);
 
@@ -424,7 +593,6 @@ public class GisUtil implements AutoCloseable {
                 throw new RuntimeException("无法解析WKT字符串: " + wkt);
             }
 
-            // 检查几何类型是否受支持
             String geometryType = geometry.getGeometryType().toUpperCase();
             if (!("POLYGON".equals(geometryType) || "MULTIPOLYGON".equals(geometryType))) {
                 throw new IllegalArgumentException("不支持的几何类型: " + geometryType + "。仅支持POLYGON和MULTIPOLYGON");
@@ -436,7 +604,6 @@ public class GisUtil implements AutoCloseable {
         }
     }
 
-
     /**
      * 使用haversine公式计算两点间距离
      * haversine公式用于计算球面上两点间的最短距离（大圆距离）
@@ -447,18 +614,12 @@ public class GisUtil implements AutoCloseable {
      * @return 距离（米），两点间的地理距离
      */
     private double haversine(CoordinatePoint p1, CoordinatePoint p2) {
-        // 计算纬度差并转换为弧度
         double dLat = Math.toRadians(p2.getLat() - p1.getLat());
-        // 计算经度差并转换为弧度
         double dLon = Math.toRadians(p2.getLon() - p1.getLon());
-        // haversine公式的核心计算部分
-        // a = sin²(Δlat/2) + cos(lat1) * cos(lat2) * sin²(Δlon/2)
         double a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-                Math.cos(Math.toRadians(p1.getLat())) *           // 第一点纬度的余弦值
-                        Math.cos(Math.toRadians(p2.getLat())) *   // 第二点纬度的余弦值
-                        Math.sin(dLon / 2) * Math.sin(dLon / 2);  // 经度差的正弦平方
-        // 计算大圆距离，公式为：距离 = 2 * R * arcsin(√a)
-        // 其中R为地球半径，a为上面计算的值
+                Math.cos(Math.toRadians(p1.getLat())) *
+                        Math.cos(Math.toRadians(p2.getLat())) *
+                        Math.sin(dLon / 2) * Math.sin(dLon / 2);
         return config.R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
     }
 
@@ -477,7 +638,6 @@ public class GisUtil implements AutoCloseable {
         double magic = Math.sin(radLat);
         magic = 1 - config.eccentricitySquared * magic * magic;
         double sqrtMagic = Math.sqrt(magic);
-        // 添加保护条件
         if (magic * sqrtMagic < 1e-10) {
             throw new IllegalArgumentException("纬度值导致除零错误");
         }
@@ -485,7 +645,6 @@ public class GisUtil implements AutoCloseable {
         dLon = (dLon * 180.0) / (config.semiMajorAxis / sqrtMagic * Math.cos(radLat) * Math.PI);
         return new double[]{dLon, dLat};
     }
-
 
     /**
      * 转换纬度
@@ -528,12 +687,9 @@ public class GisUtil implements AutoCloseable {
      * @return 每米对应的经度变化（度）
      */
     private double degreesPerMeterAtLat(double lat) {
-        // 在给定纬度上，地球的半径会变小
         double latRad = Math.toRadians(lat);
-        // 使用简单的球面近似计算
         double metersPerDegree = 2 * Math.PI * config.R * Math.cos(latRad) / 360;
 
-        // 防止除零错误，当cos(latRad)接近0时（接近两极）
         if (Math.abs(metersPerDegree) < 1e-10) {
             return 1.0 / (2 * Math.PI * config.R / 360);
         }
@@ -541,14 +697,10 @@ public class GisUtil implements AutoCloseable {
         return 1.0 / metersPerDegree;
     }
 
+    // ... 其他方法保持不变 ...
 
     /**
      * 判断两个几何形状是否拓扑相等
-     *
-     * @param g1 第一个几何形状
-     * @param g2 第二个几何形状
-     *
-     * @return 如果两个几何形状拓扑相等则返回true，否则返回false
      */
     public boolean equals(Geometry g1, Geometry g2) {
         return g1.equals(g2);
@@ -556,11 +708,6 @@ public class GisUtil implements AutoCloseable {
 
     /**
      * 判断两个几何形状是否没有共有点（脱节）
-     *
-     * @param g1 第一个几何形状
-     * @param g2 第二个几何形状
-     *
-     * @return 如果两个几何形状没有共有点则返回true，否则返回false
      */
     public boolean disjoint(Geometry g1, Geometry g2) {
         return g1.disjoint(g2);
@@ -568,11 +715,6 @@ public class GisUtil implements AutoCloseable {
 
     /**
      * 判断两个几何形状是否至少有一个共有点（相交）
-     *
-     * @param g1 第一个几何形状
-     * @param g2 第二个几何形状
-     *
-     * @return 如果两个几何形状至少有一个共有点则返回true，否则返回false
      */
     public boolean intersects(Geometry g1, Geometry g2) {
         return g1.intersects(g2);
@@ -580,11 +722,6 @@ public class GisUtil implements AutoCloseable {
 
     /**
      * 判断两个几何形状是否有至少一个公共的边界点，但是没有内部点（接触）
-     *
-     * @param g1 第一个几何形状
-     * @param g2 第二个几何形状
-     *
-     * @return 如果两个几何形状接触则返回true，否则返回false
      */
     public boolean touches(Geometry g1, Geometry g2) {
         return g1.touches(g2);
@@ -592,11 +729,6 @@ public class GisUtil implements AutoCloseable {
 
     /**
      * 判断两个几何形状是否共享一些但不是所有的内部点（交叉）
-     *
-     * @param g1 第一个几何形状
-     * @param g2 第二个几何形状
-     *
-     * @return 如果两个几何形状交叉则返回true，否则返回false
      */
     public boolean crosses(Geometry g1, Geometry g2) {
         return g1.crosses(g2);
@@ -604,11 +736,6 @@ public class GisUtil implements AutoCloseable {
 
     /**
      * 判断几何形状A是否完全在几何形状B内部（内含）
-     *
-     * @param g1 几何形状A
-     * @param g2 几何形状B
-     *
-     * @return 如果几何形状A在几何形状B内部则返回true，否则返回false
      */
     public boolean within(Geometry g1, Geometry g2) {
         return g1.within(g2);
@@ -616,11 +743,6 @@ public class GisUtil implements AutoCloseable {
 
     /**
      * 判断几何形状A是否包含几何形状B（包含）
-     *
-     * @param g1 几何形状A
-     * @param g2 几何形状B
-     *
-     * @return 如果几何形状A包含几何形状B则返回true，否则返回false
      */
     public boolean contains(Geometry g1, Geometry g2) {
         return g1.contains(g2);
@@ -628,11 +750,6 @@ public class GisUtil implements AutoCloseable {
 
     /**
      * 判断两个几何形状是否共享一部分但不是所有的公共点，而且相交处有他们自己相同的区域（重叠）
-     *
-     * @param g1 第一个几何形状
-     * @param g2 第二个几何形状
-     *
-     * @return 如果两个几何形状重叠则返回true，否则返回false
      */
     public boolean overlaps(Geometry g1, Geometry g2) {
         return g1.overlaps(g2);
@@ -640,23 +757,10 @@ public class GisUtil implements AutoCloseable {
 
     /**
      * 判断点是否在矩形内
-     * <p>
-     * 注意：在地理坐标系中，经度表示东西方向（西经为负，东经为正），纬度表示南北方向（南纬为负，北纬为正）
-     * 所以矩形的"左下角"是(minLon, minLat)，"右上角"是(maxLon, maxLat)
-     *
-     * @param pointLon   点的经度（X坐标）
-     * @param pointLat   点的纬度（Y坐标）
-     * @param rectMinLon 矩形最小经度（西边界），对应矩形左边界
-     * @param rectMinLat 矩形最小纬度（南边界），对应矩形下边界
-     * @param rectMaxLon 矩形最大经度（东边界），对应矩形右边界
-     * @param rectMaxLat 矩形最大纬度（北边界），对应矩形上边界
-     *
-     * @return 如果点在矩形内则返回true，否则返回false
      */
     public boolean inRectangle(double pointLon, double pointLat,
                                double rectMinLon, double rectMinLat,
                                double rectMaxLon, double rectMaxLat) {
-        // 添加输入验证
         if (rectMinLon > rectMaxLon || rectMinLat > rectMaxLat) {
             throw new IllegalArgumentException("矩形参数无效：minLon不能大于maxLon，minLat不能大于maxLat");
         }
@@ -665,38 +769,20 @@ public class GisUtil implements AutoCloseable {
                 pointLat >= rectMinLat && pointLat <= rectMaxLat;
     }
 
-
     /**
      * 判断点是否在圆形内
-     *
-     * @param point   点坐标
-     * @param center  圆心坐标
-     * @param radiusM 圆的半径（米）
-     *
-     * @return 如果点在圆内则返回true，否则返回false
      */
     public boolean inCircle(CoordinatePoint point, CoordinatePoint center, double radiusM) {
-        // 添加空值检查
         if (point == null || center == null) {
             throw new IllegalArgumentException("点坐标不能为null");
         }
 
-        // 计算两点间距离
         double distance = haversine(point, center);
         return distance <= radiusM;
     }
 
-
     /**
      * 判断点是否在圆形内
-     *
-     * @param pointLon  点的经度
-     * @param pointLat  点的纬度
-     * @param centerLon 圆心经度
-     * @param centerLat 圆心纬度
-     * @param radiusM   圆的半径（米）
-     *
-     * @return 如果点在圆内则返回true，否则返回false
      */
     public boolean inCircle(double pointLon, double pointLat,
                             double centerLon, double centerLat,
@@ -709,14 +795,6 @@ public class GisUtil implements AutoCloseable {
 
     /**
      * 判断点是否在多边形内
-     *
-     * @param pointLon   点的经度
-     * @param pointLat   点的纬度
-     * @param polygonWkt 多边形的WKT表示
-     *
-     * @return 如果点在多边形内则返回true，否则返回false
-     *
-     * @throws Exception 如果WKT解析失败
      */
     public boolean inPolygon(double pointLon, double pointLat, String polygonWkt) throws Exception {
         if (polygonWkt == null || polygonWkt.isEmpty()) {
@@ -736,40 +814,23 @@ public class GisUtil implements AutoCloseable {
         }
     }
 
-
     /**
      * 创建缓冲区
-     *
-     * @param geom      原始几何形状
-     * @param distance  缓冲距离（米）
-     * @param originLon 原始经度，用于选择正确的投影坐标系
-     *
-     * @return 缓冲区几何形状
-     *
-     * @throws Exception 坐标转换异常
      */
     public Geometry buffer(Geometry geom, double distance, double originLon) throws Exception {
         try {
-            CoordinateReferenceSystem src = CRS.decode(config.WGS84, true);
-            CoordinateReferenceSystem tgt = pickCrs(originLon); // 使用传入的原始经度
-            MathTransform tx = CRS.findMathTransform(src, tgt, true);
-            Geometry proj = JTS.transform(geom, tx);
+            // 转换到Web Mercator投影坐标系
+            Geometry proj = wgs84ToWebMercator(geom);
             Geometry buffer = proj.buffer(distance);
-            Geometry wgs = JTS.transform(buffer, CRS.findMathTransform(tgt, src, true));
-            return wgs;
+            // 转换回WGS84坐标系
+            return webMercatorToWgs84(buffer);
         } catch (Exception e) {
             throw new Exception("创建缓冲区时出错: " + e.getMessage(), e);
         }
     }
 
-
     /**
      * 计算两个几何形状的交集
-     *
-     * @param g1 第一个几何形状
-     * @param g2 第二个几何形状
-     *
-     * @return 两个几何形状的交集
      */
     public Geometry intersection(Geometry g1, Geometry g2) {
         return g1.intersection(g2);
@@ -777,11 +838,6 @@ public class GisUtil implements AutoCloseable {
 
     /**
      * 计算两个几何形状的并集
-     *
-     * @param g1 第一个几何形状
-     * @param g2 第二个几何形状
-     *
-     * @return 两个几何形状的并集
      */
     public Geometry union(Geometry g1, Geometry g2) {
         return g1.union(g2);
@@ -789,11 +845,6 @@ public class GisUtil implements AutoCloseable {
 
     /**
      * 计算两个几何形状的差集
-     *
-     * @param g1 第一个几何形状
-     * @param g2 第二个几何形状
-     *
-     * @return 两个几何形状的差集(g1-g2)
      */
     public Geometry difference(Geometry g1, Geometry g2) {
         return g1.difference(g2);
@@ -801,11 +852,6 @@ public class GisUtil implements AutoCloseable {
 
     /**
      * 计算两个几何形状的对称差集
-     *
-     * @param g1 第一个几何形状
-     * @param g2 第二个几何形状
-     *
-     * @return 两个几何形状的对称差集
      */
     public Geometry symDifference(Geometry g1, Geometry g2) {
         return g1.symDifference(g2);
@@ -813,11 +859,6 @@ public class GisUtil implements AutoCloseable {
 
     /**
      * 将WGS84坐标转换为GCJ02坐标（火星坐标）
-     *
-     * @param lon WGS84经度
-     * @param lat WGS84纬度
-     *
-     * @return GCJ02坐标点
      */
     public CoordinatePoint wgs84ToGcj02(double lon, double lat) {
         if (outOfChina(lon, lat)) {
@@ -830,11 +871,6 @@ public class GisUtil implements AutoCloseable {
 
     /**
      * 将GCJ02坐标转换为WGS84坐标
-     *
-     * @param lon GCJ02经度
-     * @param lat GCJ02纬度
-     *
-     * @return WGS84坐标点
      */
     public CoordinatePoint gcj02ToWgs84(double lon, double lat) {
         if (outOfChina(lon, lat)) {
@@ -847,11 +883,6 @@ public class GisUtil implements AutoCloseable {
 
     /**
      * 将GCJ02坐标转换为BD09坐标（百度坐标）
-     *
-     * @param lon GCJ02经度
-     * @param lat GCJ02纬度
-     *
-     * @return BD09坐标点
      */
     public CoordinatePoint gcj02ToBd09(double lon, double lat) {
         double z = Math.sqrt(lon * lon + lat * lat) + 0.00002 * Math.sin(lat * Math.PI);
@@ -863,11 +894,6 @@ public class GisUtil implements AutoCloseable {
 
     /**
      * 将BD09坐标转换为GCJ02坐标
-     *
-     * @param lon BD09经度
-     * @param lat BD09纬度
-     *
-     * @return GCJ02坐标点
      */
     public CoordinatePoint bd09ToGcj02(double lon, double lat) {
         double x = lon - 0.0065, y = lat - 0.006;
@@ -880,11 +906,6 @@ public class GisUtil implements AutoCloseable {
 
     /**
      * 将WGS84坐标直接转换为BD09坐标
-     *
-     * @param lon WGS84经度
-     * @param lat WGS84纬度
-     *
-     * @return BD09坐标点
      */
     public CoordinatePoint wgs84ToBd09(double lon, double lat) {
         CoordinatePoint gcj02 = wgs84ToGcj02(lon, lat);
@@ -893,11 +914,6 @@ public class GisUtil implements AutoCloseable {
 
     /**
      * 将BD09坐标直接转换为WGS84坐标
-     *
-     * @param lon BD09经度
-     * @param lat BD09纬度
-     *
-     * @return WGS84坐标点
      */
     public CoordinatePoint bd09ToWgs84(double lon, double lat) {
         CoordinatePoint gcj02 = bd09ToGcj02(lon, lat);
@@ -906,10 +922,6 @@ public class GisUtil implements AutoCloseable {
 
     /**
      * 批量将WGS84坐标点列表转换为GCJ02坐标点列表
-     *
-     * @param points WGS84坐标点列表
-     *
-     * @return GCJ02坐标点列表
      */
     public List<CoordinatePoint> wgs84ToGcj02(List<CoordinatePoint> points) {
         return points.stream()
@@ -919,10 +931,6 @@ public class GisUtil implements AutoCloseable {
 
     /**
      * 批量将GCJ02坐标点列表转换为WGS84坐标点列表
-     *
-     * @param points GCJ02坐标点列表
-     *
-     * @return WGS84坐标点列表
      */
     public List<CoordinatePoint> gcj02ToWgs84(List<CoordinatePoint> points) {
         return points.stream()
@@ -932,10 +940,6 @@ public class GisUtil implements AutoCloseable {
 
     /**
      * 批量将GCJ02坐标点列表转换为BD09坐标点列表
-     *
-     * @param points GCJ02坐标点列表
-     *
-     * @return BD09坐标点列表
      */
     public List<CoordinatePoint> gcj02ToBd09(List<CoordinatePoint> points) {
         return points.stream()
@@ -945,10 +949,6 @@ public class GisUtil implements AutoCloseable {
 
     /**
      * 批量将BD09坐标点列表转换为GCJ02坐标点列表
-     *
-     * @param points BD09坐标点列表
-     *
-     * @return GCJ02坐标点列表
      */
     public List<CoordinatePoint> bd09ToGcj02(List<CoordinatePoint> points) {
         return points.stream()
@@ -958,10 +958,6 @@ public class GisUtil implements AutoCloseable {
 
     /**
      * 批量将WGS84坐标点列表直接转换为BD09坐标点列表
-     *
-     * @param points WGS84坐标点列表
-     *
-     * @return BD09坐标点列表
      */
     public List<CoordinatePoint> wgs84ToBd09(List<CoordinatePoint> points) {
         return points.stream()
@@ -971,10 +967,6 @@ public class GisUtil implements AutoCloseable {
 
     /**
      * 批量将BD09坐标点列表直接转换为WGS84坐标点列表
-     *
-     * @param points BD09坐标点列表
-     *
-     * @return WGS84坐标点列表
      */
     public List<CoordinatePoint> bd09ToWgs84(List<CoordinatePoint> points) {
         return points.stream()
@@ -984,16 +976,11 @@ public class GisUtil implements AutoCloseable {
 
     /**
      * 批量将TrackPoint列表从WGS84坐标转换为GCJ02坐标（修改原对象）
-     *
-     * @param points WGS84坐标的TrackPoint列表
-     *
-     * @return WGS84坐标的TrackPoint列表（原列表，坐标已更新）
      */
     public List<TrackPoint> wgs84ToGcj02TrackPoints(List<TrackPoint> points) {
         return points.stream()
                 .peek(p -> {
                     CoordinatePoint result = wgs84ToGcj02(p.getLon(), p.getLat());
-                    // 更新现有TrackPoint对象的坐标
                     p.setLon(result.getLon());
                     p.setLat(result.getLat());
                 })
@@ -1002,16 +989,11 @@ public class GisUtil implements AutoCloseable {
 
     /**
      * 批量将TrackPoint列表从GCJ02坐标转换为WGS84坐标（修改原对象）
-     *
-     * @param points GCJ02坐标的TrackPoint列表
-     *
-     * @return WGS84坐标的TrackPoint列表（原列表，坐标已更新）
      */
     public List<TrackPoint> gcj02ToWgs84TrackPoints(List<TrackPoint> points) {
         return points.stream()
                 .peek(p -> {
                     CoordinatePoint result = gcj02ToWgs84(p.getLon(), p.getLat());
-                    // 更新现有TrackPoint对象的坐标
                     p.setLon(result.getLon());
                     p.setLat(result.getLat());
                 })
@@ -1020,10 +1002,6 @@ public class GisUtil implements AutoCloseable {
 
     /**
      * 批量将TrackPoint列表从GCJ02坐标转换为BD09坐标（创建新对象）
-     *
-     * @param points GCJ02坐标的TrackPoint列表
-     *
-     * @return BD09坐标的TrackPoint列表（新列表）
      */
     public List<TrackPoint> gcj02ToBd09TrackPoints(List<TrackPoint> points) {
         return points.stream()
@@ -1038,10 +1016,6 @@ public class GisUtil implements AutoCloseable {
 
     /**
      * 批量将TrackPoint列表从BD09坐标转换为GCJ02坐标（创建新对象）
-     *
-     * @param points BD09坐标的TrackPoint列表
-     *
-     * @return GCJ02坐标的TrackPoint列表（新列表）
      */
     public List<TrackPoint> bd09ToGcj02TrackPoints(List<TrackPoint> points) {
         return points.stream()
@@ -1056,10 +1030,6 @@ public class GisUtil implements AutoCloseable {
 
     /**
      * 批量将TrackPoint列表从WGS84坐标直接转换为BD09坐标（创建新对象）
-     *
-     * @param points WGS84坐标的TrackPoint列表
-     *
-     * @return BD09坐标的TrackPoint列表（新列表）
      */
     public List<TrackPoint> wgs84ToBd09TrackPoints(List<TrackPoint> points) {
         return points.stream()
@@ -1074,10 +1044,6 @@ public class GisUtil implements AutoCloseable {
 
     /**
      * 批量将TrackPoint列表从BD09坐标直接转换为WGS84坐标（创建新对象）
-     *
-     * @param points BD09坐标的TrackPoint列表
-     *
-     * @return WGS84坐标的TrackPoint列表（新列表）
      */
     public List<TrackPoint> bd09ToWgs84TrackPoints(List<TrackPoint> points) {
         return points.stream()
@@ -1090,23 +1056,10 @@ public class GisUtil implements AutoCloseable {
                 .collect(Collectors.toList());
     }
 
-
     /**
      * 判断点是否在中国境外
-     * <p>
-     * 中国范围定义为:
-     * 经度: 72.004 < lon < 137.8347
-     * 纬度: 0.8293 < lat < 55.8271
-     *
-     * @param lon 经度
-     * @param lat 纬度
-     *
-     * @return 如果在中国境外返回true，否则返回false
      */
     public boolean outOfChina(double lon, double lat) {
-        // 严格边界检查，边界上的点被认为在中国境内
         return lon < 72.004 || lon > 137.8347 || lat < 0.8293 || lat > 55.8271;
     }
-
-
 }

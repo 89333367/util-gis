@@ -35,8 +35,12 @@
             <id>osgeo</id>
             <name>OSGeo Release Repository</name>
             <url>https://repo.osgeo.org/repository/release/</url>
-            <snapshots><enabled>false</enabled></snapshots>
-            <releases><enabled>true</enabled></releases>
+            <snapshots>
+                <enabled>false</enabled>
+            </snapshots>
+            <releases>
+                <enabled>true</enabled>
+            </releases>
         </repository>
     </repositories>
 
@@ -59,23 +63,23 @@
         <dependency>
             <groupId>org.geotools</groupId>
             <artifactId>gt-epsg-hsql</artifactId>
-            <version>33.2</version>
+            <version>33.3</version>
         </dependency>
         <dependency>
             <groupId>org.geotools</groupId>
             <artifactId>gt-main</artifactId>
-            <version>33.2</version>
+            <version>33.3</version>
         </dependency>
         <dependency>
             <groupId>org.geotools</groupId>
             <artifactId>gt-geojson</artifactId>
-            <version>33.2</version>
+            <version>33.3</version>
         </dependency>
         <!-- GeoTools 核心 & 投影操作 (关键依赖) -->
         <dependency>
             <groupId>org.geotools</groupId>
             <artifactId>gt-referencing</artifactId>
-            <version>33.2</version>
+            <version>33.3</version>
         </dependency>
         <!-- https://central.sonatype.com/artifact/org.opengis/geoapi/versions -->
         <dependency>
@@ -88,6 +92,31 @@
             <groupId>org.junit.jupiter</groupId>
             <artifactId>junit-jupiter</artifactId>
             <version>5.14.0</version>
+            <scope>test</scope>
+        </dependency>
+
+        <!-- https://central.sonatype.com/artifact/mysql/mysql-connector-java/versions -->
+        <dependency>
+            <groupId>mysql</groupId>
+            <artifactId>mysql-connector-java</artifactId>
+            <version>5.1.49</version>
+            <!--<version>8.0.33</version>-->
+            <scope>test</scope>
+        </dependency>
+        <!-- https://central.sonatype.com/artifact/com.zaxxer/HikariCP/versions -->
+        <dependency>
+            <groupId>com.zaxxer</groupId>
+            <artifactId>HikariCP</artifactId>
+            <!--<version>4.0.3</version>-->
+            <version>7.0.2</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>sunyu.util</groupId>
+            <artifactId>util-tdengine</artifactId>
+            <!-- {util.version}_{jdk.version}_{architecture.version} -->
+            <version>1.0_jdk8_x64</version>
+            <classifier>shaded</classifier>
             <scope>test</scope>
         </dependency>
     </dependencies>
