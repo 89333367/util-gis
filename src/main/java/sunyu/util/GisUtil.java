@@ -88,6 +88,8 @@ public class GisUtil implements AutoCloseable {
 
         // GeometryFactory缓存，避免重复创建
         private final GeometryFactory geometryFactory = new GeometryFactory();
+        // 面积阈值因子：用于判定“小多边形”（倍数 × π × widthM^2）
+        private final double SMALL_POLYGON_AREA_FACTOR = 2.5;
     }
 
     /**
@@ -261,6 +263,29 @@ public class GisUtil implements AutoCloseable {
             long buildStartTime = System.currentTimeMillis();
             Geometry result = buildOutlineBySimpleBuffers(sortedSeg, widthM);
             long buildTime = System.currentTimeMillis() - buildStartTime;
+    
+            // 基于宽度的最小面积阈值，过滤掉“道路上的点缓冲”形成的小多边形
+            double minAreaThresholdM2 = Math.PI * widthM * widthM * config.SMALL_POLYGON_AREA_FACTOR;
+            if (result instanceof MultiPolygon) {
+                MultiPolygon mp = (MultiPolygon) result;
+                List<Polygon> keep = new ArrayList<>();
+                for (int i = 0; i < mp.getNumGeometries(); i++) {
+                    Polygon poly = (Polygon) mp.getGeometryN(i);
+                    Geometry projPoly = wgs84ToWebMercator(poly);
+                    double areaM2 = projPoly.getArea();
+                    if (areaM2 >= minAreaThresholdM2) {
+                        keep.add(poly);
+                    }
+                }
+                if (!keep.isEmpty()) {
+                    result = config.geometryFactory.createMultiPolygon(keep.toArray(new Polygon[0]));
+                } else {
+                    log.debug("[buildOutline] 过滤后无有效多边形，阈值面积: {} m²", minAreaThresholdM2);
+                    result = config.geometryFactory.createMultiPolygon(new Polygon[0]);
+                }
+                log.debug("[buildOutline] 小多边形过滤完成：原 {} 个 → 保留 {} 个；阈值面积: {} m²",
+                        mp.getNumGeometries(), keep.size(), minAreaThresholdM2);
+            }
     
             log.debug("[buildOutline] 轮廓构建完成，构建耗时: {}ms", buildTime);
     
@@ -960,6 +985,7 @@ public class GisUtil implements AutoCloseable {
     }
 
 }
+
 
 
 
