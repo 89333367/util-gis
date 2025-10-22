@@ -89,7 +89,7 @@ public class GisUtil implements AutoCloseable {
         // GeometryFactory缓存，避免重复创建
         private final GeometryFactory geometryFactory = new GeometryFactory();
         // 面积阈值因子：用于判定“小多边形”（倍数 × π × widthM^2）
-        private final double SMALL_POLYGON_AREA_FACTOR = 2.5;
+        private final double SMALL_POLYGON_AREA_FACTOR = 1;
     }
 
     /**

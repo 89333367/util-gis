@@ -134,20 +134,22 @@ public class TestGisUtil {
     void 读取数据() {
         TDengineUtil tDengineUtil = getTdengineUtil();
         String did = "EC73BD2508220055";
-        String jobStartTime = "2025-10-13 12:06:25";
-        String jobEndTime = "2025-10-13 15:47:25";
+        String jobStartTime = "2025-10-13 00:00:00";
+        String jobEndTime = "2025-10-13 23:59:59";
         String tdSql = StrUtil.format("select protocol from frequent.d_p where did='{}' and `3014`>='{}' and `3014`<='{}' and protocol match '(,2601:0,)'", did, jobStartTime, jobEndTime);
         log.debug("{}", tdSql);
         List<Map<String, Object>> rows = tDengineUtil.executeQuery(tdSql);
         log.debug("{}", rows.size());
+        List<String> l = new ArrayList<>();
         for (Map<String, Object> row : rows) {
             Map<String, String> protocol = protocolSdk.parseProtocolString(row.get("protocol").toString());
-            System.out.println(StrUtil.format("{},{},{}", protocol.get("3014"), protocol.get("2602"), protocol.get("2603")));
+            l.add(StrUtil.format("{},{},{}", protocol.get("3014"), protocol.get("2602"), protocol.get("2603")));
         }
+        FileUtil.writeUtf8Lines(l, "d:/tmp/" + did + ".txt");
     }
 
     @Test
-    void 测试() {
+    void 测试farm_work_split() {
         String fileName = "farm_work_split_658a85a8-6a31-4ee4-ab7c-1975f99ba296";
         List<TrackPoint> l = new ArrayList<>();
         String did = null;
@@ -182,6 +184,37 @@ public class TestGisUtil {
             double wktMu = gisUtil.calcMu(wkt);
             double mu = gisUtil.calcMu(g);
             log.info("设备号：{} 作业时间：{} {} 宽幅：{} 原亩数：{} wkt亩数：{} 几何图形亩数：{}", did, jobStartTime, jobEndTime, jobWidth, jobArea
+                    , wktMu, mu);
+        } catch (Exception e) {
+            log.error(e);
+        }
+    }
+
+    @Test
+    void 测试一天() {
+        String fileName = "EC73BD2508220055_20251013.txt";
+        List<TrackPoint> l = new ArrayList<>();
+        String did = "EC73BD2508220055";
+        DateTime jobStartTime = DateUtil.parse("2025-10-13 00:00:00");
+        DateTime jobEndTime = DateUtil.parse("2025-10-13 23:59:59");
+        double jobWidth = 2.6;
+        String[] datas = ResourceUtil.readUtf8Str("datas/" + fileName).split("\n");
+        for (int i = 0; i < datas.length; i++) {
+            // 20251013120625,113.33316443,28.08500825
+            String[] split1 = datas[i].split(",");
+            TrackPoint trackPoint = new TrackPoint(Double.parseDouble(split1[1]), Double.parseDouble(split1[2]), LocalDateTimeUtil.parse(split1[0], "yyyyMMddHHmmss"));
+            l.add(trackPoint);
+        }
+        log.debug("{} 条点位", l.size());
+        try {
+            Geometry g = gisUtil.buildOutline(l, jobWidth);
+            log.debug("轮廓创建完毕");
+            String wkt = gisUtil.toWkt(g);
+            log.debug("wkt获取完毕");
+            FileUtil.writeUtf8String(wkt, StrUtil.format("d:/tmp/{}_{}.txt", did, jobEndTime.toString("yyyyMMddHHmmss")));
+            double wktMu = gisUtil.calcMu(wkt);
+            double mu = gisUtil.calcMu(g);
+            log.info("设备号：{} 作业时间：{} {} 宽幅：{} wkt亩数：{} 几何图形亩数：{}", did, jobStartTime, jobEndTime, jobWidth
                     , wktMu, mu);
         } catch (Exception e) {
             log.error(e);
