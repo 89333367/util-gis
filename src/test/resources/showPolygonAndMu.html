@@ -187,57 +187,6 @@
         #copyPolysBtn:hover { background: #e0e0e0; }
         #fillPolysBtn { background: #45c37b; color: #fff; }
         #fillPolysBtn:hover { background: #37a465; }
-
-        /* 批量POLYGON生成器样式 */
-        .batch-section {
-            margin-top: 10px;
-            padding: 10px;
-            background: #fafafa;
-            border: 1px solid #eee;
-            border-radius: 6px;
-        }
-        .batch-section .title {
-            font-size: 13px;
-            font-weight: 600;
-            color: #333;
-            margin-bottom: 6px;
-        }
-        .batch-section .desc {
-            font-size: 12px;
-            color: #666;
-            margin-bottom: 8px;
-        }
-        #batchInput, #multiOutput {
-            width: 100%;
-            height: 90px;
-            margin-bottom: 8px;
-            padding: 8px;
-            border: 1px solid #ddd;
-            border-radius: 4px;
-            font-family: monospace;
-            resize: vertical;
-            box-sizing: border-box;
-        }
-        .batch-actions {
-            display: flex;
-            gap: 8px;
-            margin-bottom: 8px;
-        }
-        .batch-actions button {
-            flex: 1;
-            padding: 6px 0;
-            border: none;
-            border-radius: 4px;
-            cursor: pointer;
-            font-size: 13px;
-            transition: background 0.2s;
-        }
-        #generateMultiBtn { background: #337AFF; color: #fff; }
-        #generateMultiBtn:hover { background: #2860E0; }
-        #copyMultiBtn { background: #f5f5f5; color: #333; }
-        #copyMultiBtn:hover { background: #e0e0e0; }
-        #fillToMainBtn { background: #45c37b; color: #fff; }
-        #fillToMainBtn:hover { background: #37a465; }
         #drawButton,
         #clearButton {
             width: 50%;
@@ -610,24 +559,18 @@
         const rings = coordsWGS84.map(ring => ring.map(([lng, lat]) => new T.LngLat(lng, lat)));
 
 
-         // 创建多边形（增加可见性：添加黑色描边光环 + 高对比度填充）
-         const polygonHalo = new T.Polygon(rings, {
-             color: "#000000",
-             weight: 6,
-             opacity: 1,
-             fillOpacity: 0
-         });
-         const polygon = new T.Polygon(rings, {
-             color: "#FFD700",
-             weight: 3,
-             opacity: 1,
-             fillColor: "#00FFFF",
-             fillOpacity: 0.35
-         });
-
-         // 使用WGS84坐标计算面积（更准确的面积计算）
-        let areaSqm;
-        let areaMu;
+         // 创建单条亮黄色描边的多边形（更细线宽）
+          const polygon = new T.Polygon(rings, {
+              color: "#FFD700",
+              weight: 1,
+              opacity: 1,
+              fillColor: "#00FFFF",
+              fillOpacity: 0.35
+          });
+ 
+          // 使用WGS84坐标计算面积（更准确的面积计算）
+         let areaSqm;
+         let areaMu;
 
 
 
@@ -676,7 +619,6 @@
 
           // 添加多边形到地图
           if (map) {
-              map.addOverLay(polygonHalo);
               map.addOverLay(polygon);
               console.log(`多边形${actualPolygonIndex}已添加到地图`);
           } else {

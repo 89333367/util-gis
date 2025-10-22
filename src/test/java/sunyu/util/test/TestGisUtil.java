@@ -64,7 +64,7 @@ public class TestGisUtil {
     }
 
     @Test
-    void t001() throws SQLException {
+    void test_farm_work_split() throws SQLException {
         Db db = getMysqlDb();
         TDengineUtil tDengineUtil = getTdengineUtil();
         String sql = "select did, jobArea, jobStartTime, jobEndTime, jobWidth, insertTime, updateTime" +

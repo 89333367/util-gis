@@ -282,18 +282,26 @@ public class GisUtil implements AutoCloseable {
             throw new IllegalArgumentException("所有参数必须为非负数");
         }
 
+        // 使用Kalman滤波对轨迹点进行预处理，消除噪声影响
+        long filterStartTime = System.currentTimeMillis();
+        KalmanFilterUtil kalmanFilter = new KalmanFilterUtil();
+        List<TrackPoint> filteredSeg = kalmanFilter.filterTrack(seg);
+        long filterTime = System.currentTimeMillis() - filterStartTime;
+        log.debug("[buildOutline] Kalman滤波处理完成，原始点数: {}, 滤波后点数: {}, 滤波耗时: {}ms",
+                seg.size(), filteredSeg.size(), filterTime);
+
         // 先按时间戳排序，确保轨迹点的时序正确
         // 过滤掉无效的轨迹点（经纬度为0或超出范围的点）
-        long filterStartTime = System.currentTimeMillis();
-        List<TrackPoint> sortedSeg = seg.stream()
+        long processStartTime = System.currentTimeMillis();
+        List<TrackPoint> sortedSeg = filteredSeg.stream()
                 .sorted(Comparator.comparing(TrackPoint::getTime))
                 .filter(p -> Math.abs(p.getLon()) <= 180 && Math.abs(p.getLat()) <= 90)
                 .filter(p -> !(p.getLon() == 0 && p.getLat() == 0)) // 过滤掉经纬度都为0的点
                 .collect(Collectors.toList());
-        long filterTime = System.currentTimeMillis() - filterStartTime;
+        long processTime = System.currentTimeMillis() - processStartTime;
 
-        log.debug("[buildOutline] 轨迹点过滤完成，原始点数: {}, 过滤后点数: {}, 过滤耗时: {}ms",
-                seg.size(), sortedSeg.size(), filterTime);
+        log.debug("[buildOutline] 轨迹点过滤完成，滤波后点数: {}, 过滤后点数: {}, 过滤耗时: {}ms",
+                filteredSeg.size(), sortedSeg.size(), processTime);
 
         if (sortedSeg.size() < 3) {
             throw new IllegalArgumentException("轨迹段至少需要3个有效点");
@@ -419,8 +427,8 @@ public class GisUtil implements AutoCloseable {
 
             totalTime += System.currentTimeMillis() - startPoint;
 
-            // 每处理10000个点打印一次进度
-            if (i > 0 && i % 10000 == 0) {
+            // 每处理100个点打印一次进度
+            if (i > 0 && i % 100 == 0) {
                 log.trace("[buildOutlineBySimpleBuffers] 已处理 {}/{} 个点, 转换耗时: {}ms, 缓冲耗时: {}ms, 平均每个点耗时: {}ms",
                         i, seg.size(), convertTime, bufferTime, totalTime / i);
             }
@@ -501,8 +509,8 @@ public class GisUtil implements AutoCloseable {
 
             totalTime += System.currentTimeMillis() - startPoint;
 
-            // 每处理10000个点打印一次进度
-            if (i > 0 && i % 10000 == 0) {
+            // 每处理100个点打印一次进度
+            if (i > 0 && i % 100 == 0) {
                 log.trace("[buildOutlineByComplexBuffers] 已处理 {}/{} 个线段, 转换耗时: {}ms, 缓冲耗时: {}ms, 平均每个线段耗时: {}ms",
                         i, seg.size() - 1, convertTime, bufferTime, totalTime / i);
             }
