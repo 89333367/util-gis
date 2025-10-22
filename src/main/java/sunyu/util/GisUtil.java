@@ -3,7 +3,6 @@ package sunyu.util;
 import cn.hutool.core.bean.BeanUtil;
 import cn.hutool.log.Log;
 import cn.hutool.log.LogFactory;
-import org.geotools.geojson.geom.GeometryJSON;
 import org.geotools.geometry.jts.JTS;
 import org.geotools.referencing.CRS;
 import org.locationtech.jts.geom.*;
@@ -597,25 +596,6 @@ public class GisUtil implements AutoCloseable {
     }
 
     /**
-     * 根据纬度计算每米对应的经度变化（度）
-     * 地球是椭球体，不同纬度上每米对应的经度变化不同
-     *
-     * @param lat 纬度
-     *
-     * @return 每米对应的经度变化（度）
-     */
-    private double degreesPerMeterAtLat(double lat) {
-        double latRad = Math.toRadians(lat);
-        double metersPerDegree = 2 * Math.PI * config.R * Math.cos(latRad) / 360;
-
-        if (Math.abs(metersPerDegree) < 1e-10) {
-            return 1.0 / (2 * Math.PI * config.R / 360);
-        }
-
-        return 1.0 / metersPerDegree;
-    }
-
-    /**
      * 判断两个几何形状是否拓扑相等
      */
     public boolean equals(Geometry g1, Geometry g2) {
@@ -718,7 +698,7 @@ public class GisUtil implements AutoCloseable {
         }
 
         try {
-            Geometry polygon = config.geometryFactory.createGeometry(new GeometryJSON().read(polygonWkt));
+            Geometry polygon = fromWkt(polygonWkt);
             if (polygon == null) {
                 throw new IllegalArgumentException("解析多边形WKT失败");
             }
@@ -980,6 +960,7 @@ public class GisUtil implements AutoCloseable {
     }
 
 }
+
 
 
 

@@ -1,7 +1,5 @@
 package sunyu.util;
 
-import cn.hutool.log.Log;
-import cn.hutool.log.LogFactory;
 import org.geotools.geometry.jts.JTS;
 import org.geotools.referencing.CRS;
 import org.geotools.referencing.crs.DefaultGeographicCRS;
@@ -28,8 +26,6 @@ import java.util.stream.Collectors;
  * @author SunYu
  */
 public class KalmanFilterUtil {
-    private static final Log log = LogFactory.get();
-
     /**
      * WGS84坐标系（EPSG:4326）：全球通用的经纬度坐标系
      * 坐标单位：经度（°）、纬度（°），无法直接计算两点间直线距离，需转墨卡托投影
