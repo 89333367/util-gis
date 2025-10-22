@@ -56,8 +56,8 @@
 
         .minimize-btn {
             position: absolute;
-            top: 8px;
-            right: 8px;
+            top: 4px;
+            right: -4px;
             width: 24px;
             height: 24px;
             border-radius: 50%;
@@ -188,7 +188,9 @@
         #fillPolysBtn { background: #45c37b; color: #fff; }
         #fillPolysBtn:hover { background: #37a465; }
         #drawButton,
-        #clearButton {
+        #clearButton,
+        #drawTrackButton,
+        #clearTrackButton {
             width: 50%;
             padding: 8px 0;
             border: none;
@@ -198,26 +200,32 @@
             transition: background 0.2s;
         }
 
-        #drawButton {
+        #drawButton,
+        #drawTrackButton {
             background: #337AFF;
             color: white;
         }
 
-        #drawButton:hover {
+        #drawButton:hover,
+        #drawTrackButton:hover {
             background: #2860E0;
         }
 
-        #clearButton {
+        #clearButton,
+        #clearTrackButton {
             background: #f5f5f5;
             color: #333;
         }
 
-        #clearButton:hover {
+        #clearButton:hover,
+        #clearTrackButton:hover {
             background: #e0e0e0;
         }
 
         #drawButton:disabled,
-        #clearButton:disabled {
+        #clearButton:disabled,
+        #drawTrackButton:disabled,
+        #clearTrackButton:disabled {
             background: #e0e0e0;
             color: #999;
             cursor: not-allowed;
@@ -293,11 +301,11 @@
 
     <div class="content-wrapper">
         <div class="tabs-header">
-            <button class="tab-btn active" id="tabDrawBtn">绘制</button>
+            <button class="tab-btn active" id="tabDrawBtn">轮廓</button>
+            <button class="tab-btn" id="tabTrackBtn">轨迹</button>
             <button class="tab-btn" id="tabSplitBtn">分割器</button>
-            <button class="tab-btn" id="tabBatchBtn">生成器</button>
+            <button class="tab-btn" id="tabBatchBtn">合并器</button>
         </div>
-        <div class="tip" id="parserStatusWrap">解析引擎：<span id="parserStatus">检测中...</span></div>
         <div class="tab-pane active" id="tabDraw">
             <div class="tip">请输入WKT字符串（支持POLYGON/MULTIPOLYGON）：</div>
             <textarea id="wktTextarea"></textarea>
@@ -317,9 +325,9 @@
                 <button id="drawButton" disabled>绘制轮廓</button>
                 <button id="clearButton" disabled>清空轮廓</button>
             </div>
-            <!-- 标签显示开关（默认不展示） -->
-            <div class="label-toggle" style="margin-top:8px;font-size:12px;color:#333;">
-                <label><input type="checkbox" id="toggleLabelsCheckbox"> 显示亩数标签</label>
+            <!-- 显示开关：仅保留显示亩数 -->
+            <div class="display-toggles" style="margin-top:8px;font-size:12px;color:#333;">
+                <label><input type="checkbox" id="toggleLabelsCheckbox"> 显示亩数</label>
             </div>
         </div>
 
@@ -341,7 +349,7 @@
         <div class="tab-pane" id="tabBatch">
             <!-- 批量POLYGON → MULTIPOLYGON 生成器 -->
             <div class="batch-section">
-                <div class="title">批量POLYGON → MULTIPOLYGON 生成器</div>
+                <div class="title">批量POLYGON → MULTIPOLYGON 合并器</div>
                 <div class="desc">每行一个 POLYGON WKT（或用分号分隔）。生成后可一键填充到上方并绘制。</div>
                 <textarea id="batchInput"></textarea>
                 <div class="batch-actions">
@@ -352,12 +360,31 @@
                 <textarea id="multiOutput" readonly></textarea>
             </div>
         </div>
+        <div class="tab-pane" id="tabTrack">
+            <div class="tip">请粘贴轨迹文本（每行一条：定位时间 yyyyMMddHHmmss, 经度, 纬度）。</div>
+            <div class="coord-settings" style="margin-bottom:8px;font-size:12px;color:#333;">
+                <label>轨迹坐标系：
+                    <select id="trackCoordSysSelect" style="margin-left:6px;">
+                        <option value="wgs84" selected>WGS84</option>
+                        <option value="gcj02">GCJ-02（国测局）</option>
+                        <option value="bd09">BD-09（百度）</option>
+                        <option value="cgcs2000">CGCS2000</option>
+                    </select>
+                </label>
+            </div>
+            <textarea id="trackTextarea" style="width:100%;height:120px;margin-bottom:10px;padding:8px;border:1px solid #ddd;border-radius:4px;font-family:monospace;resize:vertical;box-sizing:border-box;"></textarea>
+            <div class="button-group">
+                <button id="drawTrackButton" disabled>绘制轨迹</button>
+                <button id="clearTrackButton" disabled>清空轨迹</button>
+            </div>
+        </div>
     </div>
 </div>
 
 <script>
     let map;
     let currentPolygons = []; // 存储多边形和其标签
+    let currentTracks = []; // 存储轨迹折线及相关覆盖物
     let mapLoaded = false;
     let mapLabelHandlers = []; // 存储地图事件处理器
     let labelsEnabled = false; // 标签显示开关（默认关闭）
@@ -370,13 +397,12 @@
         }
         initMap();
         bindDrawEvent();
-        setExampleWkt();
         bindMinimizeEvent();
         bindTabs();
         bindBatchGenerator();
         bindMultiSplitter();
-        updateParserStatus();
         bindLabelsToggle(); // 绑定标签显示开关
+        bindTrackEvents();  // 绑定轨迹绘制与清空
     };
 
     function initMap() {
@@ -470,6 +496,7 @@
             mapLoaded = true;
             hideLoading();
             disableButtons(false);
+            disableTrackButtons(false);
         }
     }
 
@@ -488,6 +515,13 @@
     function disableButtons(disabled) {
         document.getElementById("drawButton").disabled = disabled;
         document.getElementById("clearButton").disabled = disabled;
+    }
+
+    function disableTrackButtons(disabled) {
+        const drawTrackBtn = document.getElementById("drawTrackButton");
+        const clearTrackBtn = document.getElementById("clearTrackButton");
+        if (drawTrackBtn) drawTrackBtn.disabled = disabled;
+        if (clearTrackBtn) clearTrackBtn.disabled = disabled;
     }
 
     function bindDrawEvent() {
@@ -578,12 +612,12 @@
         const rings = coordsWGS84.map(ring => ring.map(([lng, lat]) => new T.LngLat(lng, lat)));
 
 
-         // 创建单条亮黄色描边的多边形（更细线宽）
+         // 创建半透明填充的多边形（无边框）
           const polygon = new T.Polygon(rings, {
               color: "#FFD700",
               weight: 1,
               opacity: 1,
-              fillColor: "#00FFFF",
+              fillColor: "#FFFF00",
               fillOpacity: 0.35
           });
  
@@ -898,6 +932,7 @@
      function bindTabs() {
          const tabs = [
              { btn: document.getElementById('tabDrawBtn'), pane: document.getElementById('tabDraw'), key: 'draw' },
+             { btn: document.getElementById('tabTrackBtn'), pane: document.getElementById('tabTrack'), key: 'track' },
              { btn: document.getElementById('tabSplitBtn'), pane: document.getElementById('tabSplit'), key: 'split' },
              { btn: document.getElementById('tabBatchBtn'), pane: document.getElementById('tabBatch'), key: 'batch' },
          ];
@@ -1236,6 +1271,110 @@
              console.error('调整视图范围时出错:', error);
          }
      }
+// 轨迹绘制与解析
+    function bindTrackEvents() {
+        const drawBtn = document.getElementById('drawTrackButton');
+        const clearBtn = document.getElementById('clearTrackButton');
+        const ta = document.getElementById('trackTextarea');
+        if (!drawBtn || !clearBtn || !ta) return;
+
+        drawBtn.addEventListener('click', function(){
+            try {
+                const text = ta.value.trim();
+                if (!text) { alert('请粘贴轨迹文本（时间戳,经度,纬度）'); return; }
+                const points = parseTrackText(text);
+                if (points.length < 2) { alert('有效轨迹点不足，至少需要两点'); return; }
+                drawTrackFromPoints(points);
+                fitViewportToTrack(points);
+            } catch (e) {
+                alert('绘制轨迹失败：' + (e && e.message ? e.message : e));
+                console.error('绘制轨迹异常:', e);
+            }
+        });
+
+        clearBtn.addEventListener('click', function(){
+            clearTrackOverlays();
+            console.log('已清空轨迹');
+        });
+    }
+
+    function parseTrackText(text){
+        // 选择输入坐标系（优先使用轨迹页签专属选择器，若未设置则回退到绘制页签选择器）
+        const coordSysEl = document.getElementById('trackCoordSysSelect') || document.getElementById('coordSysSelect');
+        const coordSys = (coordSysEl && coordSysEl.value) || 'wgs84';
+        const lines = text.split(/\r?\n/);
+        const pts = [];
+        for (let i=0;i<lines.length;i++){
+            const line = lines[i].trim();
+            if (!line) continue;
+            const parts = line.split(',');
+            if (parts.length < 3) continue;
+            let lng = parseFloat((parts[1] || '').trim());
+            let lat = parseFloat((parts[2] || '').trim());
+            // 初步过滤：数值合法性与正常范围
+            if (!isFinite(lng) || !isFinite(lat)) continue;
+            if (lng === 0 || lat === 0) continue; // 丢弃0.0异常点
+            if (lng < -180 || lng > 180 || lat < -90 || lat > 90) continue; // 超出经纬度范围丢弃
+
+            // 将输入坐标转换为WGS84
+            let w;
+            if (coordSys === 'wgs84' || coordSys === 'cgcs2000') {
+                w = { lng, lat };
+            } else if (coordSys === 'gcj02') {
+                w = gcj02ToWgs84(lng, lat);
+            } else if (coordSys === 'bd09') {
+                const g = bd09ToGcj02(lng, lat);
+                w = gcj02ToWgs84(g.lng, g.lat);
+            } else {
+                w = { lng, lat };
+            }
+            // 转换结果兜底检查
+            if (!isFinite(w.lng) || !isFinite(w.lat)) continue;
+            if (w.lng < -180 || w.lng > 180 || w.lat < -90 || w.lat > 90) continue;
+
+            // 使用WGS84坐标绘制到地图
+            pts.push(new T.LngLat(w.lng, w.lat));
+        }
+        return pts;
+    }
+
+    function drawTrackFromPoints(points){
+        // 先移除旧轨迹（不影响轮廓）
+        clearTrackOverlays(false);
+        const polyline = new T.Polyline(points, {
+            color: '#FF3B30',
+            weight: 1,
+            opacity: 0.9
+        });
+        if (map) {
+            map.addOverLay(polyline);
+        }
+        currentTracks.push(polyline);
+    }
+
+    function clearTrackOverlays(resetArray = true){
+        try {
+            currentTracks.forEach(pl => {
+                if (pl && map && map.removeOverLay) {
+                    try { map.removeOverLay(pl); } catch (e) { console.warn('移除轨迹失败:', e); }
+                }
+            });
+            if (resetArray) currentTracks = [];
+        } catch (e) {
+            console.warn('清空轨迹时出错:', e);
+        }
+    }
+
+
+    function fitViewportToTrack(points){
+        try {
+            if (!map || !map.setViewport || !points || !points.length) return;
+            map.setViewport(points);
+        } catch (e) {
+            console.warn('轨迹视图居中失败:', e);
+        }
+    }
+
 </script>
 </body>
 

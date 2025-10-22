@@ -197,7 +197,7 @@ public class TestGisUtil {
         String did = "EC73BD2508220055";
         DateTime jobStartTime = DateUtil.parse("2025-10-13 00:00:00");
         DateTime jobEndTime = DateUtil.parse("2025-10-13 23:59:59");
-        double jobWidth = 2.6;
+        double jobWidth = 3;
         String[] datas = ResourceUtil.readUtf8Str("datas/" + fileName).split("\n");
         for (int i = 0; i < datas.length; i++) {
             // 20251013120625,113.33316443,28.08500825
