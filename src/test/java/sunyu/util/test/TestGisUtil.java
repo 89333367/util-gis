@@ -105,7 +105,8 @@ public class TestGisUtil {
                             Geometry g = gisUtil.buildOutline(l, jobWidth);
                             log.debug("轮廓创建完毕");
                             String wkt = gisUtil.toWkt(g);
-                            log.debug("WKT {}", wkt);
+                            log.debug("wkt获取完毕");
+                            log.info("{}", wkt);
                             double wktMu = gisUtil.calcMu(wkt);
                             double mu = gisUtil.calcMu(g);
                             log.info("设备号：{} 作业时间：{} {} 宽幅：{} 原亩数：{} wkt亩数：{} 几何图形亩数：{}", did, jobStartTime, jobEndTime, jobWidth, jobArea
@@ -114,11 +115,9 @@ public class TestGisUtil {
                             log.error(e);
                         }
                     }
-                    break;
                 }
                 page++;
             }
-            break;
         }
     }
 

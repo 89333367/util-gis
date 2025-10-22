@@ -30,6 +30,8 @@ public class GisUtil implements AutoCloseable {
     private final Log log = LogFactory.get();
     // 配置参数，包含各种常量和默认值
     private final Config config;
+    // 几何图形合并工具
+    private final GeometryUnionUtil geometryUnionUtil;
 
     /**
      * 获取构建器实例，使用构建器模式创建GisUtil对象
@@ -55,6 +57,7 @@ public class GisUtil implements AutoCloseable {
         log.info("[构建工具类] 结束");
         // 保存配置参数引用
         this.config = config;
+        this.geometryUnionUtil = new GeometryUnionUtil(config.geometryFactory);
     }
 
     /**
@@ -267,6 +270,10 @@ public class GisUtil implements AutoCloseable {
                                  double rightWidthM,
                                  double simplifyM,
                                  double maxEdgeLengthM) throws Exception {
+        long startTime = System.currentTimeMillis();
+        log.debug("[buildOutline] 开始处理轨迹轮廓，轨迹点数: {}, 左侧宽度: {} 米, 右侧宽度: {} 米, 简化阈值: {} 米, 最大边缘长度: {} 米",
+                seg != null ? seg.size() : 0, leftWidthM, rightWidthM, simplifyM, maxEdgeLengthM);
+
         // 如果轨迹点少于3个，无法构成有效几何形状，抛出异常
         if (seg == null) {
             throw new IllegalArgumentException("轨迹段至少需要3个点");
@@ -277,11 +284,16 @@ public class GisUtil implements AutoCloseable {
 
         // 先按时间戳排序，确保轨迹点的时序正确
         // 过滤掉无效的轨迹点（经纬度为0或超出范围的点）
+        long filterStartTime = System.currentTimeMillis();
         List<TrackPoint> sortedSeg = seg.stream()
                 .sorted(Comparator.comparing(TrackPoint::getTime))
                 .filter(p -> Math.abs(p.getLon()) <= 180 && Math.abs(p.getLat()) <= 90)
                 .filter(p -> !(p.getLon() == 0 && p.getLat() == 0)) // 过滤掉经纬度都为0的点
                 .collect(Collectors.toList());
+        long filterTime = System.currentTimeMillis() - filterStartTime;
+
+        log.debug("[buildOutline] 轨迹点过滤完成，原始点数: {}, 过滤后点数: {}, 过滤耗时: {}ms",
+                seg.size(), sortedSeg.size(), filterTime);
 
         if (sortedSeg.size() < 3) {
             throw new IllegalArgumentException("轨迹段至少需要3个有效点");
@@ -293,19 +305,34 @@ public class GisUtil implements AutoCloseable {
             double minLat = sortedSeg.stream().mapToDouble(TrackPoint::getLat).min().orElse(0);
             double maxLat = sortedSeg.stream().mapToDouble(TrackPoint::getLat).max().orElse(0);
 
+            log.debug("[buildOutline] 轨迹范围: 经度[{}, {}], 纬度[{}, {}]", minLon, maxLon, minLat, maxLat);
+
             // 使用新的基于点缓冲区的方法
+            long buildStartTime = System.currentTimeMillis();
             Geometry result = buildOutlineByPointBuffers(sortedSeg, leftWidthM, rightWidthM);
+            long buildTime = System.currentTimeMillis() - buildStartTime;
+
+            log.debug("[buildOutline] 轮廓构建完成，构建耗时: {}ms", buildTime);
 
             // 如果结果是MultiPolygon且包含多个部分，直接返回
             if (result instanceof MultiPolygon && result.getNumGeometries() > 1) {
+                log.debug("[buildOutline] 结果为MultiPolygon，包含 {} 个部分", result.getNumGeometries());
+                long endTime = System.currentTimeMillis();
+                log.debug("[buildOutline] 总计耗时: {}ms", endTime - startTime);
                 return result;
             }
 
             // 如果是单个Polygon，检查是否需要进一步分割
             if (result instanceof Polygon || (result instanceof MultiPolygon && result.getNumGeometries() == 1)) {
+                log.debug("[buildOutline] 结果为Polygon或单个MultiPolygon");
+                long endTime = System.currentTimeMillis();
+                log.debug("[buildOutline] 总计耗时: {}ms", endTime - startTime);
                 // 可以在这里添加额外的处理逻辑
                 return result;
             }
+
+            long endTime = System.currentTimeMillis();
+            log.debug("[buildOutline] 处理完成，总计耗时: {}ms", endTime - startTime);
 
             return result;
         } catch (Exception e) {
@@ -327,13 +354,22 @@ public class GisUtil implements AutoCloseable {
      * @throws Exception 坐标转换异常
      */
     private Geometry buildOutlineByPointBuffers(List<TrackPoint> seg, double leftWidthM, double rightWidthM) throws Exception {
+        long startTime = System.currentTimeMillis();
         try {
             // 如果左右宽度相同，使用简单的点缓冲区方法
             if (Math.abs(leftWidthM - rightWidthM) < 0.001) {
-                return buildOutlineBySimpleBuffers(seg, leftWidthM);
+                log.debug("[buildOutlineByPointBuffers] 使用简单缓冲区方法 (左右宽度相同)");
+                Geometry result = buildOutlineBySimpleBuffers(seg, leftWidthM);
+                long endTime = System.currentTimeMillis();
+                log.debug("[buildOutlineByPointBuffers] 简单缓冲区方法完成，耗时: {}ms", endTime - startTime);
+                return result;
             } else {
                 // 如果左右宽度不同，使用更复杂的方法
-                return buildOutlineByComplexBuffers(seg, leftWidthM, rightWidthM);
+                log.debug("[buildOutlineByPointBuffers] 使用复杂缓冲区方法 (左右宽度不同)");
+                Geometry result = buildOutlineByComplexBuffers(seg, leftWidthM, rightWidthM);
+                long endTime = System.currentTimeMillis();
+                log.debug("[buildOutlineByPointBuffers] 复杂缓冲区方法完成，耗时: {}ms", endTime - startTime);
+                return result;
             }
         } catch (Exception e) {
             log.error("基于点缓冲区构建轮廓失败: " + e.getMessage(), e);
@@ -352,30 +388,66 @@ public class GisUtil implements AutoCloseable {
      * @throws Exception 坐标转换异常
      */
     private Geometry buildOutlineBySimpleBuffers(List<TrackPoint> seg, double widthM) throws Exception {
+        long startTime = System.currentTimeMillis();
+        log.debug("[buildOutlineBySimpleBuffers] 开始处理 {} 个轨迹点，缓冲区宽度: {} 米", seg.size(), widthM);
+
         // 为每个点创建缓冲区
         List<Geometry> pointBuffers = new ArrayList<>();
 
+        long convertTime = 0;
+        long bufferTime = 0;
+        long totalTime = 0;
+
         for (int i = 0; i < seg.size(); i++) {
+            long startPoint = System.currentTimeMillis();
+
             TrackPoint point = seg.get(i);
             Coordinate coord = new Coordinate(point.getLon(), point.getLat());
             Geometry pointGeom = config.geometryFactory.createPoint(coord);
 
             // 转换到Web Mercator投影坐标系
+            long startConvert = System.currentTimeMillis();
             Geometry projPoint = wgs84ToWebMercator(pointGeom);
+            convertTime += System.currentTimeMillis() - startConvert;
 
             // 创建缓冲区
+            long startBuffer = System.currentTimeMillis();
             Geometry buffer = projPoint.buffer(widthM);
+            bufferTime += System.currentTimeMillis() - startBuffer;
+
             pointBuffers.add(buffer);
+
+            totalTime += System.currentTimeMillis() - startPoint;
+
+            // 每处理10000个点打印一次进度
+            if (i > 0 && i % 10000 == 0) {
+                log.trace("[buildOutlineBySimpleBuffers] 已处理 {}/{} 个点, 转换耗时: {}ms, 缓冲耗时: {}ms, 平均每个点耗时: {}ms",
+                        i, seg.size(), convertTime, bufferTime, totalTime / i);
+            }
         }
 
-        // 合并所有缓冲区
-        Geometry union = pointBuffers.get(0);
-        for (int i = 1; i < pointBuffers.size(); i++) {
-            union = union.union(pointBuffers.get(i));
-        }
+        log.debug("[buildOutlineBySimpleBuffers] 点缓冲区创建完成，共 {} 个缓冲区, 转换总耗时: {}ms, 缓冲总耗时: {}ms",
+                pointBuffers.size(), convertTime, bufferTime);
+
+        // 使用GeometryCollection优化合并所有缓冲区
+        long startUnion = System.currentTimeMillis();
+        log.debug("[buildOutlineBySimpleBuffers] 开始使用GeometryCollection优化合并 {} 个缓冲区", pointBuffers.size());
+
+        // 使用优化的合并方法
+        Geometry union = geometryUnionUtil.union(pointBuffers);
+
+        long unionTime = System.currentTimeMillis() - startUnion;
+        log.debug("[buildOutlineBySimpleBuffers] 缓冲区合并完成，合并耗时: {}ms", unionTime);
 
         // 转换回WGS84坐标系
+        long startBackConvert = System.currentTimeMillis();
         Geometry result = webMercatorToWgs84(union);
+        long backConvertTime = System.currentTimeMillis() - startBackConvert;
+
+        long endTime = System.currentTimeMillis();
+        log.debug("[buildOutlineBySimpleBuffers] 处理完成，总计耗时: {}ms (转换:{}ms, 缓冲:{}ms, 合并:{}ms, 回转:{}ms)",
+                endTime - startTime, convertTime, bufferTime, unionTime, backConvertTime);
+
         return result;
     }
 
@@ -391,10 +463,19 @@ public class GisUtil implements AutoCloseable {
      * @throws Exception 坐标转换异常
      */
     private Geometry buildOutlineByComplexBuffers(List<TrackPoint> seg, double leftWidthM, double rightWidthM) throws Exception {
+        long startTime = System.currentTimeMillis();
+        log.debug("[buildOutlineByComplexBuffers] 开始处理 {} 个轨迹点，左侧宽度: {} 米，右侧宽度: {} 米", seg.size(), leftWidthM, rightWidthM);
+
         // 为每个线段创建缓冲区
         List<Geometry> segmentBuffers = new ArrayList<>();
 
+        long convertTime = 0;
+        long bufferTime = 0;
+        long totalTime = 0;
+
         for (int i = 0; i < seg.size() - 1; i++) {
+            long startPoint = System.currentTimeMillis();
+
             TrackPoint point1 = seg.get(i);
             TrackPoint point2 = seg.get(i + 1);
 
@@ -406,22 +487,49 @@ public class GisUtil implements AutoCloseable {
             LineString line = config.geometryFactory.createLineString(coords);
 
             // 转换到Web Mercator投影坐标系
+            long startConvert = System.currentTimeMillis();
             LineString projLine = (LineString) wgs84ToWebMercator(line);
+            convertTime += System.currentTimeMillis() - startConvert;
 
             // 创建缓冲区（使用左右宽度的平均值作为近似）
+            long startBuffer = System.currentTimeMillis();
             double avgWidth = (leftWidthM + rightWidthM) / 2.0;
             Geometry buffer = projLine.buffer(avgWidth);
+            bufferTime += System.currentTimeMillis() - startBuffer;
+
             segmentBuffers.add(buffer);
+
+            totalTime += System.currentTimeMillis() - startPoint;
+
+            // 每处理10000个点打印一次进度
+            if (i > 0 && i % 10000 == 0) {
+                log.trace("[buildOutlineByComplexBuffers] 已处理 {}/{} 个线段, 转换耗时: {}ms, 缓冲耗时: {}ms, 平均每个线段耗时: {}ms",
+                        i, seg.size() - 1, convertTime, bufferTime, totalTime / i);
+            }
         }
 
-        // 合并所有缓冲区
-        Geometry union = segmentBuffers.get(0);
-        for (int i = 1; i < segmentBuffers.size(); i++) {
-            union = union.union(segmentBuffers.get(i));
-        }
+        log.debug("[buildOutlineByComplexBuffers] 线段缓冲区创建完成，共 {} 个缓冲区, 转换总耗时: {}ms, 缓冲总耗时: {}ms",
+                segmentBuffers.size(), convertTime, bufferTime);
+
+        // 使用GeometryCollection优化合并所有缓冲区
+        long startUnion = System.currentTimeMillis();
+        log.debug("[buildOutlineByComplexBuffers] 开始使用GeometryCollection优化合并 {} 个缓冲区", segmentBuffers.size());
+
+        // 使用优化的合并方法
+        Geometry union = geometryUnionUtil.union(segmentBuffers);
+
+        long unionTime = System.currentTimeMillis() - startUnion;
+        log.debug("[buildOutlineByComplexBuffers] 缓冲区合并完成，合并耗时: {}ms", unionTime);
 
         // 转换回WGS84坐标系
+        long startBackConvert = System.currentTimeMillis();
         Geometry result = webMercatorToWgs84(union);
+        long backConvertTime = System.currentTimeMillis() - startBackConvert;
+
+        long endTime = System.currentTimeMillis();
+        log.debug("[buildOutlineByComplexBuffers] 处理完成，总计耗时: {}ms (转换:{}ms, 缓冲:{}ms, 合并:{}ms, 回转:{}ms)",
+                endTime - startTime, convertTime, bufferTime, unionTime, backConvertTime);
+
         return result;
     }
 

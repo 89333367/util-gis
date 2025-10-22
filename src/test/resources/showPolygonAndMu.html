@@ -610,12 +610,19 @@
         const rings = coordsWGS84.map(ring => ring.map(([lng, lat]) => new T.LngLat(lng, lat)));
 
 
-         // 创建多边形
+         // 创建多边形（增加可见性：添加黑色描边光环 + 高对比度填充）
+         const polygonHalo = new T.Polygon(rings, {
+             color: "#000000",
+             weight: 6,
+             opacity: 1,
+             fillOpacity: 0
+         });
          const polygon = new T.Polygon(rings, {
-             color: "#FF5733",
-             weight: 2,
-             fillColor: "#337AFF",
-             fillOpacity: 0.2
+             color: "#FFD700",
+             weight: 3,
+             opacity: 1,
+             fillColor: "#00FFFF",
+             fillOpacity: 0.35
          });
 
          // 使用WGS84坐标计算面积（更准确的面积计算）
@@ -669,6 +676,7 @@
 
           // 添加多边形到地图
           if (map) {
+              map.addOverLay(polygonHalo);
               map.addOverLay(polygon);
               console.log(`多边形${actualPolygonIndex}已添加到地图`);
           } else {
