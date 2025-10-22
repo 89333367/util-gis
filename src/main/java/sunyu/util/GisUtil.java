@@ -89,8 +89,8 @@ public class GisUtil implements AutoCloseable {
         // GeometryFactory缓存，避免重复创建
         private final GeometryFactory geometryFactory = new GeometryFactory();
         // 默认轮廓返回的最大多边形数量（TopN）
-        final int DEFAULT_MAX_OUTLINE_SEGMENTS = 5;
-     }
+        final int DEFAULT_MAX_OUTLINE_SEGMENTS = 10;
+    }
 
     /**
      * 构建器类，用于构建GisUtil实例
@@ -186,7 +186,6 @@ public class GisUtil implements AutoCloseable {
         }
     }
 
-
     /**
      * 验证WGS84坐标系下的几何图形坐标是否在合理范围内
      *
@@ -213,7 +212,6 @@ public class GisUtil implements AutoCloseable {
         return true;
     }
 
-
     /**
      * 构建轨迹轮廓（重载方法，使用统一宽度）
      * 通过轨迹点生成带宽度的轮廓多边形，左右宽度相同（各为总宽度的一半）
@@ -230,14 +228,14 @@ public class GisUtil implements AutoCloseable {
         double widthM = totalWidthM / 2.0;
         log.debug("[buildOutlineCore] 开始处理轨迹轮廓，轨迹点数: {}, 宽度(单侧): {} 米",
                 seg != null ? seg.size() : 0, widthM);
-    
+
         if (seg == null) {
             throw new IllegalArgumentException("轨迹段至少需要3个点");
         }
         if (widthM < 0) {
             throw new IllegalArgumentException("所有参数必须为非负数");
         }
-    
+
         long processStartTime = System.currentTimeMillis();
         List<TrackPoint> sortedSeg = seg.stream()
                 .sorted(Comparator.comparing(TrackPoint::getTime))
@@ -247,23 +245,23 @@ public class GisUtil implements AutoCloseable {
         long processTime = System.currentTimeMillis() - processStartTime;
         log.debug("[buildOutlineCore] 轨迹点过滤完成，原始点数: {}, 过滤后点数: {}, 过滤耗时: {}ms",
                 seg.size(), sortedSeg.size(), processTime);
-    
+
         if (sortedSeg.size() < 3) {
             throw new IllegalArgumentException("轨迹段至少需要3个有效点");
         }
-    
+
         try {
             double minLon = sortedSeg.stream().mapToDouble(TrackPoint::getLon).min().orElse(0);
             double maxLon = sortedSeg.stream().mapToDouble(TrackPoint::getLon).max().orElse(0);
             double minLat = sortedSeg.stream().mapToDouble(TrackPoint::getLat).min().orElse(0);
             double maxLat = sortedSeg.stream().mapToDouble(TrackPoint::getLat).max().orElse(0);
-    
+
             log.debug("[buildOutlineCore] 轨迹范围: 经度[{}, {}], 纬度[{}, {}]", minLon, maxLon, minLat, maxLat);
-    
+
             long buildStartTime = System.currentTimeMillis();
             Geometry result = buildOutlineBySimpleBuffers(sortedSeg, widthM);
             long buildTime = System.currentTimeMillis() - buildStartTime;
-    
+
             // 基于宽度的最小面积阈值（直接使用宽度，不再依赖配置因子）
             double minAreaThresholdM2 = Math.PI * widthM * widthM;
             if (result instanceof MultiPolygon) {
@@ -286,26 +284,26 @@ public class GisUtil implements AutoCloseable {
                 log.debug("[buildOutlineCore] 小多边形过滤完成：原 {} 个 → 保留 {} 个；阈值面积: {} m²",
                         mp.getNumGeometries(), keep.size(), minAreaThresholdM2);
             }
-    
+
             log.debug("[buildOutlineCore] 轮廓构建完成，构建耗时: {}ms", buildTime);
-    
+
             if (result instanceof MultiPolygon && result.getNumGeometries() > 1) {
                 log.debug("[buildOutlineCore] 结果为MultiPolygon，包含 {} 个部分", result.getNumGeometries());
                 long endTime = System.currentTimeMillis();
                 log.debug("[buildOutlineCore] 总计耗时: {}ms", endTime - startTime);
                 return result;
             }
-    
+
             if (result instanceof Polygon || (result instanceof MultiPolygon && result.getNumGeometries() == 1)) {
                 log.debug("[buildOutlineCore] 结果为Polygon或单个MultiPolygon");
                 long endTime = System.currentTimeMillis();
                 log.debug("[buildOutlineCore] 总计耗时: {}ms", endTime - startTime);
                 return result;
             }
-    
+
             long endTime = System.currentTimeMillis();
             log.debug("[buildOutlineCore] 处理完成，总计耗时: {}ms", endTime - startTime);
-    
+
             return result;
         } catch (Exception e) {
             log.error("构建轨迹轮廓失败: " + e.getMessage(), e);
@@ -406,7 +404,6 @@ public class GisUtil implements AutoCloseable {
         return config.R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
     }
 
-
     /**
      * 将几何图形转换为WKT格式
      * 确保输出为WGS84坐标系的标准地理坐标
@@ -467,7 +464,6 @@ public class GisUtil implements AutoCloseable {
         return true;
     }
 
-
     /**
      * 判断几何图形是否可能已经是WGS84坐标系
      *
@@ -493,7 +489,6 @@ public class GisUtil implements AutoCloseable {
         // 如果超过5%的坐标点有问题，认为不是WGS84坐标系
         return (double) invalidCount / totalCount < 0.05;
     }
-
 
     /**
      * 计算几何图形的面积（mu单位）
@@ -583,9 +578,10 @@ public class GisUtil implements AutoCloseable {
         if (magic * sqrtMagic < 1e-10) {
             throw new IllegalArgumentException("纬度值导致除零错误");
         }
-        dLat = (dLat * 180.0) / ((config.semiMajorAxis * (1 - config.eccentricitySquared)) / (magic * sqrtMagic) * Math.PI);
+        dLat = (dLat * 180.0)
+                / ((config.semiMajorAxis * (1 - config.eccentricitySquared)) / (magic * sqrtMagic) * Math.PI);
         dLon = (dLon * 180.0) / (config.semiMajorAxis / sqrtMagic * Math.cos(radLat) * Math.PI);
-        return new double[]{dLon, dLat};
+        return new double[] { dLon, dLat };
     }
 
     /**
@@ -680,8 +676,8 @@ public class GisUtil implements AutoCloseable {
      * 判断点是否在矩形内
      */
     public boolean inRectangle(double pointLon, double pointLat,
-                               double rectMinLon, double rectMinLat,
-                               double rectMaxLon, double rectMaxLat) {
+            double rectMinLon, double rectMinLat,
+            double rectMaxLon, double rectMaxLat) {
         if (rectMinLon > rectMaxLon || rectMinLat > rectMaxLat) {
             throw new IllegalArgumentException("矩形参数无效：minLon不能大于maxLon，minLat不能大于maxLat");
         }
@@ -706,8 +702,8 @@ public class GisUtil implements AutoCloseable {
      * 判断点是否在圆形内
      */
     public boolean inCircle(double pointLon, double pointLat,
-                            double centerLon, double centerLat,
-                            double radiusM) {
+            double centerLon, double centerLat,
+            double radiusM) {
         return inCircle(
                 new CoordinatePoint(pointLon, pointLat),
                 new CoordinatePoint(centerLon, centerLat),
@@ -986,8 +982,10 @@ public class GisUtil implements AutoCloseable {
 
     // 新增：按面积倒序保留最大的 N 个多边形
     private Geometry keepLargestPolygons(Geometry geometry, int maxCount) {
-        if (geometry == null) return null;
-        if (maxCount <= 0) return geometry;
+        if (geometry == null)
+            return null;
+        if (maxCount <= 0)
+            return geometry;
 
         GeometryFactory gf = geometry.getFactory();
         java.util.List<Polygon> polys = new java.util.ArrayList<>();
@@ -1005,7 +1003,8 @@ public class GisUtil implements AutoCloseable {
             }
             // 其他类型忽略
         }
-        if (polys.isEmpty()) return geometry;
+        if (polys.isEmpty())
+            return geometry;
 
         // 按面积倒序
         polys.sort(java.util.Comparator.comparingDouble(Polygon::getArea).reversed());
@@ -1027,7 +1026,8 @@ public class GisUtil implements AutoCloseable {
     // 新增：带可选上限参数的重载方法；若为 null 或 <=0 则用默认值 5
     public Geometry buildOutline(List<TrackPoint> seg, double totalWidthM, Integer maxSegments) throws Exception {
         Geometry outline = buildOutlineCore(seg, totalWidthM);
-        int limit = (maxSegments == null || maxSegments <= 0) ? config.DEFAULT_MAX_OUTLINE_SEGMENTS : maxSegments.intValue();
+        int limit = (maxSegments == null || maxSegments <= 0) ? config.DEFAULT_MAX_OUTLINE_SEGMENTS
+                : maxSegments.intValue();
         return keepLargestPolygons(outline, limit);
     }
 

@@ -34,7 +34,8 @@ public class TestGisUtil {
 
     private DataSource getMySqlDatasource() {
         HikariConfig config = new HikariConfig();
-        config.setJdbcUrl("jdbc:mysql://172.16.1.59:3306/farm?useUnicode=true&characterEncoding=UTF-8&serverTimezone=UTC&zeroDateTimeBehavior=convertToNull&useInformationSchema=true&useSSL=false&allowMultiQueries=true");
+        config.setJdbcUrl(
+                "jdbc:mysql://172.16.1.59:3306/farm?useUnicode=true&characterEncoding=UTF-8&serverTimezone=UTC&zeroDateTimeBehavior=convertToNull&useInformationSchema=true&useSSL=false&allowMultiQueries=true");
         config.setUsername("dev");
         config.setPassword("uml-tech");
         config.setMinimumIdle(0);
@@ -91,9 +92,12 @@ public class TestGisUtil {
                     double jobWidth = entity.getDouble("jobWidth");
                     Date insertTime = entity.getDate("insertTime");
                     Date updateTime = entity.getDate("updateTime");
-                    log.debug("{} {} {} {} {} {} {}", did, jobArea, jobStartTime, jobEndTime, jobWidth, insertTime, updateTime);
+                    log.debug("{} {} {} {} {} {} {}", did, jobArea, jobStartTime, jobEndTime, jobWidth, insertTime,
+                            updateTime);
 
-                    String tdSql = StrUtil.format("select protocol from frequent.d_p where did='{}' and `3014`>='{}' and `3014`<='{}' and protocol match '(,2601:0,)'", did, jobStartTime, jobEndTime);
+                    String tdSql = StrUtil.format(
+                            "select protocol from frequent.d_p where did='{}' and `3014`>='{}' and `3014`<='{}' and protocol match '(,2601:0,)'",
+                            did, jobStartTime, jobEndTime);
                     List<Map<String, Object>> rows = tDengineUtil.executeQuery(tdSql);
                     if (rows.isEmpty()) {
                         log.error("{} 异常，在 {} {} 找不到数据", did, jobStartTime, jobEndTime);
@@ -101,8 +105,11 @@ public class TestGisUtil {
                         log.debug("找到 {} 条", rows.size());
                         List<TrackPoint> l = new ArrayList<>();
                         for (Map<String, Object> row : rows) {
-                            Map<String, String> protocol = protocolSdk.parseProtocolString(row.get("protocol").toString());
-                            l.add(new TrackPoint(Double.parseDouble(protocol.get("2602")), Double.parseDouble(protocol.get("2603")), LocalDateTimeUtil.parse(protocol.get("3014"), "yyyyMMddHHmmss")));
+                            Map<String, String> protocol = protocolSdk
+                                    .parseProtocolString(row.get("protocol").toString());
+                            l.add(new TrackPoint(Double.parseDouble(protocol.get("2602")),
+                                    Double.parseDouble(protocol.get("2603")),
+                                    LocalDateTimeUtil.parse(protocol.get("3014"), "yyyyMMddHHmmss")));
                         }
                         try {
                             Geometry g = gisUtil.buildOutline(l, jobWidth);
@@ -112,8 +119,8 @@ public class TestGisUtil {
                             log.info("{}", wkt);
                             double wktMu = gisUtil.calcMu(wkt);
                             double mu = gisUtil.calcMu(g);
-                            log.info("设备号：{} 作业时间：{} {} 宽幅：{} 原亩数：{} wkt亩数：{} 几何图形亩数：{}", did, jobStartTime, jobEndTime, jobWidth, jobArea
-                                    , wktMu, mu);
+                            log.info("设备号：{} 作业时间：{} {} 宽幅：{} 原亩数：{} wkt亩数：{} 几何图形亩数：{}", did, jobStartTime, jobEndTime,
+                                    jobWidth, jobArea, wktMu, mu);
                         } catch (Exception e) {
                             log.error(e);
                         }
@@ -136,7 +143,9 @@ public class TestGisUtil {
         String did = "EC73BD2508220055";
         String jobStartTime = "2025-10-13 00:00:00";
         String jobEndTime = "2025-10-13 23:59:59";
-        String tdSql = StrUtil.format("select protocol from frequent.d_p where did='{}' and `3014`>='{}' and `3014`<='{}' and protocol match '(,2601:0,)'", did, jobStartTime, jobEndTime);
+        String tdSql = StrUtil.format(
+                "select protocol from frequent.d_p where did='{}' and `3014`>='{}' and `3014`<='{}' and protocol match '(,2601:0,)'",
+                did, jobStartTime, jobEndTime);
         log.debug("{}", tdSql);
         List<Map<String, Object>> rows = tDengineUtil.executeQuery(tdSql);
         log.debug("{}", rows.size());
@@ -170,7 +179,8 @@ public class TestGisUtil {
             } else {
                 // 20251013120625,113.33316443,28.08500825
                 String[] split1 = datas[i].split(",");
-                TrackPoint trackPoint = new TrackPoint(Double.parseDouble(split1[1]), Double.parseDouble(split1[2]), LocalDateTimeUtil.parse(split1[0], "yyyyMMddHHmmss"));
+                TrackPoint trackPoint = new TrackPoint(Double.parseDouble(split1[1]), Double.parseDouble(split1[2]),
+                        LocalDateTimeUtil.parse(split1[0], "yyyyMMddHHmmss"));
                 l.add(trackPoint);
             }
         }
@@ -180,11 +190,12 @@ public class TestGisUtil {
             log.debug("轮廓创建完毕");
             String wkt = gisUtil.toWkt(g);
             log.debug("wkt获取完毕");
-            FileUtil.writeUtf8String(wkt, StrUtil.format("d:/tmp/{}_{}.txt", did, jobEndTime.toString("yyyyMMddHHmmss")));
+            FileUtil.writeUtf8String(wkt,
+                    StrUtil.format("d:/tmp/{}_{}.txt", did, jobEndTime.toString("yyyyMMddHHmmss")));
             double wktMu = gisUtil.calcMu(wkt);
             double mu = gisUtil.calcMu(g);
-            log.info("设备号：{} 作业时间：{} {} 宽幅：{} 原亩数：{} wkt亩数：{} 几何图形亩数：{}", did, jobStartTime, jobEndTime, jobWidth, jobArea
-                    , wktMu, mu);
+            log.info("设备号：{} 作业时间：{} {} 宽幅：{} 原亩数：{} wkt亩数：{} 几何图形亩数：{}", did, jobStartTime, jobEndTime, jobWidth,
+                    jobArea, wktMu, mu);
         } catch (Exception e) {
             log.error(e);
         }
@@ -197,26 +208,27 @@ public class TestGisUtil {
         String did = "EC73BD2508220055";
         DateTime jobStartTime = DateUtil.parse("2025-10-13 00:00:00");
         DateTime jobEndTime = DateUtil.parse("2025-10-13 23:59:59");
-        double jobWidth = 3;
+        double jobWidth = 2.6;
         String[] datas = ResourceUtil.readUtf8Str("datas/" + fileName).split("\n");
         for (int i = 0; i < datas.length; i++) {
             // 20251013120625,113.33316443,28.08500825
             String[] split1 = datas[i].split(",");
-            TrackPoint trackPoint = new TrackPoint(Double.parseDouble(split1[1]), Double.parseDouble(split1[2]), LocalDateTimeUtil.parse(split1[0], "yyyyMMddHHmmss"));
+            TrackPoint trackPoint = new TrackPoint(Double.parseDouble(split1[1]), Double.parseDouble(split1[2]),
+                    LocalDateTimeUtil.parse(split1[0], "yyyyMMddHHmmss"));
             l.add(trackPoint);
         }
         log.debug("{} 条点位", l.size());
         try {
             //Geometry g = gisUtil.buildOutline(l, jobWidth);
-            Geometry g = gisUtil.buildOutline(l, jobWidth,5);
+            Geometry g = gisUtil.buildOutline(l, jobWidth, 10);
             log.debug("轮廓创建完毕");
             String wkt = gisUtil.toWkt(g);
             log.debug("wkt获取完毕");
-            FileUtil.writeUtf8String(wkt, StrUtil.format("d:/tmp/Geometry.txt", did, jobEndTime.toString("yyyyMMddHHmmss")));
+            FileUtil.writeUtf8String(wkt,
+                    StrUtil.format("d:/tmp/Geometry.txt", did, jobEndTime.toString("yyyyMMddHHmmss")));
             double wktMu = gisUtil.calcMu(wkt);
             double mu = gisUtil.calcMu(g);
-            log.info("设备号：{} 作业时间：{} {} 宽幅：{} wkt亩数：{} 几何图形亩数：{}", did, jobStartTime, jobEndTime, jobWidth
-                    , wktMu, mu);
+            log.info("设备号：{} 作业时间：{} {} 宽幅：{} wkt亩数：{} 几何图形亩数：{}", did, jobStartTime, jobEndTime, jobWidth, wktMu, mu);
         } catch (Exception e) {
             log.error(e);
         }
