@@ -226,28 +226,7 @@ public class GisUtil implements AutoCloseable {
      */
     public Geometry buildOutline(List<TrackPoint> seg, double totalWidthM) throws Exception {
         double halfWidth = totalWidthM / 2.0;
-        return buildOutline(seg, halfWidth, halfWidth, 5.0, 20.0);
-    }
-
-    /**
-     * 构建轨迹轮廓（重载方法，使用统一宽度）
-     * 通过轨迹点生成带宽度的轮廓多边形，左右宽度相同（各为总宽度的一半）
-     *
-     * @param seg            轨迹点列表，至少需要3个点，要求点位坐标系为WGS84
-     * @param totalWidthM    总宽度（米），轨迹线两侧的扩展距离之和
-     * @param simplifyM      简化阈值（米），用于轨迹点简化以提高性能
-     * @param maxEdgeLengthM 最大边缘长度（米），控制轮廓的精细程度
-     *
-     * @return Geometry对象，表示生成的轮廓多边形
-     *
-     * @throws Exception 可能抛出异常，如坐标转换错误或几何操作失败
-     */
-    public Geometry buildOutline(List<TrackPoint> seg,
-                                 double totalWidthM,
-                                 double simplifyM,
-                                 double maxEdgeLengthM) throws Exception {
-        double halfWidth = totalWidthM / 2.0;
-        return buildOutline(seg, halfWidth, halfWidth, simplifyM, maxEdgeLengthM);
+        return buildOutline(seg, halfWidth, halfWidth);
     }
 
     /**
@@ -255,11 +234,9 @@ public class GisUtil implements AutoCloseable {
      * 通过轨迹点生成带宽度的轮廓多边形，用于面积计算等操作
      * 使用统一的Web Mercator投影系统进行计算，避免复杂的投影选择
      *
-     * @param seg            轨迹点列表，至少需要3个点，坐标系必须为WGS84
-     * @param leftWidthM     左侧宽度（米），轨迹线左侧的扩展距离
-     * @param rightWidthM    右侧宽度（米），轨迹线右侧的扩展距离
-     * @param simplifyM      简化阈值（米），用于轨迹点简化以提高性能
-     * @param maxEdgeLengthM 最大边缘长度（米），控制轮廓的精细程度
+     * @param seg         轨迹点列表，至少需要3个点，坐标系必须为WGS84
+     * @param leftWidthM  左侧宽度（米），轨迹线左侧的扩展距离
+     * @param rightWidthM 右侧宽度（米），轨迹线右侧的扩展距离
      *
      * @return Geometry对象，表示生成的轮廓多边形，返回WGS84坐标系中的几何对象
      *
@@ -267,18 +244,16 @@ public class GisUtil implements AutoCloseable {
      */
     public Geometry buildOutline(List<TrackPoint> seg,
                                  double leftWidthM,
-                                 double rightWidthM,
-                                 double simplifyM,
-                                 double maxEdgeLengthM) throws Exception {
+                                 double rightWidthM) throws Exception {
         long startTime = System.currentTimeMillis();
-        log.debug("[buildOutline] 开始处理轨迹轮廓，轨迹点数: {}, 左侧宽度: {} 米, 右侧宽度: {} 米, 简化阈值: {} 米, 最大边缘长度: {} 米",
-                seg != null ? seg.size() : 0, leftWidthM, rightWidthM, simplifyM, maxEdgeLengthM);
+        log.debug("[buildOutline] 开始处理轨迹轮廓，轨迹点数: {}, 左侧宽度: {} 米, 右侧宽度: {} 米",
+                seg != null ? seg.size() : 0, leftWidthM, rightWidthM);
 
         // 如果轨迹点少于3个，无法构成有效几何形状，抛出异常
         if (seg == null) {
             throw new IllegalArgumentException("轨迹段至少需要3个点");
         }
-        if (leftWidthM < 0 || rightWidthM < 0 || simplifyM < 0 || maxEdgeLengthM < 0) {
+        if (leftWidthM < 0 || rightWidthM < 0) {
             throw new IllegalArgumentException("所有参数必须为非负数");
         }
 
@@ -307,6 +282,13 @@ public class GisUtil implements AutoCloseable {
             throw new IllegalArgumentException("轨迹段至少需要3个有效点");
         }
 
+        // 对轨迹点进行简化处理
+        long simplifyStartTime = System.currentTimeMillis();
+        sortedSeg = simplifyTrackPoints(sortedSeg, 1.0);
+        long simplifyTime = System.currentTimeMillis() - simplifyStartTime;
+        log.debug("[buildOutline] 轨迹点简化完成，简化前点数: {}, 简化后点数: {}, 简化耗时: {}ms",
+                sortedSeg.size(), sortedSeg.size(), simplifyTime);
+
         try {
             double minLon = sortedSeg.stream().mapToDouble(TrackPoint::getLon).min().orElse(0);
             double maxLon = sortedSeg.stream().mapToDouble(TrackPoint::getLon).max().orElse(0);
@@ -322,9 +304,14 @@ public class GisUtil implements AutoCloseable {
 
             log.debug("[buildOutline] 轮廓构建完成，构建耗时: {}ms", buildTime);
 
-            // 如果结果是MultiPolygon且包含多个部分，直接返回
+            // 如果结果是MultiPolygon且包含多个部分，合并邻近的多边形
             if (result instanceof MultiPolygon && result.getNumGeometries() > 1) {
                 log.debug("[buildOutline] 结果为MultiPolygon，包含 {} 个部分", result.getNumGeometries());
+                long mergeStartTime = System.currentTimeMillis();
+                result = mergeNearbyPolygons((MultiPolygon) result, 50);
+                long mergeTime = System.currentTimeMillis() - mergeStartTime;
+                log.debug("[buildOutline] 多边形合并完成，合并后部分数: {}, 合并耗时: {}ms", 
+                        result.getNumGeometries(), mergeTime);
                 long endTime = System.currentTimeMillis();
                 log.debug("[buildOutline] 总计耗时: {}ms", endTime - startTime);
                 return result;
@@ -561,6 +548,114 @@ public class GisUtil implements AutoCloseable {
         return config.R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
     }
 
+    /**
+     * 简化轨迹点
+     * 根据给定的距离阈值过滤掉过于接近的点
+     *
+     * @param points 轨迹点列表
+     * @param toleranceM 距离阈值（米）
+     * @return 简化后的轨迹点列表
+     */
+    private List<TrackPoint> simplifyTrackPoints(List<TrackPoint> points, double toleranceM) {
+        if (points.size() <= 2) {
+            return new ArrayList<>(points);
+        }
+
+        List<TrackPoint> simplified = new ArrayList<>();
+        simplified.add(points.get(0)); // 添加第一个点
+
+        TrackPoint lastPoint = points.get(0);
+        for (int i = 1; i < points.size() - 1; i++) {
+            TrackPoint currentPoint = points.get(i);
+            double distance = haversine(
+                    new CoordinatePoint(lastPoint.getLon(), lastPoint.getLat()),
+                    new CoordinatePoint(currentPoint.getLon(), currentPoint.getLat())
+            );
+
+            // 如果当前点与上一个保留点的距离超过阈值，则保留当前点
+            if (distance >= toleranceM) {
+                simplified.add(currentPoint);
+                lastPoint = currentPoint;
+            }
+        }
+
+        // 添加最后一个点
+        simplified.add(points.get(points.size() - 1));
+
+        return simplified;
+    }
+
+    /**
+     * 合并邻近的多边形
+     * 根据最大边缘长度参数合并距离较近的多边形
+     *
+     * @param multiPolygon 多个多边形
+     * @param maxDistanceM 最大合并距离（米）
+     * @return 合并后的几何图形
+     * @throws Exception 坐标转换异常
+     */
+    private Geometry mergeNearbyPolygons(MultiPolygon multiPolygon, double maxDistanceM) throws Exception {
+        // 如果只有一个多边形，直接返回
+        if (multiPolygon.getNumGeometries() <= 1) {
+            return multiPolygon;
+        }
+
+        List<Geometry> polygons = new ArrayList<>();
+        for (int i = 0; i < multiPolygon.getNumGeometries(); i++) {
+            polygons.add(multiPolygon.getGeometryN(i));
+        }
+
+        boolean merged = true;
+        while (merged) {
+            merged = false;
+            List<Geometry> newPolygons = new ArrayList<>();
+
+            for (int i = 0; i < polygons.size(); i++) {
+                Geometry currentPolygon = polygons.get(i);
+                boolean wasMerged = false;
+
+                for (int j = 0; j < newPolygons.size(); j++) {
+                    Geometry targetPolygon = newPolygons.get(j);
+
+                    // 计算两个多边形之间的距离
+                    double distance = currentPolygon.distance(targetPolygon);
+
+                    // 如果距离小于等于最大边缘长度，则合并
+                    if (distance <= maxDistanceM) {
+                        // 转换到投影坐标系进行合并
+                        Geometry projCurrent = wgs84ToWebMercator(currentPolygon);
+                        Geometry projTarget = wgs84ToWebMercator(targetPolygon);
+                        
+                        // 合并两个多边形
+                        Geometry projUnion = projCurrent.union(projTarget);
+                        
+                        // 转换回WGS84坐标系
+                        Geometry union = webMercatorToWgs84(projUnion);
+                        
+                        // 更新目标多边形
+                        newPolygons.set(j, union);
+                        wasMerged = true;
+                        merged = true;
+                        break;
+                    }
+                }
+
+                // 如果当前多边形没有被合并，则添加到新列表中
+                if (!wasMerged) {
+                    newPolygons.add(currentPolygon);
+                }
+            }
+
+            polygons = newPolygons;
+        }
+
+        // 如果最终只有一个多边形，返回Polygon，否则返回MultiPolygon
+        if (polygons.size() == 1) {
+            return polygons.get(0);
+        } else {
+            return config.geometryFactory.createMultiPolygon(polygons.toArray(new Polygon[0]));
+        }
+    }
 
     /**
      * 合并相交的多边形
