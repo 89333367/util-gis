@@ -88,8 +88,6 @@ public class GisUtil implements AutoCloseable {
 
         // GeometryFactory缓存，避免重复创建
         private final GeometryFactory geometryFactory = new GeometryFactory();
-        // 面积阈值因子：用于判定“小多边形”（倍数 × π × widthM^2）
-        private final double SMALL_POLYGON_AREA_FACTOR = 1;
         // 默认轮廓返回的最大多边形数量（TopN）
         final int DEFAULT_MAX_OUTLINE_SEGMENTS = 5;
      }
@@ -266,8 +264,8 @@ public class GisUtil implements AutoCloseable {
             Geometry result = buildOutlineBySimpleBuffers(sortedSeg, widthM);
             long buildTime = System.currentTimeMillis() - buildStartTime;
     
-            // 基于宽度的最小面积阈值，过滤掉“道路上的点缓冲”形成的小多边形
-            double minAreaThresholdM2 = Math.PI * widthM * widthM * config.SMALL_POLYGON_AREA_FACTOR;
+            // 基于宽度的最小面积阈值（直接使用宽度，不再依赖配置因子）
+            double minAreaThresholdM2 = Math.PI * widthM * widthM;
             if (result instanceof MultiPolygon) {
                 MultiPolygon mp = (MultiPolygon) result;
                 List<Polygon> keep = new ArrayList<>();
