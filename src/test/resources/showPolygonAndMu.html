@@ -56,7 +56,7 @@
 
         .minimize-btn {
             position: absolute;
-            top: 4px;
+            top: -5px;
             right: -4px;
             width: 24px;
             height: 24px;
@@ -185,8 +185,6 @@
         #splitMultiBtn:hover { background: #2860E0; }
         #copyPolysBtn { background: #f5f5f5; color: #333; }
         #copyPolysBtn:hover { background: #e0e0e0; }
-        #fillPolysBtn { background: #45c37b; color: #fff; }
-        #fillPolysBtn:hover { background: #37a465; }
         #drawButton,
         #clearButton,
         #drawTrackButton,
@@ -266,8 +264,6 @@
           #generateMultiBtn:hover { background: #2860E0; }
           #copyMultiBtn { background: #f5f5f5; color: #333; }
           #copyMultiBtn:hover { background: #e0e0e0; }
-          #fillToMainBtn { background: #45c37b; color: #fff; }
-          #fillToMainBtn:hover { background: #37a465; }
       </style>
     <script src="https://api.tianditu.gov.cn/api?v=4.0&tk=bff6b76492ebb706fd7c39b07acf6569"></script>
     <script src="https://cdn.bootcdn.net/ajax/libs/Turf.js/6.5.0/turf.min.js"></script>
@@ -340,7 +336,6 @@
                 <div class="split-actions">
                     <button id="splitMultiBtn">分割为多个 POLYGON</button>
                     <button id="copyPolysBtn">复制结果</button>
-                    <button id="fillPolysBtn">填充到上方</button>
                 </div>
                 <textarea id="polyOutput" readonly></textarea>
             </div>
@@ -355,7 +350,6 @@
                 <div class="batch-actions">
                     <button id="generateMultiBtn">生成 MULTIPOLYGON</button>
                     <button id="copyMultiBtn">复制结果</button>
-                    <button id="fillToMainBtn">填充到上方并绘制</button>
                 </div>
                 <textarea id="multiOutput" readonly></textarea>
             </div>
@@ -923,8 +917,21 @@
     // 其他辅助函数（保持不变）
     function bindMinimizeEvent() {
         const container = document.querySelector(".wkt-input-container");
-        document.getElementById("minimizeBtn").addEventListener("click", () => {
-            container.classList.toggle("minimized");
+        const btn = document.getElementById("minimizeBtn");
+        const minIcon = btn?.querySelector(".min-icon");
+        const restoreIcon = btn?.querySelector(".restore-icon");
+
+        btn?.addEventListener("click", () => {
+            const minimized = container.classList.toggle("minimized");
+            if (minIcon && restoreIcon) {
+                if (minimized) {
+                    minIcon.style.display = "none";
+                    restoreIcon.style.display = "";
+                } else {
+                    minIcon.style.display = "";
+                    restoreIcon.style.display = "none";
+                }
+            }
         });
     }
 
@@ -991,8 +998,7 @@
          const output = document.getElementById('polyOutput');
          const splitBtn = document.getElementById('splitMultiBtn');
          const copyBtn = document.getElementById('copyPolysBtn');
-         const fillBtn = document.getElementById('fillPolysBtn');
-         if (!input || !output || !splitBtn || !copyBtn || !fillBtn) return;
+         if (!input || !output || !splitBtn || !copyBtn) return;
 
          // 本地WKT序列化辅助
          function ringToText(ring) {
@@ -1028,27 +1034,6 @@
              if (!val) { alert('没有可复制的结果'); return; }
              try { await navigator.clipboard.writeText(val); alert('已复制到剪贴板'); } catch (e) { console.warn('复制失败', e); }
          });
-         fillBtn.addEventListener('click', () => {
-             const val = output.value.trim();
-             if (!val) { alert('请先分割 MULTIPOLYGON'); return; }
-             try {
-
-                  const lines = val.split(/\n|;/).map(s => s.trim()).filter(Boolean);
-                  const polygons = lines.map((line, idx) => {
-                      const g = parseWkt(line);
-                      if (g.type !== 'Polygon') throw new Error(`第${idx + 1}行不是有效的POLYGON WKT`);
-                      return g;
-                  });
-                  const multiGeo = { type: 'MultiPolygon', coordinates: polygons.map(p => p.coordinates) };
-                  const multiWkt = toWktMulti(multiGeo.coordinates);
-                  const ta = document.getElementById('wktTextarea');
-                  ta.value = multiWkt;
-                  document.getElementById('tabDrawBtn')?.click();
-                  document.getElementById('drawButton')?.click();
-              } catch (e) {
-                  alert('填充失败：' + e.message);
-              }
-          });
      }
 
      function bindBatchGenerator() {
@@ -1056,7 +1041,6 @@
          const output = document.getElementById('multiOutput');
          const genBtn = document.getElementById('generateMultiBtn');
          const copyBtn = document.getElementById('copyMultiBtn');
-         const fillBtn = document.getElementById('fillToMainBtn');
 
          // 本地WKT序列化辅助（与分割器保持一致）
          function ringToText(ring) {
@@ -1092,14 +1076,6 @@
              try { await navigator.clipboard.writeText(val); alert('已复制到剪贴板'); } catch (e) { console.warn('复制失败', e); }
          });
 
-         fillBtn.addEventListener('click', () => {
-             const val = output.value.trim();
-             if (!val) { alert('请先生成MULTIPOLYGON'); return; }
-             const ta = document.getElementById('wktTextarea');
-             ta.value = val;
-             document.getElementById('tabDrawBtn')?.click();
-             document.getElementById('drawButton').click();
-         });
      }
 
      function setExampleWkt() {
