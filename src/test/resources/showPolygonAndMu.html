@@ -231,20 +231,36 @@
         }
 
         .area-label {
-            position: absolute;
-            background: rgba(255, 0, 0, 0.85);
-            border: 1px solid #000;
-            border-radius: 3px;
-            padding: 4px 6px;
-            font-size: 12px;
-            color: #fff;
-            font-weight: 600;
-            box-shadow: 0 2px 6px rgba(0, 0, 0, 0.25);
-            white-space: nowrap;
-            z-index: 9999;
-            pointer-events: none;
-        }
-    </style>
+             position: absolute;
+             background: rgba(255, 0, 0, 0.85);
+             border: 1px solid #000;
+             border-radius: 3px;
+             padding: 4px 6px;
+             font-size: 12px;
+             color: #fff;
+             font-weight: 600;
+             box-shadow: 0 2px 6px rgba(0, 0, 0, 0.25);
+             white-space: nowrap;
+             z-index: 9999;
+             pointer-events: none;
+         }
+         /* 默认隐藏标签容器下的标签 */
+          .labels-hidden .area-label { display: none; }
+
+          /* Batch → Generator 样式 */
+          .batch-section { margin-top: 10px; padding: 10px; background: #fafafa; border: 1px solid #eee; border-radius: 6px; }
+          .batch-section .title { font-size: 13px; font-weight: 600; color: #333; margin-bottom: 6px; }
+          .batch-section .desc { font-size: 12px; color: #666; margin-bottom: 8px; }
+          #batchInput, #multiOutput { width: 100%; height: 90px; margin-bottom: 8px; padding: 8px; border: 1px solid #ddd; border-radius: 4px; font-family: monospace; resize: vertical; box-sizing: border-box; }
+          .batch-actions { display: flex; gap: 8px; margin-bottom: 8px; }
+          .batch-actions button { flex: 1; padding: 6px 0; border: none; border-radius: 4px; cursor: pointer; font-size: 13px; transition: background 0.2s; }
+          #generateMultiBtn { background: #337AFF; color: #fff; }
+          #generateMultiBtn:hover { background: #2860E0; }
+          #copyMultiBtn { background: #f5f5f5; color: #333; }
+          #copyMultiBtn:hover { background: #e0e0e0; }
+          #fillToMainBtn { background: #45c37b; color: #fff; }
+          #fillToMainBtn:hover { background: #37a465; }
+      </style>
     <script src="https://api.tianditu.gov.cn/api?v=4.0&tk=bff6b76492ebb706fd7c39b07acf6569"></script>
     <script src="https://cdn.bootcdn.net/ajax/libs/Turf.js/6.5.0/turf.min.js"></script>
     <script src="https://lib.baomitu.com/terraformer/1.0.12/terraformer.min.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
@@ -301,6 +317,10 @@
                 <button id="drawButton" disabled>绘制轮廓</button>
                 <button id="clearButton" disabled>清空轮廓</button>
             </div>
+            <!-- 标签显示开关（默认不展示） -->
+            <div class="label-toggle" style="margin-top:8px;font-size:12px;color:#333;">
+                <label><input type="checkbox" id="toggleLabelsCheckbox"> 显示亩数标签</label>
+            </div>
         </div>
 
         <div class="tab-pane" id="tabSplit">
@@ -340,6 +360,8 @@
     let currentPolygons = []; // 存储多边形和其标签
     let mapLoaded = false;
     let mapLabelHandlers = []; // 存储地图事件处理器
+    let labelsEnabled = false; // 标签显示开关（默认关闭）
+    let isDrawing = false; // 绘制进行中防止重复点击
 
     window.onload = function () {
         if (typeof T === 'undefined') {
@@ -354,6 +376,7 @@
         bindBatchGenerator();
         bindMultiSplitter();
         updateParserStatus();
+        bindLabelsToggle(); // 绑定标签显示开关
     };
 
     function initMap() {
@@ -469,60 +492,56 @@
 
     function bindDrawEvent() {
         document.getElementById("drawButton").addEventListener("click", function () {
-            const wktStr = document.getElementById("wktTextarea").value.trim();
-            if (!wktStr) {
-                alert("请输入WKT字符串！");
-                return;
-            }
+            if (isDrawing) { console.log('绘制进行中，忽略重复点击'); return; }
+            isDrawing = true;
+            disableButtons(true);
+            showLoading();
             try {
+                const wktStr = document.getElementById("wktTextarea").value.trim();
+                if (!wktStr) { alert("请输入WKT字符串！"); return; }
                 clearOverlays();
                 const geojson = parseWkt(wktStr);
-
-                // 用于存储所有多边形的信息，稍后统一处理标签
+    
                 const polygonData = [];
-
-                // 直接处理geojson并绘制多边形
                 if (geojson.type === "Polygon") {
                     polygonData.push({ index: 1, coordinates: geojson.coordinates });
                 } else if (geojson.type === "MultiPolygon") {
                     geojson.coordinates.forEach((polygon, index) => {
                         polygonData.push({ index: index + 1, coordinates: polygon });
                     });
-                } else if (geojson.type === "GeometryCollection") {
-                    let polygonIndex = 1;
-                    geojson.geometries.forEach(geometry => {
-                        if (geometry.type === "Polygon") {
-                            polygonData.push({ index: polygonIndex++, coordinates: geometry.coordinates });
-                        } else if (geometry.type === "MultiPolygon") {
-                            geometry.coordinates.forEach(polygon => {
-                                polygonData.push({ index: polygonIndex++, coordinates: polygon });
-                            });
-                        }
-                    });
                 }
-
-                // 处理所有多边形
-                polygonData.forEach(data => {
-                    processPolygon(data.index, data.coordinates);
-                });
-
-                 // 在所有多边形处理完成后，先居中视图，再创建标签（稍后）
-                 fitViewportToPolygons();
-                 setTimeout(() => {
-                     createAllLabels();
-                 }, 100);
-
-                // 由 fitViewportToPolygons() 负责视图居中
-
-             } catch (error) {
-                 alert("WKT格式错误：" + error.message);
-                 console.error(error);
-             }
-         });
+    
+                // 重置并绘制
+                polygonInfoList = [];
+                polygonData.forEach(pd => processPolygon(pd.index, pd.coordinates));
+    
+                // 视图居中到所有已绘制轮廓
+                try { fitViewportToPolygons(); } catch (e) { console.warn('视图居中失败', e); }
+    
+                // 在视图稳定后再创建/更新标签
+                setTimeout(() => {
+                    if (labelsEnabled) {
+                        try {
+                            createAllLabels();
+                            updateAllLabelsPosition();
+                        } catch (e) {
+                            console.warn('创建或更新标签失败:', e);
+                        }
+                    }
+                }, 150);
+            } catch (e) {
+                alert('绘制失败：' + (e && e.message ? e.message : e));
+                console.error('绘制异常:', e);
+            } finally {
+                hideLoading();
+                isDrawing = false;
+                disableButtons(false);
+            }
+        });
 
         document.getElementById("clearButton").addEventListener("click", function () {
+            if (isDrawing) { console.log('绘制进行中，暂不清空'); return; }
             clearOverlays();
-            // 移除弹窗提示，直接清空覆盖物
             console.log("已清空所有轮廓");
         });
     }
@@ -669,6 +688,9 @@
         if (!mapContainer || !map) return;
 
         polygonInfoList.forEach(info => {
+            if (!info) return;
+            // 防止重复创建
+            if (info.labelRef) return;
             // 创建标签元素
             const labelDiv = document.createElement('div');
             labelDiv.className = 'area-label';
@@ -678,7 +700,10 @@
             mapContainer.appendChild(labelDiv);
             positionLabelForPolygon(labelDiv, info);
 
-            // 存储多边形和标签，用于后续位置更新与清理
+            // 记录引用，避免重复创建
+            info.labelRef = labelDiv;
+
+            // 存储到 currentPolygons 以复用现有定位/清理逻辑
             const labelObj = {
                 domElement: labelDiv,
                 isDomLabel: true,
@@ -687,8 +712,7 @@
             currentPolygons.push({ polygon: info.polygon, label: labelObj });
         });
 
-        // 清空临时存储
-        polygonInfoList = [];
+        // 不清空 polygonInfoList，便于开关随时创建/隐藏标签
     }
 
     // 根据多边形屏幕边界定位标签，保证始终在轮廓下方
@@ -739,6 +763,28 @@
     }
     // 确保在全局可用（处理第三方库事件回调作用域差异）
     window.updateAllLabelsPosition = updateAllLabelsPosition;
+
+    // 绑定“显示亩数标签”开关（默认隐藏）
+    function bindLabelsToggle() {
+        const cb = document.getElementById('toggleLabelsCheckbox');
+        const container = document.getElementById('mapContainer');
+        if (!cb || !container) return;
+        // 默认隐藏标签
+        container.classList.add('labels-hidden');
+        cb.addEventListener('change', () => {
+            labelsEnabled = cb.checked;
+            if (labelsEnabled) {
+                container.classList.remove('labels-hidden');
+                const hasAnyLabel = currentPolygons.some(item => item && item.label && item.label.domElement);
+                if (!hasAnyLabel) {
+                    try { createAllLabels(); } catch (e) { console.warn('创建标签失败:', e); }
+                }
+                updateAllLabelsPosition();
+            } else {
+                container.classList.add('labels-hidden');
+            }
+        });
+    }
 
     /**
      * 计算多边形中心点（比底部中心更适合显示标签）
@@ -801,48 +847,38 @@
     }
 
     /**
-     * 清空所有多边形和标签
+     * 清空所有多边形和标签（同时处理 polygonInfoList 与 currentPolygons）
      */
     function clearOverlays() {
         try {
-            // 保留地图的移动/缩放监听，以便标签随地图交互时重新定位
-
-            // 移除多边形和标签
-            currentPolygons.forEach(item => {
-                // 移除多边形
-                if (item.polygon && map && map.removeOverLay) {
-                    try {
-                        map.removeOverLay(item.polygon);
-                    } catch (e) {
-                        console.warn('移除多边形失败:', e);
-                    }
+            // 先移除 polygonInfoList 中记录的多边形与其DOM标签
+            polygonInfoList.forEach(info => {
+                if (info && info.polygon && map && map.removeOverLay) {
+                    try { map.removeOverLay(info.polygon); } catch (e) { console.warn('移除多边形失败:', e); }
                 }
+                if (info && info.labelRef && info.labelRef.parentNode) {
+                    try { info.labelRef.parentNode.removeChild(info.labelRef); } catch (e) { console.warn('移除DOM标签失败:', e); }
+                    info.labelRef = null;
+                }
+            });
 
-                // 统一处理标签移除
+            // 再处理 currentPolygons（兼容旧路径与标签对象）
+            currentPolygons.forEach(item => {
+                if (item.polygon && map && map.removeOverLay) {
+                    try { map.removeOverLay(item.polygon); } catch (e) { console.warn('移除多边形失败:', e); }
+                }
                 if (item.label) {
-                    // 如果是DOM元素标签
                     if (item.label.domElement && item.label.domElement.parentNode) {
-                        try {
-                            item.label.domElement.parentNode.removeChild(item.label.domElement);
-                            console.log('移除了DOM标签');
-                        } catch (e) {
-                            console.warn('移除DOM标签失败:', e);
-                        }
-                    }
-                    // 如果是地图覆盖物标签
-                    else if (map && map.removeOverLay && !item.label.isDomLabel) {
-                        try {
-                            map.removeOverLay(item.label);
-                            console.log('移除了地图覆盖物标签');
-                        } catch (e) {
-                            console.warn('移除地图覆盖物标签失败:', e);
-                        }
+                        try { item.label.domElement.parentNode.removeChild(item.label.domElement); } catch (e) { console.warn('移除DOM标签失败:', e); }
+                    } else if (map && map.removeOverLay && !item.label.isDomLabel) {
+                        try { map.removeOverLay(item.label); } catch (e) { console.warn('移除地图覆盖物标签失败:', e); }
                     }
                 }
             });
 
-            // 清空数组
+            // 清空记录数组
             currentPolygons = [];
+            polygonInfoList = [];
 
             console.log('已清空所有多边形和标签（保留事件监听器）');
         } catch (error) {
