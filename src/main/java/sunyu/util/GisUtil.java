@@ -90,7 +90,9 @@ public class GisUtil implements AutoCloseable {
         private final GeometryFactory geometryFactory = new GeometryFactory();
         // 面积阈值因子：用于判定“小多边形”（倍数 × π × widthM^2）
         private final double SMALL_POLYGON_AREA_FACTOR = 1;
-    }
+        // 默认轮廓返回的最大多边形数量（TopN）
+        final int DEFAULT_MAX_OUTLINE_SEGMENTS = 5;
+     }
 
     /**
      * 构建器类，用于构建GisUtil实例
@@ -225,10 +227,10 @@ public class GisUtil implements AutoCloseable {
      *
      * @throws Exception 可能抛出异常，如坐标转换错误或几何操作失败
      */
-    public Geometry buildOutline(List<TrackPoint> seg, double totalWidthM) throws Exception {
+    private Geometry buildOutlineCore(List<TrackPoint> seg, double totalWidthM) throws Exception {
         long startTime = System.currentTimeMillis();
         double widthM = totalWidthM / 2.0;
-        log.debug("[buildOutline] 开始处理轨迹轮廓，轨迹点数: {}, 宽度(单侧): {} 米",
+        log.debug("[buildOutlineCore] 开始处理轨迹轮廓，轨迹点数: {}, 宽度(单侧): {} 米",
                 seg != null ? seg.size() : 0, widthM);
     
         if (seg == null) {
@@ -245,7 +247,7 @@ public class GisUtil implements AutoCloseable {
                 .filter(p -> !(p.getLon() == 0 && p.getLat() == 0))
                 .collect(Collectors.toList());
         long processTime = System.currentTimeMillis() - processStartTime;
-        log.debug("[buildOutline] 轨迹点过滤完成，原始点数: {}, 过滤后点数: {}, 过滤耗时: {}ms",
+        log.debug("[buildOutlineCore] 轨迹点过滤完成，原始点数: {}, 过滤后点数: {}, 过滤耗时: {}ms",
                 seg.size(), sortedSeg.size(), processTime);
     
         if (sortedSeg.size() < 3) {
@@ -258,7 +260,7 @@ public class GisUtil implements AutoCloseable {
             double minLat = sortedSeg.stream().mapToDouble(TrackPoint::getLat).min().orElse(0);
             double maxLat = sortedSeg.stream().mapToDouble(TrackPoint::getLat).max().orElse(0);
     
-            log.debug("[buildOutline] 轨迹范围: 经度[{}, {}], 纬度[{}, {}]", minLon, maxLon, minLat, maxLat);
+            log.debug("[buildOutlineCore] 轨迹范围: 经度[{}, {}], 纬度[{}, {}]", minLon, maxLon, minLat, maxLat);
     
             long buildStartTime = System.currentTimeMillis();
             Geometry result = buildOutlineBySimpleBuffers(sortedSeg, widthM);
@@ -280,31 +282,31 @@ public class GisUtil implements AutoCloseable {
                 if (!keep.isEmpty()) {
                     result = config.geometryFactory.createMultiPolygon(keep.toArray(new Polygon[0]));
                 } else {
-                    log.debug("[buildOutline] 过滤后无有效多边形，阈值面积: {} m²", minAreaThresholdM2);
+                    log.debug("[buildOutlineCore] 过滤后无有效多边形，阈值面积: {} m²", minAreaThresholdM2);
                     result = config.geometryFactory.createMultiPolygon(new Polygon[0]);
                 }
-                log.debug("[buildOutline] 小多边形过滤完成：原 {} 个 → 保留 {} 个；阈值面积: {} m²",
+                log.debug("[buildOutlineCore] 小多边形过滤完成：原 {} 个 → 保留 {} 个；阈值面积: {} m²",
                         mp.getNumGeometries(), keep.size(), minAreaThresholdM2);
             }
     
-            log.debug("[buildOutline] 轮廓构建完成，构建耗时: {}ms", buildTime);
+            log.debug("[buildOutlineCore] 轮廓构建完成，构建耗时: {}ms", buildTime);
     
             if (result instanceof MultiPolygon && result.getNumGeometries() > 1) {
-                log.debug("[buildOutline] 结果为MultiPolygon，包含 {} 个部分", result.getNumGeometries());
+                log.debug("[buildOutlineCore] 结果为MultiPolygon，包含 {} 个部分", result.getNumGeometries());
                 long endTime = System.currentTimeMillis();
-                log.debug("[buildOutline] 总计耗时: {}ms", endTime - startTime);
+                log.debug("[buildOutlineCore] 总计耗时: {}ms", endTime - startTime);
                 return result;
             }
     
             if (result instanceof Polygon || (result instanceof MultiPolygon && result.getNumGeometries() == 1)) {
-                log.debug("[buildOutline] 结果为Polygon或单个MultiPolygon");
+                log.debug("[buildOutlineCore] 结果为Polygon或单个MultiPolygon");
                 long endTime = System.currentTimeMillis();
-                log.debug("[buildOutline] 总计耗时: {}ms", endTime - startTime);
+                log.debug("[buildOutlineCore] 总计耗时: {}ms", endTime - startTime);
                 return result;
             }
     
             long endTime = System.currentTimeMillis();
-            log.debug("[buildOutline] 处理完成，总计耗时: {}ms", endTime - startTime);
+            log.debug("[buildOutlineCore] 处理完成，总计耗时: {}ms", endTime - startTime);
     
             return result;
         } catch (Exception e) {
@@ -984,9 +986,51 @@ public class GisUtil implements AutoCloseable {
         return lon < 72.004 || lon > 137.8347 || lat < 0.8293 || lat > 55.8271;
     }
 
+    // 新增：按面积倒序保留最大的 N 个多边形
+    private Geometry keepLargestPolygons(Geometry geometry, int maxCount) {
+        if (geometry == null) return null;
+        if (maxCount <= 0) return geometry;
+
+        GeometryFactory gf = geometry.getFactory();
+        java.util.List<Polygon> polys = new java.util.ArrayList<>();
+
+        // 展开并收集所有 Polygon
+        for (int i = 0; i < geometry.getNumGeometries(); i++) {
+            Geometry g = geometry.getGeometryN(i);
+            if (g instanceof Polygon) {
+                polys.add((Polygon) g);
+            } else if (g instanceof MultiPolygon) {
+                MultiPolygon mp = (MultiPolygon) g;
+                for (int j = 0; j < mp.getNumGeometries(); j++) {
+                    polys.add((Polygon) mp.getGeometryN(j));
+                }
+            }
+            // 其他类型忽略
+        }
+        if (polys.isEmpty()) return geometry;
+
+        // 按面积倒序
+        polys.sort(java.util.Comparator.comparingDouble(Polygon::getArea).reversed());
+
+        int limit = Math.min(maxCount, polys.size());
+        if (limit == 1) {
+            return polys.get(0);
+        }
+        Polygon[] top = polys.subList(0, limit).toArray(new Polygon[0]);
+        return gf.createMultiPolygon(top);
+    }
+
+    // 包装：两参版本默认返回TopN（配置常量）
+    public Geometry buildOutline(List<TrackPoint> seg, double totalWidthM) throws Exception {
+        Geometry outline = buildOutlineCore(seg, totalWidthM);
+        return keepLargestPolygons(outline, config.DEFAULT_MAX_OUTLINE_SEGMENTS);
+    }
+
+    // 新增：带可选上限参数的重载方法；若为 null 或 <=0 则用默认值 5
+    public Geometry buildOutline(List<TrackPoint> seg, double totalWidthM, Integer maxSegments) throws Exception {
+        Geometry outline = buildOutlineCore(seg, totalWidthM);
+        int limit = (maxSegments == null || maxSegments <= 0) ? config.DEFAULT_MAX_OUTLINE_SEGMENTS : maxSegments.intValue();
+        return keepLargestPolygons(outline, limit);
+    }
+
 }
-
-
-
-
-

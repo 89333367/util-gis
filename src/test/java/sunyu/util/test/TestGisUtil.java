@@ -207,11 +207,12 @@ public class TestGisUtil {
         }
         log.debug("{} 条点位", l.size());
         try {
-            Geometry g = gisUtil.buildOutline(l, jobWidth);
+            //Geometry g = gisUtil.buildOutline(l, jobWidth);
+            Geometry g = gisUtil.buildOutline(l, jobWidth,5);
             log.debug("轮廓创建完毕");
             String wkt = gisUtil.toWkt(g);
             log.debug("wkt获取完毕");
-            FileUtil.writeUtf8String(wkt, StrUtil.format("d:/tmp/{}_{}.txt", did, jobEndTime.toString("yyyyMMddHHmmss")));
+            FileUtil.writeUtf8String(wkt, StrUtil.format("d:/tmp/Geometry.txt", did, jobEndTime.toString("yyyyMMddHHmmss")));
             double wktMu = gisUtil.calcMu(wkt);
             double mu = gisUtil.calcMu(g);
             log.info("设备号：{} 作业时间：{} {} 宽幅：{} wkt亩数：{} 几何图形亩数：{}", did, jobStartTime, jobEndTime, jobWidth
