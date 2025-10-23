@@ -37,10 +37,21 @@ public class SplitRoadResult {
     }
 
     public List<OutlinePart> getParts() {
-        return parts;
+        if (parts == null || parts.isEmpty()) {
+            return parts;
+        }
+        java.util.List<OutlinePart> sorted = new java.util.ArrayList<>(parts);
+        sorted.sort(
+            java.util.Comparator.comparing(
+                OutlinePart::getStartTime,
+                java.util.Comparator.nullsLast(java.util.Comparator.naturalOrder())
+            )
+        );
+        return sorted;
     }
 
     public String getWkt() {
         return wkt;
     }
 }
+

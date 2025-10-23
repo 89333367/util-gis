@@ -2,25 +2,28 @@ package sunyu.util;
 
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
 import org.geotools.geometry.jts.JTS;
 import org.geotools.referencing.CRS;
 import org.locationtech.jts.geom.Coordinate;
+import org.locationtech.jts.geom.Envelope;
 import org.locationtech.jts.geom.Geometry;
 import org.locationtech.jts.geom.GeometryCollection;
 import org.locationtech.jts.geom.GeometryFactory;
+import org.locationtech.jts.geom.LineString;
 import org.locationtech.jts.geom.MultiPolygon;
 import org.locationtech.jts.geom.Polygon;
-import org.locationtech.jts.geom.LineString;
-import org.locationtech.jts.geom.Envelope;
 import org.locationtech.jts.geom.prep.PreparedGeometry;
 import org.locationtech.jts.geom.prep.PreparedGeometryFactory;
 import org.locationtech.jts.io.WKTReader;
 import org.locationtech.jts.operation.buffer.BufferOp;
 import org.locationtech.jts.operation.buffer.BufferParameters;
+import org.locationtech.jts.operation.union.UnaryUnionOp;
 import org.locationtech.jts.simplify.DouglasPeuckerSimplifier;
 import org.opengis.referencing.crs.CoordinateReferenceSystem;
 import org.opengis.referencing.operation.MathTransform;
@@ -51,60 +54,53 @@ public class GisUtil implements AutoCloseable {
             this.geometryFactory = geometryFactory;
         }
 
-        /**
-         * 高效合并几何图形列表
-         * 对于小量数据，直接使用 GeometryCollection.union()
-         * 对于大量数据，使用分组合并策略
-         *
-         * @param geometries 待合并的几何图形列表
-         * @return 合并后的几何图形；为空或空列表返回 null
-         */
         public Geometry union(List<Geometry> geometries) {
             if (geometries == null || geometries.isEmpty()) {
                 return null;
             }
-
             if (geometries.size() == 1) {
                 return geometries.get(0);
             }
 
-            // 对于小量数据，直接使用 GeometryCollection.union()
+            // 优先使用 CascadedPolygonUnion 合并多边形，性能更优
+            java.util.List<Polygon> polys = new java.util.ArrayList<>();
+            for (Geometry g : geometries) {
+                if (g instanceof Polygon) {
+                    polys.add((Polygon) g);
+                } else if (g instanceof MultiPolygon) {
+                    MultiPolygon mp = (MultiPolygon) g;
+                    for (int i = 0; i < mp.getNumGeometries(); i++) {
+                        polys.add((Polygon) mp.getGeometryN(i));
+                    }
+                }
+            }
+            if (!polys.isEmpty()) {
+                return UnaryUnionOp.union(polys);
+            }
+
+            // 非多边形集合，退回 GeometryCollection.union()
             if (geometries.size() <= 1000) {
                 GeometryCollection collection = geometryFactory.createGeometryCollection(
                         geometries.toArray(new Geometry[0]));
                 return collection.union();
             }
-
-            // 对于大量数据，使用分组合并策略
             return unionInGroups(geometries, 1000);
         }
 
-        /**
-         * 分组合并几何图形
-         *
-         * @param geometries 待合并的几何图形列表
-         * @param groupSize  每组的大小
-         * @return 合并后的几何图形
-         */
         private Geometry unionInGroups(List<Geometry> geometries, int groupSize) {
             if (geometries.size() <= groupSize) {
                 GeometryCollection collection = geometryFactory.createGeometryCollection(
                         geometries.toArray(new Geometry[0]));
                 return collection.union();
             }
-
-            // 分组处理
-            List<Geometry> groups = new ArrayList<>();
+            List<Geometry> groups = new java.util.ArrayList<>();
             for (int i = 0; i < geometries.size(); i += groupSize) {
                 int end = Math.min(i + groupSize, geometries.size());
                 List<Geometry> group = geometries.subList(i, end);
-
                 GeometryCollection collection = geometryFactory.createGeometryCollection(
                         group.toArray(new Geometry[0]));
                 groups.add(collection.union());
             }
-
-            // 递归合并组
             return unionInGroups(groups, groupSize);
         }
     }
@@ -115,6 +111,10 @@ public class GisUtil implements AutoCloseable {
     private final Config config;
     // 几何图形合并工具
     private final GeometryUnionUtil geometryUnionUtil;
+
+    // 投影转换缓存，避免重复创建
+    private MathTransform txWgsToMercator;
+    private MathTransform txMercatorToWgs;
 
     /**
      * 获取构建器实例，使用构建器模式创建GisUtil对象
@@ -173,7 +173,7 @@ public class GisUtil implements AutoCloseable {
         // GeometryFactory缓存，避免重复创建
         private final GeometryFactory geometryFactory = new GeometryFactory();
 
-        // 默认轮廓返回的最大多边形数量（TopN）
+        // 默认轮廓返回的最多多边形数量（TopN）
         final int DEFAULT_MAX_OUTLINE_SEGMENTS = 10;
     }
 
@@ -234,11 +234,12 @@ public class GisUtil implements AutoCloseable {
      * @throws Exception 坐标转换异常
      */
     private Geometry wgs84ToWebMercator(Geometry g) throws Exception {
-        CoordinateReferenceSystem src = getCachedCRS(config.WGS84);
-        CoordinateReferenceSystem tgt = getCachedCRS(config.WEB_MERCATOR);
-        MathTransform tx = CRS.findMathTransform(src, tgt, true);
-        Geometry result = JTS.transform(g, tx);
-        return result;
+        if (txWgsToMercator == null) {
+            CoordinateReferenceSystem src = getCachedCRS(config.WGS84);
+            CoordinateReferenceSystem tgt = getCachedCRS(config.WEB_MERCATOR);
+            txWgsToMercator = CRS.findMathTransform(src, tgt, true);
+        }
+        return JTS.transform(g, txWgsToMercator);
     }
 
     /**
@@ -252,18 +253,18 @@ public class GisUtil implements AutoCloseable {
      */
     private Geometry webMercatorToWgs84(Geometry g) throws Exception {
         try {
-            CoordinateReferenceSystem src = getCachedCRS(config.WEB_MERCATOR);
-            CoordinateReferenceSystem tgt = getCachedCRS(config.WGS84);
-            MathTransform tx = CRS.findMathTransform(src, tgt, true);
-            Geometry result = JTS.transform(g, tx);
-
-            // 验证转换后的坐标是否在合理范围内
-            if (!isValidWgs84Geometry(result)) {
-                // 如果转换失败，尝试使用不同的转换方法
-                MathTransform tx2 = CRS.findMathTransform(src, tgt, false);
-                result = JTS.transform(g, tx2);
+            if (txMercatorToWgs == null) {
+                CoordinateReferenceSystem src = getCachedCRS(config.WEB_MERCATOR);
+                CoordinateReferenceSystem tgt = getCachedCRS(config.WGS84);
+                txMercatorToWgs = CRS.findMathTransform(src, tgt, true);
             }
-
+            Geometry result = JTS.transform(g, txMercatorToWgs);
+            if (!isValidWgs84Geometry(result)) {
+                CoordinateReferenceSystem src = getCachedCRS(config.WEB_MERCATOR);
+                CoordinateReferenceSystem tgt = getCachedCRS(config.WGS84);
+                MathTransform strict = CRS.findMathTransform(src, tgt, false);
+                result = JTS.transform(g, strict);
+            }
             return result;
         } catch (Exception e) {
             log.error("Web Mercator到WGS84坐标转换失败: " + e.getMessage(), e);
@@ -344,7 +345,14 @@ public class GisUtil implements AutoCloseable {
             log.debug("[buildOutlineCore] 轨迹范围: 经度[{}, {}], 纬度[{}, {}]", minLon, maxLon, minLat, maxLat);
 
             long buildStartTime = System.currentTimeMillis();
-            Geometry result = buildOutlineBySimpleBuffers(sortedSeg, widthM);
+            Geometry result;
+            if (sortedSeg.size() <= 200) {
+                log.debug("[buildOutlineCore] 选择LineBuffer策略（点数:{}）", sortedSeg.size());
+                result = buildOutlineByLineBuffer(sortedSeg, widthM);
+            } else {
+                log.debug("[buildOutlineCore] 选择PointBuffer策略（点数:{}）", sortedSeg.size());
+                result = buildOutlineBySimpleBuffers(sortedSeg, widthM);
+            }
             long buildTime = System.currentTimeMillis() - buildStartTime;
 
             // 基于宽度的最小面积阈值（直接使用宽度，不再依赖配置因子）
@@ -461,14 +469,57 @@ public class GisUtil implements AutoCloseable {
                 pointBuffers.size(), convertTime, bufferTime);
 
         // 使用GeometryCollection优化合并所有缓冲区
-        long startUnion = System.currentTimeMillis();
         log.debug("[buildOutlineBySimpleBuffers] 开始使用GeometryCollection优化合并 {} 个缓冲区", pointBuffers.size());
 
-        // 使用优化的合并方法
-        Geometry union = geometryUnionUtil.union(pointBuffers);
+        // 分桶：在 WebMercator 上按网格将缓冲分组，降低相互参与的多边形数量
+        long startBucket = System.currentTimeMillis();
+        // 分桶格子尺寸调大以减少桶数量
+        // 原来：double cellSize = Math.max(widthM * 8, widthM * 6);
+        double cellSize = widthM * 16;
+        Map<String, List<Geometry>> buckets = new HashMap<>();
+        for (Geometry g : pointBuffers) {
+            Envelope e = g.getEnvelopeInternal();
+            double cx = e.getMinX() + e.getWidth() / 2.0;
+            double cy = e.getMinY() + e.getHeight() / 2.0;
+            long bx = (long) Math.floor(cx / cellSize);
+            long by = (long) Math.floor(cy / cellSize);
+            String key = bx + ":" + by;
+            buckets.computeIfAbsent(key, k -> new ArrayList<>()).add(g);
+        }
+        long bucketTime = System.currentTimeMillis() - startBucket;
+        int bucketCount = buckets.size();
+        int avgBucketSize = bucketCount == 0 ? 0 : (pointBuffers.size() / bucketCount);
+        log.debug("[buildOutlineBySimpleBuffers] 分桶完成 桶数={} 平均每桶={} 耗时={}ms", bucketCount, avgBucketSize, bucketTime);
 
-        long unionTime = System.currentTimeMillis() - startUnion;
-        log.debug("[buildOutlineBySimpleBuffers] 缓冲区合并完成，合并耗时: {}ms", unionTime);
+        // 桶内合并
+        long startBucketUnion = System.currentTimeMillis();
+        List<Geometry> bucketUnions = new ArrayList<>(bucketCount);
+        int bi = 0;
+        for (Map.Entry<String, List<Geometry>> entry : buckets.entrySet()) {
+            Geometry u = geometryUnionUtil.union(entry.getValue());
+            if (u != null) {
+                bucketUnions.add(u);
+            }
+            if ((++bi % 50) == 0 || bi == bucketCount) {
+                log.trace("[buildOutlineBySimpleBuffers] 桶合并进度 {}/{}", bi, bucketCount);
+            }
+        }
+        long bucketUnionTime = System.currentTimeMillis() - startBucketUnion;
+        log.debug("[buildOutlineBySimpleBuffers] 桶内合并完成 桶数={} 耗时={}ms", bucketCount, bucketUnionTime);
+
+        // 最终合并（合并各桶的结果）
+        long startFinalUnion = System.currentTimeMillis();
+        Geometry union;
+        if (bucketUnions.isEmpty()) {
+            GeometryCollection collection = config.geometryFactory
+                    .createGeometryCollection(pointBuffers.toArray(new Geometry[0]));
+            union = collection.union();
+        } else {
+            union = geometryUnionUtil.union(bucketUnions);
+        }
+        long finalUnionTime = System.currentTimeMillis() - startFinalUnion;
+        long unionTime = bucketUnionTime + finalUnionTime;
+        log.debug("[buildOutlineBySimpleBuffers] 最终合并完成 桶内:{}ms 总合并:{}ms", bucketUnionTime, finalUnionTime);
 
         // 转换回WGS84坐标系
         long startBackConvert = System.currentTimeMillis();
@@ -1069,7 +1120,7 @@ public class GisUtil implements AutoCloseable {
     public List<TrackPoint> bd09ToGcj02TrackPoints(List<TrackPoint> points) {
         return points.stream()
                 .map(p -> {
-                    CoordinatePoint result = gcj02ToBd09(p.getLon(), p.getLat());
+                    CoordinatePoint result = bd09ToGcj02(p.getLon(), p.getLat());
                     TrackPoint tp = new TrackPoint(p.getTime(), result.getLon(), result.getLat());
                     BeanUtil.copyProperties(p, tp, "lon", "lat");
                     return tp;
@@ -1083,7 +1134,7 @@ public class GisUtil implements AutoCloseable {
     public List<TrackPoint> wgs84ToBd09TrackPoints(List<TrackPoint> points) {
         return points.stream()
                 .map(p -> {
-                    CoordinatePoint result = gcj02ToBd09(p.getLon(), p.getLat());
+                    CoordinatePoint result = wgs84ToBd09(p.getLon(), p.getLat());
                     TrackPoint tp = new TrackPoint(p.getTime(), result.getLon(), result.getLat());
                     BeanUtil.copyProperties(p, tp, "lon", "lat");
                     return tp;
@@ -1097,7 +1148,7 @@ public class GisUtil implements AutoCloseable {
     public List<TrackPoint> bd09ToWgs84TrackPoints(List<TrackPoint> points) {
         return points.stream()
                 .map(p -> {
-                    CoordinatePoint result = gcj02ToBd09(p.getLon(), p.getLat());
+                    CoordinatePoint result = bd09ToWgs84(p.getLon(), p.getLat());
                     TrackPoint tp = new TrackPoint(p.getTime(), result.getLon(), result.getLat());
                     BeanUtil.copyProperties(p, tp, "lon", "lat");
                     return tp;
@@ -1165,7 +1216,7 @@ public class GisUtil implements AutoCloseable {
      *
      * <p>行为特性</p>
      * - 以宽度为依据的最小面积阈值过滤小区块，阈值约为 π*(totalWidthM/2)^2；
-     * - 面积倒序裁剪以降低下游复杂度；若仅 1 个区块将返回 `Polygon` 以简化类型处理。
+     * - 面积倒序裁剪，最多保留 `maxSegments` 个区块；若仅 1 个区块将返回 `Polygon`。
      *
      * <p>异常</p>
      * - IllegalArgumentException：seg 少于 3 个有效点，或 totalWidthM < 0；
@@ -1248,24 +1299,24 @@ public class GisUtil implements AutoCloseable {
 
         if (trimmed instanceof Polygon) {
             log.debug("[splitRoad] 进入Polygon分支");
-Polygon poly = (Polygon) trimmed;
-PreparedGeometry preparedPoly = PreparedGeometryFactory.prepare(poly);
-Envelope env = poly.getEnvelopeInternal();
-// 找出属于该区块的点（点在多边形内）
-long tWithinStart = System.currentTimeMillis();
-java.util.List<TrackPoint> inPoly = new java.util.ArrayList<>();
-for (TrackPoint p : sortedSeg) {
-    Coordinate c = new Coordinate(p.getLon(), p.getLat());
-    if (!env.contains(c)) {
-        continue;
-    }
-    Geometry point = config.geometryFactory.createPoint(c);
-    if (preparedPoly.contains(point)) {
-        inPoly.add(p);
-    }
-}
-long tWithinEnd = System.currentTimeMillis();
-log.debug("[splitRoad] Polygon点过滤完成 inPoly={} 耗时={}ms", inPoly.size(), (tWithinEnd - tWithinStart));
+            Polygon poly = (Polygon) trimmed;
+            PreparedGeometry preparedPoly = PreparedGeometryFactory.prepare(poly);
+            Envelope env = poly.getEnvelopeInternal();
+            // 找出属于该区块的点（点在多边形内）
+            long tWithinStart = System.currentTimeMillis();
+            java.util.List<TrackPoint> inPoly = new java.util.ArrayList<>();
+            for (TrackPoint p : sortedSeg) {
+                Coordinate c = new Coordinate(p.getLon(), p.getLat());
+                if (!env.contains(c)) {
+                    continue;
+                }
+                Geometry point = config.geometryFactory.createPoint(c);
+                if (preparedPoly.contains(point)) {
+                    inPoly.add(p);
+                }
+            }
+            long tWithinEnd = System.currentTimeMillis();
+            log.debug("[splitRoad] Polygon点过滤完成 inPoly={} 耗时={}ms", inPoly.size(), (tWithinEnd - tWithinStart));
 
             java.time.LocalDateTime start = inPoly.isEmpty() ? null : inPoly.get(0).getTime();
             java.time.LocalDateTime end = inPoly.isEmpty() ? null : inPoly.get(inPoly.size() - 1).getTime();
@@ -1287,26 +1338,47 @@ log.debug("[splitRoad] Polygon点过滤完成 inPoly={} 耗时={}ms", inPoly.siz
             log.debug("[splitRoad] 进入MultiPolygon分支 分区数={}", mp.getNumGeometries());
             long partsBuildStart = System.currentTimeMillis();
             for (int i = 0; i < mp.getNumGeometries(); i++) {
-    Polygon poly = (Polygon) mp.getGeometryN(i);
-    PreparedGeometry preparedPoly = PreparedGeometryFactory.prepare(poly);
-    Envelope env = poly.getEnvelopeInternal();
-    long tWithinStart = System.currentTimeMillis();
-    java.util.List<TrackPoint> inPoly = new java.util.ArrayList<>();
-    for (TrackPoint p : sortedSeg) {
-        Coordinate c = new Coordinate(p.getLon(), p.getLat());
-        if (!env.contains(c)) {
-            continue;
-        }
-        Geometry point = config.geometryFactory.createPoint(c);
-        if (preparedPoly.contains(point)) {
-            inPoly.add(p);
-        }
-    }
-    long tWithinEnd = System.currentTimeMillis();
-    log.debug("[splitRoad] Part#{} 点过滤完成 inPoly={} 耗时={}ms", i, inPoly.size(), (tWithinEnd - tWithinStart));
+                Polygon poly = (Polygon) mp.getGeometryN(i);
+                PreparedGeometry preparedPoly = PreparedGeometryFactory.prepare(poly);
+                Envelope env = poly.getEnvelopeInternal();
+                long tWithinStart = System.currentTimeMillis();
+                java.util.List<java.util.List<TrackPoint>> sessions = new java.util.ArrayList<>();
+                java.util.List<TrackPoint> current = null;
+                for (TrackPoint p : sortedSeg) {
+                    Coordinate c = new Coordinate(p.getLon(), p.getLat());
+                    if (!env.contains(c)) {
+                        if (current != null) { sessions.add(current); current = null; }
+                        continue;
+                    }
+                    Geometry point = config.geometryFactory.createPoint(c);
+                    boolean inside = preparedPoly.contains(point);
+                    if (inside) {
+                        if (current == null) current = new java.util.ArrayList<>();
+                        current.add(p);
+                    } else {
+                        if (current != null) { sessions.add(current); current = null; }
+                    }
+                }
+                if (current != null) { sessions.add(current); }
+                long tWithinEnd = System.currentTimeMillis();
+                log.debug("[splitRoad] Part#{} 会话段统计完成 sessions={} 耗时={}ms", i, sessions.size(), (tWithinEnd - tWithinStart));
 
-                java.time.LocalDateTime start = inPoly.isEmpty() ? null : inPoly.get(0).getTime();
-                java.time.LocalDateTime end = inPoly.isEmpty() ? null : inPoly.get(inPoly.size() - 1).getTime();
+                java.time.LocalDateTime start = null;
+                java.time.LocalDateTime end = null;
+                int bestSize = 0;
+                long bestDurationMs = -1;
+                for (java.util.List<TrackPoint> s : sessions) {
+                    if (s.isEmpty()) continue;
+                    java.time.LocalDateTime sStart = s.get(0).getTime();
+                    java.time.LocalDateTime sEnd = s.get(s.size() - 1).getTime();
+                    long dur = java.time.Duration.between(sStart, sEnd).toMillis();
+                    if (dur > bestDurationMs || (dur == bestDurationMs && s.size() > bestSize)) {
+                        bestDurationMs = dur;
+                        bestSize = s.size();
+                        start = sStart;
+                        end = sEnd;
+                    }
+                }
 
                 long tMuStart = System.currentTimeMillis();
                 double mu = calcMu(poly);
@@ -1324,17 +1396,23 @@ log.debug("[splitRoad] Polygon点过滤完成 inPoly={} 耗时={}ms", inPoly.siz
                 }
             }
             long partsBuildEnd = System.currentTimeMillis();
-            log.debug("[splitRoad] MultiPolygon parts构建完成 size={} 总耗时={}ms", parts.size(), (partsBuildEnd - partsBuildStart));
+            log.debug("[splitRoad] MultiPolygon parts构建完成 size={} 总耗时={}ms", parts.size(),
+                    (partsBuildEnd - partsBuildStart));
         }
 
         long tOutlineWktStart = System.currentTimeMillis();
         String outlineWkt = toWkt(trimmed);
         long tOutlineWktEnd = System.currentTimeMillis();
-        log.debug("[splitRoad] Outline WKT生成完成 长度={} 耗时={}ms", outlineWkt.length(), (tOutlineWktEnd - tOutlineWktStart));
+        log.debug("[splitRoad] Outline WKT生成完成 长度={} 耗时={}ms", outlineWkt.length(),
+                (tOutlineWktEnd - tOutlineWktStart));
 
-        long tTotalEnd = System.currentTimeMillis();
-        log.debug("[splitRoad] 总耗时={}ms", (tTotalEnd - t0));
-        return new SplitRoadResult(trimmed, parts, outlineWkt);
+         long tTotalEnd = System.currentTimeMillis();
+         log.debug("[splitRoad] 总耗时={}ms", (tTotalEnd - t0));
+         return new SplitRoadResult(trimmed, parts, outlineWkt);
     }
 
 }
+
+
+
+

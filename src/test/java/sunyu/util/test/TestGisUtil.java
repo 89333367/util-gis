@@ -139,7 +139,7 @@ public class TestGisUtil {
 
     @Test
     void wkt计算亩数() {
-        double mu = gisUtil.calcMu(ResourceUtil.readUtf8Str("datas/MULTIPOLYGON_1.txt"));
+        double mu = gisUtil.calcMu(ResourceUtil.readUtf8Str("datas/POLYGON_1.txt"));
         log.info("{}", mu);
     }
 
