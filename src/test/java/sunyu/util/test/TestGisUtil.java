@@ -229,11 +229,11 @@ public class TestGisUtil {
             }
             l.add(StrUtil.format("{},{},{}", protocol.get("3014"), protocol.get("2602"), protocol.get("2603")));
         }
-        FileUtil.writeUtf8Lines(l, path + StrUtil.format("/trace_{}_{}.txt", did, yyyyMMdd));
+        FileUtil.writeUtf8Lines(l, path + StrUtil.format("/{}_{}_trace.txt", did, yyyyMMdd));
     }
 
     void 测试一天(String did, String yyyyMMdd, double jobWidth) {
-        String fileName = path + StrUtil.format("/trace_{}_{}.txt", did, yyyyMMdd);
+        String fileName = path + StrUtil.format("/{}_{}_trace.txt", did, yyyyMMdd);
         List<TrackPoint> l = new ArrayList<>();
         DateTime jobStartTime = DateUtil.parse(yyyyMMdd, "yyyyMMdd");
         DateTime jobEndTime = DateUtil.parse(yyyyMMdd + "235959", "yyyyMMddHHmmss");
@@ -250,8 +250,8 @@ public class TestGisUtil {
             String outlineWkt = res.getWkt();
             List<OutlinePart> parts = res.getParts();
 
-            String outlineFile = StrUtil.format(path + "/outline_{}_{}.txt", did, jobEndTime.toString("yyyyMMdd"));
-            String partsFile = StrUtil.format(path + "/parts_{}_{}.txt", did, jobEndTime.toString("yyyyMMdd"));
+            String outlineFile = StrUtil.format(path + "/{}_{}_outline.txt", did, jobEndTime.toString("yyyyMMdd"));
+            String partsFile = StrUtil.format(path + "/{}_{}_parts.txt", did, jobEndTime.toString("yyyyMMdd"));
 
             StringBuilder ob = new StringBuilder();
             ob.append("Outline type: ").append(outline.getGeometryType()).append('\n')
