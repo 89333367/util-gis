@@ -14,6 +14,7 @@ import org.locationtech.jts.geom.Geometry;
 import com.zaxxer.hikari.HikariConfig;
 import com.zaxxer.hikari.HikariDataSource;
 
+import cn.hutool.core.convert.Convert;
 import cn.hutool.core.date.DateTime;
 import cn.hutool.core.date.DateUtil;
 import cn.hutool.core.date.LocalDateTimeUtil;
@@ -36,6 +37,7 @@ public class TestGisUtil {
     Log log = LogFactory.get();
     GisUtil gisUtil = GisUtil.builder().build();
     ProtocolSdk protocolSdk = new ProtocolSdk("http://192.168.11.8/config.xml");
+    String path = "D:/tmp/java道路拆分算法测试";
 
     private DataSource getMySqlDatasource() {
         HikariConfig config = new HikariConfig();
@@ -144,11 +146,45 @@ public class TestGisUtil {
     }
 
     @Test
-    void 读取数据() {
+    void 读取farm_work() throws SQLException {
+        Db db = getMysqlDb();
+        String sql = "select did, jobArea, jobStartTime, jobEndTime, jobWidth, insertTime, updateTime" +
+                " from farm_work" +
+                " where (did like 'NJ%' or did like 'EC%')" +
+                "  and jobArea > 0" +
+                " order by insertTime desc";
+        int page = 1;
+        int pageSize = 10;
+        while (true) {
+            int offset = (page - 1) * pageSize;
+            List<Entity> query = db.query(StrUtil.format(sql + " limit {},{}", offset, pageSize));
+            if (query.isEmpty()) {
+                break;
+            } else {
+                for (Entity entity : query) {
+                    String did = entity.getStr("did");
+                    double jobArea = entity.getDouble("jobArea");
+                    Date jobStartTime = entity.getDate("jobStartTime");
+                    Date jobEndTime = entity.getDate("jobEndTime");
+                    double jobWidth = entity.getDouble("jobWidth");
+                    Date insertTime = entity.getDate("insertTime");
+                    Date updateTime = entity.getDate("updateTime");
+                    log.debug("{} {} {} {} {} {} {}", did, jobArea, jobStartTime, jobEndTime, jobWidth, insertTime,
+                            updateTime);
+                    读取数据(did, DateUtil.format(jobStartTime, "yyyyMMdd"));
+                    测试一天(did, DateUtil.format(jobStartTime, "yyyyMMdd"), jobWidth);
+                    break;
+                }
+                page++;
+            }
+            break;
+        }
+    }
+
+    void 读取数据(String did, String yyyyMMdd) {
         TDengineUtil tDengineUtil = getTdengineUtil();
-        String did = "EC73BD2508220055";
-        String jobStartTime = "2025-10-13 00:00:00";
-        String jobEndTime = "2025-10-13 23:59:59";
+        String jobStartTime = DateUtil.parse(yyyyMMdd, "yyyyMMdd").toString("yyyy-MM-dd") + " 00:00:00";
+        String jobEndTime = DateUtil.parse(yyyyMMdd + "235959", "yyyyMMddHHmmss").toString("yyyy-MM-dd HH:mm:ss");
         String tdSql = StrUtil.format(
                 "select protocol from frequent.d_p where did='{}' and `3014`>='{}' and `3014`<='{}' and protocol match '(,2601:0,)'",
                 did, jobStartTime, jobEndTime);
@@ -158,69 +194,24 @@ public class TestGisUtil {
         List<String> l = new ArrayList<>();
         for (Map<String, Object> row : rows) {
             Map<String, String> protocol = protocolSdk.parseProtocolString(row.get("protocol").toString());
-            l.add(StrUtil.format("{},{}{}", protocol.get("3014"), protocol.get("2602"), protocol.get("2603")));
-        }
-        FileUtil.writeUtf8Lines(l, "d:/tmp/" + did + ".txt");
-    }
-
-    @Test
-    void 测试farm_work_split() {
-        String fileName = "farm_work_split_658a85a8-6a31-4ee4-ab7c-1975f99ba296";
-        List<TrackPoint> l = new ArrayList<>();
-        String did = null;
-        double jobArea = 0;
-        DateTime jobStartTime = null;
-        DateTime jobEndTime = null;
-        double jobWidth = 0;
-        String[] datas = ResourceUtil.readUtf8Str("datas/" + fileName).split("\n");
-        for (int i = 0; i < datas.length; i++) {
-            if (i == 0) {
-                // EC73BD2508220055,23.27,2025-10-13 12:06:25,2025-10-13 15:47:25,2.6
-                String[] split = datas[i].split(",");
-                did = split[0];
-                jobArea = Double.parseDouble(split[1]);
-                jobStartTime = DateUtil.parse(split[2]);
-                jobEndTime = DateUtil.parse(split[3]);
-                jobWidth = Double.parseDouble(split[4]);
-            } else {
-                // 20251013120625,113.33316443,28.08500825
-                String[] split1 = datas[i].split(",");
-                TrackPoint trackPoint = new TrackPoint(LocalDateTimeUtil.parse(split1[0], "yyyyMMddHHmmss"),
-                        Double.parseDouble(split1[1]), Double.parseDouble(split1[2]));
-                l.add(trackPoint);
+            if (Convert.toDouble(protocol.get("2602")) <= 0 || Convert.toDouble(protocol.get("2603")) <= 0) {
+                continue;
             }
+            l.add(StrUtil.format("{},{},{}", protocol.get("3014"), protocol.get("2602"), protocol.get("2603")));
         }
-        log.debug("{} 条点位", l.size());
-        try {
-            SplitRoadResult res = gisUtil.splitRoad(l, jobWidth);
-            Geometry g = res.getOutline();
-            log.debug("轮廓创建完毕");
-            String wkt = gisUtil.toWkt(g);
-            log.debug("wkt获取完毕");
-            log.info("{}", wkt);
-            double wktMu = gisUtil.calcMu(wkt);
-            double mu = gisUtil.calcMu(g);
-            log.info("设备号：{} 作业时间：{} {} 宽幅：{} 原亩数：{} wkt亩数：{} 几何图形亩数：{}", did, jobStartTime, jobEndTime,
-                    jobWidth, jobArea, wktMu, mu);
-        } catch (Exception e) {
-            log.error(e);
-        }
+        FileUtil.writeUtf8Lines(l, path + StrUtil.format("/trace_{}_{}.txt", did, yyyyMMdd));
     }
 
-    @Test
-    void 测试一天() {
-        String fileName = "EC73BD2508220055_20251013.txt";
+    void 测试一天(String did, String yyyyMMdd, double jobWidth) {
+        String fileName = path + StrUtil.format("/trace_{}_{}.txt", did, yyyyMMdd);
         List<TrackPoint> l = new ArrayList<>();
-        String did = "EC73BD2508220055";
-        DateTime jobStartTime = DateUtil.parse("2025-10-13 00:00:00");
-        DateTime jobEndTime = DateUtil.parse("2025-10-13 23:59:59");
-        double jobWidth = 2.6;
-        String[] datas = ResourceUtil.readUtf8Str("datas/" + fileName).split("\n");
-        for (int i = 0; i < datas.length; i++) {
+        DateTime jobStartTime = DateUtil.parse(yyyyMMdd, "yyyyMMdd");
+        DateTime jobEndTime = DateUtil.parse(yyyyMMdd + "235959", "yyyyMMddHHmmss");
+        for (String line : FileUtil.readUtf8Lines(fileName)) {
             // 20251013120625,113.33316443,28.08500825
-            String[] split1 = datas[i].split(",");
-            TrackPoint trackPoint = new TrackPoint(LocalDateTimeUtil.parse(split1[0], "yyyyMMddHHmmss"),
-                    Double.parseDouble(split1[1]), Double.parseDouble(split1[2]));
+            String[] split = line.split(",");
+            TrackPoint trackPoint = new TrackPoint(LocalDateTimeUtil.parse(split[0], "yyyyMMddHHmmss"),
+                    Double.parseDouble(split[1]), Double.parseDouble(split[2]));
             l.add(trackPoint);
         }
         try {
@@ -229,8 +220,8 @@ public class TestGisUtil {
             String outlineWkt = res.getWkt();
             List<OutlinePart> parts = res.getParts();
 
-            String outlineFile = StrUtil.format("d:/tmp/outline_{}_{}.txt", did, jobEndTime.toString("yyyyMMdd"));
-            String partsFile = StrUtil.format("d:/tmp/parts_{}_{}.txt", did, jobEndTime.toString("yyyyMMdd"));
+            String outlineFile = StrUtil.format(path + "/outline_{}_{}.txt", did, jobEndTime.toString("yyyyMMdd"));
+            String partsFile = StrUtil.format(path + "/parts_{}_{}.txt", did, jobEndTime.toString("yyyyMMdd"));
 
             StringBuilder ob = new StringBuilder();
             ob.append("Outline type: ").append(outline.getGeometryType()).append('\n')
