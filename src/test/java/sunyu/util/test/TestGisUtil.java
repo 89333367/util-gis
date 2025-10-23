@@ -220,7 +220,6 @@ public class TestGisUtil {
                 did, jobStartTime, jobEndTime);
         log.debug("{}", tdSql);
         List<Map<String, Object>> rows = tDengineUtil.executeQuery(tdSql);
-        log.debug("{}", rows.size());
         List<String> l = new ArrayList<>();
         for (Map<String, Object> row : rows) {
             Map<String, String> protocol = protocolSdk.parseProtocolString(row.get("protocol").toString());
