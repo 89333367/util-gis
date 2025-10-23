@@ -86,6 +86,9 @@ public class GisUtil implements AutoCloseable {
         // 最小亩数阈值，过滤小面积多边形
         private final double MIN_MU_THRESHOLD = 0.1;
 
+        // 多边形合并距离阈值（米），相距小于该值的区块将合并
+        private final double MERGE_DISTANCE_THRESHOLD_M = 5.0;
+
         // WGS84坐标系的EPSG代码，用于定义地理坐标系统
         private final String WGS84 = "EPSG:4326";
 
@@ -808,6 +811,24 @@ public class GisUtil implements AutoCloseable {
         return geometry;
     }
 
+    // 新增：按距离阈值合并相近多边形
+    private Geometry mergeClosePolygons(Geometry geometry, double thresholdM) throws Exception {
+        if (geometry == null || geometry.isEmpty())
+            return geometry;
+        // 先做正缓冲以连接近邻，再做负缓冲回退到近似原始边界
+        Geometry buffered = buffer(geometry, thresholdM, 0);
+        Geometry unioned = UnaryUnionOp.union(buffered);
+        Geometry unbuffered;
+        try {
+            unbuffered = buffer(unioned, -thresholdM, 0);
+        } catch (Exception e) {
+            // 若负缓冲失败，退回并集结果以保证几何有效
+            log.warn("[mergeClosePolygons] 负缓冲失败，返回并集结果: {}", e.getMessage());
+            unbuffered = unioned;
+        }
+        return unbuffered;
+    }
+
     /**
      * 将几何图形转换为WKT格式
      * 确保输出为WGS84坐标系的标准地理坐标
@@ -1365,6 +1386,13 @@ public class GisUtil implements AutoCloseable {
         long tTrimEnd = System.currentTimeMillis();
         log.trace("[splitRoad] 裁剪+小面积过滤完成 type={} parts={} 耗时={}ms", trimmed.getGeometryType(),
                 (trimmed instanceof MultiPolygon) ? trimmed.getNumGeometries() : 1, (tTrimEnd - tTrimStart));
+
+        // 按距离阈值合并相近多边形，减少视觉上应连为一体的碎片
+        long tMergeStart = System.currentTimeMillis();
+        trimmed = mergeClosePolygons(trimmed, config.MERGE_DISTANCE_THRESHOLD_M);
+        long tMergeEnd = System.currentTimeMillis();
+        log.trace("[splitRoad] 小距离合并完成 type={} parts={} 耗时={}ms", trimmed.getGeometryType(),
+                (trimmed instanceof MultiPolygon) ? trimmed.getNumGeometries() : 1, (tMergeEnd - tMergeStart));
         log.debug("[splitRoad] 返回结果 type={} parts={}", trimmed.getGeometryType(),
                 (trimmed instanceof MultiPolygon) ? trimmed.getNumGeometries() : 1);
 
