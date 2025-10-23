@@ -14,7 +14,12 @@ import org.locationtech.jts.geom.GeometryCollection;
 import org.locationtech.jts.geom.GeometryFactory;
 import org.locationtech.jts.geom.MultiPolygon;
 import org.locationtech.jts.geom.Polygon;
+import org.locationtech.jts.geom.LineString;
+import org.locationtech.jts.geom.Envelope;
+import org.locationtech.jts.geom.prep.PreparedGeometry;
+import org.locationtech.jts.geom.prep.PreparedGeometryFactory;
 import org.locationtech.jts.io.WKTReader;
+import org.locationtech.jts.simplify.DouglasPeuckerSimplifier;
 import org.opengis.referencing.crs.CoordinateReferenceSystem;
 import org.opengis.referencing.operation.MathTransform;
 
@@ -22,6 +27,8 @@ import cn.hutool.core.bean.BeanUtil;
 import cn.hutool.log.Log;
 import cn.hutool.log.LogFactory;
 import sunyu.util.pojo.CoordinatePoint;
+import sunyu.util.pojo.OutlinePart;
+import sunyu.util.pojo.SplitRoadResult;
 import sunyu.util.pojo.TrackPoint;
 
 /**
@@ -469,6 +476,41 @@ public class GisUtil implements AutoCloseable {
         return result;
     }
 
+    private Geometry buildOutlineByLineBuffer(List<TrackPoint> seg, double widthM) throws Exception {
+        long startTime = System.currentTimeMillis();
+        log.debug("[buildOutlineByLineBuffer] 开始处理 {} 个轨迹点，缓冲区宽度: {} 米", seg.size(), widthM);
+
+        Coordinate[] coords = new Coordinate[seg.size()];
+        for (int i = 0; i < seg.size(); i++) {
+            TrackPoint p = seg.get(i);
+            coords[i] = new Coordinate(p.getLon(), p.getLat());
+        }
+        LineString line = config.geometryFactory.createLineString(coords);
+
+        long t1 = System.currentTimeMillis();
+        Geometry projLine = wgs84ToWebMercator(line);
+        long convertTime = System.currentTimeMillis() - t1;
+
+        double tolerance = Math.max(0.5, widthM * 0.5);
+        long t2 = System.currentTimeMillis();
+        Geometry simpleLine = DouglasPeuckerSimplifier.simplify(projLine, tolerance);
+        long simplifyTime = System.currentTimeMillis() - t2;
+
+        long t3 = System.currentTimeMillis();
+        Geometry buffered = simpleLine.buffer(widthM);
+        long bufferTime = System.currentTimeMillis() - t3;
+
+        long t4 = System.currentTimeMillis();
+        Geometry result = webMercatorToWgs84(buffered);
+        long backConvertTime = System.currentTimeMillis() - t4;
+
+        long endTime = System.currentTimeMillis();
+        log.debug("[buildOutlineByLineBuffer] 处理完成，总计耗时: {}ms (投影:{}ms, 简化:{}ms, 缓冲:{}ms, 回转:{}ms)",
+                endTime - startTime, convertTime, simplifyTime, bufferTime, backConvertTime);
+
+        return result;
+    }
+
     /**
      * 使用haversine公式计算两点间距离
      * haversine公式用于计算球面上两点间的最短距离（大圆距离）
@@ -820,7 +862,7 @@ public class GisUtil implements AutoCloseable {
      */
     public Geometry buffer(Geometry geom, double distance, double originLon) throws Exception {
         try {
-            // 转换到Web Mercator投影坐标系
+            // 转换到Web Mercator投影坐标
             Geometry proj = wgs84ToWebMercator(geom);
             Geometry buffer = proj.buffer(distance);
             // 转换回WGS84坐标系
@@ -1008,7 +1050,7 @@ public class GisUtil implements AutoCloseable {
         return points.stream()
                 .map(p -> {
                     CoordinatePoint result = gcj02ToBd09(p.getLon(), p.getLat());
-                    TrackPoint tp = new TrackPoint(result.getLon(), result.getLat());
+                    TrackPoint tp = new TrackPoint(p.getTime(), result.getLon(), result.getLat());
                     BeanUtil.copyProperties(p, tp, "lon", "lat");
                     return tp;
                 })
@@ -1022,7 +1064,7 @@ public class GisUtil implements AutoCloseable {
         return points.stream()
                 .map(p -> {
                     CoordinatePoint result = gcj02ToBd09(p.getLon(), p.getLat());
-                    TrackPoint tp = new TrackPoint(result.getLon(), result.getLat());
+                    TrackPoint tp = new TrackPoint(p.getTime(), result.getLon(), result.getLat());
                     BeanUtil.copyProperties(p, tp, "lon", "lat");
                     return tp;
                 })
@@ -1036,7 +1078,7 @@ public class GisUtil implements AutoCloseable {
         return points.stream()
                 .map(p -> {
                     CoordinatePoint result = gcj02ToBd09(p.getLon(), p.getLat());
-                    TrackPoint tp = new TrackPoint(result.getLon(), result.getLat());
+                    TrackPoint tp = new TrackPoint(p.getTime(), result.getLon(), result.getLat());
                     BeanUtil.copyProperties(p, tp, "lon", "lat");
                     return tp;
                 })
@@ -1050,7 +1092,7 @@ public class GisUtil implements AutoCloseable {
         return points.stream()
                 .map(p -> {
                     CoordinatePoint result = gcj02ToBd09(p.getLon(), p.getLat());
-                    TrackPoint tp = new TrackPoint(result.getLon(), result.getLat());
+                    TrackPoint tp = new TrackPoint(p.getTime(), result.getLon(), result.getLat());
                     BeanUtil.copyProperties(p, tp, "lon", "lat");
                     return tp;
                 })
@@ -1132,16 +1174,8 @@ public class GisUtil implements AutoCloseable {
      * @return            轮廓几何，可能为 `Polygon` 或 `MultiPolygon`（裁剪后最多保留前 N 个）
      * @throws Exception  坐标转换或几何运算异常
      */
-    public Geometry splitRoad(List<TrackPoint> seg, double totalWidthM) throws Exception {
-        Geometry outline = buildOutlineCore(seg, totalWidthM);
-        int originalCount = (outline instanceof Polygon) ? 1 : outline.getNumGeometries();
-        int limit = config.DEFAULT_MAX_OUTLINE_SEGMENTS;
-        Geometry trimmed = keepLargestPolygons(outline, limit);
-        int finalCount = (trimmed instanceof Polygon) ? 1 : trimmed.getNumGeometries();
-        if (finalCount != originalCount) {
-            log.debug("[splitRoad] 已裁剪：原 {} 个，限制 {}，最终返回 {} 个部分", originalCount, limit, finalCount);
-        }
-        return trimmed;
+    public SplitRoadResult splitRoad(List<TrackPoint> seg, double totalWidthM) throws Exception {
+        return splitRoad(seg, totalWidthM, config.DEFAULT_MAX_OUTLINE_SEGMENTS);
     }
 
     /**
@@ -1177,17 +1211,124 @@ public class GisUtil implements AutoCloseable {
      * @return            轮廓几何，可能为 `Polygon` 或 `MultiPolygon`（最多保留 `maxSegments` 个）
      * @throws Exception  坐标转换或几何运算异常
      */
-    public Geometry splitRoad(List<TrackPoint> seg, double totalWidthM, Integer maxSegments) throws Exception {
+    public SplitRoadResult splitRoad(List<TrackPoint> seg, double totalWidthM, Integer maxSegments) throws Exception {
+        long t0 = System.currentTimeMillis();
         Geometry outline = buildOutlineCore(seg, totalWidthM);
-        int originalCount = (outline instanceof Polygon) ? 1 : outline.getNumGeometries();
+        long t1 = System.currentTimeMillis();
+        log.debug("[splitRoad] outline构建完成 type={} parts={}", outline.getGeometryType(),
+                (outline instanceof MultiPolygon) ? outline.getNumGeometries() : 1);
+        log.debug("[splitRoad] outline构建耗时: {}ms", (t1 - t0));
+
         int limit = (maxSegments == null || maxSegments <= 0) ? config.DEFAULT_MAX_OUTLINE_SEGMENTS
                 : maxSegments.intValue();
+        long tTrimStart = System.currentTimeMillis();
         Geometry trimmed = keepLargestPolygons(outline, limit);
-        int finalCount = (trimmed instanceof Polygon) ? 1 : trimmed.getNumGeometries();
-        if (finalCount != originalCount) {
-            log.debug("[splitRoad] 已裁剪：原 {} 个，限制 {}，最终返回 {} 个部分", originalCount, limit, finalCount);
+        long tTrimEnd = System.currentTimeMillis();
+        log.debug("[splitRoad] 裁剪完成 type={} parts={} 耗时={}ms", trimmed.getGeometryType(),
+                (trimmed instanceof MultiPolygon) ? trimmed.getNumGeometries() : 1, (tTrimEnd - tTrimStart));
+
+        // 准备有效的轨迹点（与轮廓构建一致的过滤逻辑）
+        long tFilterStart = System.currentTimeMillis();
+        List<TrackPoint> sortedSeg = seg.stream()
+                .sorted(java.util.Comparator.comparing(TrackPoint::getTime))
+                .filter(p -> p.getTime() != null)
+                .filter(p -> Math.abs(p.getLon()) <= 180 && Math.abs(p.getLat()) <= 90)
+                .filter(p -> !(p.getLon() == 0 && p.getLat() == 0))
+                .collect(java.util.stream.Collectors.toList());
+        long tFilterEnd = System.currentTimeMillis();
+        log.debug("[splitRoad] 点过滤+排序完成 有效点={} 耗时={}ms", sortedSeg.size(), (tFilterEnd - tFilterStart));
+
+        java.util.List<OutlinePart> parts = new java.util.ArrayList<>();
+
+        if (trimmed instanceof Polygon) {
+            log.debug("[splitRoad] 进入Polygon分支");
+Polygon poly = (Polygon) trimmed;
+PreparedGeometry preparedPoly = PreparedGeometryFactory.prepare(poly);
+Envelope env = poly.getEnvelopeInternal();
+// 找出属于该区块的点（点在多边形内）
+long tWithinStart = System.currentTimeMillis();
+java.util.List<TrackPoint> inPoly = new java.util.ArrayList<>();
+for (TrackPoint p : sortedSeg) {
+    Coordinate c = new Coordinate(p.getLon(), p.getLat());
+    if (!env.contains(c)) {
+        continue;
+    }
+    Geometry point = config.geometryFactory.createPoint(c);
+    if (preparedPoly.contains(point)) {
+        inPoly.add(p);
+    }
+}
+long tWithinEnd = System.currentTimeMillis();
+log.debug("[splitRoad] Polygon点过滤完成 inPoly={} 耗时={}ms", inPoly.size(), (tWithinEnd - tWithinStart));
+
+            java.time.LocalDateTime start = inPoly.isEmpty() ? null : inPoly.get(0).getTime();
+            java.time.LocalDateTime end = inPoly.isEmpty() ? null : inPoly.get(inPoly.size() - 1).getTime();
+
+            long tMuStart = System.currentTimeMillis();
+            double mu = calcMu(poly);
+            long tMuEnd = System.currentTimeMillis();
+            log.debug("[splitRoad] Polygon mu计算完成 值={} 耗时={}ms", mu, (tMuEnd - tMuStart));
+
+            long tWktStart = System.currentTimeMillis();
+            String wkt = toWkt(poly);
+            long tWktEnd = System.currentTimeMillis();
+            log.debug("[splitRoad] Polygon WKT生成完成 长度={} 耗时={}ms", wkt.length(), (tWktEnd - tWktStart));
+
+            parts.add(new OutlinePart(poly, start, end, mu, wkt));
+            log.debug("[splitRoad] parts构建完成 size={}", parts.size());
+        } else if (trimmed instanceof MultiPolygon) {
+            MultiPolygon mp = (MultiPolygon) trimmed;
+            log.debug("[splitRoad] 进入MultiPolygon分支 分区数={}", mp.getNumGeometries());
+            long partsBuildStart = System.currentTimeMillis();
+            for (int i = 0; i < mp.getNumGeometries(); i++) {
+    Polygon poly = (Polygon) mp.getGeometryN(i);
+    PreparedGeometry preparedPoly = PreparedGeometryFactory.prepare(poly);
+    Envelope env = poly.getEnvelopeInternal();
+    long tWithinStart = System.currentTimeMillis();
+    java.util.List<TrackPoint> inPoly = new java.util.ArrayList<>();
+    for (TrackPoint p : sortedSeg) {
+        Coordinate c = new Coordinate(p.getLon(), p.getLat());
+        if (!env.contains(c)) {
+            continue;
         }
-        return trimmed;
+        Geometry point = config.geometryFactory.createPoint(c);
+        if (preparedPoly.contains(point)) {
+            inPoly.add(p);
+        }
+    }
+    long tWithinEnd = System.currentTimeMillis();
+    log.debug("[splitRoad] Part#{} 点过滤完成 inPoly={} 耗时={}ms", i, inPoly.size(), (tWithinEnd - tWithinStart));
+
+                java.time.LocalDateTime start = inPoly.isEmpty() ? null : inPoly.get(0).getTime();
+                java.time.LocalDateTime end = inPoly.isEmpty() ? null : inPoly.get(inPoly.size() - 1).getTime();
+
+                long tMuStart = System.currentTimeMillis();
+                double mu = calcMu(poly);
+                long tMuEnd = System.currentTimeMillis();
+                log.debug("[splitRoad] Part#{} mu计算完成 值={} 耗时={}ms", i, mu, (tMuEnd - tMuStart));
+
+                long tWktStart = System.currentTimeMillis();
+                String wkt = toWkt(poly);
+                long tWktEnd = System.currentTimeMillis();
+                log.debug("[splitRoad] Part#{} WKT生成完成 长度={} 耗时={}ms", i, wkt.length(), (tWktEnd - tWktStart));
+
+                parts.add(new OutlinePart(poly, start, end, mu, wkt));
+                if ((i + 1) % 10 == 0 || i == mp.getNumGeometries() - 1) {
+                    log.debug("[splitRoad] MultiPolygon 进度 {}/{}", (i + 1), mp.getNumGeometries());
+                }
+            }
+            long partsBuildEnd = System.currentTimeMillis();
+            log.debug("[splitRoad] MultiPolygon parts构建完成 size={} 总耗时={}ms", parts.size(), (partsBuildEnd - partsBuildStart));
+        }
+
+        long tOutlineWktStart = System.currentTimeMillis();
+        String outlineWkt = toWkt(trimmed);
+        long tOutlineWktEnd = System.currentTimeMillis();
+        log.debug("[splitRoad] Outline WKT生成完成 长度={} 耗时={}ms", outlineWkt.length(), (tOutlineWktEnd - tOutlineWktStart));
+
+        long tTotalEnd = System.currentTimeMillis();
+        log.debug("[splitRoad] 总耗时={}ms", (tTotalEnd - t0));
+        return new SplitRoadResult(trimmed, parts, outlineWkt);
     }
 
 }

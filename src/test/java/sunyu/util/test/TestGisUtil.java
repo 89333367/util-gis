@@ -1,5 +1,19 @@
 package sunyu.util.test;
 
+import java.sql.SQLException;
+import java.util.ArrayList;
+import java.util.Date;
+import java.util.List;
+import java.util.Map;
+
+import javax.sql.DataSource;
+
+import org.junit.jupiter.api.Test;
+import org.locationtech.jts.geom.Geometry;
+
+import com.zaxxer.hikari.HikariConfig;
+import com.zaxxer.hikari.HikariDataSource;
+
 import cn.hutool.core.date.DateTime;
 import cn.hutool.core.date.DateUtil;
 import cn.hutool.core.date.LocalDateTimeUtil;
@@ -12,20 +26,11 @@ import cn.hutool.db.Entity;
 import cn.hutool.log.Log;
 import cn.hutool.log.LogFactory;
 import cn.hutool.log.level.Level;
-import com.zaxxer.hikari.HikariConfig;
-import com.zaxxer.hikari.HikariDataSource;
-import org.junit.jupiter.api.Test;
-import org.locationtech.jts.geom.Geometry;
 import sunyu.util.GisUtil;
 import sunyu.util.TDengineUtil;
+import sunyu.util.pojo.SplitRoadResult;
 import sunyu.util.pojo.TrackPoint;
-
-import javax.sql.DataSource;
-import java.sql.SQLException;
-import java.util.ArrayList;
-import java.util.Date;
-import java.util.List;
-import java.util.Map;
+import sunyu.util.pojo.OutlinePart;
 
 public class TestGisUtil {
     Log log = LogFactory.get();
@@ -107,12 +112,13 @@ public class TestGisUtil {
                         for (Map<String, Object> row : rows) {
                             Map<String, String> protocol = protocolSdk
                                     .parseProtocolString(row.get("protocol").toString());
-                            l.add(new TrackPoint(Double.parseDouble(protocol.get("2602")),
-                                    Double.parseDouble(protocol.get("2603")),
-                                    LocalDateTimeUtil.parse(protocol.get("3014"), "yyyyMMddHHmmss")));
+                            l.add(new TrackPoint(LocalDateTimeUtil.parse(protocol.get("3014"), "yyyyMMddHHmmss"),
+                                    Double.parseDouble(protocol.get("2602")),
+                                    Double.parseDouble(protocol.get("2603"))));
                         }
                         try {
-                            Geometry g = gisUtil.splitRoad(l, jobWidth);
+                            SplitRoadResult res = gisUtil.splitRoad(l, jobWidth);
+                            Geometry g = res.getOutline();
                             log.debug("轮廓创建完毕");
                             String wkt = gisUtil.toWkt(g);
                             log.debug("wkt获取完毕");
@@ -152,7 +158,7 @@ public class TestGisUtil {
         List<String> l = new ArrayList<>();
         for (Map<String, Object> row : rows) {
             Map<String, String> protocol = protocolSdk.parseProtocolString(row.get("protocol").toString());
-            l.add(StrUtil.format("{},{},{}", protocol.get("3014"), protocol.get("2602"), protocol.get("2603")));
+            l.add(StrUtil.format("{},{}{}", protocol.get("3014"), protocol.get("2602"), protocol.get("2603")));
         }
         FileUtil.writeUtf8Lines(l, "d:/tmp/" + did + ".txt");
     }
@@ -179,23 +185,23 @@ public class TestGisUtil {
             } else {
                 // 20251013120625,113.33316443,28.08500825
                 String[] split1 = datas[i].split(",");
-                TrackPoint trackPoint = new TrackPoint(Double.parseDouble(split1[1]), Double.parseDouble(split1[2]),
-                        LocalDateTimeUtil.parse(split1[0], "yyyyMMddHHmmss"));
+                TrackPoint trackPoint = new TrackPoint(LocalDateTimeUtil.parse(split1[0], "yyyyMMddHHmmss"),
+                        Double.parseDouble(split1[1]), Double.parseDouble(split1[2]));
                 l.add(trackPoint);
             }
         }
         log.debug("{} 条点位", l.size());
         try {
-            Geometry g = gisUtil.splitRoad(l, jobWidth);
+            SplitRoadResult res = gisUtil.splitRoad(l, jobWidth);
+            Geometry g = res.getOutline();
             log.debug("轮廓创建完毕");
             String wkt = gisUtil.toWkt(g);
             log.debug("wkt获取完毕");
-            FileUtil.writeUtf8String(wkt,
-                    StrUtil.format("d:/tmp/{}_{}.txt", did, jobEndTime.toString("yyyyMMddHHmmss")));
+            log.info("{}", wkt);
             double wktMu = gisUtil.calcMu(wkt);
             double mu = gisUtil.calcMu(g);
-            log.info("设备号：{} 作业时间：{} {} 宽幅：{} 原亩数：{} wkt亩数：{} 几何图形亩数：{}", did, jobStartTime, jobEndTime, jobWidth,
-                    jobArea, wktMu, mu);
+            log.info("设备号：{} 作业时间：{} {} 宽幅：{} 原亩数：{} wkt亩数：{} 几何图形亩数：{}", did, jobStartTime, jobEndTime,
+                    jobWidth, jobArea, wktMu, mu);
         } catch (Exception e) {
             log.error(e);
         }
@@ -213,21 +219,46 @@ public class TestGisUtil {
         for (int i = 0; i < datas.length; i++) {
             // 20251013120625,113.33316443,28.08500825
             String[] split1 = datas[i].split(",");
-            TrackPoint trackPoint = new TrackPoint(Double.parseDouble(split1[1]), Double.parseDouble(split1[2]),
-                    LocalDateTimeUtil.parse(split1[0], "yyyyMMddHHmmss"));
+            TrackPoint trackPoint = new TrackPoint(LocalDateTimeUtil.parse(split1[0], "yyyyMMddHHmmss"),
+                    Double.parseDouble(split1[1]), Double.parseDouble(split1[2]));
             l.add(trackPoint);
         }
         log.debug("{} 条点位", l.size());
         try {
-            Geometry g = gisUtil.splitRoad(l, jobWidth, 10);
-            log.debug("轮廓创建完毕");
-            String wkt = gisUtil.toWkt(g);
-            log.debug("wkt获取完毕");
-            FileUtil.writeUtf8String(wkt,
-                    StrUtil.format("d:/tmp/Geometry.txt", did, jobEndTime.toString("yyyyMMddHHmmss")));
-            double wktMu = gisUtil.calcMu(wkt);
-            double mu = gisUtil.calcMu(g);
+            SplitRoadResult res = gisUtil.splitRoad(l, jobWidth, 10);
+            Geometry outline = res.getOutline();
+            String outlineWkt = res.getWkt();
+            List<OutlinePart> parts = res.getParts();
+
+            String outlineFile = StrUtil.format("d:/tmp/outline_{}_{}.txt", did, jobEndTime.toString("yyyyMMddHHmmss"));
+            String partsFile = StrUtil.format("d:/tmp/parts_{}_{}.txt", did, jobEndTime.toString("yyyyMMddHHmmss"));
+
+            StringBuilder ob = new StringBuilder();
+            ob.append("Outline type: ").append(outline.getGeometryType()).append('\n')
+              .append("Outline count: ").append(outline instanceof org.locationtech.jts.geom.MultiPolygon ? outline.getNumGeometries() : 1).append('\n')
+              .append("Outline mu: ").append(gisUtil.calcMu(outline)).append('\n')
+              .append("Outline WKT: ").append(outlineWkt).append('\n');
+            FileUtil.writeUtf8String(ob.toString(), outlineFile);
+
+            StringBuilder pb = new StringBuilder();
+            pb.append("Parts size: ").append(parts == null ? 0 : parts.size()).append('\n');
+            if (parts != null) {
+                for (int i = 0; i < parts.size(); i++) {
+                    OutlinePart p = parts.get(i);
+                    pb.append("== Part ").append(i).append(" ==\n")
+                      .append("type: ").append(p.getPolygon().getGeometryType()).append('\n')
+                      .append("mu: ").append(p.getMu()).append('\n')
+                      .append("startTime: ").append(p.getStartTime()).append('\n')
+                      .append("endTime: ").append(p.getEndTime()).append('\n')
+                      .append("wkt: ").append(p.getWkt()).append('\n');
+                }
+            }
+            FileUtil.writeUtf8String(pb.toString(), partsFile);
+
+            double wktMu = gisUtil.calcMu(outlineWkt);
+            double mu = gisUtil.calcMu(outline);
             log.info("设备号：{} 作业时间：{} {} 宽幅：{} wkt亩数：{} 几何图形亩数：{}", did, jobStartTime, jobEndTime, jobWidth, wktMu, mu);
+            log.info("结果文件已生成：outline={}, parts={}", outlineFile, partsFile);
         } catch (Exception e) {
             log.error(e);
         }
