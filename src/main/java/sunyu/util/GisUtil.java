@@ -19,6 +19,8 @@ import org.locationtech.jts.geom.Envelope;
 import org.locationtech.jts.geom.prep.PreparedGeometry;
 import org.locationtech.jts.geom.prep.PreparedGeometryFactory;
 import org.locationtech.jts.io.WKTReader;
+import org.locationtech.jts.operation.buffer.BufferOp;
+import org.locationtech.jts.operation.buffer.BufferParameters;
 import org.locationtech.jts.simplify.DouglasPeuckerSimplifier;
 import org.opengis.referencing.crs.CoordinateReferenceSystem;
 import org.opengis.referencing.operation.MathTransform;
@@ -435,9 +437,13 @@ public class GisUtil implements AutoCloseable {
             Geometry projPoint = wgs84ToWebMercator(pointGeom);
             convertTime += System.currentTimeMillis() - startConvert;
 
-            // 创建缓冲区
+            // 创建缓冲区（降低圆近似复杂度以提升性能）
             long startBuffer = System.currentTimeMillis();
-            Geometry buffer = projPoint.buffer(widthM);
+            BufferParameters params = new BufferParameters();
+            params.setQuadrantSegments(4); // 默认8，这里降为4，减少顶点数量
+            params.setEndCapStyle(BufferParameters.CAP_ROUND);
+            params.setJoinStyle(BufferParameters.JOIN_ROUND);
+            Geometry buffer = BufferOp.bufferOp(projPoint, widthM, params);
             bufferTime += System.currentTimeMillis() - startBuffer;
 
             pointBuffers.add(buffer);
