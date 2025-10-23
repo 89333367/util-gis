@@ -28,9 +28,9 @@ import cn.hutool.log.LogFactory;
 import cn.hutool.log.level.Level;
 import sunyu.util.GisUtil;
 import sunyu.util.TDengineUtil;
+import sunyu.util.pojo.OutlinePart;
 import sunyu.util.pojo.SplitRoadResult;
 import sunyu.util.pojo.TrackPoint;
-import sunyu.util.pojo.OutlinePart;
 
 public class TestGisUtil {
     Log log = LogFactory.get();
@@ -223,21 +223,22 @@ public class TestGisUtil {
                     Double.parseDouble(split1[1]), Double.parseDouble(split1[2]));
             l.add(trackPoint);
         }
-        log.debug("{} 条点位", l.size());
         try {
             SplitRoadResult res = gisUtil.splitRoad(l, jobWidth, 10);
             Geometry outline = res.getOutline();
             String outlineWkt = res.getWkt();
             List<OutlinePart> parts = res.getParts();
 
-            String outlineFile = StrUtil.format("d:/tmp/outline_{}_{}.txt", did, jobEndTime.toString("yyyyMMddHHmmss"));
-            String partsFile = StrUtil.format("d:/tmp/parts_{}_{}.txt", did, jobEndTime.toString("yyyyMMddHHmmss"));
+            String outlineFile = StrUtil.format("d:/tmp/outline_{}_{}.txt", did, jobEndTime.toString("yyyyMMdd"));
+            String partsFile = StrUtil.format("d:/tmp/parts_{}_{}.txt", did, jobEndTime.toString("yyyyMMdd"));
 
             StringBuilder ob = new StringBuilder();
             ob.append("Outline type: ").append(outline.getGeometryType()).append('\n')
-              .append("Outline count: ").append(outline instanceof org.locationtech.jts.geom.MultiPolygon ? outline.getNumGeometries() : 1).append('\n')
-              .append("Outline mu: ").append(gisUtil.calcMu(outline)).append('\n')
-              .append("Outline WKT: ").append(outlineWkt).append('\n');
+                    .append("Outline count: ")
+                    .append(outline instanceof org.locationtech.jts.geom.MultiPolygon ? outline.getNumGeometries() : 1)
+                    .append('\n')
+                    .append("Outline mu: ").append(gisUtil.calcMu(outline)).append('\n')
+                    .append("Outline WKT: ").append(outlineWkt).append('\n');
             FileUtil.writeUtf8String(ob.toString(), outlineFile);
 
             StringBuilder pb = new StringBuilder();
@@ -246,11 +247,11 @@ public class TestGisUtil {
                 for (int i = 0; i < parts.size(); i++) {
                     OutlinePart p = parts.get(i);
                     pb.append("== Part ").append(i).append(" ==\n")
-                      .append("type: ").append(p.getPolygon().getGeometryType()).append('\n')
-                      .append("mu: ").append(p.getMu()).append('\n')
-                      .append("startTime: ").append(p.getStartTime()).append('\n')
-                      .append("endTime: ").append(p.getEndTime()).append('\n')
-                      .append("wkt: ").append(p.getWkt()).append('\n');
+                            .append("type: ").append(p.getPolygon().getGeometryType()).append('\n')
+                            .append("mu: ").append(p.getMu()).append('\n')
+                            .append("startTime: ").append(p.getStartTime()).append('\n')
+                            .append("endTime: ").append(p.getEndTime()).append('\n')
+                            .append("wkt: ").append(p.getWkt()).append('\n');
                 }
             }
             FileUtil.writeUtf8String(pb.toString(), partsFile);

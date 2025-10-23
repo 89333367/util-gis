@@ -337,7 +337,7 @@ public class GisUtil implements AutoCloseable {
     private Geometry buildOutlineCore(List<TrackPoint> seg, double totalWidthM) throws Exception {
         long startTime = System.currentTimeMillis();
         double widthM = totalWidthM / 2.0;
-        log.debug("[buildOutlineCore] 开始处理轨迹轮廓，轨迹点数: {}, 宽度(单侧): {} 米",
+        log.trace("[buildOutlineCore] 开始处理轨迹轮廓，轨迹点数: {}, 宽度(单侧): {} 米",
                 seg != null ? seg.size() : 0, widthM);
 
         if (seg == null) {
@@ -354,7 +354,7 @@ public class GisUtil implements AutoCloseable {
                 .filter(p -> !(p.getLon() == 0 && p.getLat() == 0))
                 .collect(Collectors.toList());
         long processTime = System.currentTimeMillis() - processStartTime;
-        log.debug("[buildOutlineCore] 轨迹点过滤完成，原始点数: {}, 过滤后点数: {}, 过滤耗时: {}ms",
+        log.trace("[buildOutlineCore] 轨迹点过滤完成，原始点数: {}, 过滤后点数: {}, 过滤耗时: {}ms",
                 seg.size(), sortedSeg.size(), processTime);
 
         if (sortedSeg.size() < 3) {
@@ -367,15 +367,15 @@ public class GisUtil implements AutoCloseable {
             double minLat = sortedSeg.stream().mapToDouble(TrackPoint::getLat).min().orElse(0);
             double maxLat = sortedSeg.stream().mapToDouble(TrackPoint::getLat).max().orElse(0);
 
-            log.debug("[buildOutlineCore] 轨迹范围: 经度[{}, {}], 纬度[{}, {}]", minLon, maxLon, minLat, maxLat);
+            log.trace("[buildOutlineCore] 轨迹范围: 经度[{}, {}], 纬度[{}, {}]", minLon, maxLon, minLat, maxLat);
 
             long buildStartTime = System.currentTimeMillis();
             Geometry result;
             if (sortedSeg.size() <= 200) {
-                log.debug("[buildOutlineCore] 选择LineBuffer策略（点数:{}）", sortedSeg.size());
+                log.trace("[buildOutlineCore] 选择LineBuffer策略（点数:{}）", sortedSeg.size());
                 result = buildOutlineByLineBuffer(sortedSeg, widthM);
             } else {
-                log.debug("[buildOutlineCore] 选择PointBuffer策略（点数:{}）", sortedSeg.size());
+                log.trace("[buildOutlineCore] 选择PointBuffer策略（点数:{}）", sortedSeg.size());
                 result = buildOutlineBySimpleBuffers(sortedSeg, widthM);
             }
             long buildTime = System.currentTimeMillis() - buildStartTime;
@@ -396,39 +396,40 @@ public class GisUtil implements AutoCloseable {
                 if (!keep.isEmpty()) {
                     result = config.geometryFactory.createMultiPolygon(keep.toArray(new Polygon[0]));
                 } else {
-                    log.debug("[buildOutlineCore] 过滤后无有效多边形，阈值面积: {} m²", minAreaThresholdM2);
+                    log.trace("[buildOutlineCore] 过滤后无有效多边形，阈值面积: {} m²", minAreaThresholdM2);
                     result = config.geometryFactory.createMultiPolygon(new Polygon[0]);
                 }
-                log.debug("[buildOutlineCore] 小多边形过滤完成：原 {} 个 → 保留 {} 个；阈值面积: {} m²",
+                log.trace("[buildOutlineCore] 小多边形过滤完成：原 {} 个 → 保留 {} 个；阈值面积: {} m²",
                         mp.getNumGeometries(), keep.size(), minAreaThresholdM2);
             }
 
-            log.debug("[buildOutlineCore] 轮廓构建完成，构建耗时: {}ms", buildTime);
+            log.trace("[buildOutlineCore] 轮廓构建完成，构建耗时: {}ms", buildTime);
 
             if (result instanceof MultiPolygon && result.getNumGeometries() > 1) {
+                log.debug("[buildOutlineCore] 输入参数 点数={} 总宽度={}m 单侧宽度={}m", seg != null ? seg.size() : 0, totalWidthM, widthM);
                 log.debug("[buildOutlineCore] 结果为MultiPolygon，包含 {} 个部分", result.getNumGeometries());
                 long endTime = System.currentTimeMillis();
-                log.debug("[buildOutlineCore] 总计耗时: {}ms", endTime - startTime);
+                log.trace("[buildOutlineCore] 总计耗时: {}ms", endTime - startTime);
                 return result;
             }
 
             if (result instanceof Polygon) {
-                log.debug("[buildOutlineCore] 结果为Polygon");
+                log.trace("[buildOutlineCore] 结果为Polygon");
                 long endTime = System.currentTimeMillis();
-                log.debug("[buildOutlineCore] 总计耗时: {}ms", endTime - startTime);
+                log.trace("[buildOutlineCore] 总计耗时: {}ms", endTime - startTime);
                 return result;
             }
 
             if (result instanceof MultiPolygon && result.getNumGeometries() == 1) {
                 result = (Polygon) ((MultiPolygon) result).getGeometryN(0);
-                log.debug("[buildOutlineCore] 结果为单个Polygon（由单个MultiPolygon扁平化）");
+                log.trace("[buildOutlineCore] 结果为单个Polygon（由单个MultiPolygon扁平化）");
                 long endTime = System.currentTimeMillis();
-                log.debug("[buildOutlineCore] 总计耗时: {}ms", endTime - startTime);
+                log.trace("[buildOutlineCore] 总计耗时: {}ms", endTime - startTime);
                 return result;
             }
 
             long endTime = System.currentTimeMillis();
-            log.debug("[buildOutlineCore] 处理完成，总计耗时: {}ms", endTime - startTime);
+            log.info("[buildOutlineCore] 处理完成，总计耗时: {}ms", endTime - startTime);
 
             return result;
         } catch (Exception e) {
@@ -449,7 +450,7 @@ public class GisUtil implements AutoCloseable {
      */
     private Geometry buildOutlineBySimpleBuffers(List<TrackPoint> seg, double widthM) throws Exception {
         long startTime = System.currentTimeMillis();
-        log.debug("[buildOutlineBySimpleBuffers] 开始处理 {} 个轨迹点，缓冲区宽度: {} 米", seg.size(), widthM);
+        log.trace("[buildOutlineBySimpleBuffers] 开始处理 {} 个轨迹点，缓冲区宽度: {} 米", seg.size(), widthM);
 
         // 为每个点创建缓冲区
         List<Geometry> pointBuffers = new ArrayList<>();
@@ -491,11 +492,11 @@ public class GisUtil implements AutoCloseable {
             }
         }
 
-        log.debug("[buildOutlineBySimpleBuffers] 点缓冲区创建完成，共 {} 个缓冲区, 转换总耗时: {}ms, 缓冲总耗时: {}ms",
+        log.trace("[buildOutlineBySimpleBuffers] 点缓冲区创建完成，共 {} 个缓冲区, 转换总耗时: {}ms, 缓冲总耗时: {}ms",
                 pointBuffers.size(), convertTime, bufferTime);
 
         // 使用GeometryCollection优化合并所有缓冲区
-        log.debug("[buildOutlineBySimpleBuffers] 开始使用GeometryCollection优化合并 {} 个缓冲区", pointBuffers.size());
+        log.trace("[buildOutlineBySimpleBuffers] 开始使用GeometryCollection优化合并 {} 个缓冲区", pointBuffers.size());
 
         // 分桶：在 WebMercator 上按网格将缓冲分组，降低相互参与的多边形数量
         long startBucket = System.currentTimeMillis();
@@ -517,7 +518,7 @@ public class GisUtil implements AutoCloseable {
             maxFactor = Math.max(minFactor, maxFactor);
             cellSize = Math.sqrt(area / targetBuckets);
             cellSize = Math.max(widthM * minFactor, Math.min(cellSize, widthM * maxFactor));
-            log.debug("[buildOutlineBySimpleBuffers] 分桶参数 targetBuckets={} minFactor={} maxFactor={} cellSize={}",
+            log.trace("[buildOutlineBySimpleBuffers] 分桶参数 targetBuckets={} minFactor={} maxFactor={} cellSize={}",
                     targetBuckets, minFactor, maxFactor, Math.round(cellSize));
         } else {
             cellSize = widthM * 16;
@@ -535,7 +536,7 @@ public class GisUtil implements AutoCloseable {
         long bucketTime = System.currentTimeMillis() - startBucket;
         int bucketCount = buckets.size();
         int avgBucketSize = bucketCount == 0 ? 0 : (pointBuffers.size() / bucketCount);
-        log.debug("[buildOutlineBySimpleBuffers] 分桶完成 桶数={} 平均每桶={} 耗时={}ms", bucketCount, avgBucketSize, bucketTime);
+        log.trace("[buildOutlineBySimpleBuffers] 分桶完成 桶数={} 平均每桶={} 耗时={}ms", bucketCount, avgBucketSize, bucketTime);
 
         // 桶内合并（并行）
         long startBucketUnion = System.currentTimeMillis();
@@ -545,7 +546,7 @@ public class GisUtil implements AutoCloseable {
                 .filter(java.util.Objects::nonNull)
                 .collect(java.util.stream.Collectors.toList());
         long bucketUnionTime = System.currentTimeMillis() - startBucketUnion;
-        log.debug("[buildOutlineBySimpleBuffers] 桶内合并完成(并行) 桶数={} 合并结果数={} 耗时={}ms", bucketCount, bucketUnions.size(),
+        log.trace("[buildOutlineBySimpleBuffers] 桶内合并完成(并行) 桶数={} 合并结果数={} 耗时={}ms", bucketCount, bucketUnions.size(),
                 bucketUnionTime);
 
         // 最终合并（合并各桶的结果）
@@ -560,7 +561,7 @@ public class GisUtil implements AutoCloseable {
         }
         long finalUnionTime = System.currentTimeMillis() - startFinalUnion;
         long unionTime = bucketUnionTime + finalUnionTime;
-        log.debug("[buildOutlineBySimpleBuffers] 最终合并完成 桶内:{}ms 总合并:{}ms", bucketUnionTime, finalUnionTime);
+        log.trace("[buildOutlineBySimpleBuffers] 最终合并完成 桶内:{}ms 总合并:{}ms", bucketUnionTime, finalUnionTime);
 
         // 转换回WGS84坐标系
         long startBackConvert = System.currentTimeMillis();
@@ -568,7 +569,7 @@ public class GisUtil implements AutoCloseable {
         long backConvertTime = System.currentTimeMillis() - startBackConvert;
 
         long endTime = System.currentTimeMillis();
-        log.debug("[buildOutlineBySimpleBuffers] 处理完成，总计耗时: {}ms (转换:{}ms, 缓冲:{}ms, 合并:{}ms, 回转:{}ms)",
+        log.trace("[buildOutlineBySimpleBuffers] 处理完成，总计耗时: {}ms (转换:{}ms, 缓冲:{}ms, 合并:{}ms, 回转:{}ms)",
                 endTime - startTime, convertTime, bufferTime, unionTime, backConvertTime);
 
         return result;
@@ -576,7 +577,7 @@ public class GisUtil implements AutoCloseable {
 
     private Geometry buildOutlineByLineBuffer(List<TrackPoint> seg, double widthM) throws Exception {
         long startTime = System.currentTimeMillis();
-        log.debug("[buildOutlineByLineBuffer] 开始处理 {} 个轨迹点，缓冲区宽度: {} 米", seg.size(), widthM);
+        log.trace("[buildOutlineByLineBuffer] 开始处理 {} 个轨迹点，缓冲区宽度: {} 米", seg.size(), widthM);
 
         Coordinate[] coords = new Coordinate[seg.size()];
         for (int i = 0; i < seg.size(); i++) {
@@ -603,7 +604,7 @@ public class GisUtil implements AutoCloseable {
         long backConvertTime = System.currentTimeMillis() - t4;
 
         long endTime = System.currentTimeMillis();
-        log.debug("[buildOutlineByLineBuffer] 处理完成，总计耗时: {}ms (投影:{}ms, 简化:{}ms, 缓冲:{}ms, 回转:{}ms)",
+        log.trace("[buildOutlineByLineBuffer] 处理完成，总计耗时: {}ms (投影:{}ms, 简化:{}ms, 缓冲:{}ms, 回转:{}ms)",
                 endTime - startTime, convertTime, simplifyTime, bufferTime, backConvertTime);
 
         return result;
@@ -1319,11 +1320,14 @@ public class GisUtil implements AutoCloseable {
 
         int limit = (maxSegments == null || maxSegments <= 0) ? config.DEFAULT_MAX_OUTLINE_SEGMENTS
                 : maxSegments.intValue();
+        log.debug("[splitRoad] 输入参数 点数={} 总宽度={}m 返回上限={}", seg != null ? seg.size() : 0, totalWidthM, limit);
         long tTrimStart = System.currentTimeMillis();
         Geometry trimmed = keepLargestPolygons(outline, limit);
         long tTrimEnd = System.currentTimeMillis();
-        log.debug("[splitRoad] 裁剪完成 type={} parts={} 耗时={}ms", trimmed.getGeometryType(),
+        log.trace("[splitRoad] 裁剪完成 type={} parts={} 耗时={}ms", trimmed.getGeometryType(),
                 (trimmed instanceof MultiPolygon) ? trimmed.getNumGeometries() : 1, (tTrimEnd - tTrimStart));
+        log.debug("[splitRoad] 返回结果 type={} parts={}", trimmed.getGeometryType(),
+                 (trimmed instanceof MultiPolygon) ? trimmed.getNumGeometries() : 1);
 
         // 准备有效的轨迹点（与轮廓构建一致的过滤逻辑）
         long tFilterStart = System.currentTimeMillis();
@@ -1334,12 +1338,12 @@ public class GisUtil implements AutoCloseable {
                 .filter(p -> !(p.getLon() == 0 && p.getLat() == 0))
                 .collect(java.util.stream.Collectors.toList());
         long tFilterEnd = System.currentTimeMillis();
-        log.debug("[splitRoad] 点过滤+排序完成 有效点={} 耗时={}ms", sortedSeg.size(), (tFilterEnd - tFilterStart));
+        log.trace("[splitRoad] 点过滤+排序完成 有效点={} 耗时={}ms", sortedSeg.size(), (tFilterEnd - tFilterStart));
 
         java.util.List<OutlinePart> parts = new java.util.ArrayList<>();
 
         if (trimmed instanceof Polygon) {
-            log.debug("[splitRoad] 进入Polygon分支");
+            log.trace("[splitRoad] 进入Polygon分支");
             Polygon poly = (Polygon) trimmed;
             PreparedGeometry preparedPoly = PreparedGeometryFactory.prepare(poly);
             Envelope env = poly.getEnvelopeInternal();
@@ -1357,7 +1361,7 @@ public class GisUtil implements AutoCloseable {
                 }
             }
             long tWithinEnd = System.currentTimeMillis();
-            log.debug("[splitRoad] Polygon点过滤完成 inPoly={} 耗时={}ms", inPoly.size(), (tWithinEnd - tWithinStart));
+            log.trace("[splitRoad] Polygon点过滤完成 inPoly={} 耗时={}ms", inPoly.size(), (tWithinEnd - tWithinStart));
 
             java.time.LocalDateTime start = inPoly.isEmpty() ? null : inPoly.get(0).getTime();
             java.time.LocalDateTime end = inPoly.isEmpty() ? null : inPoly.get(inPoly.size() - 1).getTime();
@@ -1365,18 +1369,18 @@ public class GisUtil implements AutoCloseable {
             long tMuStart = System.currentTimeMillis();
             double mu = calcMu(poly);
             long tMuEnd = System.currentTimeMillis();
-            log.debug("[splitRoad] Polygon mu计算完成 值={} 耗时={}ms", mu, (tMuEnd - tMuStart));
+            log.trace("[splitRoad] Polygon mu计算完成 值={} 耗时={}ms", mu, (tMuEnd - tMuStart));
 
             long tWktStart = System.currentTimeMillis();
             String wkt = toWkt(poly);
             long tWktEnd = System.currentTimeMillis();
-            log.debug("[splitRoad] Polygon WKT生成完成 长度={} 耗时={}ms", wkt.length(), (tWktEnd - tWktStart));
+            log.trace("[splitRoad] Polygon WKT生成完成 长度={} 耗时={}ms", wkt.length(), (tWktEnd - tWktStart));
 
             parts.add(new OutlinePart(poly, start, end, mu, wkt));
-            log.debug("[splitRoad] parts构建完成 size={}", parts.size());
+            log.trace("[splitRoad] parts构建完成 size={}", parts.size());
         } else if (trimmed instanceof MultiPolygon) {
             MultiPolygon mp = (MultiPolygon) trimmed;
-            log.debug("[splitRoad] 进入MultiPolygon分支 分区数={}", mp.getNumGeometries());
+            log.trace("[splitRoad] 进入MultiPolygon分支 分区数={}", mp.getNumGeometries());
             long partsBuildStart = System.currentTimeMillis();
             for (int i = 0; i < mp.getNumGeometries(); i++) {
                 Polygon poly = (Polygon) mp.getGeometryN(i);
@@ -1411,7 +1415,7 @@ public class GisUtil implements AutoCloseable {
                     sessions.add(current);
                 }
                 long tWithinEnd = System.currentTimeMillis();
-                log.debug("[splitRoad] Part#{} 会话段统计完成 sessions={} 耗时={}ms", i, sessions.size(),
+                log.trace("[splitRoad] Part#{} 会话段统计完成 sessions={} 耗时={}ms", i, sessions.size(),
                         (tWithinEnd - tWithinStart));
 
                 java.time.LocalDateTime start = null;
@@ -1435,27 +1439,27 @@ public class GisUtil implements AutoCloseable {
                 long tMuStart = System.currentTimeMillis();
                 double mu = calcMu(poly);
                 long tMuEnd = System.currentTimeMillis();
-                log.debug("[splitRoad] Part#{} mu计算完成 值={} 耗时={}ms", i, mu, (tMuEnd - tMuStart));
+                log.trace("[splitRoad] Part#{} mu计算完成 值={} 耗时={}ms", i, mu, (tMuEnd - tMuStart));
 
                 long tWktStart = System.currentTimeMillis();
                 String wkt = toWkt(poly);
                 long tWktEnd = System.currentTimeMillis();
-                log.debug("[splitRoad] Part#{} WKT生成完成 长度={} 耗时={}ms", i, wkt.length(), (tWktEnd - tWktStart));
+                log.trace("[splitRoad] Part#{} WKT生成完成 长度={} 耗时={}ms", i, wkt.length(), (tWktEnd - tWktStart));
 
                 parts.add(new OutlinePart(poly, start, end, mu, wkt));
                 if ((i + 1) % 10 == 0 || i == mp.getNumGeometries() - 1) {
-                    log.debug("[splitRoad] MultiPolygon 进度 {}/{}", (i + 1), mp.getNumGeometries());
+                    log.trace("[splitRoad] MultiPolygon 进度 {}/{}", (i + 1), mp.getNumGeometries());
                 }
             }
             long partsBuildEnd = System.currentTimeMillis();
-            log.debug("[splitRoad] MultiPolygon parts构建完成 size={} 总耗时={}ms", parts.size(),
+            log.trace("[splitRoad] MultiPolygon parts构建完成 size={} 总耗时={}ms", parts.size(),
                     (partsBuildEnd - partsBuildStart));
         }
 
         long tOutlineWktStart = System.currentTimeMillis();
         String outlineWkt = toWkt(trimmed);
         long tOutlineWktEnd = System.currentTimeMillis();
-        log.debug("[splitRoad] Outline WKT生成完成 长度={} 耗时={}ms", outlineWkt.length(),
+        log.trace("[splitRoad] Outline WKT生成完成 长度={} 耗时={}ms", outlineWkt.length(),
                 (tOutlineWktEnd - tOutlineWktStart));
 
         long tTotalEnd = System.currentTimeMillis();
