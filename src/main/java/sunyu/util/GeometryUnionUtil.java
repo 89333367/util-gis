@@ -1,13 +1,11 @@
 package sunyu.util;
 
-import cn.hutool.log.Log;
-import cn.hutool.log.LogFactory;
+import java.util.ArrayList;
+import java.util.List;
+
 import org.locationtech.jts.geom.Geometry;
 import org.locationtech.jts.geom.GeometryCollection;
 import org.locationtech.jts.geom.GeometryFactory;
-
-import java.util.ArrayList;
-import java.util.List;
 
 /**
  * 几何图形合并工具类
@@ -16,8 +14,6 @@ import java.util.List;
  * @author SunYu
  */
 public class GeometryUnionUtil {
-    private static final Log log = LogFactory.get();
-
     private final GeometryFactory geometryFactory;
 
     public GeometryUnionUtil(GeometryFactory geometryFactory) {
@@ -61,7 +57,6 @@ public class GeometryUnionUtil {
      * @return 合并后的几何图形
      */
     private Geometry unionInGroups(List<Geometry> geometries, int groupSize) {
-        log.debug("使用分组合并策略，每组 {} 个", groupSize);
         if (geometries.size() <= groupSize) {
             GeometryCollection collection = geometryFactory.createGeometryCollection(
                     geometries.toArray(new Geometry[0]));

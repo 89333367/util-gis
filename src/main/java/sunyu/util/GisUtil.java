@@ -1,22 +1,27 @@
 package sunyu.util;
 
-import cn.hutool.core.bean.BeanUtil;
-import cn.hutool.log.Log;
-import cn.hutool.log.LogFactory;
-import org.geotools.geometry.jts.JTS;
-import org.geotools.referencing.CRS;
-import org.locationtech.jts.geom.*;
-import org.locationtech.jts.io.WKTReader;
-import org.opengis.referencing.crs.CoordinateReferenceSystem;
-import org.opengis.referencing.operation.MathTransform;
-import sunyu.util.pojo.CoordinatePoint;
-import sunyu.util.pojo.TrackPoint;
-
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
+
+import org.geotools.geometry.jts.JTS;
+import org.geotools.referencing.CRS;
+import org.locationtech.jts.geom.Coordinate;
+import org.locationtech.jts.geom.Geometry;
+import org.locationtech.jts.geom.GeometryFactory;
+import org.locationtech.jts.geom.MultiPolygon;
+import org.locationtech.jts.geom.Polygon;
+import org.locationtech.jts.io.WKTReader;
+import org.opengis.referencing.crs.CoordinateReferenceSystem;
+import org.opengis.referencing.operation.MathTransform;
+
+import cn.hutool.core.bean.BeanUtil;
+import cn.hutool.log.Log;
+import cn.hutool.log.LogFactory;
+import sunyu.util.pojo.CoordinatePoint;
+import sunyu.util.pojo.TrackPoint;
 
 /**
  * GIS工具类，用于轨迹处理、空间计算等
@@ -88,6 +93,7 @@ public class GisUtil implements AutoCloseable {
 
         // GeometryFactory缓存，避免重复创建
         private final GeometryFactory geometryFactory = new GeometryFactory();
+
         // 默认轮廓返回的最大多边形数量（TopN）
         final int DEFAULT_MAX_OUTLINE_SEGMENTS = 10;
     }
@@ -134,7 +140,7 @@ public class GisUtil implements AutoCloseable {
             try {
                 return CRS.decode(key, true);
             } catch (Exception e) {
-                throw new RuntimeException("Failed to parse CRS: " + key, e);
+                throw new RuntimeException("解析CRS出错: " + key, e);
             }
         });
     }
@@ -294,8 +300,16 @@ public class GisUtil implements AutoCloseable {
                 return result;
             }
 
-            if (result instanceof Polygon || (result instanceof MultiPolygon && result.getNumGeometries() == 1)) {
-                log.debug("[buildOutlineCore] 结果为Polygon或单个MultiPolygon");
+            if (result instanceof Polygon) {
+                log.debug("[buildOutlineCore] 结果为Polygon");
+                long endTime = System.currentTimeMillis();
+                log.debug("[buildOutlineCore] 总计耗时: {}ms", endTime - startTime);
+                return result;
+            }
+
+            if (result instanceof MultiPolygon && result.getNumGeometries() == 1) {
+                result = (Polygon) ((MultiPolygon) result).getGeometryN(0);
+                log.debug("[buildOutlineCore] 结果为单个Polygon（由单个MultiPolygon扁平化）");
                 long endTime = System.currentTimeMillis();
                 log.debug("[buildOutlineCore] 总计耗时: {}ms", endTime - startTime);
                 return result;
@@ -1017,18 +1031,93 @@ public class GisUtil implements AutoCloseable {
         return gf.createMultiPolygon(top);
     }
 
-    // 包装：两参版本默认返回TopN（配置常量）
-    public Geometry buildOutline(List<TrackPoint> seg, double totalWidthM) throws Exception {
+    /**
+     * 基于轨迹点与总宽度生成轮廓，并按面积保留 Top-N 最大区块。
+     *
+     * <p>参数说明</p>
+     * - seg：轨迹点列表（WGS84，经度范围[-180,180]、纬度范围[-90,90]），至少 3 个有效点；
+     *   方法内部会按时间升序处理，并自动过滤非法点（越界以及 0,0）。
+     * - totalWidthM：道路“总宽度”（米），等于左右两侧宽度之和；内部以 totalWidthM/2 作为单侧缓冲宽度。
+     *
+     * <p>返回结果</p>
+     * - 仅形成一个区块时返回 `Polygon`；形成多个区块时返回 `MultiPolygon`；
+     * - 会按面积从大到小保留前 N 个区块（默认 N=10）；
+     * - 若过滤后无有效区块，则返回空 `MultiPolygon`；
+     * - 返回坐标系为 WGS84。
+     *
+     * <p>行为特性</p>
+     * - 以宽度为依据的最小面积阈值过滤小区块，阈值约为 π*(totalWidthM/2)^2；
+     * - 面积倒序裁剪以降低下游复杂度；若仅 1 个区块将返回 `Polygon` 以简化类型处理。
+     *
+     * <p>异常</p>
+     * - IllegalArgumentException：seg 少于 3 个有效点，或 totalWidthM < 0；
+     * - Exception：坐标转换或几何运算异常。
+     *
+     * <p>示例</p>
+     * `GisUtil util = GisUtil.builder().build();`
+     * `Geometry outline = util.splitRoad(points, 8.0);`
+     *
+     * @param seg         轨迹点列表（WGS84），至少 3 个有效点
+     * @param totalWidthM 道路总宽度（米），左右合计，必须非负
+     * @return            轮廓几何，可能为 `Polygon` 或 `MultiPolygon`（裁剪后最多保留前 N 个）
+     * @throws Exception  坐标转换或几何运算异常
+     */
+    public Geometry splitRoad(List<TrackPoint> seg, double totalWidthM) throws Exception {
         Geometry outline = buildOutlineCore(seg, totalWidthM);
-        return keepLargestPolygons(outline, config.DEFAULT_MAX_OUTLINE_SEGMENTS);
+        int originalCount = (outline instanceof Polygon) ? 1 : outline.getNumGeometries();
+        int limit = config.DEFAULT_MAX_OUTLINE_SEGMENTS;
+        Geometry trimmed = keepLargestPolygons(outline, limit);
+        int finalCount = (trimmed instanceof Polygon) ? 1 : trimmed.getNumGeometries();
+        if (finalCount != originalCount) {
+            log.debug("[splitRoad] 已裁剪：原 {} 个，限制 {}，最终返回 {} 个部分", originalCount, limit, finalCount);
+        }
+        return trimmed;
     }
 
-    // 新增：带可选上限参数的重载方法；若为 null 或 <=0 则用默认值 5
-    public Geometry buildOutline(List<TrackPoint> seg, double totalWidthM, Integer maxSegments) throws Exception {
+    /**
+     * 基于轨迹点与总宽度生成轮廓，并按面积保留不超过 maxSegments 的最大区块。
+     *
+     * <p>参数说明</p>
+     * - seg：轨迹点列表（WGS84，经度范围[-180,180]、纬度范围[-90,90]），至少 3 个有效点；
+     *   方法内部会按时间升序处理，并自动过滤非法点（越界以及 0,0）。
+     * - totalWidthM：道路“总宽度”（米），等于左右两侧宽度之和；内部以 totalWidthM/2 作为单侧缓冲宽度。
+     * - maxSegments：返回区块数量上限；为 null 或 <=0 时使用默认值 N=10；
+     *   当原始区块数 ≤ 上限时不会进行裁剪（不输出“裁剪结果”日志）。
+     *
+     * <p>返回结果</p>
+     * - 仅形成一个区块时返回 `Polygon`；形成多个区块时返回 `MultiPolygon`；
+     * - 若过滤后无有效区块，则返回空 `MultiPolygon`；
+     * - 返回坐标系为 WGS84。
+     *
+     * <p>行为特性</p>
+     * - 以宽度为依据的最小面积阈值过滤小区块，阈值约为 π*(totalWidthM/2)^2；
+     * - 面积倒序裁剪，最多保留 `maxSegments` 个区块；若仅 1 个区块将返回 `Polygon`。
+     *
+     * <p>异常</p>
+     * - IllegalArgumentException：seg 少于 3 个有效点，或 totalWidthM < 0；
+     * - Exception：坐标转换或几何运算异常。
+     *
+     * <p>示例</p>
+     * `GisUtil util = GisUtil.builder().build();`
+     * `Geometry outline = util.splitRoad(points, 8.0, 5);`
+     *
+     * @param seg         轨迹点列表（WGS84），至少 3 个有效点
+     * @param totalWidthM 道路总宽度（米），左右合计，必须非负
+     * @param maxSegments 返回的区块数量上限；为 null 或 <=0 时取默认值 N=10
+     * @return            轮廓几何，可能为 `Polygon` 或 `MultiPolygon`（最多保留 `maxSegments` 个）
+     * @throws Exception  坐标转换或几何运算异常
+     */
+    public Geometry splitRoad(List<TrackPoint> seg, double totalWidthM, Integer maxSegments) throws Exception {
         Geometry outline = buildOutlineCore(seg, totalWidthM);
+        int originalCount = (outline instanceof Polygon) ? 1 : outline.getNumGeometries();
         int limit = (maxSegments == null || maxSegments <= 0) ? config.DEFAULT_MAX_OUTLINE_SEGMENTS
                 : maxSegments.intValue();
-        return keepLargestPolygons(outline, limit);
+        Geometry trimmed = keepLargestPolygons(outline, limit);
+        int finalCount = (trimmed instanceof Polygon) ? 1 : trimmed.getNumGeometries();
+        if (finalCount != originalCount) {
+            log.debug("[splitRoad] 已裁剪：原 {} 个，限制 {}，最终返回 {} 个部分", originalCount, limit, finalCount);
+        }
+        return trimmed;
     }
 
 }

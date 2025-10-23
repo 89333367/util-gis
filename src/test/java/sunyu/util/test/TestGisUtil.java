@@ -112,7 +112,7 @@ public class TestGisUtil {
                                     LocalDateTimeUtil.parse(protocol.get("3014"), "yyyyMMddHHmmss")));
                         }
                         try {
-                            Geometry g = gisUtil.buildOutline(l, jobWidth);
+                            Geometry g = gisUtil.splitRoad(l, jobWidth);
                             log.debug("轮廓创建完毕");
                             String wkt = gisUtil.toWkt(g);
                             log.debug("wkt获取完毕");
@@ -186,7 +186,7 @@ public class TestGisUtil {
         }
         log.debug("{} 条点位", l.size());
         try {
-            Geometry g = gisUtil.buildOutline(l, jobWidth);
+            Geometry g = gisUtil.splitRoad(l, jobWidth);
             log.debug("轮廓创建完毕");
             String wkt = gisUtil.toWkt(g);
             log.debug("wkt获取完毕");
@@ -219,8 +219,7 @@ public class TestGisUtil {
         }
         log.debug("{} 条点位", l.size());
         try {
-            //Geometry g = gisUtil.buildOutline(l, jobWidth);
-            Geometry g = gisUtil.buildOutline(l, jobWidth, 10);
+            Geometry g = gisUtil.splitRoad(l, jobWidth, 10);
             log.debug("轮廓创建完毕");
             String wkt = gisUtil.toWkt(g);
             log.debug("wkt获取完毕");
