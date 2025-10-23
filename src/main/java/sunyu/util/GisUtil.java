@@ -43,78 +43,10 @@ import sunyu.util.pojo.TrackPoint;
  * @author SunYu
  */
 public class GisUtil implements AutoCloseable {
-    /**
-     * 几何图形合并工具（内部类）
-     * 使用分组批量合并策略避免大量单独 union 操作的性能问题
-     */
-    private static class GeometryUnionUtil {
-        private final GeometryFactory geometryFactory;
-
-        public GeometryUnionUtil(GeometryFactory geometryFactory) {
-            this.geometryFactory = geometryFactory;
-        }
-
-        public Geometry union(List<Geometry> geometries) {
-            if (geometries == null || geometries.isEmpty()) {
-                return null;
-            }
-            if (geometries.size() == 1) {
-                return geometries.get(0);
-            }
-
-            // 优先使用 CascadedPolygonUnion 合并多边形，性能更优
-            java.util.List<Polygon> polys = new java.util.ArrayList<>();
-            for (Geometry g : geometries) {
-                if (g instanceof Polygon) {
-                    polys.add((Polygon) g);
-                } else if (g instanceof MultiPolygon) {
-                    MultiPolygon mp = (MultiPolygon) g;
-                    for (int i = 0; i < mp.getNumGeometries(); i++) {
-                        polys.add((Polygon) mp.getGeometryN(i));
-                    }
-                }
-            }
-            if (!polys.isEmpty()) {
-                return UnaryUnionOp.union(polys);
-            }
-
-            // 非多边形集合，退回 GeometryCollection.union()
-            if (geometries.size() <= 1000) {
-                GeometryCollection collection = geometryFactory.createGeometryCollection(
-                        geometries.toArray(new Geometry[0]));
-                return collection.union();
-            }
-            return unionInGroups(geometries, 1000);
-        }
-
-        private Geometry unionInGroups(List<Geometry> geometries, int groupSize) {
-            if (geometries.size() <= groupSize) {
-                GeometryCollection collection = geometryFactory.createGeometryCollection(
-                        geometries.toArray(new Geometry[0]));
-                return collection.union();
-            }
-            List<Geometry> groups = new java.util.ArrayList<>();
-            for (int i = 0; i < geometries.size(); i += groupSize) {
-                int end = Math.min(i + groupSize, geometries.size());
-                List<Geometry> group = geometries.subList(i, end);
-                GeometryCollection collection = geometryFactory.createGeometryCollection(
-                        group.toArray(new Geometry[0]));
-                groups.add(collection.union());
-            }
-            return unionInGroups(groups, groupSize);
-        }
-    }
-
     // 日志记录器，用于记录工具类的运行状态和调试信息
     private final Log log = LogFactory.get();
     // 配置参数，包含各种常量和默认值
     private final Config config;
-    // 几何图形合并工具
-    private final GeometryUnionUtil geometryUnionUtil;
-
-    // 投影转换缓存，避免重复创建
-    private MathTransform txWgsToMercator;
-    private MathTransform txMercatorToWgs;
 
     /**
      * 获取构建器实例，使用构建器模式创建GisUtil对象
@@ -140,7 +72,6 @@ public class GisUtil implements AutoCloseable {
         log.info("[构建工具类] 结束");
         // 保存配置参数引用
         this.config = config;
-        this.geometryUnionUtil = new GeometryUnionUtil(config.geometryFactory);
     }
 
     /**
@@ -174,7 +105,16 @@ public class GisUtil implements AutoCloseable {
         private final GeometryFactory geometryFactory = new GeometryFactory();
 
         // 默认轮廓返回的最多多边形数量（TopN）
-        final int DEFAULT_MAX_OUTLINE_SEGMENTS = 10;
+        private final int DEFAULT_MAX_OUTLINE_SEGMENTS = 10;
+
+        private final int DEFAULT_UNION_GROUP_SIZE = 600; // 分组合并组大小：600，避免 GeometryCollection 一次性过大
+        private final int DEFAULT_BUFFER_QUADRANT = 4; // 圆近似细分：4，提升性能，误差满足道路宽度场景
+        private final int DEFAULT_BUCKET_TARGET = 300; // 目标桶数：300，平衡桶内复杂度与最终合并规模
+        private final int DEFAULT_BUCKET_CELL_MIN_FACTOR = 5; // cellSize 下限系数：5，避免过多小桶导致合并碎片化
+        private final int DEFAULT_BUCKET_CELL_MAX_FACTOR = 36; // cellSize 上限系数：36
+
+        private volatile MathTransform txWgsToMercator;
+        private volatile MathTransform txMercatorToWgs;
     }
 
     /**
@@ -208,6 +148,61 @@ public class GisUtil implements AutoCloseable {
     }
 
     /**
+     * 几何图形合并工具（内部类）
+     * 使用分组批量合并策略避免大量单独 union 操作的性能问题
+     */
+    private Geometry unionGeometries(List<Geometry> geometries) {
+        if (geometries == null || geometries.isEmpty()) {
+            return null;
+        }
+        if (geometries.size() == 1) {
+            return geometries.get(0);
+        }
+
+        // 优先使用 CascadedPolygonUnion 合并多边形，性能更优
+        java.util.List<Polygon> polys = new java.util.ArrayList<>();
+        for (Geometry g : geometries) {
+            if (g instanceof Polygon) {
+                polys.add((Polygon) g);
+            } else if (g instanceof MultiPolygon) {
+                MultiPolygon mp = (MultiPolygon) g;
+                for (int i = 0; i < mp.getNumGeometries(); i++) {
+                    polys.add((Polygon) mp.getGeometryN(i));
+                }
+            }
+        }
+        if (!polys.isEmpty()) {
+            return UnaryUnionOp.union(polys);
+        }
+
+        // 非多边形集合，退回 GeometryCollection.union() 或分组合并
+        int groupSize = java.lang.Integer.getInteger("gis.union.group.size", config.DEFAULT_UNION_GROUP_SIZE);
+        if (geometries.size() <= groupSize) {
+            GeometryCollection collection = config.geometryFactory.createGeometryCollection(
+                    geometries.toArray(new Geometry[0]));
+            return collection.union();
+        }
+        return unionInGroups(geometries, groupSize);
+    }
+
+    private Geometry unionInGroups(List<Geometry> geometries, int groupSize) {
+        if (geometries.size() <= groupSize) {
+            GeometryCollection collection = config.geometryFactory.createGeometryCollection(
+                    geometries.toArray(new Geometry[0]));
+            return collection.union();
+        }
+        List<Geometry> groups = new java.util.ArrayList<>();
+        for (int i = 0; i < geometries.size(); i += groupSize) {
+            int end = Math.min(i + groupSize, geometries.size());
+            List<Geometry> group = geometries.subList(i, end);
+            GeometryCollection collection = config.geometryFactory.createGeometryCollection(
+                    group.toArray(new Geometry[0]));
+            groups.add(collection.union());
+        }
+        return unionInGroups(groups, groupSize);
+    }
+
+    /**
      * 从缓存中获取或创建CoordinateReferenceSystem
      *
      * @param code EPSG代码
@@ -224,6 +219,44 @@ public class GisUtil implements AutoCloseable {
         });
     }
 
+    private MathTransform getTxWgsToMercator() {
+        MathTransform tx = config.txWgsToMercator;
+        if (tx == null) {
+            synchronized (this) {
+                if (config.txWgsToMercator == null) {
+                    try {
+                        CoordinateReferenceSystem src = getCachedCRS(config.WGS84);
+                        CoordinateReferenceSystem tgt = getCachedCRS(config.WEB_MERCATOR);
+                        config.txWgsToMercator = CRS.findMathTransform(src, tgt, true);
+                    } catch (Exception e) {
+                        throw new RuntimeException("初始化WGS->Mercator变换失败", e);
+                    }
+                }
+                tx = config.txWgsToMercator;
+            }
+        }
+        return tx;
+    }
+
+    private MathTransform getTxMercatorToWgs() {
+        MathTransform tx = config.txMercatorToWgs;
+        if (tx == null) {
+            synchronized (this) {
+                if (config.txMercatorToWgs == null) {
+                    try {
+                        CoordinateReferenceSystem src = getCachedCRS(config.WEB_MERCATOR);
+                        CoordinateReferenceSystem tgt = getCachedCRS(config.WGS84);
+                        config.txMercatorToWgs = CRS.findMathTransform(src, tgt, true);
+                    } catch (Exception e) {
+                        throw new RuntimeException("初始化Mercator->WGS变换失败", e);
+                    }
+                }
+                tx = config.txMercatorToWgs;
+            }
+        }
+        return tx;
+    }
+
     /**
      * 将WGS84坐标转换为Web Mercator投影坐标
      *
@@ -234,12 +267,8 @@ public class GisUtil implements AutoCloseable {
      * @throws Exception 坐标转换异常
      */
     private Geometry wgs84ToWebMercator(Geometry g) throws Exception {
-        if (txWgsToMercator == null) {
-            CoordinateReferenceSystem src = getCachedCRS(config.WGS84);
-            CoordinateReferenceSystem tgt = getCachedCRS(config.WEB_MERCATOR);
-            txWgsToMercator = CRS.findMathTransform(src, tgt, true);
-        }
-        return JTS.transform(g, txWgsToMercator);
+        // 通过 getTxWgsToMercator() 懒加载，无需重复初始化逻辑
+        return JTS.transform(g, getTxWgsToMercator());
     }
 
     /**
@@ -253,12 +282,8 @@ public class GisUtil implements AutoCloseable {
      */
     private Geometry webMercatorToWgs84(Geometry g) throws Exception {
         try {
-            if (txMercatorToWgs == null) {
-                CoordinateReferenceSystem src = getCachedCRS(config.WEB_MERCATOR);
-                CoordinateReferenceSystem tgt = getCachedCRS(config.WGS84);
-                txMercatorToWgs = CRS.findMathTransform(src, tgt, true);
-            }
-            Geometry result = JTS.transform(g, txMercatorToWgs);
+            // 通过 getTxMercatorToWgs() 懒加载，无需重复初始化逻辑
+            Geometry result = JTS.transform(g, getTxMercatorToWgs());
             if (!isValidWgs84Geometry(result)) {
                 CoordinateReferenceSystem src = getCachedCRS(config.WEB_MERCATOR);
                 CoordinateReferenceSystem tgt = getCachedCRS(config.WGS84);
@@ -448,7 +473,8 @@ public class GisUtil implements AutoCloseable {
             // 创建缓冲区（降低圆近似复杂度以提升性能）
             long startBuffer = System.currentTimeMillis();
             BufferParameters params = new BufferParameters();
-            params.setQuadrantSegments(4); // 默认8，这里降为4，减少顶点数量
+            int quadSeg = java.lang.Integer.getInteger("gis.buffer.quadrant", config.DEFAULT_BUFFER_QUADRANT);
+            params.setQuadrantSegments(quadSeg); // 默认8，这里可通过系统属性调整
             params.setEndCapStyle(BufferParameters.CAP_ROUND);
             params.setJoinStyle(BufferParameters.JOIN_ROUND);
             Geometry buffer = BufferOp.bufferOp(projPoint, widthM, params);
@@ -473,9 +499,29 @@ public class GisUtil implements AutoCloseable {
 
         // 分桶：在 WebMercator 上按网格将缓冲分组，降低相互参与的多边形数量
         long startBucket = System.currentTimeMillis();
-        // 分桶格子尺寸调大以减少桶数量
-        // 原来：double cellSize = Math.max(widthM * 8, widthM * 6);
-        double cellSize = widthM * 16;
+        // 基于整体包络自适应格子大小，目标桶数约300
+        Envelope overall = new Envelope();
+        for (Geometry g : pointBuffers) {
+            overall.expandToInclude(g.getEnvelopeInternal());
+        }
+        double area = overall.getWidth() * overall.getHeight();
+        double cellSize;
+        if (area > 0) {
+            int targetBuckets = java.lang.Integer.getInteger("gis.bucket.target", config.DEFAULT_BUCKET_TARGET);
+            int minFactor = java.lang.Integer.getInteger("gis.bucket.cell.minFactor",
+                    config.DEFAULT_BUCKET_CELL_MIN_FACTOR);
+            int maxFactor = java.lang.Integer.getInteger("gis.bucket.cell.maxFactor",
+                    config.DEFAULT_BUCKET_CELL_MAX_FACTOR);
+            targetBuckets = Math.max(1, targetBuckets);
+            minFactor = Math.max(1, minFactor);
+            maxFactor = Math.max(minFactor, maxFactor);
+            cellSize = Math.sqrt(area / targetBuckets);
+            cellSize = Math.max(widthM * minFactor, Math.min(cellSize, widthM * maxFactor));
+            log.debug("[buildOutlineBySimpleBuffers] 分桶参数 targetBuckets={} minFactor={} maxFactor={} cellSize={}",
+                    targetBuckets, minFactor, maxFactor, Math.round(cellSize));
+        } else {
+            cellSize = widthM * 16;
+        }
         Map<String, List<Geometry>> buckets = new HashMap<>();
         for (Geometry g : pointBuffers) {
             Envelope e = g.getEnvelopeInternal();
@@ -491,21 +537,16 @@ public class GisUtil implements AutoCloseable {
         int avgBucketSize = bucketCount == 0 ? 0 : (pointBuffers.size() / bucketCount);
         log.debug("[buildOutlineBySimpleBuffers] 分桶完成 桶数={} 平均每桶={} 耗时={}ms", bucketCount, avgBucketSize, bucketTime);
 
-        // 桶内合并
+        // 桶内合并（并行）
         long startBucketUnion = System.currentTimeMillis();
-        List<Geometry> bucketUnions = new ArrayList<>(bucketCount);
-        int bi = 0;
-        for (Map.Entry<String, List<Geometry>> entry : buckets.entrySet()) {
-            Geometry u = geometryUnionUtil.union(entry.getValue());
-            if (u != null) {
-                bucketUnions.add(u);
-            }
-            if ((++bi % 50) == 0 || bi == bucketCount) {
-                log.trace("[buildOutlineBySimpleBuffers] 桶合并进度 {}/{}", bi, bucketCount);
-            }
-        }
+        List<Geometry> bucketUnions = buckets.entrySet()
+                .parallelStream()
+                .map(e -> unionGeometries(e.getValue()))
+                .filter(java.util.Objects::nonNull)
+                .collect(java.util.stream.Collectors.toList());
         long bucketUnionTime = System.currentTimeMillis() - startBucketUnion;
-        log.debug("[buildOutlineBySimpleBuffers] 桶内合并完成 桶数={} 耗时={}ms", bucketCount, bucketUnionTime);
+        log.debug("[buildOutlineBySimpleBuffers] 桶内合并完成(并行) 桶数={} 合并结果数={} 耗时={}ms", bucketCount, bucketUnions.size(),
+                bucketUnionTime);
 
         // 最终合并（合并各桶的结果）
         long startFinalUnion = System.currentTimeMillis();
@@ -515,7 +556,7 @@ public class GisUtil implements AutoCloseable {
                     .createGeometryCollection(pointBuffers.toArray(new Geometry[0]));
             union = collection.union();
         } else {
-            union = geometryUnionUtil.union(bucketUnions);
+            union = unionGeometries(bucketUnions);
         }
         long finalUnionTime = System.currentTimeMillis() - startFinalUnion;
         long unionTime = bucketUnionTime + finalUnionTime;
@@ -588,43 +629,6 @@ public class GisUtil implements AutoCloseable {
     }
 
     /**
-     * 将几何图形转换为WKT格式
-     * 确保输出为WGS84坐标系的标准地理坐标
-     *
-     * @param g 几何图形对象
-     *
-     * @return WKT字符串，表示几何图形
-     */
-    public String toWkt(Geometry g) {
-        try {
-            // 检查几何图形是否已经是WGS84坐标系并且坐标有效
-            if (isLikelyWgs84(g) && hasValidCoordinates(g)) {
-                String wkt = g.toText();
-                return wkt;
-            }
-
-            // 转换到WGS84坐标系
-            Geometry wgs = webMercatorToWgs84(g);
-            // 验证转换后的几何图形
-            if (!isValidWgs84Geometry(wgs) || !hasValidCoordinates(wgs)) {
-                // 尝试清理几何图形
-                wgs = wgs.buffer(0);
-                if (!isValidWgs84Geometry(wgs) || !hasValidCoordinates(wgs)) {
-                    String wkt = g.toText();
-                    return wkt;
-                }
-            }
-
-            String wkt = wgs.toText();
-            return wkt;
-        } catch (Exception e) {
-            log.error("坐标转换失败: " + e.getMessage(), e);
-            String wkt = g.toText();
-            return wkt;
-        }
-    }
-
-    /**
      * 检查几何图形中的坐标是否有效（没有接近零的异常值）
      *
      * @param g 几何图形对象
@@ -671,6 +675,136 @@ public class GisUtil implements AutoCloseable {
 
         // 如果超过5%的坐标点有问题，认为不是WGS84坐标系
         return (double) invalidCount / totalCount < 0.05;
+    }
+
+    /**
+     * 计算加密参数
+     *
+     * @param lon 经度
+     * @param lat 纬度
+     *
+     * @return 加密偏移量数组，[0]为经度偏移，[1]为纬度偏移
+     */
+    private double[] delta(double lon, double lat) {
+        double dLat = transformLat(lon - 105.0, lat - 35.0);
+        double dLon = transformLon(lon - 105.0, lat - 35.0);
+        double radLat = lat / 180.0 * Math.PI;
+        double magic = Math.sin(radLat);
+        magic = 1 - config.eccentricitySquared * magic * magic;
+        double sqrtMagic = Math.sqrt(magic);
+        if (magic * sqrtMagic < 1e-10) {
+            throw new IllegalArgumentException("纬度值导致除零错误");
+        }
+        dLat = (dLat * 180.0)
+                / ((config.semiMajorAxis * (1 - config.eccentricitySquared)) / (magic * sqrtMagic) * Math.PI);
+        dLon = (dLon * 180.0) / (config.semiMajorAxis / sqrtMagic * Math.cos(radLat) * Math.PI);
+        return new double[] { dLon, dLat };
+    }
+
+    /**
+     * 转换纬度
+     *
+     * @param x 经度差值
+     * @param y 纬度差值
+     *
+     * @return 转换后的纬度值
+     */
+    private double transformLat(double x, double y) {
+        double ret = -100.0 + 2.0 * x + 3.0 * y + 0.2 * y * y + 0.1 * x * y + 0.2 * Math.sqrt(Math.abs(x));
+        ret += (20.0 * Math.sin(6.0 * x * Math.PI) + 20.0 * Math.sin(2.0 * x * Math.PI)) * 2.0 / 3.0;
+        ret += (20.0 * Math.sin(y * Math.PI) + 40.0 * Math.sin(y / 3.0 * Math.PI)) * 2.0 / 3.0;
+        ret += (160.0 * Math.sin(y / 12.0 * Math.PI) + 320 * Math.sin(y * Math.PI / 30.0)) * 2.0 / 3.0;
+        return ret;
+    }
+
+    /**
+     * 转换经度
+     *
+     * @param x 经度差值
+     * @param y 纬度差值
+     *
+     * @return 转换后的经度值
+     */
+    private double transformLon(double x, double y) {
+        double ret = 300.0 + x + 2.0 * y + 0.1 * x * x + 0.1 * x * y + 0.1 * Math.sqrt(Math.abs(x));
+        ret += (20.0 * Math.sin(6.0 * x * Math.PI) + 20.0 * Math.sin(2.0 * x * Math.PI)) * 2.0 / 3.0;
+        ret += (20.0 * Math.sin(x * Math.PI) + 40.0 * Math.sin(x / 3.0 * Math.PI)) * 2.0 / 3.0;
+        ret += (150.0 * Math.sin(x / 12.0 * Math.PI) + 300.0 * Math.sin(x / 30.0 * Math.PI)) * 2.0 / 3.0;
+        return ret;
+    }
+
+    // 新增：按面积倒序保留最大的 N 个多边形
+    private Geometry keepLargestPolygons(Geometry geometry, int maxCount) {
+        if (geometry == null)
+            return null;
+        if (maxCount <= 0)
+            return geometry;
+
+        GeometryFactory gf = geometry.getFactory();
+        java.util.List<Polygon> polys = new java.util.ArrayList<>();
+
+        // 展开并收集所有 Polygon
+        for (int i = 0; i < geometry.getNumGeometries(); i++) {
+            Geometry g = geometry.getGeometryN(i);
+            if (g instanceof Polygon) {
+                polys.add((Polygon) g);
+            } else if (g instanceof MultiPolygon) {
+                MultiPolygon mp = (MultiPolygon) g;
+                for (int j = 0; j < mp.getNumGeometries(); j++) {
+                    polys.add((Polygon) mp.getGeometryN(j));
+                }
+            }
+            // 其他类型忽略
+        }
+        if (polys.isEmpty())
+            return geometry;
+
+        // 按面积倒序
+        polys.sort(java.util.Comparator.comparingDouble(Polygon::getArea).reversed());
+
+        int limit = Math.min(maxCount, polys.size());
+        if (limit == 1) {
+            return polys.get(0);
+        }
+        Polygon[] top = polys.subList(0, limit).toArray(new Polygon[0]);
+        return gf.createMultiPolygon(top);
+    }
+
+    /**
+     * 将几何图形转换为WKT格式
+     * 确保输出为WGS84坐标系的标准地理坐标
+     *
+     * @param g 几何图形对象
+     *
+     * @return WKT字符串，表示几何图形
+     */
+    public String toWkt(Geometry g) {
+        try {
+            // 检查几何图形是否已经是WGS84坐标系并且坐标有效
+            if (isLikelyWgs84(g) && hasValidCoordinates(g)) {
+                String wkt = g.toText();
+                return wkt;
+            }
+
+            // 转换到WGS84坐标系
+            Geometry wgs = webMercatorToWgs84(g);
+            // 验证转换后的几何图形
+            if (!isValidWgs84Geometry(wgs) || !hasValidCoordinates(wgs)) {
+                // 尝试清理几何图形
+                wgs = wgs.buffer(0);
+                if (!isValidWgs84Geometry(wgs) || !hasValidCoordinates(wgs)) {
+                    String wkt = g.toText();
+                    return wkt;
+                }
+            }
+
+            String wkt = wgs.toText();
+            return wkt;
+        } catch (Exception e) {
+            log.error("坐标转换失败: " + e.getMessage(), e);
+            String wkt = g.toText();
+            return wkt;
+        }
     }
 
     /**
@@ -741,62 +875,6 @@ public class GisUtil implements AutoCloseable {
         } catch (org.locationtech.jts.io.ParseException e) {
             throw new RuntimeException("解析WKT字符串时出错: " + e.getMessage(), e);
         }
-    }
-
-    /**
-     * 计算加密参数
-     *
-     * @param lon 经度
-     * @param lat 纬度
-     *
-     * @return 加密偏移量数组，[0]为经度偏移，[1]为纬度偏移
-     */
-    private double[] delta(double lon, double lat) {
-        double dLat = transformLat(lon - 105.0, lat - 35.0);
-        double dLon = transformLon(lon - 105.0, lat - 35.0);
-        double radLat = lat / 180.0 * Math.PI;
-        double magic = Math.sin(radLat);
-        magic = 1 - config.eccentricitySquared * magic * magic;
-        double sqrtMagic = Math.sqrt(magic);
-        if (magic * sqrtMagic < 1e-10) {
-            throw new IllegalArgumentException("纬度值导致除零错误");
-        }
-        dLat = (dLat * 180.0)
-                / ((config.semiMajorAxis * (1 - config.eccentricitySquared)) / (magic * sqrtMagic) * Math.PI);
-        dLon = (dLon * 180.0) / (config.semiMajorAxis / sqrtMagic * Math.cos(radLat) * Math.PI);
-        return new double[] { dLon, dLat };
-    }
-
-    /**
-     * 转换纬度
-     *
-     * @param x 经度差值
-     * @param y 纬度差值
-     *
-     * @return 转换后的纬度值
-     */
-    private double transformLat(double x, double y) {
-        double ret = -100.0 + 2.0 * x + 3.0 * y + 0.2 * y * y + 0.1 * x * y + 0.2 * Math.sqrt(Math.abs(x));
-        ret += (20.0 * Math.sin(6.0 * x * Math.PI) + 20.0 * Math.sin(2.0 * x * Math.PI)) * 2.0 / 3.0;
-        ret += (20.0 * Math.sin(y * Math.PI) + 40.0 * Math.sin(y / 3.0 * Math.PI)) * 2.0 / 3.0;
-        ret += (160.0 * Math.sin(y / 12.0 * Math.PI) + 320 * Math.sin(y * Math.PI / 30.0)) * 2.0 / 3.0;
-        return ret;
-    }
-
-    /**
-     * 转换经度
-     *
-     * @param x 经度差值
-     * @param y 纬度差值
-     *
-     * @return 转换后的经度值
-     */
-    private double transformLon(double x, double y) {
-        double ret = 300.0 + x + 2.0 * y + 0.1 * x * x + 0.1 * x * y + 0.1 * Math.sqrt(Math.abs(x));
-        ret += (20.0 * Math.sin(6.0 * x * Math.PI) + 20.0 * Math.sin(2.0 * x * Math.PI)) * 2.0 / 3.0;
-        ret += (20.0 * Math.sin(x * Math.PI) + 40.0 * Math.sin(x / 3.0 * Math.PI)) * 2.0 / 3.0;
-        ret += (150.0 * Math.sin(x / 12.0 * Math.PI) + 300.0 * Math.sin(x / 30.0 * Math.PI)) * 2.0 / 3.0;
-        return ret;
     }
 
     /**
@@ -1163,43 +1241,6 @@ public class GisUtil implements AutoCloseable {
         return lon < 72.004 || lon > 137.8347 || lat < 0.8293 || lat > 55.8271;
     }
 
-    // 新增：按面积倒序保留最大的 N 个多边形
-    private Geometry keepLargestPolygons(Geometry geometry, int maxCount) {
-        if (geometry == null)
-            return null;
-        if (maxCount <= 0)
-            return geometry;
-
-        GeometryFactory gf = geometry.getFactory();
-        java.util.List<Polygon> polys = new java.util.ArrayList<>();
-
-        // 展开并收集所有 Polygon
-        for (int i = 0; i < geometry.getNumGeometries(); i++) {
-            Geometry g = geometry.getGeometryN(i);
-            if (g instanceof Polygon) {
-                polys.add((Polygon) g);
-            } else if (g instanceof MultiPolygon) {
-                MultiPolygon mp = (MultiPolygon) g;
-                for (int j = 0; j < mp.getNumGeometries(); j++) {
-                    polys.add((Polygon) mp.getGeometryN(j));
-                }
-            }
-            // 其他类型忽略
-        }
-        if (polys.isEmpty())
-            return geometry;
-
-        // 按面积倒序
-        polys.sort(java.util.Comparator.comparingDouble(Polygon::getArea).reversed());
-
-        int limit = Math.min(maxCount, polys.size());
-        if (limit == 1) {
-            return polys.get(0);
-        }
-        Polygon[] top = polys.subList(0, limit).toArray(new Polygon[0]);
-        return gf.createMultiPolygon(top);
-    }
-
     /**
      * 基于轨迹点与总宽度生成轮廓，并按面积保留 Top-N 最大区块。
      *
@@ -1347,28 +1388,39 @@ public class GisUtil implements AutoCloseable {
                 for (TrackPoint p : sortedSeg) {
                     Coordinate c = new Coordinate(p.getLon(), p.getLat());
                     if (!env.contains(c)) {
-                        if (current != null) { sessions.add(current); current = null; }
+                        if (current != null) {
+                            sessions.add(current);
+                            current = null;
+                        }
                         continue;
                     }
                     Geometry point = config.geometryFactory.createPoint(c);
                     boolean inside = preparedPoly.contains(point);
                     if (inside) {
-                        if (current == null) current = new java.util.ArrayList<>();
+                        if (current == null)
+                            current = new java.util.ArrayList<>();
                         current.add(p);
                     } else {
-                        if (current != null) { sessions.add(current); current = null; }
+                        if (current != null) {
+                            sessions.add(current);
+                            current = null;
+                        }
                     }
                 }
-                if (current != null) { sessions.add(current); }
+                if (current != null) {
+                    sessions.add(current);
+                }
                 long tWithinEnd = System.currentTimeMillis();
-                log.debug("[splitRoad] Part#{} 会话段统计完成 sessions={} 耗时={}ms", i, sessions.size(), (tWithinEnd - tWithinStart));
+                log.debug("[splitRoad] Part#{} 会话段统计完成 sessions={} 耗时={}ms", i, sessions.size(),
+                        (tWithinEnd - tWithinStart));
 
                 java.time.LocalDateTime start = null;
                 java.time.LocalDateTime end = null;
                 int bestSize = 0;
                 long bestDurationMs = -1;
                 for (java.util.List<TrackPoint> s : sessions) {
-                    if (s.isEmpty()) continue;
+                    if (s.isEmpty())
+                        continue;
                     java.time.LocalDateTime sStart = s.get(0).getTime();
                     java.time.LocalDateTime sEnd = s.get(s.size() - 1).getTime();
                     long dur = java.time.Duration.between(sStart, sEnd).toMillis();
@@ -1406,13 +1458,9 @@ public class GisUtil implements AutoCloseable {
         log.debug("[splitRoad] Outline WKT生成完成 长度={} 耗时={}ms", outlineWkt.length(),
                 (tOutlineWktEnd - tOutlineWktStart));
 
-         long tTotalEnd = System.currentTimeMillis();
-         log.debug("[splitRoad] 总耗时={}ms", (tTotalEnd - t0));
-         return new SplitRoadResult(trimmed, parts, outlineWkt);
+        long tTotalEnd = System.currentTimeMillis();
+        log.debug("[splitRoad] 总耗时={}ms", (tTotalEnd - t0));
+        return new SplitRoadResult(trimmed, parts, outlineWkt);
     }
 
 }
-
-
-
-
