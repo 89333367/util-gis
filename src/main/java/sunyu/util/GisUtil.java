@@ -83,6 +83,9 @@ public class GisUtil implements AutoCloseable {
         // 1亩 = 666.666...平方米，所以 1平方米 = 1/666.666... ≈ 0.0015000015
         private final double MU_PER_SQ_METER = 0.0015000015;
 
+        // 最小亩数阈值，过滤小面积多边形
+        private final double MIN_MU_THRESHOLD = 0.1;
+
         // WGS84坐标系的EPSG代码，用于定义地理坐标系统
         private final String WGS84 = "EPSG:4326";
 
@@ -406,7 +409,8 @@ public class GisUtil implements AutoCloseable {
             log.trace("[buildOutlineCore] 轮廓构建完成，构建耗时: {}ms", buildTime);
 
             if (result instanceof MultiPolygon && result.getNumGeometries() > 1) {
-                log.debug("[buildOutlineCore] 输入参数 点数={} 总宽度={}m 单侧宽度={}m", seg != null ? seg.size() : 0, totalWidthM, widthM);
+                log.debug("[buildOutlineCore] 输入参数 点数={} 总宽度={}m 单侧宽度={}m", seg != null ? seg.size() : 0, totalWidthM,
+                        widthM);
                 log.debug("[buildOutlineCore] 结果为MultiPolygon，包含 {} 个部分", result.getNumGeometries());
                 long endTime = System.currentTimeMillis();
                 log.trace("[buildOutlineCore] 总计耗时: {}ms", endTime - startTime);
@@ -769,6 +773,39 @@ public class GisUtil implements AutoCloseable {
         }
         Polygon[] top = polys.subList(0, limit).toArray(new Polygon[0]);
         return gf.createMultiPolygon(top);
+    }
+
+    // 新增：按最小亩数阈值过滤小面积多边形
+    private Geometry removeSmallMuPolygons(Geometry geometry, double minMu) {
+        if (geometry == null)
+            return null;
+        GeometryFactory gf = geometry.getFactory();
+        if (geometry instanceof Polygon) {
+            Polygon poly = (Polygon) geometry;
+            double mu = calcMu(poly);
+            if (mu < minMu) {
+                return gf.createMultiPolygon(new Polygon[0]);
+            }
+            return poly;
+        } else if (geometry instanceof MultiPolygon) {
+            MultiPolygon mp = (MultiPolygon) geometry;
+            java.util.List<Polygon> kept = new java.util.ArrayList<>();
+            for (int i = 0; i < mp.getNumGeometries(); i++) {
+                Polygon p = (Polygon) mp.getGeometryN(i);
+                double mu = calcMu(p);
+                if (mu >= minMu) {
+                    kept.add(p);
+                }
+            }
+            if (kept.isEmpty()) {
+                return gf.createMultiPolygon(new Polygon[0]);
+            }
+            if (kept.size() == 1) {
+                return kept.get(0);
+            }
+            return gf.createMultiPolygon(kept.toArray(new Polygon[0]));
+        }
+        return geometry;
     }
 
     /**
@@ -1323,11 +1360,13 @@ public class GisUtil implements AutoCloseable {
         log.debug("[splitRoad] 输入参数 点数={} 总宽度={}m 返回上限={}", seg != null ? seg.size() : 0, totalWidthM, limit);
         long tTrimStart = System.currentTimeMillis();
         Geometry trimmed = keepLargestPolygons(outline, limit);
+        // 依据最小亩数阈值过滤小区块
+        trimmed = removeSmallMuPolygons(trimmed, config.MIN_MU_THRESHOLD);
         long tTrimEnd = System.currentTimeMillis();
-        log.trace("[splitRoad] 裁剪完成 type={} parts={} 耗时={}ms", trimmed.getGeometryType(),
+        log.trace("[splitRoad] 裁剪+小面积过滤完成 type={} parts={} 耗时={}ms", trimmed.getGeometryType(),
                 (trimmed instanceof MultiPolygon) ? trimmed.getNumGeometries() : 1, (tTrimEnd - tTrimStart));
         log.debug("[splitRoad] 返回结果 type={} parts={}", trimmed.getGeometryType(),
-                 (trimmed instanceof MultiPolygon) ? trimmed.getNumGeometries() : 1);
+                (trimmed instanceof MultiPolygon) ? trimmed.getNumGeometries() : 1);
 
         // 准备有效的轨迹点（与轮廓构建一致的过滤逻辑）
         long tFilterStart = System.currentTimeMillis();

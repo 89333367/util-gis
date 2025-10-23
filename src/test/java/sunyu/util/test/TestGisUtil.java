@@ -148,9 +148,25 @@ public class TestGisUtil {
     @Test
     void 读取farm_work() throws SQLException {
         Db db = getMysqlDb();
-        String sql = "select did, jobArea, jobStartTime, jobEndTime, jobWidth, insertTime, updateTime" +
+        /**
+         * select id,
+        did,
+        jobArea,
+        jobStartTime,
+        jobEndTime,
+        jobWidth,
+        insertTime,
+        updateTime
+        from farm_work
+        where jobStartTime >= '2025-05-01'
+        and (did like 'NJ%' or did like 'EC%')
+        and jobArea > 0
+        order by insertTime desc
+         */
+        String sql = "select id, did, jobArea, jobStartTime, jobEndTime, jobWidth, insertTime, updateTime" +
                 " from farm_work" +
-                " where (did like 'NJ%' or did like 'EC%')" +
+                " where jobStartTime >= '2025-05-01'" +
+                "  and (did like 'NJ%' or did like 'EC%')" +
                 "  and jobArea > 0" +
                 " order by insertTime desc";
         int page = 1;
@@ -173,12 +189,26 @@ public class TestGisUtil {
                             updateTime);
                     读取数据(did, DateUtil.format(jobStartTime, "yyyyMMdd"));
                     测试一天(did, DateUtil.format(jobStartTime, "yyyyMMdd"), jobWidth);
-                    break;
                 }
                 page++;
             }
-            break;
         }
+    }
+
+    @Test
+    void t001() {
+        String did = "EC73BD2509060248";
+        String yyyyMMdd = "20251023";
+        读取数据(did, yyyyMMdd);
+        测试一天(did, yyyyMMdd, 2.5);
+    }
+
+    @Test
+    void t002() {
+        String did = "EC73BD2508220055";
+        String yyyyMMdd = "20251013";
+        读取数据(did, yyyyMMdd);
+        测试一天(did, yyyyMMdd, 2.6);
     }
 
     void 读取数据(String did, String yyyyMMdd) {
