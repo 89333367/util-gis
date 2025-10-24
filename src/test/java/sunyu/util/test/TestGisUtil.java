@@ -1,8 +1,6 @@
 package sunyu.util.test;
 
-import java.sql.SQLException;
 import java.util.ArrayList;
-import java.util.Date;
 import java.util.List;
 import java.util.Map;
 
@@ -22,7 +20,6 @@ import cn.hutool.core.io.FileUtil;
 import cn.hutool.core.util.StrUtil;
 import cn.hutool.db.Db;
 import cn.hutool.db.DbUtil;
-import cn.hutool.db.Entity;
 import cn.hutool.log.Log;
 import cn.hutool.log.LogFactory;
 import cn.hutool.log.level.Level;
@@ -73,125 +70,10 @@ public class TestGisUtil {
         return TDengineUtil.builder().dataSource(getTdengineDatasource()).build();
     }
 
-    //@Test
-    void test_farm_work_split() throws SQLException {
-        Db db = getMysqlDb();
-        TDengineUtil tDengineUtil = getTdengineUtil();
-        String sql = "select did, jobArea, jobStartTime, jobEndTime, jobWidth, insertTime, updateTime" +
-                " from farm_work_split" +
-                " where (did like 'NJ%' or did like 'EC%')" +
-                "  and jobArea > 0" +
-                " order by insertTime desc";
-        int page = 1;
-        int pageSize = 10;
-        while (true) {
-            int offset = (page - 1) * pageSize;
-            List<Entity> query = db.query(StrUtil.format(sql + " limit {},{}", offset, pageSize));
-            if (query.isEmpty()) {
-                break;
-            } else {
-                for (Entity entity : query) {
-                    String did = entity.getStr("did");
-                    double jobArea = entity.getDouble("jobArea");
-                    Date jobStartTime = entity.getDate("jobStartTime");
-                    Date jobEndTime = entity.getDate("jobEndTime");
-                    double jobWidth = entity.getDouble("jobWidth");
-                    Date insertTime = entity.getDate("insertTime");
-                    Date updateTime = entity.getDate("updateTime");
-                    log.debug("{} {} {} {} {} {} {}", did, jobArea, jobStartTime, jobEndTime, jobWidth, insertTime,
-                            updateTime);
-
-                    String tdSql = StrUtil.format(
-                            "select protocol from frequent.d_p where did='{}' and `3014`>='{}' and `3014`<='{}' and protocol match '(,2601:0,)'",
-                            did, jobStartTime, jobEndTime);
-                    List<Map<String, Object>> rows = tDengineUtil.executeQuery(tdSql);
-                    if (rows.isEmpty()) {
-                        log.error("{} 异常，在 {} {} 找不到数据", did, jobStartTime, jobEndTime);
-                    } else {
-                        log.debug("找到 {} 条", rows.size());
-                        List<TrackPoint> l = new ArrayList<>();
-                        for (Map<String, Object> row : rows) {
-                            Map<String, String> protocol = protocolSdk
-                                    .parseProtocolString(row.get("protocol").toString());
-                            l.add(new TrackPoint(LocalDateTimeUtil.parse(protocol.get("3014"), "yyyyMMddHHmmss"),
-                                    Double.parseDouble(protocol.get("2602")),
-                                    Double.parseDouble(protocol.get("2603"))));
-                        }
-                        try {
-                            SplitRoadResult res = gisUtil.splitRoad(l, jobWidth);
-                            Geometry g = res.getOutline();
-                            log.debug("轮廓创建完毕");
-                            String wkt = gisUtil.toWkt(g);
-                            log.debug("wkt获取完毕");
-                            log.info("{}", wkt);
-                            double wktMu = gisUtil.calcMu(wkt);
-                            double mu = gisUtil.calcMu(g);
-                            log.info("设备号：{} 作业时间：{} {} 宽幅：{} 原亩数：{} wkt亩数：{} 几何图形亩数：{}", did, jobStartTime, jobEndTime,
-                                    jobWidth, jobArea, wktMu, mu);
-                        } catch (Exception e) {
-                            log.error(e);
-                        }
-                    }
-                }
-                page++;
-            }
-        }
-    }
-
     @Test
     void wkt计算亩数() {
         double mu = gisUtil.calcMu(FileUtil.readUtf8String(path + "/1.txt"));
         log.info("{}", mu);
-    }
-
-    //@Test
-    void 读取farm_work() throws SQLException {
-        Db db = getMysqlDb();
-        /**
-         * select id,
-        did,
-        jobArea,
-        jobStartTime,
-        jobEndTime,
-        jobWidth,
-        insertTime,
-        updateTime
-        from farm_work
-        where jobStartTime >= '2025-05-01'
-        and (did like 'NJ%' or did like 'EC%')
-        and jobArea > 0
-        order by insertTime desc
-         */
-        String sql = "select id, did, jobArea, jobStartTime, jobEndTime, jobWidth, insertTime, updateTime" +
-                " from farm_work" +
-                " where jobStartTime >= '2025-05-01'" +
-                "  and (did like 'NJ%' or did like 'EC%')" +
-                "  and jobArea > 0" +
-                " order by insertTime desc";
-        int page = 1;
-        int pageSize = 10;
-        while (true) {
-            int offset = (page - 1) * pageSize;
-            List<Entity> query = db.query(StrUtil.format(sql + " limit {},{}", offset, pageSize));
-            if (query.isEmpty()) {
-                break;
-            } else {
-                for (Entity entity : query) {
-                    String did = entity.getStr("did");
-                    double jobArea = entity.getDouble("jobArea");
-                    Date jobStartTime = entity.getDate("jobStartTime");
-                    Date jobEndTime = entity.getDate("jobEndTime");
-                    double jobWidth = entity.getDouble("jobWidth");
-                    Date insertTime = entity.getDate("insertTime");
-                    Date updateTime = entity.getDate("updateTime");
-                    log.debug("{} {} {} {} {} {} {}", did, jobArea, jobStartTime, jobEndTime, jobWidth, insertTime,
-                            updateTime);
-                    读取数据(did, DateUtil.format(jobStartTime, "yyyyMMdd"));
-                    测试一天(did, DateUtil.format(jobStartTime, "yyyyMMdd"), jobWidth);
-                }
-                page++;
-            }
-        }
     }
 
     @Test

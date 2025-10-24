@@ -78,10 +78,10 @@ public class GisUtil implements AutoCloseable {
      */
     private static class Config {
         // 最小亩数阈值，过滤小面积多边形
-        private final double MIN_MU_THRESHOLD = 0.1;
+        private final double MIN_MU_THRESHOLD = 0.2;
 
         // 多边形合并距离阈值（米），相距小于该值的区块将合并
-        private final double MERGE_DISTANCE_THRESHOLD_M = 5.0;
+        private final double MERGE_DISTANCE_THRESHOLD_M = 0;
 
         // WGS84坐标系的EPSG代码，用于定义地理坐标系统
         private final String WGS84 = "EPSG:4326";
@@ -488,7 +488,7 @@ public class GisUtil implements AutoCloseable {
             int quadSeg = java.lang.Integer.getInteger("gis.buffer.quadrant", config.DEFAULT_BUFFER_QUADRANT);
             params.setQuadrantSegments(quadSeg); // 默认8，这里可通过系统属性调整
             params.setEndCapStyle(BufferParameters.CAP_ROUND);
-            params.setJoinStyle(BufferParameters.JOIN_ROUND);
+            params.setJoinStyle(BufferParameters.JOIN_BEVEL);//JOIN_ROUND、JOIN_BEVEL
             Geometry buffer = BufferOp.bufferOp(projPoint, widthM, params);
             bufferTime += System.currentTimeMillis() - startBuffer;
 
@@ -1507,9 +1507,8 @@ public class GisUtil implements AutoCloseable {
                 if (!sessions.isEmpty()) {
                     // 使用进入该区块的最早时间和离开该区块的最晚时间
                     sessions.sort(java.util.Comparator.comparing(
-                        s -> s.get(0).getTime(),
-                        java.util.Comparator.nullsLast(java.util.Comparator.naturalOrder())
-                    ));
+                            s -> s.get(0).getTime(),
+                            java.util.Comparator.nullsLast(java.util.Comparator.naturalOrder())));
                     java.util.List<TrackPoint> firstSess = sessions.get(0);
                     java.util.List<TrackPoint> lastSess = sessions.get(sessions.size() - 1);
                     start = firstSess.isEmpty() ? null : firstSess.get(0).getTime();
