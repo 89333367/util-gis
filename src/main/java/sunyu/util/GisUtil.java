@@ -78,7 +78,7 @@ public class GisUtil implements AutoCloseable {
      */
     private static class Config {
         // 最小亩数阈值，过滤小面积多边形
-        private final double MIN_MU_THRESHOLD = 0.7;
+        private final double MIN_MU_THRESHOLD = 0.76;
 
         // WGS84坐标系的EPSG代码，用于定义地理坐标系统
         private final String WGS84 = "EPSG:4326";
@@ -113,6 +113,8 @@ public class GisUtil implements AutoCloseable {
         // 线缓冲简化容差参数（基于宽度因子与最小值）
         private final double LINE_SIMPLIFY_FACTOR = 0.25; // 宽度因子，越小越保留细节
         private final double LINE_SIMPLIFY_MIN = 0.2; // 最小容差（米）
+        private final double MIN_COMPACTNESS = 0.12; // 紧致度阈值，过滤细长道路型轮廓
+        private final double MAX_ASPECT_RATIO = 8.0; // 长宽比阈值，识别道路形（越大越细长）
 
         private volatile MathTransform txWgsToMercator;
         private volatile MathTransform txMercatorToWgs;
@@ -822,6 +824,94 @@ public class GisUtil implements AutoCloseable {
         return geometry;
     }
 
+    // 形状过滤：按紧致度+长宽比移除细长道路型多边形；当全部被筛掉时保留紧致度最高者
+    private Geometry removeElongatedPolygons(Geometry geometry, double minCompactness, double maxAspectRatio) {
+        if (geometry == null)
+            return null;
+        GeometryFactory gf = geometry.getFactory();
+        if (geometry instanceof Polygon) {
+            Polygon p = (Polygon) geometry;
+            double comp = compactness(p);
+            double ar = aspectRatioMeters(p);
+            if (Double.isFinite(comp) && Double.isFinite(ar) && comp < minCompactness && ar > maxAspectRatio) {
+                return gf.createMultiPolygon(new Polygon[0]);
+            }
+            return p;
+        } else if (geometry instanceof MultiPolygon) {
+            MultiPolygon mp = (MultiPolygon) geometry;
+            java.util.List<Polygon> kept = new java.util.ArrayList<>();
+            Polygon best = null;
+            double bestComp = -1.0;
+            for (int i = 0; i < mp.getNumGeometries(); i++) {
+                Polygon p = (Polygon) mp.getGeometryN(i);
+                double comp = compactness(p);
+                double ar = aspectRatioMeters(p);
+                if (comp >= minCompactness || ar <= maxAspectRatio) {
+                    kept.add(p);
+                }
+                if (comp > bestComp) {
+                    bestComp = comp;
+                    best = p;
+                }
+            }
+            if (kept.isEmpty()) {
+                return (best != null) ? best : gf.createMultiPolygon(new Polygon[0]);
+            }
+            if (kept.size() == 1) {
+                return kept.get(0);
+            }
+            return gf.createMultiPolygon(kept.toArray(new Polygon[0]));
+        }
+        return geometry;
+    }
+
+    // 紧致度：4πA / P²（A为球面面积平方米，P为周长米数）
+    private double compactness(Polygon polygon) {
+        if (polygon == null)
+            return 0.0;
+        double area = Math.abs(ringArea(polygon.getExteriorRing()));
+        for (int i = 0; i < polygon.getNumInteriorRing(); i++) {
+            area -= Math.abs(ringArea(polygon.getInteriorRingN(i)));
+        }
+        if (area <= 0)
+            return 0.0;
+        double perimeter = ringPerimeterMeters(polygon.getExteriorRing());
+        for (int i = 0; i < polygon.getNumInteriorRing(); i++) {
+            perimeter += ringPerimeterMeters(polygon.getInteriorRingN(i));
+        }
+        if (perimeter <= 0)
+            return 0.0;
+        return 4.0 * Math.PI * area / (perimeter * perimeter);
+    }
+
+    // 环周长（米），按haversine累加
+    private double ringPerimeterMeters(org.locationtech.jts.geom.LineString ring) {
+        org.locationtech.jts.geom.Coordinate[] coords = ring.getCoordinates();
+        if (coords == null || coords.length < 2)
+            return 0.0;
+        double sum = 0.0;
+        for (int i = 1; i < coords.length; i++) {
+            CoordinatePoint a = new CoordinatePoint(coords[i - 1].x, coords[i - 1].y);
+            CoordinatePoint b = new CoordinatePoint(coords[i].x, coords[i].y);
+            sum += haversine(a, b);
+        }
+        return sum;
+    }
+
+    // 轴对齐包围盒的长宽比（米），用于识别道路型细长形状
+    private double aspectRatioMeters(Polygon polygon) {
+        Envelope env = polygon.getEnvelopeInternal();
+        double midLat = (env.getMinY() + env.getMaxY()) / 2.0;
+        double midLon = (env.getMinX() + env.getMaxX()) / 2.0;
+        double widthM = haversine(new CoordinatePoint(env.getMinX(), midLat),
+                new CoordinatePoint(env.getMaxX(), midLat));
+        double heightM = haversine(new CoordinatePoint(midLon, env.getMinY()),
+                new CoordinatePoint(midLon, env.getMaxY()));
+        double a = Math.max(widthM, heightM);
+        double b = Math.max(1e-6, Math.min(widthM, heightM));
+        return a / b;
+    }
+
     // 球面环面积（平方米），与 Turf.js 的 ringArea 保持一致
     private static double ringArea(org.locationtech.jts.geom.LineString ring) {
         org.locationtech.jts.geom.Coordinate[] coords = ring.getCoordinates();
@@ -1373,24 +1463,31 @@ public class GisUtil implements AutoCloseable {
         int partsAfterKeep = (trimmed instanceof MultiPolygon) ? trimmed.getNumGeometries() : 1;
         // 依据最小亩数阈值过滤小区块
         trimmed = removeSmallMuPolygons(trimmed, config.MIN_MU_THRESHOLD);
+        int partsAfterAreaFilter = (trimmed instanceof MultiPolygon) ? trimmed.getNumGeometries() : 1;
+        int removedByArea = partsAfterKeep - partsAfterAreaFilter;
+        // 形状过滤：紧致度+长宽比，避免道路型细长形状
+        trimmed = removeElongatedPolygons(trimmed, config.MIN_COMPACTNESS, config.MAX_ASPECT_RATIO);
         int partsAfterFilter = (trimmed instanceof MultiPolygon) ? trimmed.getNumGeometries() : 1;
-        int removedByArea = partsAfterKeep - partsAfterFilter;
+        int removedByShape = partsAfterAreaFilter - partsAfterFilter;
         long tTrimEnd = System.currentTimeMillis();
-        log.trace("[splitRoad] 裁剪+小面积过滤完成 type={} parts={} 移除={} 阈值={}mu 耗时={}ms", trimmed.getGeometryType(),
-                partsAfterFilter, removedByArea, config.MIN_MU_THRESHOLD, (tTrimEnd - tTrimStart));
+        log.trace("[splitRoad] 裁剪+面积+形状过滤完成 type={} parts={} 移除面积={} 移除形状={} 阈值紧致度={} 阈值长宽比={} 耗时={}ms",
+                trimmed.getGeometryType(), partsAfterFilter, removedByArea, removedByShape,
+                config.MIN_COMPACTNESS, config.MAX_ASPECT_RATIO, (tTrimEnd - tTrimStart));
 
         // 最终返回日志：当少于上限时说明原因，否则保持原样
         if (partsAfterFilter < limit) {
             String reason;
-            if (partsAfterFilter != partsAfterKeep) {
+            if (removedByShape > 0) {
+                reason = "形状过滤(紧致度/长宽比)";
+            } else if (partsAfterFilter != partsAfterKeep) {
                 reason = "小面积过滤";
             } else if (partsOutline < limit) {
                 reason = "原始区块数小于上限";
             } else {
                 reason = "面积裁剪后区块数不超过上限";
             }
-            log.debug("[splitRoad] 返回结果 type={} parts={} (上限={}，原因：{}；小面积移除={})", trimmed.getGeometryType(),
-                    partsAfterFilter, limit, reason, removedByArea);
+            log.debug("[splitRoad] 返回结果 type={} parts={} (上限={}，原因：{}；小面积移除={}；形状移除={})", trimmed.getGeometryType(),
+                    partsAfterFilter, limit, reason, removedByArea, removedByShape);
         } else {
             log.debug("[splitRoad] 返回结果 type={} parts={}", trimmed.getGeometryType(), partsAfterFilter);
         }

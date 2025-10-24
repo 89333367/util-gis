@@ -76,21 +76,6 @@ public class TestGisUtil {
     @Test
     void 循环() throws SQLException {
         Db db = getMysqlDb();
-        /**
-        select id,
-        did,
-        jobArea,
-        jobStartTime,
-        jobEndTime,
-        jobWidth
-        from farm_work
-        where jobStartTime >= '2025-05-01'
-        and jobStartTime < '20255-06-01'
-        and (did like 'NJ%' or did like 'EC%')
-        and jobArea > 0
-        order by insertTime desc
-        limit 10
-         */
         List<Entity> rows = db.query(
                 "select id,did,jobArea,jobStartTime,jobEndTime,jobWidth from farm_work where jobStartTime >= '2025-05-01' and jobStartTime < '2025-06-01' and (did like 'NJ%' or did like 'EC%') and jobArea > 0 order by insertTime desc limit 10");
         for (Entity row : rows) {
