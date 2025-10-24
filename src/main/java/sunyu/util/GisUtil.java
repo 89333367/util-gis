@@ -828,6 +828,38 @@ public class GisUtil implements AutoCloseable {
         return unbuffered;
     }
 
+    // 球面环面积（平方米），与 Turf.js 的 ringArea 保持一致
+    private static double ringArea(org.locationtech.jts.geom.LineString ring) {
+        org.locationtech.jts.geom.Coordinate[] coords = ring.getCoordinates();
+        int len = (coords == null) ? 0 : coords.length;
+        if (len <= 2)
+            return 0.0;
+        double area = 0.0;
+        for (int i = 0; i < len; i++) {
+            org.locationtech.jts.geom.Coordinate p1, p2, p3;
+            if (i == len - 2) {
+                p1 = coords[i];
+                p2 = coords[i + 1];
+                p3 = coords[0];
+            } else if (i == len - 1) {
+                p1 = coords[i];
+                p2 = coords[0];
+                p3 = coords[1];
+            } else {
+                p1 = coords[i];
+                p2 = coords[i + 1];
+                p3 = coords[i + 2];
+            }
+            area += (toRad(p3.x) - toRad(p1.x)) * Math.sin(toRad(p2.y));
+        }
+        double R = 6378137.0; // Turf 默认采用的半径（WGS84）
+        return area * R * R / 2.0;
+    }
+
+    private static double toRad(double deg) {
+        return deg * Math.PI / 180.0;
+    }
+
     /**
      * 将几何图形转换为WKT格式
      * 确保输出为WGS84坐标系的标准地理坐标
@@ -867,21 +899,28 @@ public class GisUtil implements AutoCloseable {
 
     /**
      * 计算几何图形的面积（mu单位）
-     * 通过坐标转换将几何图形转换为投影坐标后计算面积，结果以亩为单位
      *
      * @param outline 几何图形
      *
-     * @return 面积（mu），以亩为单位，保留3位小数
+     * @return 面积（mu），以亩为单位
      *
      * @throws RuntimeException 如果坐标转换过程中发生错误
      */
     public double calcMu(Geometry outline) throws RuntimeException {
         try {
-            // 转换到Web Mercator投影坐标系计算面积
-            Geometry proj = wgs84ToWebMercator(outline);
-
-            // 计算面积并转换为mu单位（亩）
-            return Math.round(proj.getArea() * config.MU_PER_SQ_METER * 1000.0) / 1000.0;
+            if (!(outline instanceof org.locationtech.jts.geom.Polygon)) {
+                // 非 Polygon，返回构造时的 mu 或 0
+                return 0.0;
+            }
+            org.locationtech.jts.geom.Polygon p = (org.locationtech.jts.geom.Polygon) outline;
+            double areaOuter = ringArea(p.getExteriorRing());
+            double holesArea = 0.0;
+            for (int i = 0; i < p.getNumInteriorRing(); i++) {
+                holesArea += ringArea(p.getInteriorRingN(i));
+            }
+            double areaSqm = Math.abs(areaOuter) - Math.abs(holesArea);
+            // 1 亩 = 666.6667 平方米
+            return Math.round((areaSqm / 666.6667) * 10000.0) / 10000.0;
         } catch (Exception e) {
             throw new RuntimeException("计算面积时出错: " + e.getMessage(), e);
         }

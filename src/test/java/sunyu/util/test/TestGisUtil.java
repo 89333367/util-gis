@@ -235,7 +235,6 @@ public class TestGisUtil {
     void 测试一天(String did, String yyyyMMdd, double jobWidth) {
         String fileName = path + StrUtil.format("/{}_{}_trace.txt", did, yyyyMMdd);
         List<TrackPoint> l = new ArrayList<>();
-        DateTime jobStartTime = DateUtil.parse(yyyyMMdd, "yyyyMMdd");
         DateTime jobEndTime = DateUtil.parse(yyyyMMdd + "235959", "yyyyMMddHHmmss");
         for (String line : FileUtil.readUtf8Lines(fileName)) {
             // 20251013120625,113.33316443,28.08500825

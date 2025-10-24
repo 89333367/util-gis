@@ -42,11 +42,9 @@ public class SplitRoadResult {
         }
         java.util.List<OutlinePart> sorted = new java.util.ArrayList<>(parts);
         sorted.sort(
-            java.util.Comparator.comparing(
-                OutlinePart::getStartTime,
-                java.util.Comparator.nullsLast(java.util.Comparator.naturalOrder())
-            )
-        );
+                java.util.Comparator.comparing(
+                        OutlinePart::getStartTime,
+                        java.util.Comparator.nullsLast(java.util.Comparator.naturalOrder())));
         return sorted;
     }
 
@@ -54,4 +52,3 @@ public class SplitRoadResult {
         return wkt;
     }
 }
-
