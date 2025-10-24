@@ -1448,6 +1448,7 @@ public class GisUtil implements AutoCloseable {
 
             java.time.LocalDateTime start = inPoly.isEmpty() ? null : inPoly.get(0).getTime();
             java.time.LocalDateTime end = inPoly.isEmpty() ? null : inPoly.get(inPoly.size() - 1).getTime();
+            log.trace("[splitRoad] Polygon 时间范围 start={} end={} inPoly={}", start, end, inPoly.size());
 
             long tMuStart = System.currentTimeMillis();
             double mu = calcMu(poly);
@@ -1503,21 +1504,18 @@ public class GisUtil implements AutoCloseable {
 
                 java.time.LocalDateTime start = null;
                 java.time.LocalDateTime end = null;
-                int bestSize = 0;
-                long bestDurationMs = -1;
-                for (java.util.List<TrackPoint> s : sessions) {
-                    if (s.isEmpty())
-                        continue;
-                    java.time.LocalDateTime sStart = s.get(0).getTime();
-                    java.time.LocalDateTime sEnd = s.get(s.size() - 1).getTime();
-                    long dur = java.time.Duration.between(sStart, sEnd).toMillis();
-                    if (dur > bestDurationMs || (dur == bestDurationMs && s.size() > bestSize)) {
-                        bestDurationMs = dur;
-                        bestSize = s.size();
-                        start = sStart;
-                        end = sEnd;
-                    }
+                if (!sessions.isEmpty()) {
+                    // 使用进入该区块的最早时间和离开该区块的最晚时间
+                    sessions.sort(java.util.Comparator.comparing(
+                        s -> s.get(0).getTime(),
+                        java.util.Comparator.nullsLast(java.util.Comparator.naturalOrder())
+                    ));
+                    java.util.List<TrackPoint> firstSess = sessions.get(0);
+                    java.util.List<TrackPoint> lastSess = sessions.get(sessions.size() - 1);
+                    start = firstSess.isEmpty() ? null : firstSess.get(0).getTime();
+                    end = lastSess.isEmpty() ? null : lastSess.get(lastSess.size() - 1).getTime();
                 }
+                log.trace("[splitRoad] Part#{} 时间范围 start={} end={} (sessions={})", i, start, end, sessions.size());
 
                 long tMuStart = System.currentTimeMillis();
                 double mu = calcMu(poly);
