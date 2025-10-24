@@ -210,6 +210,14 @@ public class TestGisUtil {
         测试一天(did, yyyyMMdd, 2.6);
     }
 
+    @Test
+    void t003() {
+        String did = "EC71BT2402000001";
+        String yyyyMMdd = "20251015";
+        读取数据(did, yyyyMMdd);
+        测试一天(did, yyyyMMdd, 3);
+    }
+
     void 读取数据(String did, String yyyyMMdd) {
         if (!FileUtil.exist(path + StrUtil.format("/{}_{}_trace.txt", did, yyyyMMdd))) {
             TDengineUtil tDengineUtil = getTdengineUtil();

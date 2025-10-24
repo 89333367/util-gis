@@ -1385,23 +1385,25 @@ public class GisUtil implements AutoCloseable {
         // 依据最小亩数阈值过滤小区块
         trimmed = removeSmallMuPolygons(trimmed, config.MIN_MU_THRESHOLD);
         int partsAfterFilter = (trimmed instanceof MultiPolygon) ? trimmed.getNumGeometries() : 1;
+        int removedByArea = partsAfterKeep - partsAfterFilter;
         long tTrimEnd = System.currentTimeMillis();
-        log.trace("[splitRoad] 裁剪+小面积过滤完成 type={} parts={} 耗时={}ms", trimmed.getGeometryType(),
-                partsAfterFilter, (tTrimEnd - tTrimStart));
+        log.trace("[splitRoad] 裁剪+小面积过滤完成 type={} parts={} 移除={} 阈值={}mu 耗时={}ms", trimmed.getGeometryType(),
+                partsAfterFilter, removedByArea, config.MIN_MU_THRESHOLD, (tTrimEnd - tTrimStart));
 
         // 按距离阈值合并相近多边形，减少视觉上应连为一体的碎片
         long tMergeStart = System.currentTimeMillis();
         trimmed = mergeClosePolygons(trimmed, config.MERGE_DISTANCE_THRESHOLD_M);
         long tMergeEnd = System.currentTimeMillis();
-        log.trace("[splitRoad] 小距离合并完成 type={} parts={} 耗时={}ms", trimmed.getGeometryType(),
-                (trimmed instanceof MultiPolygon) ? trimmed.getNumGeometries() : 1, (tMergeEnd - tMergeStart));
+        int partsAfterMerge = (trimmed instanceof MultiPolygon) ? trimmed.getNumGeometries() : 1;
+        int reducedByMerge = partsAfterFilter - partsAfterMerge;
+        log.trace("[splitRoad] 小距离合并完成 type={} parts={} 减少={} 阈值={}m 耗时={}ms", trimmed.getGeometryType(),
+                partsAfterMerge, reducedByMerge, config.MERGE_DISTANCE_THRESHOLD_M, (tMergeEnd - tMergeStart));
 
         // 最终返回日志：当少于上限时说明原因，否则保持原样
-        int partsAfterMerge = (trimmed instanceof MultiPolygon) ? trimmed.getNumGeometries() : 1;
         if (partsAfterMerge < limit) {
             String reason;
             if (partsAfterMerge != partsAfterFilter) {
-                reason = "小距离合并";
+                reason = "小距离合并(阈值=" + config.MERGE_DISTANCE_THRESHOLD_M + "m)";
             } else if (partsAfterFilter != partsAfterKeep) {
                 reason = "小面积过滤";
             } else if (partsOutline < limit) {
@@ -1409,8 +1411,8 @@ public class GisUtil implements AutoCloseable {
             } else {
                 reason = "面积裁剪后区块数不超过上限";
             }
-            log.debug("[splitRoad] 返回结果 type={} parts={} (上限={}，原因：{})", trimmed.getGeometryType(),
-                    partsAfterMerge, limit, reason);
+            log.debug("[splitRoad] 返回结果 type={} parts={} (上限={}，原因：{}；小面积移除={}；小距离合并减少={})", trimmed.getGeometryType(),
+                    partsAfterMerge, limit, reason, removedByArea, reducedByMerge);
         } else {
             log.debug("[splitRoad] 返回结果 type={} parts={}", trimmed.getGeometryType(), partsAfterMerge);
         }
