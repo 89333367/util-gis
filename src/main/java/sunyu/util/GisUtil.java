@@ -78,10 +78,6 @@ public class GisUtil implements AutoCloseable {
      * 使用内部类封装配置参数，提高代码组织性和封装性
      */
     private static class Config {
-        // 每平方米对应的mu单位（面积单位），用于将平方米转换为亩
-        // 1亩 = 666.666...平方米，所以 1平方米 = 1/666.666... ≈ 0.0015000015
-        private final double MU_PER_SQ_METER = 0.0015000015;
-
         // 最小亩数阈值，过滤小面积多边形
         private final double MIN_MU_THRESHOLD = 0.1;
 
