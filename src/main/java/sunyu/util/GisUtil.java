@@ -1051,6 +1051,34 @@ public class GisUtil implements AutoCloseable {
     }
 
     /**
+     * 判断两个多边形是否相交（支持POLYGON与MULTIPOLYGON）
+     *
+     * @param wktA 第一个几何的WKT（WGS84）
+     * @param wktB 第二个几何的WKT（WGS84）
+     * @return 是否相交
+     * @throws Exception 解析或计算过程中出错
+     */
+    public boolean intersects(String wktA, String wktB) throws Exception {
+        Geometry g1 = fromWkt(wktA);
+        Geometry g2 = fromWkt(wktB);
+        return g1.intersects(g2);
+    }
+
+    /**
+     * 判断两个多边形是否相邻（共享边界，支持POLYGON与MULTIPOLYGON）
+     *
+     * @param wktA 第一个几何的WKT（WGS84）
+     * @param wktB 第二个几何的WKT（WGS84）
+     * @return 是否相邻（touches）
+     * @throws Exception 解析或计算过程中出错
+     */
+    public boolean touches(String wktA, String wktB) throws Exception {
+        Geometry g1 = fromWkt(wktA);
+        Geometry g2 = fromWkt(wktB);
+        return g1.touches(g2);
+    }
+
+    /**
      * 创建缓冲区
      */
     public Geometry buffer(Geometry geom, double distance, double originLon) throws Exception {
