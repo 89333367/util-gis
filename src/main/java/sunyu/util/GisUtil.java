@@ -1,7 +1,6 @@
 package sunyu.util;
 
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -324,6 +323,20 @@ public class GisUtil implements AutoCloseable {
         return true;
     }
 
+    // 统一过滤与排序 TrackPoint
+    private List<TrackPoint> filterAndSortTrackPoints(List<TrackPoint> seg, boolean requireTime) {
+        if (seg == null)
+            return java.util.Collections.emptyList();
+        java.util.Comparator<java.time.LocalDateTime> cmp = java.util.Comparator
+                .nullsLast(java.util.Comparator.naturalOrder());
+        return seg.stream()
+                .filter(p -> !requireTime || p.getTime() != null)
+                .filter(p -> Math.abs(p.getLon()) <= 180 && Math.abs(p.getLat()) <= 90)
+                .filter(p -> !(p.getLon() == 0 && p.getLat() == 0))
+                .sorted(java.util.Comparator.comparing(TrackPoint::getTime, cmp))
+                .collect(java.util.stream.Collectors.toList());
+    }
+
     /**
      * 构建轨迹轮廓（重载方法，使用统一宽度）
      * 通过轨迹点生成带宽度的轮廓多边形，左右宽度相同（各为总宽度的一半）
@@ -349,11 +362,7 @@ public class GisUtil implements AutoCloseable {
         }
 
         long processStartTime = System.currentTimeMillis();
-        List<TrackPoint> sortedSeg = seg.stream()
-                .sorted(Comparator.comparing(TrackPoint::getTime))
-                .filter(p -> Math.abs(p.getLon()) <= 180 && Math.abs(p.getLat()) <= 90)
-                .filter(p -> !(p.getLon() == 0 && p.getLat() == 0))
-                .collect(Collectors.toList());
+        List<TrackPoint> sortedSeg = filterAndSortTrackPoints(seg, false);
         long processTime = System.currentTimeMillis() - processStartTime;
         log.trace("[buildOutlineCore] 轨迹点过滤完成，原始点数: {}, 过滤后点数: {}, 过滤耗时: {}ms",
                 seg.size(), sortedSeg.size(), processTime);
@@ -894,27 +903,39 @@ public class GisUtil implements AutoCloseable {
     }
 
     /**
-     * 计算几何图形的面积（mu单位）
+     * 计算几何图形的面积（mu单位，支持 Polygon 与 MultiPolygon），按 WGS84 球面公式对齐 Turf.js
      *
-     * @param outline 几何图形
+     * @param outline 几何图形（POLYGON 或 MULTIPOLYGON）
      *
-     * @return 面积（mu），以亩为单位
+     * @return 面积（mu），以亩为单位，保留4位小数
      *
-     * @throws RuntimeException 如果坐标转换过程中发生错误
+     * @throws RuntimeException 如果面积计算过程中发生错误
      */
     public double calcMu(Geometry outline) throws RuntimeException {
         try {
-            if (!(outline instanceof org.locationtech.jts.geom.Polygon)) {
-                // 非 Polygon，返回构造时的 mu 或 0
+            double areaSqm = 0.0;
+            if (outline instanceof org.locationtech.jts.geom.Polygon) {
+                org.locationtech.jts.geom.Polygon p = (org.locationtech.jts.geom.Polygon) outline;
+                double areaOuter = Math.abs(ringArea(p.getExteriorRing()));
+                double holesArea = 0.0;
+                for (int i = 0; i < p.getNumInteriorRing(); i++) {
+                    holesArea += Math.abs(ringArea(p.getInteriorRingN(i)));
+                }
+                areaSqm = areaOuter - holesArea;
+            } else if (outline instanceof org.locationtech.jts.geom.MultiPolygon) {
+                org.locationtech.jts.geom.MultiPolygon mp = (org.locationtech.jts.geom.MultiPolygon) outline;
+                for (int i = 0; i < mp.getNumGeometries(); i++) {
+                    org.locationtech.jts.geom.Polygon p = (org.locationtech.jts.geom.Polygon) mp.getGeometryN(i);
+                    double areaOuter = Math.abs(ringArea(p.getExteriorRing()));
+                    double holesArea = 0.0;
+                    for (int j = 0; j < p.getNumInteriorRing(); j++) {
+                        holesArea += Math.abs(ringArea(p.getInteriorRingN(j)));
+                    }
+                    areaSqm += (areaOuter - holesArea);
+                }
+            } else {
                 return 0.0;
             }
-            org.locationtech.jts.geom.Polygon p = (org.locationtech.jts.geom.Polygon) outline;
-            double areaOuter = ringArea(p.getExteriorRing());
-            double holesArea = 0.0;
-            for (int i = 0; i < p.getNumInteriorRing(); i++) {
-                holesArea += ringArea(p.getInteriorRingN(i));
-            }
-            double areaSqm = Math.abs(areaOuter) - Math.abs(holesArea);
             // 1 亩 = 666.6667 平方米
             return Math.round((areaSqm / 666.6667) * 10000.0) / 10000.0;
         } catch (Exception e) {
@@ -923,12 +944,12 @@ public class GisUtil implements AutoCloseable {
     }
 
     /**
-     * wkt计算亩数（WGS84坐标系）
+     * WKT计算亩数（WGS84坐标系），支持POLYGON与MULTIPOLYGON
      * 直接计算WGS84坐标系下几何图形的面积，结果以亩为单位
      *
-     * @param wkt wkt字符串，要求为WGS84坐标系
+     * @param wkt WKT字符串，要求为WGS84坐标系
      *
-     * @return 面积（mu），以亩为单位，保留3位小数
+     * @return 面积（mu），以亩为单位，保留4位小数
      */
     public double calcMu(String wkt) {
         Geometry geometry = fromWkt(wkt);
@@ -968,62 +989,6 @@ public class GisUtil implements AutoCloseable {
         } catch (org.locationtech.jts.io.ParseException e) {
             throw new RuntimeException("解析WKT字符串时出错: " + e.getMessage(), e);
         }
-    }
-
-    /**
-     * 判断两个几何形状是否拓扑相等
-     */
-    public boolean equals(Geometry g1, Geometry g2) {
-        return g1.equals(g2);
-    }
-
-    /**
-     * 判断两个几何形状是否没有共有点（脱节）
-     */
-    public boolean disjoint(Geometry g1, Geometry g2) {
-        return g1.disjoint(g2);
-    }
-
-    /**
-     * 判断两个几何形状是否至少有一个共有点（相交）
-     */
-    public boolean intersects(Geometry g1, Geometry g2) {
-        return g1.intersects(g2);
-    }
-
-    /**
-     * 判断两个几何形状是否有至少一个公共的边界点，但是没有内部点（接触）
-     */
-    public boolean touches(Geometry g1, Geometry g2) {
-        return g1.touches(g2);
-    }
-
-    /**
-     * 判断两个几何形状是否共享一些但不是所有的内部点（交叉）
-     */
-    public boolean crosses(Geometry g1, Geometry g2) {
-        return g1.crosses(g2);
-    }
-
-    /**
-     * 判断几何形状A是否完全在几何形状B内部（内含）
-     */
-    public boolean within(Geometry g1, Geometry g2) {
-        return g1.within(g2);
-    }
-
-    /**
-     * 判断几何形状A是否包含几何形状B（包含）
-     */
-    public boolean contains(Geometry g1, Geometry g2) {
-        return g1.contains(g2);
-    }
-
-    /**
-     * 判断两个几何形状是否共享一部分但不是所有的公共点，而且相交处有他们自己相同的区域（重叠）
-     */
-    public boolean overlaps(Geometry g1, Geometry g2) {
-        return g1.overlaps(g2);
     }
 
     /**
@@ -1098,34 +1063,6 @@ public class GisUtil implements AutoCloseable {
         } catch (Exception e) {
             throw new Exception("创建缓冲区时出错: " + e.getMessage(), e);
         }
-    }
-
-    /**
-     * 计算两个几何形状的交集
-     */
-    public Geometry intersection(Geometry g1, Geometry g2) {
-        return g1.intersection(g2);
-    }
-
-    /**
-     * 计算两个几何形状的并集
-     */
-    public Geometry union(Geometry g1, Geometry g2) {
-        return g1.union(g2);
-    }
-
-    /**
-     * 计算两个几何形状的差集
-     */
-    public Geometry difference(Geometry g1, Geometry g2) {
-        return g1.difference(g2);
-    }
-
-    /**
-     * 计算两个几何形状的对称差集
-     */
-    public Geometry symDifference(Geometry g1, Geometry g2) {
-        return g1.symDifference(g2);
     }
 
     /**
@@ -1452,12 +1389,7 @@ public class GisUtil implements AutoCloseable {
 
         // 准备有效的轨迹点（与轮廓构建一致的过滤逻辑）
         long tFilterStart = System.currentTimeMillis();
-        List<TrackPoint> sortedSeg = seg.stream()
-                .sorted(java.util.Comparator.comparing(TrackPoint::getTime))
-                .filter(p -> p.getTime() != null)
-                .filter(p -> Math.abs(p.getLon()) <= 180 && Math.abs(p.getLat()) <= 90)
-                .filter(p -> !(p.getLon() == 0 && p.getLat() == 0))
-                .collect(java.util.stream.Collectors.toList());
+        List<TrackPoint> sortedSeg = filterAndSortTrackPoints(seg, true);
         long tFilterEnd = System.currentTimeMillis();
         log.trace("[splitRoad] 点过滤+排序完成 有效点={} 耗时={}ms", sortedSeg.size(), (tFilterEnd - tFilterStart));
 
