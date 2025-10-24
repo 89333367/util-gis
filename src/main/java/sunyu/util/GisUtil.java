@@ -39,71 +39,6 @@ import sunyu.util.pojo.TrackPoint;
 /**
  * GIS工具类
  *
- * 概览
- * - 提供轨迹（TrackPoint）到面轮廓（Polygon/MultiPolygon）的生成与分割（splitRoad），
- *   并支持面积计算（亩数）、几何关系判断、缓冲/并集/差集等空间运算。
- * - 坐标系策略：输入与输出统一为 WGS84（EPSG:4326），涉及按米计算的操作（缓冲、距离）
- *   会将几何转换到 Web Mercator（EPSG:3857）后处理，再转换回 WGS84，保证“米”为单位的精度。
- * - 性能与健壮性：内部对投影变换做懒加载与缓存；对几何做分组并集、裁剪与过滤；全程带有耗时日志与阶段性统计。
- *
- * 主要功能
- * - splitRoad(seg, totalWidthM[, maxSegments])：将按时间排序的轨迹点在“双侧宽度=totalWidthM/2”的基础上做缓冲并合并，
- *   得到道路轮廓；随后执行以下步骤形成最终结果：
- *   1) 轮廓构建：buildOutlineCore(seg, totalWidthM)
- *      - 将轨迹点过滤越界与无效数据（例如经纬度越界、0,0），按时间升序处理。
- *      - 在 Web Mercator 坐标中以米进行缓冲（单侧宽度=totalWidthM/2），并通过分桶/分组合并降低几何复杂度，得到初步的面轮廓。
- *   2) 面积裁剪：keepLargestPolygons(outline, limit)
- *      - 按面积倒序，保留不超过 maxSegments（默认 DEFAULT_MAX_OUTLINE_SEGMENTS=10）的最大区块；
- *        若只剩一个区块返回 Polygon，否则返回 MultiPolygon。
- *   3) 小面积过滤：removeSmallMuPolygons(trimmed, MIN_MU_THRESHOLD)
- *      - 按亩数阈值（MIN_MU_THRESHOLD=0.1），过滤面积过小的区块；
- *        亩数计算（calcMu）以“平方米→亩”的转换常量（MU_PER_SQ_METER）进行。
- *   4) 小距离合并：mergeClosePolygons(trimmed, MERGE_DISTANCE_THRESHOLD_M)
- *      - 使用形态学闭运算（正缓冲→并集→负缓冲）将彼此小于阈值（MERGE_DISTANCE_THRESHOLD_M=5m）的近邻区块合并，
- *        减少在地图显示上“应该连为一体”的碎片。
- *   5) 结果组装：为每个区块统计会话段（进入/离开区块的连续轨迹），计算区块亩数，生成 WKT（toWkt），
- *      并封装为 OutlinePart 列表；最终以 SplitRoadResult 返回“几何+明细+outlineWKT”。
- *
- * - toWkt(g)：统一输出为 WGS84 的 WKT；对非 WGS84 或坐标异常的几何，先做投影回转与有效性检查。
- * - calcMu(outline)：计算面轮廓的亩数，针对 Polygon/MultiPolygon 进行面积聚合并转换为亩。
- * - 几何关系与空间运算：equals/disjoint/intersects/touches/crosses/within/contains/overlaps 等关系判断；
- *   buffer/union/difference/intersection/symDifference 等基础运算；inCircle/inPolygon/inRectangle 等空间包含测试。
- * - 坐标系转换：提供 WGS84↔GCJ-02↔BD-09 的互转工具（含列表/TrackPoint 批量转换），并含“是否在中国境外”的判断辅助。
- *
- * 内部实现细节
- * - Config 内部常量与组件：
- *   - 坐标系代码：WGS84="EPSG:4326"，WEB_MERCATOR="EPSG:3857"。
- *   - 度量与阈值：MU_PER_SQ_METER、MIN_MU_THRESHOLD=0.1（小面积过滤）、MERGE_DISTANCE_THRESHOLD_M=5.0（近邻合并）。
- *   - 默认参数：DEFAULT_MAX_OUTLINE_SEGMENTS=10；以及缓冲近似、并集合并规模与分桶相关的默认值（如 DEFAULT_BUFFER_QUADRANT、DEFAULT_UNION_GROUP_SIZE 等）。
- *   - 投影变换缓存：txWgsToMercator/txMercatorToWgs采用懒加载与缓存；CRS 对象放入 ConcurrentHashMap 缓存，避免重复创建。
- *   - GeometryFactory：统一构建点/线/面几何对象。
- * - 投影与单位：所有“按米”的运算统一在 Web Mercator 进行，结束后转换回 WGS84；
- *   buffer(distance) 会先做 wgs84→mercator，再做 JTS 缓冲，最后 mercator→wgs84。
- * - 几何合并：使用分组合并与 UnaryUnionOp 以降低一次性并集的复杂度和内存压力；对多区块做面积排序与裁剪。
- * - 有效性与健壮性：
- *   - isLikelyWgs84/hasValidCoordinates：校验坐标合理性，避免坐标异常传播。
- *   - 对负缓冲失败场景，mergeClosePolygons 会降级返回并集结果并记录警告日志，确保几何结果有效。
- * - 日志与耗时：
- *   - 关键步骤均记录耗时与区块数变更（outline构建、裁剪+过滤、合并、WKT生成、最终返回），便于线上问题定位与性能分析。
- *
- * 返回类型与数据结构
- * - SplitRoadResult：包含最终的轮廓几何（Polygon/MultiPolygon）、区块明细列表（OutlinePart）、以及整体轮廓的 WKT 字符串。
- * - OutlinePart：记录区块几何、进入/离开时间（以最长连续会话为准）、亩数、区块 WKT。
- *
- * 输入要求与异常
- * - 轨迹点 seg 至少 3 个有效点；经度范围 [-180,180]，纬度范围 [-90,90]；会自动过滤 (0,0) 与越界点并按时间升序处理。
- * - totalWidthM 必须非负；内部按 totalWidthM/2 作为单侧缓冲宽度。
- * - 异常：
- *   - IllegalArgumentException：输入点数量不足或参数不合法；
- *   - Exception：坐标转换或几何运算异常（包含投影转换失败、缓冲/并集运算异常等）。
- *
- * 线程安全/对象生命周期
- * - 工具类为无状态（除配置），投影变换与 CRS 缓存为线程安全的 ConcurrentHashMap；
- *   使用 try-with-resources 时可调用 close() 做资源清理（当前实现为空操作），以便未来扩展。
- *
- * 注意
- * - 如需调整区块上限、合并阈值或最小亩数阈值，可在 Config 中修改对应常量，或扩展 Builder 暴露可配置项。
- *
  * @author SunYu
  */
 public class GisUtil implements AutoCloseable {
@@ -130,10 +65,10 @@ public class GisUtil implements AutoCloseable {
      */
     private GisUtil(Config config) {
         // 记录工具类构建开始日志
-        log.info("[构建工具类] 开始");
+        log.info("[构建{}] 开始", this.getClass().getSimpleName());
         // 其他初始化语句（预留扩展点）
         // 记录工具类构建结束日志
-        log.info("[构建工具类] 结束");
+        log.info("[构建{}] 结束", this.getClass().getSimpleName());
         // 保存配置参数引用
         this.config = config;
     }

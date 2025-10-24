@@ -19,7 +19,6 @@ import cn.hutool.core.date.DateTime;
 import cn.hutool.core.date.DateUtil;
 import cn.hutool.core.date.LocalDateTimeUtil;
 import cn.hutool.core.io.FileUtil;
-import cn.hutool.core.io.resource.ResourceUtil;
 import cn.hutool.core.util.StrUtil;
 import cn.hutool.db.Db;
 import cn.hutool.db.DbUtil;
@@ -74,7 +73,7 @@ public class TestGisUtil {
         return TDengineUtil.builder().dataSource(getTdengineDatasource()).build();
     }
 
-    @Test
+    //@Test
     void test_farm_work_split() throws SQLException {
         Db db = getMysqlDb();
         TDengineUtil tDengineUtil = getTdengineUtil();
@@ -141,11 +140,11 @@ public class TestGisUtil {
 
     @Test
     void wkt计算亩数() {
-        double mu = gisUtil.calcMu(ResourceUtil.readUtf8Str("datas/POLYGON_1.txt"));
+        double mu = gisUtil.calcMu(FileUtil.readUtf8String(path + "/1.txt"));
         log.info("{}", mu);
     }
 
-    @Test
+    //@Test
     void 读取farm_work() throws SQLException {
         Db db = getMysqlDb();
         /**
@@ -212,23 +211,25 @@ public class TestGisUtil {
     }
 
     void 读取数据(String did, String yyyyMMdd) {
-        TDengineUtil tDengineUtil = getTdengineUtil();
-        String jobStartTime = DateUtil.parse(yyyyMMdd, "yyyyMMdd").toString("yyyy-MM-dd") + " 00:00:00";
-        String jobEndTime = DateUtil.parse(yyyyMMdd + "235959", "yyyyMMddHHmmss").toString("yyyy-MM-dd HH:mm:ss");
-        String tdSql = StrUtil.format(
-                "select protocol from frequent.d_p where did='{}' and `3014`>='{}' and `3014`<='{}' and protocol match '(,2601:0,)'",
-                did, jobStartTime, jobEndTime);
-        log.debug("{}", tdSql);
-        List<Map<String, Object>> rows = tDengineUtil.executeQuery(tdSql);
-        List<String> l = new ArrayList<>();
-        for (Map<String, Object> row : rows) {
-            Map<String, String> protocol = protocolSdk.parseProtocolString(row.get("protocol").toString());
-            if (Convert.toDouble(protocol.get("2602")) <= 0 || Convert.toDouble(protocol.get("2603")) <= 0) {
-                continue;
+        if (!FileUtil.exist(path + StrUtil.format("/{}_{}_trace.txt", did, yyyyMMdd))) {
+            TDengineUtil tDengineUtil = getTdengineUtil();
+            String jobStartTime = DateUtil.parse(yyyyMMdd, "yyyyMMdd").toString("yyyy-MM-dd") + " 00:00:00";
+            String jobEndTime = DateUtil.parse(yyyyMMdd + "235959", "yyyyMMddHHmmss").toString("yyyy-MM-dd HH:mm:ss");
+            String tdSql = StrUtil.format(
+                    "select protocol from frequent.d_p where did='{}' and `3014`>='{}' and `3014`<='{}' and protocol match '(,2601:0,)'",
+                    did, jobStartTime, jobEndTime);
+            log.debug("{}", tdSql);
+            List<Map<String, Object>> rows = tDengineUtil.executeQuery(tdSql);
+            List<String> l = new ArrayList<>();
+            for (Map<String, Object> row : rows) {
+                Map<String, String> protocol = protocolSdk.parseProtocolString(row.get("protocol").toString());
+                if (Convert.toDouble(protocol.get("2602")) <= 0 || Convert.toDouble(protocol.get("2603")) <= 0) {
+                    continue;
+                }
+                l.add(StrUtil.format("{},{},{}", protocol.get("3014"), protocol.get("2602"), protocol.get("2603")));
             }
-            l.add(StrUtil.format("{},{},{}", protocol.get("3014"), protocol.get("2602"), protocol.get("2603")));
+            FileUtil.writeUtf8Lines(l, path + StrUtil.format("/{}_{}_trace.txt", did, yyyyMMdd));
         }
-        FileUtil.writeUtf8Lines(l, path + StrUtil.format("/{}_{}_trace.txt", did, yyyyMMdd));
     }
 
     void 测试一天(String did, String yyyyMMdd, double jobWidth) {
@@ -276,9 +277,6 @@ public class TestGisUtil {
             }
             FileUtil.writeUtf8String(pb.toString(), partsFile);
 
-            double wktMu = gisUtil.calcMu(outlineWkt);
-            double mu = gisUtil.calcMu(outline);
-            log.info("设备号：{} 作业时间：{} {} 宽幅：{} wkt亩数：{} 几何图形亩数：{}", did, jobStartTime, jobEndTime, jobWidth, wktMu, mu);
             log.info("结果文件已生成：outline={}, parts={}", outlineFile, partsFile);
         } catch (Exception e) {
             log.error(e);
