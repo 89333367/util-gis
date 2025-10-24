@@ -371,6 +371,40 @@
                 <button id="drawTrackButton" disabled>绘制轨迹</button>
                 <button id="clearTrackButton" disabled>清空轨迹</button>
             </div>
+            <!-- 回放控制 -->
+            <div class="split-section" style="margin-top:8px;">
+                <div class="title">轨迹回放</div>
+                <div class="playback-actions" style="display:flex;gap:8px;margin-bottom:8px;">
+                    <button id="playbackStartBtn" disabled>开始</button>
+                    <button id="playbackPauseBtn" disabled>继续</button>
+                    <button id="playbackStopBtn" disabled>结束</button>
+                </div>
+                <div class="playback-speed" style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+                    <label>速度：
+                        <select id="playbackSpeedSelect" disabled>
+                            <option value="1" selected>1×</option>
+                            <option value="2">2×</option>
+                            <option value="4">4×</option>
+                            <option value="8">8×</option>
+                            <option value="16">16×</option>
+                            <option value="32">32×</option>
+                            <option value="64">64×</option>
+                            <option value="128">128×</option>
+                            <option value="256">256×</option>
+                            <option value="512">512×</option>
+                            <option value="1024">1024×</option>
+                        </select>
+                    </label>
+                    <span id="playbackTimeLabel" style="font-size:12px;color:#666;">时间：—</span>
+                </div>
+                <div class="playback-time" style="display:flex;flex-direction:column;gap:4px;margin-bottom:8px;">
+                    <label class="playback-time-label" style="display:flex;align-items:center;gap:8px;flex:1 1 auto;min-width:0;">
+                        <span class="playback-time-text" style="white-space:nowrap;">起始时间：</span>
+                        <input type="range" id="playbackTimeSlider" disabled min="0" max="0" step="1000" value="0" style="flex:1 1 auto;min-width:0;max-width:100%;vertical-align:middle;">
+                    </label>
+                    <span id="playbackTimeCursor" style="font-size:12px;color:#666;align-self:flex-end;">—</span>
+                </div>
+            </div>
         </div>
     </div>
 </div>
@@ -397,6 +431,7 @@
         bindMultiSplitter();
         bindLabelsToggle(); // 绑定标签显示开关
         bindTrackEvents();  // 绑定轨迹绘制与清空
+        bindPlaybackControls(); // 绑定轨迹回放
     };
 
     function initMap() {
@@ -491,6 +526,10 @@
             hideLoading();
             disableButtons(false);
             disableTrackButtons(false);
+            // 仅开启速度选择，回放按钮按状态控制
+            const speedSel = document.getElementById('playbackSpeedSelect');
+            if (speedSel) speedSel.disabled = false;
+            updatePlaybackButtonsState('idle');
         }
     }
 
@@ -516,6 +555,39 @@
         const clearTrackBtn = document.getElementById("clearTrackButton");
         if (drawTrackBtn) drawTrackBtn.disabled = disabled;
         if (clearTrackBtn) clearTrackBtn.disabled = disabled;
+    }
+    // 回放控件的禁用/启用
+    function disablePlaybackButtons(disabled) {
+        ["playbackStartBtn","playbackPauseBtn","playbackStopBtn","playbackSpeedSelect","playbackTimeSlider"].forEach(id=>{
+            const el = document.getElementById(id);
+            if (el) el.disabled = disabled;
+        });
+    }
+
+    // 回放按钮状态管理：空闲/播放/暂停
+    function updatePlaybackButtonsState(state){
+        try {
+            const startBtn = document.getElementById('playbackStartBtn');
+            const pauseBtn = document.getElementById('playbackPauseBtn');
+            const stopBtn = document.getElementById('playbackStopBtn');
+            if (!startBtn || !pauseBtn || !stopBtn) return;
+            if (state === 'idle') {
+                startBtn.disabled = false;
+                pauseBtn.disabled = true;
+                stopBtn.disabled = true;
+                pauseBtn.textContent = '继续';
+            } else if (state === 'playing') {
+                startBtn.disabled = true;
+                pauseBtn.disabled = false;
+                stopBtn.disabled = false;
+                pauseBtn.textContent = '暂停';
+            } else if (state === 'paused') {
+                startBtn.disabled = true;
+                pauseBtn.disabled = false;
+                stopBtn.disabled = false;
+                pauseBtn.textContent = '继续';
+            }
+        } catch(e) { console.warn('更新按钮状态失败:', e); }
     }
 
     function bindDrawEvent() {
@@ -1349,6 +1421,384 @@
         } catch (e) {
             console.warn('轨迹视图居中失败:', e);
         }
+    }
+
+    // ========= 轨迹回放功能 =========
+    let playbackState = { points: [], idx: 0, speed: 1, timer: null, running: false, marker: null, line: null, path: [] };
+
+    function bindPlaybackControls(){
+        const startBtn = document.getElementById('playbackStartBtn');
+        const pauseBtn = document.getElementById('playbackPauseBtn');
+        const stopBtn = document.getElementById('playbackStopBtn');
+        const speedSel = document.getElementById('playbackSpeedSelect');
+        const timeSlider = document.getElementById('playbackTimeSlider');
+        const timeCursor = document.getElementById('playbackTimeCursor');
+        const ta = document.getElementById('trackTextarea');
+        if (!startBtn || !pauseBtn || !stopBtn || !speedSel) return;
+
+        // 初始按钮状态
+        updatePlaybackButtonsState('idle');
+
+        startBtn.addEventListener('click', function(){
+            try {
+                const text = (ta && ta.value || '').trim();
+                if (!text) { alert('请粘贴轨迹文本（时间戳,经度,纬度）'); return; }
+                const pts = parseTrackTextWithTime(text);
+                if (pts.length < 2) { alert('有效轨迹点不足，至少需要两点'); return; }
+                startPlayback(pts);
+                // 状态在startPlayback中已设置为playing
+            } catch (e) {
+                alert('开始回放失败：' + (e && e.message ? e.message : e));
+                console.error('开始回放异常:', e);
+            }
+        });
+
+        pauseBtn.addEventListener('click', function(){
+            if (!playbackState.running) {
+                // 继续
+                playbackState.running = true;
+                scheduleNext();
+                updatePlaybackButtonsState('playing');
+            } else {
+                // 暂停
+                if (playbackState.timer) { clearTimeout(playbackState.timer); playbackState.timer = null; }
+                playbackState.running = false;
+                updatePlaybackButtonsState('paused');
+            }
+        });
+
+        stopBtn.addEventListener('click', function(){ 
+            stopPlayback(); 
+            updatePlaybackButtonsState('idle');
+        });
+
+        speedSel.addEventListener('change', function(){
+            const v = parseFloat(speedSel.value);
+            playbackState.speed = (isFinite(v) && v > 0) ? v : 1;
+        });
+
+        if (timeSlider) {
+            timeSlider.addEventListener('input', function(){
+                const ms = parseInt(timeSlider.value, 10);
+                const txt = formatTimeForLabel(ms);
+                if (timeCursor) timeCursor.textContent = txt;
+            });
+            timeSlider.addEventListener('change', function(){
+                jumpToSliderTime();
+            });
+        }
+    }
+
+    function parseTrackTextWithTime(text){
+        const coordSysEl = document.getElementById('trackCoordSysSelect') || document.getElementById('coordSysSelect');
+        const coordSys = (coordSysEl && coordSysEl.value) || 'wgs84';
+        const lines = text.split(/\r?\n/);
+        const out = [];
+        for (let i=0;i<lines.length;i++){
+            const line = lines[i].trim();
+            if (!line) continue;
+            const parts = line.split(',');
+            if (parts.length < 3) continue;
+            const ts = (parts[0] || '').trim();
+            let lng = parseFloat((parts[1] || '').trim());
+            let lat = parseFloat((parts[2] || '').trim());
+            if (!isFinite(lng) || !isFinite(lat)) continue;
+            if (lng === 0 || lat === 0) continue;
+            if (lng < -180 || lng > 180 || lat < -90 || lat > 90) continue;
+            const t = parseTimestamp(ts);
+            if (!t) continue;
+            let w;
+            if (coordSys === 'wgs84' || coordSys === 'cgcs2000') {
+                w = { lng, lat };
+            } else if (coordSys === 'gcj02') {
+                w = gcj02ToWgs84(lng, lat);
+            } else if (coordSys === 'bd09') {
+                const g = bd09ToGcj02(lng, lat);
+                w = gcj02ToWgs84(g.lng, g.lat);
+            } else { w = { lng, lat }; }
+            if (!isFinite(w.lng) || !isFinite(w.lat)) continue;
+            if (w.lng < -180 || w.lng > 180 || w.lat < -90 || w.lat > 90) continue;
+            out.push({ ll: new T.LngLat(w.lng, w.lat), time: t, ts });
+        }
+        out.sort((a,b)=>a.time - b.time);
+        return out;
+    }
+
+    function parseTimestamp(ts){
+        const m = ts && ts.match(/^\d{14}$/);
+        if (!m) return null;
+        const y = parseInt(ts.slice(0,4),10);
+        const M = parseInt(ts.slice(4,6),10) - 1;
+        const d = parseInt(ts.slice(6,8),10);
+        const h = parseInt(ts.slice(8,10),10);
+        const m2 = parseInt(ts.slice(10,12),10);
+        const s = parseInt(ts.slice(12,14),10);
+        const dt = new Date(y,M,d,h,m2,s);
+        return isNaN(dt.getTime()) ? null : dt;
+    }
+
+    function startPlayback(points){
+        console.log('[Playback] startPlayback: 点数=', points && points.length);
+        stopPlayback();
+        playbackState.points = points;
+        playbackState.idx = 0;
+        playbackState.speed = playbackState.speed || 1;
+        playbackState.running = true;
+        // 配置时间滑动条，并尊重现有滑块位置作为起始
+        configureTimeSlider(points);
+        // 启用滑块
+        const slider = document.getElementById('playbackTimeSlider');
+        if (slider) slider.disabled = false;
+        let initIdx = 0;
+        if (slider && slider.min && slider.max) {
+            const ms = parseInt(slider.value, 10);
+            if (isFinite(ms)) initIdx = findIndexByTime(points, ms);
+        }
+        playbackState.idx = initIdx;
+        const first = points[initIdx];
+        console.log('[Playback] 首点:', first && first.ts, first && first.ll, 'initIdx=', initIdx);
+        playbackState.path = points.slice(0, initIdx+1).map(p=>p.ll);
+        playbackState.line = new T.Polyline(playbackState.path, { color: '#FFA500', weight: 3, opacity: 0.9 });
+        if (map) {
+            map.addOverLay(playbackState.line);
+        }
+        currentTracks.push(playbackState.line);
+        // 创建并定位DOM标记以保证可见移动
+        ensurePlaybackDom(first.ll);
+        updatePlaybackDom(first.ll);
+        updatePlaybackTimeLabel(first.ts);
+        try { fitViewportToTrack(points.map(p=>p.ll)); } catch(e){}
+        // 更新按钮状态
+        updatePlaybackButtonsState('playing');
+        scheduleNext();
+    }
+
+    function scheduleNext(){
+        if (!playbackState.running) return;
+        if (!playbackState.points || playbackState.idx >= playbackState.points.length - 1) {
+            playbackState.running = false;
+            console.log('[Playback] 回放结束：idx=', playbackState.idx, '点数=', playbackState.points ? playbackState.points.length : 0);
+            return;
+        }
+        const next = playbackState.points[playbackState.idx+1];
+        const speed = playbackState.speed || 1;
+        const delay = Math.max(4, Math.round(1000 / speed)); // 1x=1000ms/点，2x=500ms/点...
+        console.log('[Playback] scheduleNext: idx=', playbackState.idx, '->', playbackState.idx+1, 'delay=', delay, 'speed=', speed);
+        playbackState.timer = setTimeout(()=>{
+            playbackState.idx++;
+            const nextLL = next.ll;
+            console.log('[Playback] 下一点:', next && next.ts, nextLL);
+            try {
+                // 维护路径数组
+                playbackState.path = playbackState.path || [];
+                playbackState.path.push(nextLL);
+                console.log('[Playback] 路径长度=', playbackState.path.length);
+                // 使用DOM标记进行移动（容器/图层坐标）
+                if (!playbackDom.el) console.log('[Playback] DOM标记不存在，将尝试创建');
+                updatePlaybackDom(nextLL);
+                // 折线更新：优先setLngLats，兜底重建
+                if (playbackState.line && typeof playbackState.line.setLngLats === 'function') {
+                    try { playbackState.line.setLngLats(playbackState.path); }
+                    catch(e){
+                        console.warn('[Playback] setLngLats失败，重建折线', e);
+                        if (map) { try { map.removeOverLay(playbackState.line); } catch(e){} }
+                        playbackState.line = new T.Polyline(playbackState.path, { color: '#FFA500', weight: 3, opacity: 0.9 });
+                        if (map) map.addOverLay(playbackState.line);
+                    }
+                } else {
+                    console.log('[Playback] 折线不支持setLngLats，重建');
+                    if (playbackState.line && map) { try { map.removeOverLay(playbackState.line); } catch(e){} }
+                    playbackState.line = new T.Polyline(playbackState.path, { color: '#FFA500', weight: 3, opacity: 0.9 });
+                    if (map) map.addOverLay(playbackState.line);
+                }
+            } catch(e) { console.warn('更新回放覆盖物失败:', e); }
+            updatePlaybackTimeLabel(next.ts);
+            scheduleNext();
+        }, delay);
+    }
+
+    function stopPlayback(){
+        if (playbackState.timer) { clearTimeout(playbackState.timer); playbackState.timer = null; }
+        playbackState.running = false;
+        playbackState.idx = 0;
+        try {
+            // 移除DOM标记
+            removePlaybackDom();
+            if (playbackState.marker && map) map.removeOverLay(playbackState.marker);
+            if (playbackState.line && map) map.removeOverLay(playbackState.line);
+        } catch(e){}
+        playbackState.marker = null;
+        playbackState.line = null;
+        updatePlaybackTimeLabel('—');
+        // 按钮回到初始状态
+        updatePlaybackButtonsState('idle');
+    }
+
+    function updatePlaybackTimeLabel(text){
+        const el = document.getElementById('playbackTimeLabel');
+        if (el) el.textContent = '时间：' + (text || '—');
+    }
+
+    // 时间滑动条：配置与跳转
+    function configureTimeSlider(points){
+        try {
+            const slider = document.getElementById('playbackTimeSlider');
+            const cursor = document.getElementById('playbackTimeCursor');
+            if (!slider || !points || !points.length) return;
+            const minMs = points[0].time.getTime();
+            const maxMs = points[points.length - 1].time.getTime();
+            const prev = parseInt(slider.value, 10);
+            slider.min = String(minMs);
+            slider.max = String(maxMs);
+            slider.step = '1000'; // 以秒为步进
+            let val = (isFinite(prev) && prev >= minMs && prev <= maxMs) ? prev : minMs;
+            slider.value = String(val);
+            if (cursor) cursor.textContent = formatTimeForLabel(val);
+        } catch(e) { console.warn('配置时间滑动条失败:', e); }
+    }
+    function formatTimeForLabel(ms){
+        if (!isFinite(ms)) return '—';
+        const d = new Date(ms);
+        const pad = n => String(n).padStart(2,'0');
+        const y = d.getFullYear();
+        const M = pad(d.getMonth()+1);
+        const da = pad(d.getDate());
+        const h = pad(d.getHours());
+        const m = pad(d.getMinutes());
+        const s = pad(d.getSeconds());
+        return `${y}-${M}-${da} ${h}:${m}:${s}`;
+    }
+    function findIndexByTime(points, ms){
+        try {
+            if (!points || !points.length) return 0;
+            const n = points.length;
+            const minMs = points[0].time.getTime();
+            const maxMs = points[n-1].time.getTime();
+            if (!isFinite(ms)) return 0;
+            if (ms <= minMs) return 0;
+            if (ms >= maxMs) return n-1;
+            let lo = 0, hi = n - 1, ans = 0;
+            while (lo <= hi) {
+                const mid = (lo + hi) >> 1;
+                const t = points[mid].time.getTime();
+                if (t < ms) { lo = mid + 1; ans = lo; }
+                else { hi = mid - 1; ans = mid; }
+            }
+            return Math.max(0, Math.min(n-1, ans));
+        } catch(e){ console.warn('findIndexByTime失败:', e); return 0; }
+    }
+    function jumpToSliderTime(){
+        try {
+            const slider = document.getElementById('playbackTimeSlider');
+            if (!slider || !playbackState.points || !playbackState.points.length) return;
+            const ms = parseInt(slider.value, 10);
+            if (!isFinite(ms)) return;
+            const idx = findIndexByTime(playbackState.points, ms);
+            playbackState.idx = idx;
+            const pts = playbackState.points;
+            const ll = pts[idx].ll;
+            playbackState.path = pts.slice(0, idx+1).map(p=>p.ll);
+            // 更新折线
+            try {
+                if (playbackState.line && typeof playbackState.line.setLngLats === 'function') {
+                    playbackState.line.setLngLats(playbackState.path);
+                } else {
+                    if (playbackState.line && map) { try { map.removeOverLay(playbackState.line); } catch(e){} }
+                    playbackState.line = new T.Polyline(playbackState.path, { color: '#FFA500', weight: 3, opacity: 0.9 });
+                    if (map) map.addOverLay(playbackState.line);
+                }
+            } catch(e){ console.warn('滑块更新折线失败:', e); }
+            // 更新标记与时间
+            ensurePlaybackDom(ll);
+            updatePlaybackDom(ll);
+            updatePlaybackTimeLabel(pts[idx].ts);
+            // 若正在播放，立即按新位置继续
+            if (playbackState.running) {
+                if (playbackState.timer) { clearTimeout(playbackState.timer); playbackState.timer = null; }
+                scheduleNext();
+            }
+        } catch(e) { console.warn('滑块跳转失败:', e); }
+    }
+
+    // DOM标记：使用容器坐标实现可见移动
+    let playbackDom = { el: null, lastLL: null, bound: false };
+
+    function ensurePlaybackDom(ll){
+        try {
+            playbackDom.lastLL = ll;
+            const pane = (map && map.getPanes && map.getPanes().overlayPane) || document.getElementById('mapContainer');
+            if (!pane) { console.warn('未找到overlayPane或mapContainer'); return; }
+            if (!playbackDom.el) {
+                const el = document.createElement('div');
+                el.id = 'playbackDomMarker';
+                el.style.position = 'absolute';
+                el.style.width = '16px';
+                el.style.height = '16px';
+                el.style.borderRadius = '50%';
+                el.style.background = '#2C64A7';
+                el.style.border = '2px solid #fff';
+                el.style.boxShadow = '0 0 0 1px rgba(0,0,0,.25)';
+                el.style.zIndex = '9999';
+                pane.appendChild(el);
+                playbackDom.el = el;
+                console.log('[Playback] 创建DOM标记，父节点=', pane === document.getElementById('mapContainer') ? '#mapContainer' : 'overlayPane');
+                bindPlaybackDomEvents();
+            }
+            updatePlaybackDom(ll);
+        } catch(e) { console.warn('创建DOM标记失败:', e); }
+    }
+
+    function updatePlaybackDom(ll){
+        try {
+            playbackDom.lastLL = ll;
+            if (!map || !playbackDom.el || !ll) { console.log('[Playback] update取消：map/el/ll缺失'); return; }
+            let p;
+            if (typeof map.lngLatToLayerPoint === 'function') {
+                p = map.lngLatToLayerPoint(ll);
+                console.log('[Playback] 使用layerPoint定位:', ll && ll.lng, ll && ll.lat, '=>', p && p.x, p && p.y);
+            } else if (typeof map.lngLatToContainerPoint === 'function') {
+                p = map.lngLatToContainerPoint(ll);
+                console.log('[Playback] 使用containerPoint定位:', ll && ll.lng, ll && ll.lat, '=>', p && p.x, p && p.y);
+            } else {
+                console.warn('地图对象不支持lngLat到像素坐标转换');
+                return;
+            }
+            playbackDom.el.style.left = p.x + 'px';
+            playbackDom.el.style.top = p.y + 'px';
+        } catch(e) { console.warn('更新DOM标记位置失败:', e); }
+    }
+
+    function bindPlaybackDomEvents(){
+        if (playbackDom.bound) return;
+        const updater = function(){
+            try {
+                if (!map || !playbackDom.el || !playbackDom.lastLL) return;
+                let p;
+                if (typeof map.lngLatToLayerPoint === 'function') {
+                    p = map.lngLatToLayerPoint(playbackDom.lastLL);
+                } else if (typeof map.lngLatToContainerPoint === 'function') {
+                    p = map.lngLatToContainerPoint(playbackDom.lastLL);
+                }
+                if (!p) return;
+                playbackDom.el.style.left = p.x + 'px';
+                playbackDom.el.style.top = p.y + 'px';
+            } catch(e){}
+        };
+        try {
+            map.addEventListener('move', updater);
+            map.addEventListener('zoom', updater);
+            playbackDom.bound = true;
+        } catch(e){}
+    }
+
+    function removePlaybackDom(){
+        try {
+            const el = playbackDom.el;
+            playbackDom.lastLL = null;
+            if (el && el.parentNode) el.parentNode.removeChild(el);
+        } catch(e){}
+        playbackDom.el = null;
+        playbackDom.bound = false;
     }
 
 </script>
