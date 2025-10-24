@@ -1578,6 +1578,7 @@
         if (!playbackState.points || playbackState.idx >= playbackState.points.length - 1) {
             playbackState.running = false;
             console.log('[Playback] 回放结束：idx=', playbackState.idx, '点数=', playbackState.points ? playbackState.points.length : 0);
+            updatePlaybackButtonsState('idle'); // 播放结束后按钮回到初始状态：开始可点，继续/结束灰化
             return;
         }
         const next = playbackState.points[playbackState.idx+1];

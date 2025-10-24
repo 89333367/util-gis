@@ -78,10 +78,7 @@ public class GisUtil implements AutoCloseable {
      */
     private static class Config {
         // 最小亩数阈值，过滤小面积多边形
-        private final double MIN_MU_THRESHOLD = 0.2;
-
-        // 多边形合并距离阈值（米），相距小于该值的区块将合并
-        private final double MERGE_DISTANCE_THRESHOLD_M = 0;
+        private final double MIN_MU_THRESHOLD = 0.7;
 
         // WGS84坐标系的EPSG代码，用于定义地理坐标系统
         private final String WGS84 = "EPSG:4326";
@@ -112,6 +109,10 @@ public class GisUtil implements AutoCloseable {
         private final int DEFAULT_BUCKET_TARGET = 300; // 目标桶数：300，平衡桶内复杂度与最终合并规模
         private final int DEFAULT_BUCKET_CELL_MIN_FACTOR = 5; // cellSize 下限系数：5，避免过多小桶导致合并碎片化
         private final int DEFAULT_BUCKET_CELL_MAX_FACTOR = 36; // cellSize 上限系数：36
+
+        // 线缓冲简化容差参数（基于宽度因子与最小值）
+        private final double LINE_SIMPLIFY_FACTOR = 0.25; // 宽度因子，越小越保留细节
+        private final double LINE_SIMPLIFY_MIN = 0.2; // 最小容差（米）
 
         private volatile MathTransform txWgsToMercator;
         private volatile MathTransform txMercatorToWgs;
@@ -176,7 +177,7 @@ public class GisUtil implements AutoCloseable {
         }
 
         // 非多边形集合，退回 GeometryCollection.union() 或分组合并
-        int groupSize = java.lang.Integer.getInteger("gis.union.group.size", config.DEFAULT_UNION_GROUP_SIZE);
+        int groupSize = config.DEFAULT_UNION_GROUP_SIZE;
         if (geometries.size() <= groupSize) {
             GeometryCollection collection = config.geometryFactory.createGeometryCollection(
                     geometries.toArray(new Geometry[0]));
@@ -485,10 +486,11 @@ public class GisUtil implements AutoCloseable {
             // 创建缓冲区（降低圆近似复杂度以提升性能）
             long startBuffer = System.currentTimeMillis();
             BufferParameters params = new BufferParameters();
-            int quadSeg = java.lang.Integer.getInteger("gis.buffer.quadrant", config.DEFAULT_BUFFER_QUADRANT);
-            params.setQuadrantSegments(quadSeg); // 默认8，这里可通过系统属性调整
+            int quadSeg = config.DEFAULT_BUFFER_QUADRANT;
+            params.setQuadrantSegments(quadSeg); // 使用配置中的圆弧细分段数
+            // 点缓冲固定使用圆端+圆角，避免意外退化
             params.setEndCapStyle(BufferParameters.CAP_ROUND);
-            params.setJoinStyle(BufferParameters.JOIN_BEVEL);//JOIN_ROUND、JOIN_BEVEL
+            params.setJoinStyle(BufferParameters.JOIN_ROUND);
             Geometry buffer = BufferOp.bufferOp(projPoint, widthM, params);
             bufferTime += System.currentTimeMillis() - startBuffer;
 
@@ -519,11 +521,9 @@ public class GisUtil implements AutoCloseable {
         double area = overall.getWidth() * overall.getHeight();
         double cellSize;
         if (area > 0) {
-            int targetBuckets = java.lang.Integer.getInteger("gis.bucket.target", config.DEFAULT_BUCKET_TARGET);
-            int minFactor = java.lang.Integer.getInteger("gis.bucket.cell.minFactor",
-                    config.DEFAULT_BUCKET_CELL_MIN_FACTOR);
-            int maxFactor = java.lang.Integer.getInteger("gis.bucket.cell.maxFactor",
-                    config.DEFAULT_BUCKET_CELL_MAX_FACTOR);
+            int targetBuckets = config.DEFAULT_BUCKET_TARGET;
+            int minFactor = config.DEFAULT_BUCKET_CELL_MIN_FACTOR;
+            int maxFactor = config.DEFAULT_BUCKET_CELL_MAX_FACTOR;
             targetBuckets = Math.max(1, targetBuckets);
             minFactor = Math.max(1, minFactor);
             maxFactor = Math.max(minFactor, maxFactor);
@@ -601,13 +601,23 @@ public class GisUtil implements AutoCloseable {
         Geometry projLine = wgs84ToWebMercator(line);
         long convertTime = System.currentTimeMillis() - t1;
 
-        double tolerance = Math.max(0.5, widthM * 0.5);
+        // 简化容差可配置，避免过度圆滑导致桥接
+        double factor = config.LINE_SIMPLIFY_FACTOR;
+        double minTol = config.LINE_SIMPLIFY_MIN;
+        double tolerance = Math.max(minTol, widthM * factor);
         long t2 = System.currentTimeMillis();
         Geometry simpleLine = DouglasPeuckerSimplifier.simplify(projLine, tolerance);
         long simplifyTime = System.currentTimeMillis() - t2;
 
         long t3 = System.currentTimeMillis();
-        Geometry buffered = simpleLine.buffer(widthM);
+        // 线缓冲使用可配置的端帽/连接样式，减少拐点外扩
+        BufferParameters lp = new BufferParameters();
+        int quadSeg2 = config.DEFAULT_BUFFER_QUADRANT;
+        lp.setQuadrantSegments(quadSeg2);
+        lp.setEndCapStyle(BufferParameters.CAP_FLAT);
+        lp.setJoinStyle(BufferParameters.JOIN_BEVEL);
+        lp.setMitreLimit(2.0);
+        Geometry buffered = BufferOp.bufferOp(simpleLine, widthM, lp);
         long bufferTime = System.currentTimeMillis() - t3;
 
         long t4 = System.currentTimeMillis();
@@ -789,10 +799,7 @@ public class GisUtil implements AutoCloseable {
         GeometryFactory gf = geometry.getFactory();
         if (geometry instanceof Polygon) {
             Polygon poly = (Polygon) geometry;
-            double mu = calcMu(poly);
-            if (mu < minMu) {
-                return gf.createMultiPolygon(new Polygon[0]);
-            }
+            // 单个 Polygon 不进行最小亩数过滤，直接保留
             return poly;
         } else if (geometry instanceof MultiPolygon) {
             MultiPolygon mp = (MultiPolygon) geometry;
@@ -813,24 +820,6 @@ public class GisUtil implements AutoCloseable {
             return gf.createMultiPolygon(kept.toArray(new Polygon[0]));
         }
         return geometry;
-    }
-
-    // 新增：按距离阈值合并相近多边形
-    private Geometry mergeClosePolygons(Geometry geometry, double thresholdM) throws Exception {
-        if (geometry == null || geometry.isEmpty())
-            return geometry;
-        // 先做正缓冲以连接近邻，再做负缓冲回退到近似原始边界
-        Geometry buffered = buffer(geometry, thresholdM, 0);
-        Geometry unioned = UnaryUnionOp.union(buffered);
-        Geometry unbuffered;
-        try {
-            unbuffered = buffer(unioned, -thresholdM, 0);
-        } catch (Exception e) {
-            // 若负缓冲失败，退回并集结果以保证几何有效
-            log.warn("[mergeClosePolygons] 负缓冲失败，返回并集结果: {}", e.getMessage());
-            unbuffered = unioned;
-        }
-        return unbuffered;
     }
 
     // 球面环面积（平方米），与 Turf.js 的 ringArea 保持一致
@@ -1390,31 +1379,20 @@ public class GisUtil implements AutoCloseable {
         log.trace("[splitRoad] 裁剪+小面积过滤完成 type={} parts={} 移除={} 阈值={}mu 耗时={}ms", trimmed.getGeometryType(),
                 partsAfterFilter, removedByArea, config.MIN_MU_THRESHOLD, (tTrimEnd - tTrimStart));
 
-        // 按距离阈值合并相近多边形，减少视觉上应连为一体的碎片
-        long tMergeStart = System.currentTimeMillis();
-        trimmed = mergeClosePolygons(trimmed, config.MERGE_DISTANCE_THRESHOLD_M);
-        long tMergeEnd = System.currentTimeMillis();
-        int partsAfterMerge = (trimmed instanceof MultiPolygon) ? trimmed.getNumGeometries() : 1;
-        int reducedByMerge = partsAfterFilter - partsAfterMerge;
-        log.trace("[splitRoad] 小距离合并完成 type={} parts={} 减少={} 阈值={}m 耗时={}ms", trimmed.getGeometryType(),
-                partsAfterMerge, reducedByMerge, config.MERGE_DISTANCE_THRESHOLD_M, (tMergeEnd - tMergeStart));
-
         // 最终返回日志：当少于上限时说明原因，否则保持原样
-        if (partsAfterMerge < limit) {
+        if (partsAfterFilter < limit) {
             String reason;
-            if (partsAfterMerge != partsAfterFilter) {
-                reason = "小距离合并(阈值=" + config.MERGE_DISTANCE_THRESHOLD_M + "m)";
-            } else if (partsAfterFilter != partsAfterKeep) {
+            if (partsAfterFilter != partsAfterKeep) {
                 reason = "小面积过滤";
             } else if (partsOutline < limit) {
                 reason = "原始区块数小于上限";
             } else {
                 reason = "面积裁剪后区块数不超过上限";
             }
-            log.debug("[splitRoad] 返回结果 type={} parts={} (上限={}，原因：{}；小面积移除={}；小距离合并减少={})", trimmed.getGeometryType(),
-                    partsAfterMerge, limit, reason, removedByArea, reducedByMerge);
+            log.debug("[splitRoad] 返回结果 type={} parts={} (上限={}，原因：{}；小面积移除={})", trimmed.getGeometryType(),
+                    partsAfterFilter, limit, reason, removedByArea);
         } else {
-            log.debug("[splitRoad] 返回结果 type={} parts={}", trimmed.getGeometryType(), partsAfterMerge);
+            log.debug("[splitRoad] 返回结果 type={} parts={}", trimmed.getGeometryType(), partsAfterFilter);
         }
 
         // 准备有效的轨迹点（与轮廓构建一致的过滤逻辑）
