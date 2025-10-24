@@ -1,6 +1,8 @@
 package sunyu.util.test;
 
+import java.sql.SQLException;
 import java.util.ArrayList;
+import java.util.Date;
 import java.util.List;
 import java.util.Map;
 
@@ -20,6 +22,7 @@ import cn.hutool.core.io.FileUtil;
 import cn.hutool.core.util.StrUtil;
 import cn.hutool.db.Db;
 import cn.hutool.db.DbUtil;
+import cn.hutool.db.Entity;
 import cn.hutool.log.Log;
 import cn.hutool.log.LogFactory;
 import cn.hutool.log.level.Level;
@@ -71,6 +74,36 @@ public class TestGisUtil {
     }
 
     @Test
+    void 循环() throws SQLException {
+        Db db = getMysqlDb();
+        /**
+        select id,
+        did,
+        jobArea,
+        jobStartTime,
+        jobEndTime,
+        jobWidth
+        from farm_work
+        where jobStartTime >= '2025-05-01'
+        and jobStartTime < '20255-06-01'
+        and (did like 'NJ%' or did like 'EC%')
+        and jobArea > 0
+        order by insertTime desc
+        limit 10
+         */
+        List<Entity> rows = db.query(
+                "select id,did,jobArea,jobStartTime,jobEndTime,jobWidth from farm_work where jobStartTime >= '2025-05-01' and jobStartTime < '2025-06-01' and (did like 'NJ%' or did like 'EC%') and jobArea > 0 order by insertTime desc limit 10");
+        for (Entity row : rows) {
+            String did = row.getStr("did");
+            Date jobStartTime = row.getDate("jobStartTime");
+            double jobWidth = row.getDouble("jobWidth");
+            String yyyyMMdd = DateUtil.format(jobStartTime, "yyyyMMdd");
+            读取数据(did, yyyyMMdd);
+            测试一天(did, yyyyMMdd, jobWidth);
+        }
+    }
+
+    @Test
     void wkt计算亩数() {
         double mu = gisUtil.calcMu(FileUtil.readUtf8String(path + "/1.txt"));
         log.info("{}", mu);
@@ -95,6 +128,14 @@ public class TestGisUtil {
     @Test
     void t003() {
         String did = "EC71BT2402000001";
+        String yyyyMMdd = "20251015";
+        读取数据(did, yyyyMMdd);
+        测试一天(did, yyyyMMdd, 3);
+    }
+
+    @Test
+    void t004() {
+        String did = "EC73BD2509060335";
         String yyyyMMdd = "20251015";
         读取数据(did, yyyyMMdd);
         测试一天(did, yyyyMMdd, 3);
