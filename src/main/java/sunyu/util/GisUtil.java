@@ -115,6 +115,7 @@ public class GisUtil implements AutoCloseable {
         private final double LINE_SIMPLIFY_MIN = 0.2; // 最小容差（米）
         private final double MIN_COMPACTNESS = 0.12; // 紧致度阈值，过滤细长道路型轮廓
         private final double MAX_ASPECT_RATIO = 8.0; // 长宽比阈值，识别道路形（越大越细长）
+        private final double MERGE_DISTANCE_THRESHOLD_M = 10.0; // 近邻合并阈值（米），小于该距离的区块将合并
 
         private volatile MathTransform txWgsToMercator;
         private volatile MathTransform txMercatorToWgs;
@@ -1474,6 +1475,14 @@ public class GisUtil implements AutoCloseable {
                 trimmed.getGeometryType(), partsAfterFilter, removedByArea, removedByShape,
                 config.MIN_COMPACTNESS, config.MAX_ASPECT_RATIO, (tTrimEnd - tTrimStart));
 
+        // 近邻合并：若区块之间距离小于阈值（米），进行合并
+        long tMergeStart = System.currentTimeMillis();
+        trimmed = mergeNearbyPolygons(trimmed, config.MERGE_DISTANCE_THRESHOLD_M);
+        int partsAfterMerge = (trimmed instanceof MultiPolygon) ? trimmed.getNumGeometries() : 1;
+        long tMergeEnd = System.currentTimeMillis();
+        log.debug("[splitRoad] 近邻合并完成 阈值={}m 合并后parts={} 耗时={}ms", config.MERGE_DISTANCE_THRESHOLD_M,
+                partsAfterMerge, (tMergeEnd - tMergeStart));
+
         // 最终返回日志：当少于上限时说明原因，否则保持原样
         if (partsAfterFilter < limit) {
             String reason;
@@ -1535,7 +1544,8 @@ public class GisUtil implements AutoCloseable {
             long tWktEnd = System.currentTimeMillis();
             log.trace("[splitRoad] Polygon WKT生成完成 长度={} 耗时={}ms", wkt.length(), (tWktEnd - tWktStart));
 
-            parts.add(new OutlinePart(poly, start, end, mu, wkt));
+            // 传入轮廓内轨迹点（已按时间升序），便于后续分析
+            parts.add(new OutlinePart(poly, start, end, mu, wkt, inPoly));
             log.trace("[splitRoad] parts构建完成 size={}", parts.size());
         } else if (trimmed instanceof MultiPolygon) {
             MultiPolygon mp = (MultiPolygon) trimmed;
@@ -1601,7 +1611,11 @@ public class GisUtil implements AutoCloseable {
                 long tWktEnd = System.currentTimeMillis();
                 log.trace("[splitRoad] Part#{} WKT生成完成 长度={} 耗时={}ms", i, wkt.length(), (tWktEnd - tWktStart));
 
-                parts.add(new OutlinePart(poly, start, end, mu, wkt));
+                // 展平会话段，形成该区块内的轨迹点集合
+                java.util.List<TrackPoint> inPoly = sessions.stream()
+                        .flatMap(java.util.List::stream)
+                        .collect(java.util.stream.Collectors.toList());
+                parts.add(new OutlinePart(poly, start, end, mu, wkt, inPoly));
                 if ((i + 1) % 10 == 0 || i == mp.getNumGeometries() - 1) {
                     log.trace("[splitRoad] MultiPolygon 进度 {}/{}", (i + 1), mp.getNumGeometries());
                 }
@@ -1620,6 +1634,42 @@ public class GisUtil implements AutoCloseable {
         long tTotalEnd = System.currentTimeMillis();
         log.debug("[splitRoad] 总耗时={}ms", (tTotalEnd - t0));
         return new SplitRoadResult(trimmed, parts, outlineWkt);
+    }
+
+    /**
+     * 将相距不超过 thresholdM 的区块进行融合，生成更大的轮廓。
+     * 使用 WebMercator 下的形态学闭运算：外扩 buffer(threshold/2) 合并、再内缩反向 buffer(threshold/2)。
+     * 返回坐标系为 WGS84。
+     */
+    private Geometry mergeNearbyPolygons(Geometry geometry, double thresholdM) throws Exception {
+        if (!(geometry instanceof MultiPolygon)) {
+            return geometry;
+        }
+        MultiPolygon mp = (MultiPolygon) geometry;
+        if (mp.getNumGeometries() <= 1) {
+            return geometry;
+        }
+        // 投影到墨卡托以便按米进行缓冲
+        java.util.List<Geometry> projected = new java.util.ArrayList<>();
+        for (int i = 0; i < mp.getNumGeometries(); i++) {
+            Geometry poly = mp.getGeometryN(i);
+            projected.add(wgs84ToWebMercator(poly));
+        }
+        double radius = Math.max(0, thresholdM / 2.0);
+        // 外扩并合并
+        java.util.List<Geometry> expanded = new java.util.ArrayList<>();
+        BufferParameters bp = new BufferParameters();
+        bp.setQuadrantSegments(config.DEFAULT_BUFFER_QUADRANT);
+        for (Geometry g : projected) {
+            Geometry buf = BufferOp.bufferOp(g, radius, bp);
+            expanded.add(buf);
+        }
+        Geometry unionExpanded = unionGeometries(expanded);
+        // 内缩回去
+        Geometry contracted = BufferOp.bufferOp(unionExpanded, -radius, bp);
+        // 转回 WGS84
+        Geometry mergedWgs84 = webMercatorToWgs84(contracted);
+        return mergedWgs84;
     }
 
 }

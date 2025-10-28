@@ -187,7 +187,8 @@ public class TestGisUtil {
                             .append("mu: ").append(p.getMu()).append('\n')
                             .append("startTime: ").append(p.getStartTime()).append('\n')
                             .append("endTime: ").append(p.getEndTime()).append('\n')
-                            .append("wkt: ").append(p.getWkt()).append('\n');
+                            .append("wkt: ").append(p.getWkt()).append('\n')
+                            .append("trackStr: ").append(p.getTrackStr()).append('\n');
                 }
             }
             FileUtil.writeUtf8String(pb.toString(), partsFile);
