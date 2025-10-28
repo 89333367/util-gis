@@ -183,7 +183,7 @@ public class TestGisUtil {
                 for (int i = 0; i < parts.size(); i++) {
                     OutlinePart p = parts.get(i);
                     pb.append("== Part ").append(i).append(" ==\n")
-                            .append("type: ").append(p.getPolygon().getGeometryType()).append('\n')
+                            .append("type: ").append(p.getOutline().getGeometryType()).append('\n')
                             .append("mu: ").append(p.getMu()).append('\n')
                             .append("startTime: ").append(p.getStartTime()).append('\n')
                             .append("endTime: ").append(p.getEndTime()).append('\n')

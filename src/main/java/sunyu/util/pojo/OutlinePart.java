@@ -16,7 +16,7 @@ public class OutlinePart {
     /**
      * 区块的几何图形（Polygon）
      */
-    private Geometry polygon;
+    private Geometry outline;
     /**
      * 区块的起始时间
      */
@@ -40,17 +40,17 @@ public class OutlinePart {
 
     private String trackStr;
 
-    public OutlinePart(Geometry polygon, LocalDateTime startTime, LocalDateTime endTime, double mu, String wkt) {
-        this.polygon = polygon;
+    public OutlinePart(Geometry outline, LocalDateTime startTime, LocalDateTime endTime, double mu, String wkt) {
+        this.outline = outline;
         this.startTime = startTime;
         this.endTime = endTime;
         this.mu = mu;
         this.wkt = wkt;
     }
 
-    public OutlinePart(Geometry polygon, LocalDateTime startTime, LocalDateTime endTime, double mu, String wkt,
+    public OutlinePart(Geometry outline, LocalDateTime startTime, LocalDateTime endTime, double mu, String wkt,
             java.util.List<TrackPoint> trackPoints) {
-        this(polygon, startTime, endTime, mu, wkt);
+        this(outline, startTime, endTime, mu, wkt);
         if (trackPoints != null) {
             java.util.List<TrackPoint> copy = new java.util.ArrayList<>(trackPoints);
             copy.sort(java.util.Comparator.comparing(
@@ -62,8 +62,8 @@ public class OutlinePart {
         }
     }
 
-    public Geometry getPolygon() {
-        return polygon;
+    public Geometry getOutline() {
+        return outline;
     }
 
     public LocalDateTime getStartTime() {
