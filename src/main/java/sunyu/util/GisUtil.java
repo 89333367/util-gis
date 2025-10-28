@@ -14,7 +14,6 @@ import org.locationtech.jts.geom.Envelope;
 import org.locationtech.jts.geom.Geometry;
 import org.locationtech.jts.geom.GeometryCollection;
 import org.locationtech.jts.geom.GeometryFactory;
-import org.locationtech.jts.geom.LineString;
 import org.locationtech.jts.geom.MultiPolygon;
 import org.locationtech.jts.geom.Polygon;
 import org.locationtech.jts.geom.prep.PreparedGeometry;
@@ -23,7 +22,6 @@ import org.locationtech.jts.io.WKTReader;
 import org.locationtech.jts.operation.buffer.BufferOp;
 import org.locationtech.jts.operation.buffer.BufferParameters;
 import org.locationtech.jts.operation.union.UnaryUnionOp;
-import org.locationtech.jts.simplify.DouglasPeuckerSimplifier;
 import org.opengis.referencing.crs.CoordinateReferenceSystem;
 import org.opengis.referencing.operation.MathTransform;
 
@@ -110,11 +108,11 @@ public class GisUtil implements AutoCloseable {
         private final int DEFAULT_BUCKET_CELL_MIN_FACTOR = 5; // cellSize 下限系数：5，避免过多小桶导致合并碎片化
         private final int DEFAULT_BUCKET_CELL_MAX_FACTOR = 36; // cellSize 上限系数：36
 
-        // 线缓冲简化容差参数（基于宽度因子与最小值）
-        private final double LINE_SIMPLIFY_FACTOR = 0.25; // 宽度因子，越小越保留细节
-        private final double LINE_SIMPLIFY_MIN = 0.2; // 最小容差（米）
         private final double MIN_COMPACTNESS = 0.12; // 紧致度阈值，过滤细长道路型轮廓
         private final double MAX_ASPECT_RATIO = 8.0; // 长宽比阈值，识别道路形（越大越细长）
+
+        private final int MIN_SESSION_POINTS = 6; // 会话最少点数门槛
+        private final int MIN_SESSION_DURATION_SEC = 60; // 会话最少时长门槛（秒）
 
         private volatile MathTransform txWgsToMercator;
         private volatile MathTransform txMercatorToWgs;
@@ -384,13 +382,9 @@ public class GisUtil implements AutoCloseable {
 
             long buildStartTime = System.currentTimeMillis();
             Geometry result;
-            if (sortedSeg.size() <= 200) {
-                log.trace("[buildOutlineCore] 选择LineBuffer策略（点数:{}）", sortedSeg.size());
-                result = buildOutlineByLineBuffer(sortedSeg, widthM);
-            } else {
-                log.trace("[buildOutlineCore] 选择PointBuffer策略（点数:{}）", sortedSeg.size());
-                result = buildOutlineBySimpleBuffers(sortedSeg, widthM);
-            }
+            // 始终使用点缓冲策略，避免线缓冲将道路点连成带状
+            log.trace("[buildOutlineCore] 使用PointBuffer策略（点数:{}）", sortedSeg.size());
+            result = buildOutlineBySimpleBuffers(sortedSeg, widthM);
             long buildTime = System.currentTimeMillis() - buildStartTime;
 
             // 基于宽度的最小面积阈值（直接使用宽度，不再依赖配置因子）
@@ -584,51 +578,6 @@ public class GisUtil implements AutoCloseable {
         long endTime = System.currentTimeMillis();
         log.trace("[buildOutlineBySimpleBuffers] 处理完成，总计耗时: {}ms (转换:{}ms, 缓冲:{}ms, 合并:{}ms, 回转:{}ms)",
                 endTime - startTime, convertTime, bufferTime, unionTime, backConvertTime);
-
-        return result;
-    }
-
-    private Geometry buildOutlineByLineBuffer(List<TrackPoint> seg, double widthM) throws Exception {
-        long startTime = System.currentTimeMillis();
-        log.trace("[buildOutlineByLineBuffer] 开始处理 {} 个轨迹点，缓冲区宽度: {} 米", seg.size(), widthM);
-
-        Coordinate[] coords = new Coordinate[seg.size()];
-        for (int i = 0; i < seg.size(); i++) {
-            TrackPoint p = seg.get(i);
-            coords[i] = new Coordinate(p.getLon(), p.getLat());
-        }
-        LineString line = config.geometryFactory.createLineString(coords);
-
-        long t1 = System.currentTimeMillis();
-        Geometry projLine = wgs84ToWebMercator(line);
-        long convertTime = System.currentTimeMillis() - t1;
-
-        // 简化容差可配置，避免过度圆滑导致桥接
-        double factor = config.LINE_SIMPLIFY_FACTOR;
-        double minTol = config.LINE_SIMPLIFY_MIN;
-        double tolerance = Math.max(minTol, widthM * factor);
-        long t2 = System.currentTimeMillis();
-        Geometry simpleLine = DouglasPeuckerSimplifier.simplify(projLine, tolerance);
-        long simplifyTime = System.currentTimeMillis() - t2;
-
-        long t3 = System.currentTimeMillis();
-        // 线缓冲使用可配置的端帽/连接样式，减少拐点外扩
-        BufferParameters lp = new BufferParameters();
-        int quadSeg2 = config.DEFAULT_BUFFER_QUADRANT;
-        lp.setQuadrantSegments(quadSeg2);
-        lp.setEndCapStyle(BufferParameters.CAP_FLAT);
-        lp.setJoinStyle(BufferParameters.JOIN_BEVEL);
-        lp.setMitreLimit(2.0);
-        Geometry buffered = BufferOp.bufferOp(simpleLine, widthM, lp);
-        long bufferTime = System.currentTimeMillis() - t3;
-
-        long t4 = System.currentTimeMillis();
-        Geometry result = webMercatorToWgs84(buffered);
-        long backConvertTime = System.currentTimeMillis() - t4;
-
-        long endTime = System.currentTimeMillis();
-        log.trace("[buildOutlineByLineBuffer] 处理完成，总计耗时: {}ms (投影:{}ms, 简化:{}ms, 缓冲:{}ms, 回转:{}ms)",
-                endTime - startTime, convertTime, simplifyTime, bufferTime, backConvertTime);
 
         return result;
     }
@@ -1500,126 +1449,173 @@ public class GisUtil implements AutoCloseable {
 
         java.util.List<OutlinePart> parts = new java.util.ArrayList<>();
 
+        // 全局时间线切片：构建所有分区的预处理包装
+        java.util.List<Polygon> polys = new java.util.ArrayList<>();
         if (trimmed instanceof Polygon) {
-            log.trace("[splitRoad] 进入Polygon分支");
-            Polygon poly = (Polygon) trimmed;
-            PreparedGeometry preparedPoly = PreparedGeometryFactory.prepare(poly);
-            Envelope env = poly.getEnvelopeInternal();
-            // 找出属于该区块的点（点在多边形内）
-            long tWithinStart = System.currentTimeMillis();
-            java.util.List<TrackPoint> inPoly = new java.util.ArrayList<>();
-            for (TrackPoint p : sortedSeg) {
-                Coordinate c = new Coordinate(p.getLon(), p.getLat());
-                if (!env.contains(c)) {
-                    continue;
-                }
-                Geometry point = config.geometryFactory.createPoint(c);
-                if (preparedPoly.contains(point)) {
-                    inPoly.add(p);
-                }
-            }
-            long tWithinEnd = System.currentTimeMillis();
-            log.trace("[splitRoad] Polygon点过滤完成 inPoly={} 耗时={}ms", inPoly.size(), (tWithinEnd - tWithinStart));
-
-            java.time.LocalDateTime start = inPoly.isEmpty() ? null : inPoly.get(0).getTime();
-            java.time.LocalDateTime end = inPoly.isEmpty() ? null : inPoly.get(inPoly.size() - 1).getTime();
-            log.trace("[splitRoad] Polygon 时间范围 start={} end={} inPoly={}", start, end, inPoly.size());
-
-            long tMuStart = System.currentTimeMillis();
-            double mu = calcMu(poly);
-            long tMuEnd = System.currentTimeMillis();
-            log.trace("[splitRoad] Polygon mu计算完成 值={} 耗时={}ms", mu, (tMuEnd - tMuStart));
-
-            long tWktStart = System.currentTimeMillis();
-            String wkt = toWkt(poly);
-            long tWktEnd = System.currentTimeMillis();
-            log.trace("[splitRoad] Polygon WKT生成完成 长度={} 耗时={}ms", wkt.length(), (tWktEnd - tWktStart));
-
-            parts.add(new OutlinePart(poly, start, end, mu, wkt));
-            log.trace("[splitRoad] parts构建完成 size={}", parts.size());
+            polys.add((Polygon) trimmed);
         } else if (trimmed instanceof MultiPolygon) {
             MultiPolygon mp = (MultiPolygon) trimmed;
-            log.trace("[splitRoad] 进入MultiPolygon分支 分区数={}", mp.getNumGeometries());
-            long partsBuildStart = System.currentTimeMillis();
             for (int i = 0; i < mp.getNumGeometries(); i++) {
-                Polygon poly = (Polygon) mp.getGeometryN(i);
-                PreparedGeometry preparedPoly = PreparedGeometryFactory.prepare(poly);
-                Envelope env = poly.getEnvelopeInternal();
-                long tWithinStart = System.currentTimeMillis();
-                java.util.List<java.util.List<TrackPoint>> sessions = new java.util.ArrayList<>();
-                java.util.List<TrackPoint> current = null;
-                for (TrackPoint p : sortedSeg) {
-                    Coordinate c = new Coordinate(p.getLon(), p.getLat());
-                    if (!env.contains(c)) {
-                        if (current != null) {
-                            sessions.add(current);
-                            current = null;
-                        }
-                        continue;
-                    }
-                    Geometry point = config.geometryFactory.createPoint(c);
-                    boolean inside = preparedPoly.contains(point);
-                    if (inside) {
-                        if (current == null)
-                            current = new java.util.ArrayList<>();
-                        current.add(p);
-                    } else {
-                        if (current != null) {
-                            sessions.add(current);
-                            current = null;
-                        }
-                    }
-                }
-                if (current != null) {
-                    sessions.add(current);
-                }
-                long tWithinEnd = System.currentTimeMillis();
-                log.trace("[splitRoad] Part#{} 会话段统计完成 sessions={} 耗时={}ms", i, sessions.size(),
-                        (tWithinEnd - tWithinStart));
-
-                java.time.LocalDateTime start = null;
-                java.time.LocalDateTime end = null;
-                if (!sessions.isEmpty()) {
-                    // 使用进入该区块的最早时间和离开该区块的最晚时间
-                    sessions.sort(java.util.Comparator.comparing(
-                            s -> s.get(0).getTime(),
-                            java.util.Comparator.nullsLast(java.util.Comparator.naturalOrder())));
-                    java.util.List<TrackPoint> firstSess = sessions.get(0);
-                    java.util.List<TrackPoint> lastSess = sessions.get(sessions.size() - 1);
-                    start = firstSess.isEmpty() ? null : firstSess.get(0).getTime();
-                    end = lastSess.isEmpty() ? null : lastSess.get(lastSess.size() - 1).getTime();
-                }
-                log.trace("[splitRoad] Part#{} 时间范围 start={} end={} (sessions={})", i, start, end, sessions.size());
-
-                long tMuStart = System.currentTimeMillis();
-                double mu = calcMu(poly);
-                long tMuEnd = System.currentTimeMillis();
-                log.trace("[splitRoad] Part#{} mu计算完成 值={} 耗时={}ms", i, mu, (tMuEnd - tMuStart));
-
-                long tWktStart = System.currentTimeMillis();
-                String wkt = toWkt(poly);
-                long tWktEnd = System.currentTimeMillis();
-                log.trace("[splitRoad] Part#{} WKT生成完成 长度={} 耗时={}ms", i, wkt.length(), (tWktEnd - tWktStart));
-
-                parts.add(new OutlinePart(poly, start, end, mu, wkt));
-                if ((i + 1) % 10 == 0 || i == mp.getNumGeometries() - 1) {
-                    log.trace("[splitRoad] MultiPolygon 进度 {}/{}", (i + 1), mp.getNumGeometries());
-                }
+                polys.add((Polygon) mp.getGeometryN(i));
             }
-            long partsBuildEnd = System.currentTimeMillis();
-            log.trace("[splitRoad] MultiPolygon parts构建完成 size={} 总耗时={}ms", parts.size(),
-                    (partsBuildEnd - partsBuildStart));
+        }
+        log.trace("[splitRoad] 构建全局会话 分区数={}", polys.size());
+
+        class PolyWrap {
+            final int index;
+            final PreparedGeometry prep;
+            final Envelope env;
+            final double area;
+
+            PolyWrap(int idx, Polygon p) {
+                this.index = idx;
+                this.prep = PreparedGeometryFactory.prepare(p);
+                this.env = p.getEnvelopeInternal();
+                this.area = p.getArea();
+            }
         }
 
+        java.util.List<PolyWrap> wraps = new java.util.ArrayList<>();
+        for (int i = 0; i < polys.size(); i++) {
+            wraps.add(new PolyWrap(i, polys.get(i)));
+        }
+
+        // 复用上方已过滤并排序的 sortedSeg
+
+        // 全局扫描，按分区切片输出不重叠会话
+        int currentPid = -1;
+        java.time.LocalDateTime sessionStart = null;
+        java.time.LocalDateTime lastTime = null;
+        int sessionPoints = 0;
+        int sessionsOut = 0;
+        int sessionsFiltered = 0;
+        java.util.List<OutlinePart> sessionParts = new java.util.ArrayList<>();
+        java.util.List<TrackPoint> sessionSeg = new java.util.ArrayList<>();
+
+        for (TrackPoint p : sortedSeg) {
+            Coordinate c = new Coordinate(p.getLon(), p.getLat());
+            Geometry point = config.geometryFactory.createPoint(c);
+            int pid = -1;
+            double bestArea = -1.0;
+            for (PolyWrap w : wraps) {
+                if (!w.env.contains(c)) {
+                    continue;
+                }
+                if (w.prep.contains(point)) {
+                    if (w.area > bestArea) {
+                        bestArea = w.area;
+                        pid = w.index;
+                    }
+                }
+            }
+
+            if (pid != currentPid) {
+                // 关闭上一会话
+                if (currentPid != -1 && sessionStart != null && lastTime != null) {
+                    long durSec = java.time.Duration.between(sessionStart, lastTime).getSeconds();
+                    if (sessionPoints >= config.MIN_SESSION_POINTS && durSec >= config.MIN_SESSION_DURATION_SEC) {
+                        // 会话重建轮廓（方案A）：基于该会话的轨迹点重建，并过滤为一个最大面
+                        Geometry sOutline = buildOutlineCore(sessionSeg, totalWidthM);
+                        Geometry sKept = keepLargestPolygons(sOutline, 1);
+                        sKept = removeSmallMuPolygons(sKept, config.MIN_MU_THRESHOLD);
+                        sKept = removeElongatedPolygons(sKept, config.MIN_COMPACTNESS, config.MAX_ASPECT_RATIO);
+                        Polygon sp = null;
+                        if (sKept instanceof Polygon) {
+                            sp = (Polygon) sKept;
+                        } else if (sKept instanceof MultiPolygon && ((MultiPolygon) sKept).getNumGeometries() > 0) {
+                            sp = (Polygon) ((MultiPolygon) sKept).getGeometryN(0);
+                        }
+                        if (sp != null && !sp.isEmpty()) {
+                            double mu = calcMu(sp);
+                            String wkt = toWkt(sp);
+                            sessionParts.add(new OutlinePart(sp, sessionStart, lastTime, mu, wkt));
+                            sessionsOut++;
+                        } else {
+                            sessionsFiltered++;
+                        }
+                    } else {
+                        sessionsFiltered++;
+                    }
+                }
+                // 开启新会话或进入空白区，同时维护会话点集（方案A）
+                currentPid = pid;
+                sessionSeg = new java.util.ArrayList<>();
+                if (pid != -1) {
+                    sessionStart = p.getTime();
+                    lastTime = p.getTime();
+                    sessionPoints = 1;
+                    sessionSeg.add(p);
+                } else {
+                    sessionStart = null;
+                    lastTime = null;
+                    sessionPoints = 0;
+                }
+            } else {
+                if (pid != -1) {
+                    sessionPoints++;
+                    lastTime = p.getTime();
+                    sessionSeg.add(p);
+                }
+            }
+        }
+
+        // 收尾：关闭最后的会话
+        if (currentPid != -1 && sessionStart != null && lastTime != null) {
+            long durSec = java.time.Duration.between(sessionStart, lastTime).getSeconds();
+            if (sessionPoints >= config.MIN_SESSION_POINTS && durSec >= config.MIN_SESSION_DURATION_SEC) {
+                // 会话重建轮廓（方案A）：基于该会话的轨迹点重建，并过滤为一个最大面
+                Geometry sOutline = buildOutlineCore(sessionSeg, totalWidthM);
+                Geometry sKept = keepLargestPolygons(sOutline, 1);
+                sKept = removeSmallMuPolygons(sKept, config.MIN_MU_THRESHOLD);
+                sKept = removeElongatedPolygons(sKept, config.MIN_COMPACTNESS, config.MAX_ASPECT_RATIO);
+                Polygon sp = null;
+                if (sKept instanceof Polygon) {
+                    sp = (Polygon) sKept;
+                } else if (sKept instanceof MultiPolygon && ((MultiPolygon) sKept).getNumGeometries() > 0) {
+                    sp = (Polygon) ((MultiPolygon) sKept).getGeometryN(0);
+                }
+                if (sp != null && !sp.isEmpty()) {
+                    double mu = calcMu(sp);
+                    String wkt = toWkt(sp);
+                    sessionParts.add(new OutlinePart(sp, sessionStart, lastTime, mu, wkt));
+                    sessionsOut++;
+                } else {
+                    sessionsFiltered++;
+                }
+            } else {
+                sessionsFiltered++;
+            }
+        }
+
+        log.trace("[splitRoad] 全局会话构建完成 输出会话={} 过滤会话={} 分区数={}", sessionsOut, sessionsFiltered, wraps.size());
+
+        // 输出：会话片段（方案A），每个会话用自身点集重建轮廓
+        parts = sessionParts;
+
+        // Outline 统一由 parts 的几何组合生成 MultiPolygon，保证计数与几何一致
+        java.util.List<Polygon> partPolys = new java.util.ArrayList<>();
+        for (OutlinePart op : parts) {
+            Geometry g = op.getPolygon();
+            if (g instanceof Polygon) {
+                partPolys.add((Polygon) g);
+            } else if (g instanceof MultiPolygon) {
+                MultiPolygon mp2 = (MultiPolygon) g;
+                for (int i = 0; i < mp2.getNumGeometries(); i++) {
+                    partPolys.add((Polygon) mp2.getGeometryN(i));
+                }
+            }
+        }
+        Geometry outlineFromParts = config.geometryFactory.createMultiPolygon(partPolys.toArray(new Polygon[0]));
+
         long tOutlineWktStart = System.currentTimeMillis();
-        String outlineWkt = toWkt(trimmed);
+        String outlineWkt = toWkt(outlineFromParts);
         long tOutlineWktEnd = System.currentTimeMillis();
         log.trace("[splitRoad] Outline WKT生成完成 长度={} 耗时={}ms", outlineWkt.length(),
                 (tOutlineWktEnd - tOutlineWktStart));
 
         long tTotalEnd = System.currentTimeMillis();
         log.debug("[splitRoad] 总耗时={}ms", (tTotalEnd - t0));
-        return new SplitRoadResult(trimmed, parts, outlineWkt);
+        return new SplitRoadResult(outlineFromParts, parts, outlineWkt);
     }
 
 }
