@@ -327,13 +327,13 @@ public class GisUtil implements AutoCloseable {
     }
 
     // 统一过滤与排序 TrackPoint
-    private List<TrackPoint> filterAndSortTrackPoints(List<TrackPoint> seg, boolean requireTime) {
+    private List<TrackPoint> filterAndSortTrackPoints(List<TrackPoint> seg) {
         if (seg == null)
             return java.util.Collections.emptyList();
         java.util.Comparator<java.time.LocalDateTime> cmp = java.util.Comparator
                 .nullsLast(java.util.Comparator.naturalOrder());
         return seg.stream()
-                .filter(p -> !requireTime || p.getTime() != null)
+                .filter(p -> p.getTime() != null)
                 .filter(p -> Math.abs(p.getLon()) <= 180 && Math.abs(p.getLat()) <= 90)
                 .filter(p -> !(p.getLon() == 0 && p.getLat() == 0))
                 .sorted(java.util.Comparator.comparing(TrackPoint::getTime, cmp))
@@ -365,7 +365,7 @@ public class GisUtil implements AutoCloseable {
         }
 
         long processStartTime = System.currentTimeMillis();
-        List<TrackPoint> sortedSeg = filterAndSortTrackPoints(seg, false);
+        List<TrackPoint> sortedSeg = filterAndSortTrackPoints(seg);
         long processTime = System.currentTimeMillis() - processStartTime;
         log.trace("[buildOutlineCore] 轨迹点过滤完成，原始点数: {}, 过滤后点数: {}, 过滤耗时: {}ms",
                 seg.size(), sortedSeg.size(), processTime);
@@ -1379,6 +1379,115 @@ public class GisUtil implements AutoCloseable {
     }
 
     /**
+     * 基于轨迹点与总宽度生成轮廓，不会进行拆分操作
+     * 
+     * @param seg 轨迹点列表
+     * @param totalWidthM 总宽度（米）
+     * @return 轮廓部分
+     * @throws Exception 异常
+     */
+    public OutlinePart getOutline(List<TrackPoint> seg, double totalWidthM) throws Exception {
+        long t0 = System.currentTimeMillis();
+        if (seg == null) {
+            throw new IllegalArgumentException("轨迹点列表不能为空");
+        }
+        if (totalWidthM < 0) {
+            throw new IllegalArgumentException("总宽度必须为非负数");
+        }
+        double widthM = totalWidthM / 2.0;
+
+        // 仅过滤异常点（越界与(0,0)），按时间升序；不做切割与删除
+        List<TrackPoint> points = filterAndSortTrackPoints(seg);
+        log.trace("[getOutline] 轨迹点过滤完成，原始点数: {}, 过滤后点数: {}", seg.size(), points.size());
+        if (points.size() < 3) {
+            throw new IllegalArgumentException("轨迹段至少需要3个有效点");
+        }
+
+        // 计算起止时间（忽略空时间）
+        java.time.LocalDateTime startTime = null;
+        java.time.LocalDateTime endTime = null;
+        for (TrackPoint p : points) {
+            if (p.getTime() != null) {
+                if (startTime == null)
+                    startTime = p.getTime();
+                endTime = p.getTime();
+            }
+        }
+
+        // 使用点圆缓冲 + 方格分桶算法获取轮廓（WGS84坐标系）
+        long tBuildStart = System.currentTimeMillis();
+        Geometry outline = buildOutlineBySimpleBuffers(points, widthM);
+        long tBuildEnd = System.currentTimeMillis();
+        log.trace("[getOutline] 轮廓构建完成，耗时: {}ms", (tBuildEnd - tBuildStart));
+
+        // 若为 MultiPolygon，则转换为单个 Polygon（凹包）：基于 alpha-like 形态操作
+        if (outline instanceof MultiPolygon) {
+            try {
+                // 在米制下进行形态学处理以获得凹包
+                Geometry unioned = UnaryUnionOp.union(outline);
+                Geometry proj = wgs84ToWebMercator(unioned);
+                BufferParameters bp = new BufferParameters();
+                bp.setQuadrantSegments(config.DEFAULT_BUFFER_QUADRANT);
+                bp.setEndCapStyle(BufferParameters.CAP_FLAT);
+                bp.setJoinStyle(BufferParameters.JOIN_BEVEL);
+                bp.setMitreLimit(2.0);
+
+                double r = Math.max(1.0, widthM); // 扩张半径：用单侧宽度作为桥接尺度
+                Geometry dilated = BufferOp.bufferOp(proj, r, bp);
+                Geometry hull = dilated.convexHull();
+                double shrink = Math.max(0.5, widthM * 0.9); // 收缩半径：略小于扩张，保留凹特征
+                Geometry eroded = BufferOp.bufferOp(hull, -shrink, bp);
+                Geometry concaveWgs = webMercatorToWgs84(eroded);
+
+                if (concaveWgs instanceof Polygon) {
+                    outline = (Polygon) concaveWgs;
+                } else if (concaveWgs instanceof MultiPolygon && concaveWgs.getNumGeometries() == 1) {
+                    outline = (Polygon) ((MultiPolygon) concaveWgs).getGeometryN(0);
+                } else {
+                    // 兜底：再做一次轻微闭运算后选单个外轮廓
+                    Geometry closed = BufferOp.bufferOp(concaveWgs, Math.max(0.5, widthM * 0.25), bp);
+                    closed = BufferOp.bufferOp(closed, -Math.max(0.5, widthM * 0.25), bp);
+                    if (closed instanceof Polygon) {
+                        outline = (Polygon) closed;
+                    } else if (closed instanceof MultiPolygon) {
+                        // 若仍为多面，合为外包凹形（最后兜底保证 Polygon）
+                        Geometry finalHull = UnaryUnionOp.union(closed).convexHull();
+                        if (finalHull instanceof Polygon) {
+                            outline = (Polygon) finalHull;
+                        } else if (finalHull instanceof MultiPolygon && finalHull.getNumGeometries() == 1) {
+                            outline = (Polygon) ((MultiPolygon) finalHull).getGeometryN(0);
+                        } else {
+                            // 极端兜底：矩形外包
+                            Geometry env = closed.getEnvelope();
+                            outline = (env instanceof Polygon)
+                                    ? (Polygon) env
+                                    : (Polygon) ((MultiPolygon) env).getGeometryN(0);
+                        }
+                    }
+                }
+                log.trace("[getOutline] 已将MultiPolygon转换为单个Polygon（凹包近似）");
+            } catch (Exception ex) {
+                log.warn("[getOutline] 凹包转换失败，使用凸包兜底: {}", ex.getMessage());
+                Geometry hull = outline.convexHull();
+                outline = (hull instanceof Polygon)
+                        ? (Polygon) hull
+                        : (Polygon) ((MultiPolygon) hull).getGeometryN(0);
+            }
+        }
+
+        // 计算亩数与WKT（不删除任何区块）
+        double mu = calcMu(outline);
+        String wkt = toWkt(outline);
+
+        // 记录结果类型
+        log.debug("[getOutline] 返回结果 type=Polygon");
+
+        long t1 = System.currentTimeMillis();
+        log.debug("[getOutline] 总耗时={}ms", (t1 - t0));
+        return new OutlinePart(outline, startTime, endTime, mu, wkt, points);
+    }
+
+    /**
      * 基于轨迹点与总宽度生成轮廓，并按面积保留 Top-N 最大区块。
      *
      * <p>参数说明</p>
@@ -1495,7 +1604,7 @@ public class GisUtil implements AutoCloseable {
 
         // 准备有效的轨迹点（与轮廓构建一致的过滤逻辑）
         long tFilterStart = System.currentTimeMillis();
-        List<TrackPoint> sortedSeg = filterAndSortTrackPoints(seg, true);
+        List<TrackPoint> sortedSeg = filterAndSortTrackPoints(seg);
         long tFilterEnd = System.currentTimeMillis();
         log.trace("[splitRoad] 点过滤+排序完成 有效点={} 耗时={}ms", sortedSeg.size(), (tFilterEnd - tFilterStart));
 
