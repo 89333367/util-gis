@@ -91,7 +91,12 @@ public class TestGisUtil {
 
     @Test
     void wkt计算亩数() {
-        double mu = gisUtil.calcMu(FileUtil.readUtf8String(path + "/1.txt"));
+        String wkt = FileUtil.readUtf8String(path + "/wkt118.txt");
+        double mu = gisUtil.calcMu(wkt);
+        log.info("{}", mu);
+
+        Geometry g = gisUtil.fromWkt(wkt);
+        mu = gisUtil.calcMu(g);
         log.info("{}", mu);
     }
 
@@ -136,8 +141,8 @@ public class TestGisUtil {
 
     @Test
     void 测试相交() throws Exception {
-        String wktA = FileUtil.readUtf8String(path + "/118.txt");
-        String wktB = FileUtil.readUtf8String(path + "/335.txt");
+        String wktA = FileUtil.readUtf8String(path + "/wkt118.txt");
+        String wktB = FileUtil.readUtf8String(path + "/wkt335.txt");
         WktIntersectionResult r = gisUtil.intersection(wktA, wktB);
         FileUtil.writeUtf8String(StrUtil.format("wkt: {}\nmu: {}", r.getWkt(), r.getMu()), path + "/intersection.txt");
     }
