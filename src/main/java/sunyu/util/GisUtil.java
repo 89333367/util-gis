@@ -14,7 +14,6 @@ import org.locationtech.jts.geom.Envelope;
 import org.locationtech.jts.geom.Geometry;
 import org.locationtech.jts.geom.GeometryCollection;
 import org.locationtech.jts.geom.GeometryFactory;
-import org.locationtech.jts.geom.LineString;
 import org.locationtech.jts.geom.MultiPolygon;
 import org.locationtech.jts.geom.Polygon;
 import org.locationtech.jts.geom.prep.PreparedGeometry;
@@ -23,7 +22,6 @@ import org.locationtech.jts.io.WKTReader;
 import org.locationtech.jts.operation.buffer.BufferOp;
 import org.locationtech.jts.operation.buffer.BufferParameters;
 import org.locationtech.jts.operation.union.UnaryUnionOp;
-import org.locationtech.jts.simplify.DouglasPeuckerSimplifier;
 import org.opengis.referencing.crs.CoordinateReferenceSystem;
 import org.opengis.referencing.operation.MathTransform;
 
@@ -110,15 +108,12 @@ public class GisUtil implements AutoCloseable {
         private final int DEFAULT_BUCKET_CELL_MIN_FACTOR = 5; // cellSize 下限系数：5，避免过多小桶导致合并碎片化
         private final int DEFAULT_BUCKET_CELL_MAX_FACTOR = 36; // cellSize 上限系数：36
 
-        // 线缓冲简化容差参数（基于宽度因子与最小值）
-        private final double LINE_SIMPLIFY_FACTOR = 0.1; // 宽度因子，越小越保留细节
-        private final double LINE_SIMPLIFY_MIN = 0.1; // 最小容差（米）
         private final double MIN_COMPACTNESS = 0.12; // 紧致度阈值，过滤细长道路型轮廓
         private final double MAX_ASPECT_RATIO = 8.0; // 长宽比阈值，识别道路形（越大越细长）
         // 首段有效性与防抖参数（可根据实际数据调整）
         private final int SESSION_MIN_SECONDS_FIRST = 60; // 首段最小时长（秒），小于则视为短段
-        private final int SESSION_MIN_POINTS_FIRST = 10;  // 首段最少点数，小于则视为短段
-        private final int SESSION_GRACE_SECONDS = 15;     // 会话间隙宽限（秒），小于等于此间隙则合并为一个段
+        private final int SESSION_MIN_POINTS_FIRST = 10; // 首段最少点数，小于则视为短段
+        private final int SESSION_GRACE_SECONDS = 15; // 会话间隙宽限（秒），小于等于此间隙则合并为一个段
 
         private volatile MathTransform txWgsToMercator;
         private volatile MathTransform txMercatorToWgs;
@@ -387,14 +382,7 @@ public class GisUtil implements AutoCloseable {
             log.trace("[buildOutlineCore] 轨迹范围: 经度[{}, {}], 纬度[{}, {}]", minLon, maxLon, minLat, maxLat);
 
             long buildStartTime = System.currentTimeMillis();
-            Geometry result;
-            if (sortedSeg.size() <= 200) {
-                log.trace("[buildOutlineCore] 选择LineBuffer策略（点数:{}）", sortedSeg.size());
-                result = buildOutlineByLineBuffer(sortedSeg, widthM);
-            } else {
-                log.trace("[buildOutlineCore] 选择PointBuffer策略（点数:{}）", sortedSeg.size());
-                result = buildOutlineBySimpleBuffers(sortedSeg, widthM);
-            }
+            Geometry result = buildOutlineBySimpleBuffers(sortedSeg, widthM);
             long buildTime = System.currentTimeMillis() - buildStartTime;
 
             // 基于宽度的最小面积阈值（直接使用宽度，不再依赖配置因子）
@@ -588,51 +576,6 @@ public class GisUtil implements AutoCloseable {
         long endTime = System.currentTimeMillis();
         log.trace("[buildOutlineBySimpleBuffers] 处理完成，总计耗时: {}ms (转换:{}ms, 缓冲:{}ms, 合并:{}ms, 回转:{}ms)",
                 endTime - startTime, convertTime, bufferTime, unionTime, backConvertTime);
-
-        return result;
-    }
-
-    private Geometry buildOutlineByLineBuffer(List<TrackPoint> seg, double widthM) throws Exception {
-        long startTime = System.currentTimeMillis();
-        log.trace("[buildOutlineByLineBuffer] 开始处理 {} 个轨迹点，缓冲区宽度: {} 米", seg.size(), widthM);
-
-        Coordinate[] coords = new Coordinate[seg.size()];
-        for (int i = 0; i < seg.size(); i++) {
-            TrackPoint p = seg.get(i);
-            coords[i] = new Coordinate(p.getLon(), p.getLat());
-        }
-        LineString line = config.geometryFactory.createLineString(coords);
-
-        long t1 = System.currentTimeMillis();
-        Geometry projLine = wgs84ToWebMercator(line);
-        long convertTime = System.currentTimeMillis() - t1;
-
-        // 简化容差可配置，避免过度圆滑导致桥接
-        double factor = config.LINE_SIMPLIFY_FACTOR;
-        double minTol = config.LINE_SIMPLIFY_MIN;
-        double tolerance = Math.max(minTol, widthM * factor);
-        long t2 = System.currentTimeMillis();
-        Geometry simpleLine = DouglasPeuckerSimplifier.simplify(projLine, tolerance);
-        long simplifyTime = System.currentTimeMillis() - t2;
-
-        long t3 = System.currentTimeMillis();
-        // 线缓冲使用可配置的端帽/连接样式，减少拐点外扩
-        BufferParameters lp = new BufferParameters();
-        int quadSeg2 = config.DEFAULT_BUFFER_QUADRANT;
-        lp.setQuadrantSegments(quadSeg2);
-        lp.setEndCapStyle(BufferParameters.CAP_FLAT);
-        lp.setJoinStyle(BufferParameters.JOIN_BEVEL);
-        lp.setMitreLimit(2.0);
-        Geometry buffered = BufferOp.bufferOp(simpleLine, widthM, lp);
-        long bufferTime = System.currentTimeMillis() - t3;
-
-        long t4 = System.currentTimeMillis();
-        Geometry result = webMercatorToWgs84(buffered);
-        long backConvertTime = System.currentTimeMillis() - t4;
-
-        long endTime = System.currentTimeMillis();
-        log.trace("[buildOutlineByLineBuffer] 处理完成，总计耗时: {}ms (投影:{}ms, 简化:{}ms, 缓冲:{}ms, 回转:{}ms)",
-                endTime - startTime, convertTime, simplifyTime, bufferTime, backConvertTime);
 
         return result;
     }
@@ -1635,7 +1578,8 @@ public class GisUtil implements AutoCloseable {
                 Geometry point = config.geometryFactory.createPoint(c);
                 boolean inside = preparedPoly.contains(point);
                 if (inside) {
-                    if (current == null) current = new java.util.ArrayList<>();
+                    if (current == null)
+                        current = new java.util.ArrayList<>();
                     current.add(p);
                 } else {
                     if (current != null) {
@@ -1687,7 +1631,8 @@ public class GisUtil implements AutoCloseable {
                     java.time.LocalDateTime a = s.get(0).getTime();
                     java.time.LocalDateTime b = s.get(s.size() - 1).getTime();
                     long sec = java.time.Duration.between(a, b).getSeconds();
-                    if (firstSess == null && (sec >= config.SESSION_MIN_SECONDS_FIRST || s.size() >= config.SESSION_MIN_POINTS_FIRST)) {
+                    if (firstSess == null && (sec >= config.SESSION_MIN_SECONDS_FIRST
+                            || s.size() >= config.SESSION_MIN_POINTS_FIRST)) {
                         firstSess = s;
                         break;
                     }
@@ -1707,22 +1652,32 @@ public class GisUtil implements AutoCloseable {
                     // 进入时间插值：prev -> p0 与边界的交点
                     try {
                         int idxStart = -1;
-                        for (int k = 0; k < sortedSeg.size(); k++) { if (sortedSeg.get(k) == p0) { idxStart = k; break; } }
+                        for (int k = 0; k < sortedSeg.size(); k++) {
+                            if (sortedSeg.get(k) == p0) {
+                                idxStart = k;
+                                break;
+                            }
+                        }
                         if (idxStart > 0) {
                             TrackPoint prev = sortedSeg.get(idxStart - 1);
-                            org.locationtech.jts.geom.LineString segLine = config.geometryFactory.createLineString(new Coordinate[]{
-                                    new Coordinate(prev.getLon(), prev.getLat()),
-                                    new Coordinate(p0.getLon(), p0.getLat())
-                            });
+                            org.locationtech.jts.geom.LineString segLine = config.geometryFactory
+                                    .createLineString(new Coordinate[] {
+                                            new Coordinate(prev.getLon(), prev.getLat()),
+                                            new Coordinate(p0.getLon(), p0.getLat())
+                                    });
                             Geometry inter = segLine.intersection(poly.getBoundary());
                             Coordinate target = new Coordinate(p0.getLon(), p0.getLat());
-                            Coordinate best = null; double bestDist = Double.MAX_VALUE;
+                            Coordinate best = null;
+                            double bestDist = Double.MAX_VALUE;
                             if (inter != null) {
                                 Coordinate[] arr = inter.getCoordinates();
                                 if (arr != null && arr.length > 0) {
                                     for (Coordinate cc : arr) {
                                         double d = cc.distance(target);
-                                        if (d < bestDist) { bestDist = d; best = cc; }
+                                        if (d < bestDist) {
+                                            bestDist = d;
+                                            best = cc;
+                                        }
                                     }
                                 }
                             }
@@ -1739,26 +1694,38 @@ public class GisUtil implements AutoCloseable {
                                 }
                             }
                         }
-                    } catch (Exception e) { log.trace("[splitRoad] Polygon 进入时间插值失败，使用首点时间", e); }
+                    } catch (Exception e) {
+                        log.trace("[splitRoad] Polygon 进入时间插值失败，使用首点时间", e);
+                    }
                     // 离开时间插值：pn -> next 与边界的交点
                     try {
                         int idxEnd = -1;
-                        for (int k = 0; k < sortedSeg.size(); k++) { if (sortedSeg.get(k) == pn) { idxEnd = k; break; } }
+                        for (int k = 0; k < sortedSeg.size(); k++) {
+                            if (sortedSeg.get(k) == pn) {
+                                idxEnd = k;
+                                break;
+                            }
+                        }
                         if (idxEnd >= 0 && idxEnd < sortedSeg.size() - 1) {
                             TrackPoint next = sortedSeg.get(idxEnd + 1);
-                            org.locationtech.jts.geom.LineString segLine = config.geometryFactory.createLineString(new Coordinate[]{
-                                    new Coordinate(pn.getLon(), pn.getLat()),
-                                    new Coordinate(next.getLon(), next.getLat())
-                            });
+                            org.locationtech.jts.geom.LineString segLine = config.geometryFactory
+                                    .createLineString(new Coordinate[] {
+                                            new Coordinate(pn.getLon(), pn.getLat()),
+                                            new Coordinate(next.getLon(), next.getLat())
+                                    });
                             Geometry inter = segLine.intersection(poly.getBoundary());
                             Coordinate target = new Coordinate(pn.getLon(), pn.getLat());
-                            Coordinate best = null; double bestDist = Double.MAX_VALUE;
+                            Coordinate best = null;
+                            double bestDist = Double.MAX_VALUE;
                             if (inter != null) {
                                 Coordinate[] arr = inter.getCoordinates();
                                 if (arr != null && arr.length > 0) {
                                     for (Coordinate cc : arr) {
                                         double d = cc.distance(target);
-                                        if (d < bestDist) { bestDist = d; best = cc; }
+                                        if (d < bestDist) {
+                                            bestDist = d;
+                                            best = cc;
+                                        }
                                     }
                                 }
                             }
@@ -1775,14 +1742,17 @@ public class GisUtil implements AutoCloseable {
                                 }
                             }
                         }
-                    } catch (Exception e) { log.trace("[splitRoad] Polygon 离开时间插值失败，使用末点时间", e); }
+                    } catch (Exception e) {
+                        log.trace("[splitRoad] Polygon 离开时间插值失败，使用末点时间", e);
+                    }
                     // 兜底：保证 end > start
                     if (start != null && end != null && !end.isAfter(start)) {
                         end = start.plusSeconds(1);
                     }
                 }
             }
-            log.trace("[splitRoad] Polygon 跨度(插值) 时间范围 start={} end={} inPoly={} sessions={}", start, end, inPoly.size(), sessions.size());
+            log.trace("[splitRoad] Polygon 跨度(插值) 时间范围 start={} end={} inPoly={} sessions={}", start, end,
+                    inPoly.size(), sessions.size());
 
             long tMuStart = System.currentTimeMillis();
             double mu = calcMu(poly);
@@ -1870,7 +1840,8 @@ public class GisUtil implements AutoCloseable {
                         java.time.LocalDateTime a = s.get(0).getTime();
                         java.time.LocalDateTime b = s.get(s.size() - 1).getTime();
                         long sec = java.time.Duration.between(a, b).getSeconds();
-                        if (firstSess == null && (sec >= config.SESSION_MIN_SECONDS_FIRST || s.size() >= config.SESSION_MIN_POINTS_FIRST)) {
+                        if (firstSess == null && (sec >= config.SESSION_MIN_SECONDS_FIRST
+                                || s.size() >= config.SESSION_MIN_POINTS_FIRST)) {
                             firstSess = s;
                             break;
                         }
@@ -1889,22 +1860,32 @@ public class GisUtil implements AutoCloseable {
                         // 进入：prev -> p0 与边界交点插值
                         try {
                             int idxStart = -1;
-                            for (int k = 0; k < sortedSeg.size(); k++) { if (sortedSeg.get(k) == p0) { idxStart = k; break; } }
+                            for (int k = 0; k < sortedSeg.size(); k++) {
+                                if (sortedSeg.get(k) == p0) {
+                                    idxStart = k;
+                                    break;
+                                }
+                            }
                             if (idxStart > 0) {
                                 TrackPoint prev = sortedSeg.get(idxStart - 1);
-                                org.locationtech.jts.geom.LineString segLine = config.geometryFactory.createLineString(new Coordinate[]{
-                                        new Coordinate(prev.getLon(), prev.getLat()),
-                                        new Coordinate(p0.getLon(), p0.getLat())
-                                });
+                                org.locationtech.jts.geom.LineString segLine = config.geometryFactory
+                                        .createLineString(new Coordinate[] {
+                                                new Coordinate(prev.getLon(), prev.getLat()),
+                                                new Coordinate(p0.getLon(), p0.getLat())
+                                        });
                                 Geometry inter = segLine.intersection(poly.getBoundary());
                                 Coordinate target = new Coordinate(p0.getLon(), p0.getLat());
-                                Coordinate best = null; double bestDist = Double.MAX_VALUE;
+                                Coordinate best = null;
+                                double bestDist = Double.MAX_VALUE;
                                 if (inter != null) {
                                     Coordinate[] arr = inter.getCoordinates();
                                     if (arr != null && arr.length > 0) {
                                         for (Coordinate cc : arr) {
                                             double d = cc.distance(target);
-                                            if (d < bestDist) { bestDist = d; best = cc; }
+                                            if (d < bestDist) {
+                                                bestDist = d;
+                                                best = cc;
+                                            }
                                         }
                                     }
                                 }
@@ -1921,26 +1902,38 @@ public class GisUtil implements AutoCloseable {
                                     }
                                 }
                             }
-                        } catch (Exception e) { log.trace("[splitRoad] Part#{} 进入时间插值失败，使用首点时间", i, e); }
+                        } catch (Exception e) {
+                            log.trace("[splitRoad] Part#{} 进入时间插值失败，使用首点时间", i, e);
+                        }
                         // 离开：pn -> next 与边界交点插值
                         try {
                             int idxEnd = -1;
-                            for (int k = 0; k < sortedSeg.size(); k++) { if (sortedSeg.get(k) == pn) { idxEnd = k; break; } }
+                            for (int k = 0; k < sortedSeg.size(); k++) {
+                                if (sortedSeg.get(k) == pn) {
+                                    idxEnd = k;
+                                    break;
+                                }
+                            }
                             if (idxEnd >= 0 && idxEnd < sortedSeg.size() - 1) {
                                 TrackPoint next = sortedSeg.get(idxEnd + 1);
-                                org.locationtech.jts.geom.LineString segLine = config.geometryFactory.createLineString(new Coordinate[]{
-                                        new Coordinate(pn.getLon(), pn.getLat()),
-                                        new Coordinate(next.getLon(), next.getLat())
-                                });
+                                org.locationtech.jts.geom.LineString segLine = config.geometryFactory
+                                        .createLineString(new Coordinate[] {
+                                                new Coordinate(pn.getLon(), pn.getLat()),
+                                                new Coordinate(next.getLon(), next.getLat())
+                                        });
                                 Geometry inter = segLine.intersection(poly.getBoundary());
                                 Coordinate target = new Coordinate(pn.getLon(), pn.getLat());
-                                Coordinate best = null; double bestDist = Double.MAX_VALUE;
+                                Coordinate best = null;
+                                double bestDist = Double.MAX_VALUE;
                                 if (inter != null) {
                                     Coordinate[] arr = inter.getCoordinates();
                                     if (arr != null && arr.length > 0) {
                                         for (Coordinate cc : arr) {
                                             double d = cc.distance(target);
-                                            if (d < bestDist) { bestDist = d; best = cc; }
+                                            if (d < bestDist) {
+                                                bestDist = d;
+                                                best = cc;
+                                            }
                                         }
                                     }
                                 }
@@ -1957,14 +1950,17 @@ public class GisUtil implements AutoCloseable {
                                     }
                                 }
                             }
-                        } catch (Exception e) { log.trace("[splitRoad] Part#{} 离开时间插值失败，使用末点时间", i, e); }
+                        } catch (Exception e) {
+                            log.trace("[splitRoad] Part#{} 离开时间插值失败，使用末点时间", i, e);
+                        }
                         // 兜底：保证 end > start
                         if (start != null && end != null && !end.isAfter(start)) {
                             end = start.plusSeconds(1);
                         }
                     }
                 }
-                log.trace("[splitRoad] Part#{} 跨度(插值) 时间范围 start={} end={} (sessions={})", i, start, end, sessions.size());
+                log.trace("[splitRoad] Part#{} 跨度(插值) 时间范围 start={} end={} (sessions={})", i, start, end,
+                        sessions.size());
 
                 long tMuStart = System.currentTimeMillis();
                 double mu = calcMu(poly);
