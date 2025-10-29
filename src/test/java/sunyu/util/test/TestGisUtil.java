@@ -104,8 +104,7 @@ public class TestGisUtil {
                     Convert.toDouble(ss[1])));
         }
         OutlinePart r = gisUtil.getOutline(seg, 2.5);
-        log.info("{}", r.getWkt());
-        log.info("{}", r.getMu());
+        FileUtil.writeUtf8String(StrUtil.format("wkt: {}\nmu: {}", r.getWkt(), r.getMu()), path + "/outline.txt");
     }
 
     @Test
