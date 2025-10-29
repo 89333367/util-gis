@@ -173,19 +173,11 @@
                                 <filter>
                                     <artifact>*:*</artifact>
                                     <excludes>
-                                        <!--<exclude>assets/**</exclude>
-                                        <exclude>license/**</exclude>
-                                        <exclude>META-INF/**</exclude>
-                                        <exclude>mozilla/**</exclude>
-                                        <exclude>schema/**</exclude>
-                                        <exclude>model/**</exclude>
-                                        <exclude>*.crx</exclude>
-                                        <exclude>*.properties</exclude>
-                                        <exclude>*.xml</exclude>
-                                        <exclude>*.ini</exclude>
-                                        <exclude>*.html</exclude>
-                                        <exclude>*.mappings</exclude>
-                                        <exclude>*.png</exclude>-->
+                                        <!-- 关键：移除签名文件，避免胖包校验失败 -->
+                                        <exclude>META-INF/*.SF</exclude>
+                                        <exclude>META-INF/*.DSA</exclude>
+                                        <exclude>META-INF/*.RSA</exclude>
+                                        <!-- 可选：保留其他静态资源，必要时再按需排除 -->
                                     </excludes>
                                 </filter>
                             </filters>

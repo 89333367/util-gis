@@ -590,7 +590,7 @@ public class GisUtil implements AutoCloseable {
      *
      * @return 距离（米），两点间的地理距离
      */
-    private double haversine(CoordinatePoint p1, CoordinatePoint p2) {
+    public double haversine(CoordinatePoint p1, CoordinatePoint p2) {
         double dLat = Math.toRadians(p2.getLat() - p1.getLat());
         double dLon = Math.toRadians(p2.getLon() - p1.getLon());
         double a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
@@ -607,7 +607,7 @@ public class GisUtil implements AutoCloseable {
      *
      * @return 如果坐标有效返回true，否则返回false
      */
-    private boolean hasValidCoordinates(Geometry g) {
+    public boolean hasValidCoordinates(Geometry g) {
         Coordinate[] coordinates = g.getCoordinates();
         for (Coordinate coord : coordinates) {
             // 检查是否存在非常接近0但非0的坐标值，这通常表示转换错误
