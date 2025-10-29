@@ -1566,7 +1566,7 @@
         const first = points[initIdx];
         console.log('[Playback] 首点:', first && first.ts, first && first.ll, 'initIdx=', initIdx);
         playbackState.path = points.slice(0, initIdx+1).map(p=>p.ll);
-        playbackState.line = new T.Polyline(playbackState.path, { color: '#FFA500', weight: 3, opacity: 0.9 });
+        playbackState.line = new T.Polyline(playbackState.path, { color: '#00FFFF', weight: 3, opacity: 0.9 });
         if (map) {
             map.addOverLay(playbackState.line);
         }
@@ -1611,13 +1611,13 @@
                     catch(e){
                         console.warn('[Playback] setLngLats失败，重建折线', e);
                         if (map) { try { map.removeOverLay(playbackState.line); } catch(e){} }
-                        playbackState.line = new T.Polyline(playbackState.path, { color: '#FFA500', weight: 3, opacity: 0.9 });
+                        playbackState.line = new T.Polyline(playbackState.path, { color: '#00FFFF', weight: 3, opacity: 0.9 });
                         if (map) map.addOverLay(playbackState.line);
                     }
                 } else {
                     console.log('[Playback] 折线不支持setLngLats，重建');
                     if (playbackState.line && map) { try { map.removeOverLay(playbackState.line); } catch(e){} }
-                    playbackState.line = new T.Polyline(playbackState.path, { color: '#FFA500', weight: 3, opacity: 0.9 });
+                    playbackState.line = new T.Polyline(playbackState.path, { color: '#00FFFF', weight: 3, opacity: 0.9 });
                     if (map) map.addOverLay(playbackState.line);
                 }
             } catch(e) { console.warn('更新回放覆盖物失败:', e); }
@@ -1713,7 +1713,7 @@
                     playbackState.line.setLngLats(playbackState.path);
                 } else {
                     if (playbackState.line && map) { try { map.removeOverLay(playbackState.line); } catch(e){} }
-                    playbackState.line = new T.Polyline(playbackState.path, { color: '#FFA500', weight: 3, opacity: 0.9 });
+                    playbackState.line = new T.Polyline(playbackState.path, { color: '#00FFFF', weight: 3, opacity: 0.9 });
                     if (map) map.addOverLay(playbackState.line);
                 }
             } catch(e){ console.warn('滑块更新折线失败:', e); }
