@@ -37,8 +37,14 @@ public class OutlinePart {
      * 轮廓内的轨迹点集合（按时间升序）
      */
     private java.util.List<TrackPoint> trackPoints;
-
+    /**
+     * 轮廓内的轨迹点字符串表示（按时间升序）
+     */
     private String trackStr;
+    /**
+     * 使用作业宽幅（米）
+     */
+    private double totalWidthM;
 
     public OutlinePart(Geometry outline, LocalDateTime startTime, LocalDateTime endTime, double mu, String wkt) {
         this.outline = outline;
@@ -98,4 +104,12 @@ public class OutlinePart {
         return trackStr;
     }
 
+    public double getTotalWidthM() {
+        return totalWidthM;
+    }
+
+    public OutlinePart setTotalWidthM(double totalWidthM) {
+        this.totalWidthM = totalWidthM;
+        return this;
+    }
 }

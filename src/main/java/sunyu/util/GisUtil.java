@@ -115,6 +115,10 @@ public class GisUtil implements AutoCloseable {
         private final double LINE_SIMPLIFY_MIN = 0.1; // 最小容差（米）
         private final double MIN_COMPACTNESS = 0.12; // 紧致度阈值，过滤细长道路型轮廓
         private final double MAX_ASPECT_RATIO = 8.0; // 长宽比阈值，识别道路形（越大越细长）
+        // 首段有效性与防抖参数（可根据实际数据调整）
+        private final int SESSION_MIN_SECONDS_FIRST = 60; // 首段最小时长（秒），小于则视为短段
+        private final int SESSION_MIN_POINTS_FIRST = 10;  // 首段最少点数，小于则视为短段
+        private final int SESSION_GRACE_SECONDS = 15;     // 会话间隙宽限（秒），小于等于此间隙则合并为一个段
 
         private volatile MathTransform txWgsToMercator;
         private volatile MathTransform txMercatorToWgs;
@@ -1484,7 +1488,7 @@ public class GisUtil implements AutoCloseable {
 
         long t1 = System.currentTimeMillis();
         log.debug("[getOutline] 总耗时={}ms", (t1 - t0));
-        return new OutlinePart(outline, startTime, endTime, mu, wkt, points);
+        return new OutlinePart(outline, startTime, endTime, mu, wkt, points).setTotalWidthM(totalWidthM);
     }
 
     /**
@@ -1615,25 +1619,170 @@ public class GisUtil implements AutoCloseable {
             Polygon poly = (Polygon) trimmed;
             PreparedGeometry preparedPoly = PreparedGeometryFactory.prepare(poly);
             Envelope env = poly.getEnvelopeInternal();
-            // 找出属于该区块的点（点在多边形内）
+            // 找出属于该区块的点（点在多边形内），并统计“会话段”（连续在内的首段）
             long tWithinStart = System.currentTimeMillis();
-            java.util.List<TrackPoint> inPoly = new java.util.ArrayList<>();
+            java.util.List<java.util.List<TrackPoint>> sessions = new java.util.ArrayList<>();
+            java.util.List<TrackPoint> current = null;
             for (TrackPoint p : sortedSeg) {
                 Coordinate c = new Coordinate(p.getLon(), p.getLat());
                 if (!env.contains(c)) {
+                    if (current != null) {
+                        sessions.add(current);
+                        current = null;
+                    }
                     continue;
                 }
                 Geometry point = config.geometryFactory.createPoint(c);
-                if (preparedPoly.contains(point)) {
-                    inPoly.add(p);
+                boolean inside = preparedPoly.contains(point);
+                if (inside) {
+                    if (current == null) current = new java.util.ArrayList<>();
+                    current.add(p);
+                } else {
+                    if (current != null) {
+                        sessions.add(current);
+                        current = null;
+                    }
                 }
             }
+            if (current != null) {
+                sessions.add(current);
+            }
             long tWithinEnd = System.currentTimeMillis();
-            log.trace("[splitRoad] Polygon点过滤完成 inPoly={} 耗时={}ms", inPoly.size(), (tWithinEnd - tWithinStart));
+            log.trace("[splitRoad] Polygon 会话段统计完成 sessions={} 耗时={}ms", sessions.size(), (tWithinEnd - tWithinStart));
 
-            java.time.LocalDateTime start = inPoly.isEmpty() ? null : inPoly.get(0).getTime();
-            java.time.LocalDateTime end = inPoly.isEmpty() ? null : inPoly.get(inPoly.size() - 1).getTime();
-            log.trace("[splitRoad] Polygon 时间范围 start={} end={} inPoly={}", start, end, inPoly.size());
+            // 展平所有在内点集合（几何与点集保持原样），但时间口径采用首段
+            java.util.List<TrackPoint> inPoly = sessions.stream()
+                    .flatMap(java.util.List::stream)
+                    .collect(java.util.stream.Collectors.toList());
+
+            java.time.LocalDateTime start = null;
+            java.time.LocalDateTime end = null;
+            if (!sessions.isEmpty()) {
+                sessions.sort(java.util.Comparator.comparing(
+                        s -> s.get(0).getTime(),
+                        java.util.Comparator.nullsLast(java.util.Comparator.naturalOrder())));
+                // 宽限合并相邻短间隙，得到更稳定的段
+                java.util.List<java.util.List<TrackPoint>> merged = new java.util.ArrayList<>();
+                java.util.List<TrackPoint> acc = null;
+                for (java.util.List<TrackPoint> s : sessions) {
+                    if (acc == null) {
+                        acc = new java.util.ArrayList<>(s);
+                        merged.add(acc);
+                    } else {
+                        java.time.LocalDateTime prevEnd = acc.get(acc.size() - 1).getTime();
+                        java.time.LocalDateTime currStart = s.get(0).getTime();
+                        long gapSec = java.time.Duration.between(prevEnd, currStart).getSeconds();
+                        if (gapSec <= config.SESSION_GRACE_SECONDS) {
+                            acc.addAll(s);
+                        } else {
+                            acc = new java.util.ArrayList<>(s);
+                            merged.add(acc);
+                        }
+                    }
+                }
+                // 选取首个“有效首段”：满足最小时长或最少点数；若都不满足，取最长段
+                java.util.List<TrackPoint> firstSess = null;
+                long longestSec = -1;
+                for (java.util.List<TrackPoint> s : merged) {
+                    java.time.LocalDateTime a = s.get(0).getTime();
+                    java.time.LocalDateTime b = s.get(s.size() - 1).getTime();
+                    long sec = java.time.Duration.between(a, b).getSeconds();
+                    if (firstSess == null && (sec >= config.SESSION_MIN_SECONDS_FIRST || s.size() >= config.SESSION_MIN_POINTS_FIRST)) {
+                        firstSess = s;
+                        break;
+                    }
+                    if (sec > longestSec) {
+                        longestSec = sec;
+                        firstSess = s;
+                    }
+                }
+                if (!merged.isEmpty()) {
+                    java.util.List<TrackPoint> firstMerged = merged.get(0);
+                    java.util.List<TrackPoint> lastMerged = merged.get(merged.size() - 1);
+                    TrackPoint p0 = firstMerged.get(0);
+                    TrackPoint pn = lastMerged.get(lastMerged.size() - 1);
+                    // 默认采用跨度首尾点时间（合并短间隙后）
+                    start = p0.getTime();
+                    end = pn.getTime();
+                    // 进入时间插值：prev -> p0 与边界的交点
+                    try {
+                        int idxStart = -1;
+                        for (int k = 0; k < sortedSeg.size(); k++) { if (sortedSeg.get(k) == p0) { idxStart = k; break; } }
+                        if (idxStart > 0) {
+                            TrackPoint prev = sortedSeg.get(idxStart - 1);
+                            org.locationtech.jts.geom.LineString segLine = config.geometryFactory.createLineString(new Coordinate[]{
+                                    new Coordinate(prev.getLon(), prev.getLat()),
+                                    new Coordinate(p0.getLon(), p0.getLat())
+                            });
+                            Geometry inter = segLine.intersection(poly.getBoundary());
+                            Coordinate target = new Coordinate(p0.getLon(), p0.getLat());
+                            Coordinate best = null; double bestDist = Double.MAX_VALUE;
+                            if (inter != null) {
+                                Coordinate[] arr = inter.getCoordinates();
+                                if (arr != null && arr.length > 0) {
+                                    for (Coordinate cc : arr) {
+                                        double d = cc.distance(target);
+                                        if (d < bestDist) { bestDist = d; best = cc; }
+                                    }
+                                }
+                            }
+                            if (best != null && prev.getTime() != null && p0.getTime() != null) {
+                                Coordinate cPrev = new Coordinate(prev.getLon(), prev.getLat());
+                                Coordinate cP0 = new Coordinate(p0.getLon(), p0.getLat());
+                                double dTot = cPrev.distance(cP0);
+                                double dPrev = cPrev.distance(best);
+                                if (dTot > 0) {
+                                    double ratio = Math.max(0.0, Math.min(1.0, dPrev / dTot));
+                                    long nanos = java.time.Duration.between(prev.getTime(), p0.getTime()).toNanos();
+                                    long nanoOffset = Math.round(nanos * ratio);
+                                    start = prev.getTime().plusNanos(nanoOffset);
+                                }
+                            }
+                        }
+                    } catch (Exception e) { log.trace("[splitRoad] Polygon 进入时间插值失败，使用首点时间", e); }
+                    // 离开时间插值：pn -> next 与边界的交点
+                    try {
+                        int idxEnd = -1;
+                        for (int k = 0; k < sortedSeg.size(); k++) { if (sortedSeg.get(k) == pn) { idxEnd = k; break; } }
+                        if (idxEnd >= 0 && idxEnd < sortedSeg.size() - 1) {
+                            TrackPoint next = sortedSeg.get(idxEnd + 1);
+                            org.locationtech.jts.geom.LineString segLine = config.geometryFactory.createLineString(new Coordinate[]{
+                                    new Coordinate(pn.getLon(), pn.getLat()),
+                                    new Coordinate(next.getLon(), next.getLat())
+                            });
+                            Geometry inter = segLine.intersection(poly.getBoundary());
+                            Coordinate target = new Coordinate(pn.getLon(), pn.getLat());
+                            Coordinate best = null; double bestDist = Double.MAX_VALUE;
+                            if (inter != null) {
+                                Coordinate[] arr = inter.getCoordinates();
+                                if (arr != null && arr.length > 0) {
+                                    for (Coordinate cc : arr) {
+                                        double d = cc.distance(target);
+                                        if (d < bestDist) { bestDist = d; best = cc; }
+                                    }
+                                }
+                            }
+                            if (best != null && pn.getTime() != null && next.getTime() != null) {
+                                Coordinate cPn = new Coordinate(pn.getLon(), pn.getLat());
+                                Coordinate cNext = new Coordinate(next.getLon(), next.getLat());
+                                double dTot = cPn.distance(cNext);
+                                double dPn = cPn.distance(best);
+                                if (dTot > 0) {
+                                    double ratio = Math.max(0.0, Math.min(1.0, dPn / dTot));
+                                    long nanos = java.time.Duration.between(pn.getTime(), next.getTime()).toNanos();
+                                    long nanoOffset = Math.round(nanos * ratio);
+                                    end = pn.getTime().plusNanos(nanoOffset);
+                                }
+                            }
+                        }
+                    } catch (Exception e) { log.trace("[splitRoad] Polygon 离开时间插值失败，使用末点时间", e); }
+                    // 兜底：保证 end > start
+                    if (start != null && end != null && !end.isAfter(start)) {
+                        end = start.plusSeconds(1);
+                    }
+                }
+            }
+            log.trace("[splitRoad] Polygon 跨度(插值) 时间范围 start={} end={} inPoly={} sessions={}", start, end, inPoly.size(), sessions.size());
 
             long tMuStart = System.currentTimeMillis();
             double mu = calcMu(poly);
@@ -1646,7 +1795,7 @@ public class GisUtil implements AutoCloseable {
             log.trace("[splitRoad] Polygon WKT生成完成 长度={} 耗时={}ms", wkt.length(), (tWktEnd - tWktStart));
 
             // 传入轮廓内轨迹点（已按时间升序），便于后续分析
-            parts.add(new OutlinePart(poly, start, end, mu, wkt, inPoly));
+            parts.add(new OutlinePart(poly, start, end, mu, wkt, inPoly).setTotalWidthM(totalWidthM));
             log.trace("[splitRoad] parts构建完成 size={}", parts.size());
         } else if (trimmed instanceof MultiPolygon) {
             MultiPolygon mp = (MultiPolygon) trimmed;
@@ -1691,16 +1840,131 @@ public class GisUtil implements AutoCloseable {
                 java.time.LocalDateTime start = null;
                 java.time.LocalDateTime end = null;
                 if (!sessions.isEmpty()) {
-                    // 使用进入该区块的最早时间和离开该区块的最晚时间
+                    // 方案1：边界插值计算首段进入/离开时间（不合并后续返回）
                     sessions.sort(java.util.Comparator.comparing(
                             s -> s.get(0).getTime(),
                             java.util.Comparator.nullsLast(java.util.Comparator.naturalOrder())));
-                    java.util.List<TrackPoint> firstSess = sessions.get(0);
-                    java.util.List<TrackPoint> lastSess = sessions.get(sessions.size() - 1);
-                    start = firstSess.isEmpty() ? null : firstSess.get(0).getTime();
-                    end = lastSess.isEmpty() ? null : lastSess.get(lastSess.size() - 1).getTime();
+                    // 宽限合并相邻短间隙，得到更稳定的段
+                    java.util.List<java.util.List<TrackPoint>> merged = new java.util.ArrayList<>();
+                    java.util.List<TrackPoint> acc = null;
+                    for (java.util.List<TrackPoint> s : sessions) {
+                        if (acc == null) {
+                            acc = new java.util.ArrayList<>(s);
+                            merged.add(acc);
+                        } else {
+                            java.time.LocalDateTime prevEnd = acc.get(acc.size() - 1).getTime();
+                            java.time.LocalDateTime currStart = s.get(0).getTime();
+                            long gapSec = java.time.Duration.between(prevEnd, currStart).getSeconds();
+                            if (gapSec <= config.SESSION_GRACE_SECONDS) {
+                                acc.addAll(s);
+                            } else {
+                                acc = new java.util.ArrayList<>(s);
+                                merged.add(acc);
+                            }
+                        }
+                    }
+                    // 选取首个“有效首段”：满足最小时长或最少点数；若都不满足，取最长段
+                    java.util.List<TrackPoint> firstSess = null;
+                    long longestSec = -1;
+                    for (java.util.List<TrackPoint> s : merged) {
+                        java.time.LocalDateTime a = s.get(0).getTime();
+                        java.time.LocalDateTime b = s.get(s.size() - 1).getTime();
+                        long sec = java.time.Duration.between(a, b).getSeconds();
+                        if (firstSess == null && (sec >= config.SESSION_MIN_SECONDS_FIRST || s.size() >= config.SESSION_MIN_POINTS_FIRST)) {
+                            firstSess = s;
+                            break;
+                        }
+                        if (sec > longestSec) {
+                            longestSec = sec;
+                            firstSess = s;
+                        }
+                    }
+                    if (!merged.isEmpty()) {
+                        java.util.List<TrackPoint> firstMerged = merged.get(0);
+                        java.util.List<TrackPoint> lastMerged = merged.get(merged.size() - 1);
+                        TrackPoint p0 = firstMerged.get(0);
+                        TrackPoint pn = lastMerged.get(lastMerged.size() - 1);
+                        start = p0.getTime();
+                        end = pn.getTime();
+                        // 进入：prev -> p0 与边界交点插值
+                        try {
+                            int idxStart = -1;
+                            for (int k = 0; k < sortedSeg.size(); k++) { if (sortedSeg.get(k) == p0) { idxStart = k; break; } }
+                            if (idxStart > 0) {
+                                TrackPoint prev = sortedSeg.get(idxStart - 1);
+                                org.locationtech.jts.geom.LineString segLine = config.geometryFactory.createLineString(new Coordinate[]{
+                                        new Coordinate(prev.getLon(), prev.getLat()),
+                                        new Coordinate(p0.getLon(), p0.getLat())
+                                });
+                                Geometry inter = segLine.intersection(poly.getBoundary());
+                                Coordinate target = new Coordinate(p0.getLon(), p0.getLat());
+                                Coordinate best = null; double bestDist = Double.MAX_VALUE;
+                                if (inter != null) {
+                                    Coordinate[] arr = inter.getCoordinates();
+                                    if (arr != null && arr.length > 0) {
+                                        for (Coordinate cc : arr) {
+                                            double d = cc.distance(target);
+                                            if (d < bestDist) { bestDist = d; best = cc; }
+                                        }
+                                    }
+                                }
+                                if (best != null && prev.getTime() != null && p0.getTime() != null) {
+                                    Coordinate cPrev = new Coordinate(prev.getLon(), prev.getLat());
+                                    Coordinate cP0 = new Coordinate(p0.getLon(), p0.getLat());
+                                    double dTot = cPrev.distance(cP0);
+                                    double dPrev = cPrev.distance(best);
+                                    if (dTot > 0) {
+                                        double ratio = Math.max(0.0, Math.min(1.0, dPrev / dTot));
+                                        long nanos = java.time.Duration.between(prev.getTime(), p0.getTime()).toNanos();
+                                        long nanoOffset = Math.round(nanos * ratio);
+                                        start = prev.getTime().plusNanos(nanoOffset);
+                                    }
+                                }
+                            }
+                        } catch (Exception e) { log.trace("[splitRoad] Part#{} 进入时间插值失败，使用首点时间", i, e); }
+                        // 离开：pn -> next 与边界交点插值
+                        try {
+                            int idxEnd = -1;
+                            for (int k = 0; k < sortedSeg.size(); k++) { if (sortedSeg.get(k) == pn) { idxEnd = k; break; } }
+                            if (idxEnd >= 0 && idxEnd < sortedSeg.size() - 1) {
+                                TrackPoint next = sortedSeg.get(idxEnd + 1);
+                                org.locationtech.jts.geom.LineString segLine = config.geometryFactory.createLineString(new Coordinate[]{
+                                        new Coordinate(pn.getLon(), pn.getLat()),
+                                        new Coordinate(next.getLon(), next.getLat())
+                                });
+                                Geometry inter = segLine.intersection(poly.getBoundary());
+                                Coordinate target = new Coordinate(pn.getLon(), pn.getLat());
+                                Coordinate best = null; double bestDist = Double.MAX_VALUE;
+                                if (inter != null) {
+                                    Coordinate[] arr = inter.getCoordinates();
+                                    if (arr != null && arr.length > 0) {
+                                        for (Coordinate cc : arr) {
+                                            double d = cc.distance(target);
+                                            if (d < bestDist) { bestDist = d; best = cc; }
+                                        }
+                                    }
+                                }
+                                if (best != null && pn.getTime() != null && next.getTime() != null) {
+                                    Coordinate cPn = new Coordinate(pn.getLon(), pn.getLat());
+                                    Coordinate cNext = new Coordinate(next.getLon(), next.getLat());
+                                    double dTot = cPn.distance(cNext);
+                                    double dPn = cPn.distance(best);
+                                    if (dTot > 0) {
+                                        double ratio = Math.max(0.0, Math.min(1.0, dPn / dTot));
+                                        long nanos = java.time.Duration.between(pn.getTime(), next.getTime()).toNanos();
+                                        long nanoOffset = Math.round(nanos * ratio);
+                                        end = pn.getTime().plusNanos(nanoOffset);
+                                    }
+                                }
+                            }
+                        } catch (Exception e) { log.trace("[splitRoad] Part#{} 离开时间插值失败，使用末点时间", i, e); }
+                        // 兜底：保证 end > start
+                        if (start != null && end != null && !end.isAfter(start)) {
+                            end = start.plusSeconds(1);
+                        }
+                    }
                 }
-                log.trace("[splitRoad] Part#{} 时间范围 start={} end={} (sessions={})", i, start, end, sessions.size());
+                log.trace("[splitRoad] Part#{} 跨度(插值) 时间范围 start={} end={} (sessions={})", i, start, end, sessions.size());
 
                 long tMuStart = System.currentTimeMillis();
                 double mu = calcMu(poly);
@@ -1716,7 +1980,7 @@ public class GisUtil implements AutoCloseable {
                 java.util.List<TrackPoint> inPoly = sessions.stream()
                         .flatMap(java.util.List::stream)
                         .collect(java.util.stream.Collectors.toList());
-                parts.add(new OutlinePart(poly, start, end, mu, wkt, inPoly));
+                parts.add(new OutlinePart(poly, start, end, mu, wkt, inPoly).setTotalWidthM(totalWidthM));
                 if ((i + 1) % 10 == 0 || i == mp.getNumGeometries() - 1) {
                     log.trace("[splitRoad] MultiPolygon 进度 {}/{}", (i + 1), mp.getNumGeometries());
                 }
@@ -1734,7 +1998,7 @@ public class GisUtil implements AutoCloseable {
 
         long tTotalEnd = System.currentTimeMillis();
         log.debug("[splitRoad] 总耗时={}ms", (tTotalEnd - t0));
-        return new SplitRoadResult(trimmed, parts, outlineWkt);
+        return new SplitRoadResult(trimmed, parts, outlineWkt).setTotalWidthM(totalWidthM);
     }
 
 }

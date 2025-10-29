@@ -21,6 +21,10 @@ public class SplitRoadResult {
      * 轮廓的WKT表示
      */
     private final String wkt;
+    /**
+     * 使用作业宽幅（米）
+     */
+    private double totalWidthM;
 
     public SplitRoadResult(Geometry outline, List<OutlinePart> parts) {
         this(outline, parts, null);
@@ -50,5 +54,14 @@ public class SplitRoadResult {
 
     public String getWkt() {
         return wkt;
+    }
+
+    public double getTotalWidthM() {
+        return totalWidthM;
+    }
+
+    public SplitRoadResult setTotalWidthM(double totalWidthM) {
+        this.totalWidthM = totalWidthM;
+        return this;
     }
 }

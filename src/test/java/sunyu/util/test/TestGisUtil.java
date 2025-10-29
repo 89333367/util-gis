@@ -183,21 +183,23 @@ public class TestGisUtil {
 
             StringBuilder ob = new StringBuilder();
             ob.append("Outline type: ").append(outline.getGeometryType()).append('\n')
-                    .append("Outline count: ")
+                    .append("Parts: ")
                     .append(outline instanceof org.locationtech.jts.geom.MultiPolygon ? outline.getNumGeometries() : 1)
                     .append('\n')
-                    .append("Outline mu: ").append(gisUtil.calcMu(outline)).append('\n')
-                    .append("Outline WKT: ").append(outlineWkt).append('\n');
+                    .append("mu: ").append(gisUtil.calcMu(outline)).append('\n')
+                    .append("totalWidthM: ").append(res.getTotalWidthM()).append('\n')
+                    .append("WKT: ").append(outlineWkt).append('\n');
             FileUtil.writeUtf8String(ob.toString(), outlineFile);
 
             StringBuilder pb = new StringBuilder();
-            pb.append("Parts size: ").append(parts == null ? 0 : parts.size()).append('\n');
+            pb.append("Parts: ").append(parts == null ? 0 : parts.size()).append('\n');
             if (parts != null) {
                 for (int i = 0; i < parts.size(); i++) {
                     OutlinePart p = parts.get(i);
                     pb.append("== Part ").append(i).append(" ==\n")
                             .append("type: ").append(p.getOutline().getGeometryType()).append('\n')
                             .append("mu: ").append(p.getMu()).append('\n')
+                            .append("totalWidthM: ").append(p.getTotalWidthM()).append('\n')
                             .append("startTime: ").append(p.getStartTime()).append('\n')
                             .append("endTime: ").append(p.getEndTime()).append('\n')
                             .append("wkt: ").append(p.getWkt()).append('\n')
