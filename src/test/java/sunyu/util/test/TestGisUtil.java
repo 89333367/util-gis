@@ -109,6 +109,32 @@ public class TestGisUtil {
     }
 
     @Test
+    void 计算轮廓335() throws Exception {
+        String trackStr = FileUtil.readUtf8String(path + "/track335.txt");
+        List<TrackPoint> seg = new ArrayList<>();
+        for (String split : trackStr.split("#")) {
+            String[] ss = split.split(",");
+            seg.add(new TrackPoint(LocalDateTimeUtil.parse(ss[2], "yyyyMMddHHmmss"), Convert.toDouble(ss[0]),
+                    Convert.toDouble(ss[1])));
+        }
+        OutlinePart r = gisUtil.getOutline(seg, 5);
+        FileUtil.writeUtf8String(StrUtil.format("wkt: {}\nmu: {}", r.getWkt(), r.getMu()), path + "/outline335.txt");
+    }
+
+    @Test
+    void 计算轮廓118() throws Exception {
+        String trackStr = FileUtil.readUtf8String(path + "/track118.txt");
+        List<TrackPoint> seg = new ArrayList<>();
+        for (String split : trackStr.split("#")) {
+            String[] ss = split.split(",");
+            seg.add(new TrackPoint(LocalDateTimeUtil.parse(ss[2], "yyyyMMddHHmmss"), Convert.toDouble(ss[0]),
+                    Convert.toDouble(ss[1])));
+        }
+        OutlinePart r = gisUtil.getOutline(seg, 5);
+        FileUtil.writeUtf8String(StrUtil.format("wkt: {}\nmu: {}", r.getWkt(), r.getMu()), path + "/outline118.txt");
+    }
+
+    @Test
     void 测试相交() throws Exception {
         String wktA = FileUtil.readUtf8String(path + "/118.txt");
         String wktB = FileUtil.readUtf8String(path + "/335.txt");
@@ -154,15 +180,23 @@ public class TestGisUtil {
             String jobStartTime = DateUtil.parse(yyyyMMdd, "yyyyMMdd").toString("yyyy-MM-dd") + " 00:00:00";
             String jobEndTime = DateUtil.parse(yyyyMMdd + "235959", "yyyyMMddHHmmss").toString("yyyy-MM-dd HH:mm:ss");
             String tdSql = StrUtil.format(
-                    "select protocol from frequent.d_p where did='{}' and `3014`>='{}' and `3014`<='{}' and protocol match '(,2601:0,)'",
+                    "select protocol from frequent.d_p where did='{}' and `3014`>='{}' and `3014`<='{}'",
                     did, jobStartTime, jobEndTime);
             log.debug("{}", tdSql);
             List<Map<String, Object>> rows = tDengineUtil.executeQuery(tdSql);
             List<String> l = new ArrayList<>();
             for (Map<String, Object> row : rows) {
                 Map<String, String> protocol = protocolSdk.parseProtocolString(row.get("protocol").toString());
+                if (!Convert.toStr(protocol.get("2601"), "1").equals("0")) {
+                    continue;
+                }
                 if (Convert.toDouble(protocol.get("2602")) <= 0 || Convert.toDouble(protocol.get("2603")) <= 0) {
                     continue;
+                }
+                if (protocol.containsKey("4031")) {
+                    if (!Convert.toStr(protocol.get("4031"), "0").equals("1")) {
+                        continue;
+                    }
                 }
                 l.add(StrUtil.format("{},{},{}", protocol.get("3014"), protocol.get("2602"), protocol.get("2603")));
             }

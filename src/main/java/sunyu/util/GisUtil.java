@@ -5,7 +5,6 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.stream.Collectors;
 
 import org.geotools.geometry.jts.JTS;
 import org.geotools.referencing.CRS;
@@ -25,7 +24,6 @@ import org.locationtech.jts.operation.union.UnaryUnionOp;
 import org.opengis.referencing.crs.CoordinateReferenceSystem;
 import org.opengis.referencing.operation.MathTransform;
 
-import cn.hutool.core.bean.BeanUtil;
 import cn.hutool.log.Log;
 import cn.hutool.log.LogFactory;
 import sunyu.util.pojo.CoordinatePoint;
@@ -82,20 +80,13 @@ public class GisUtil implements AutoCloseable {
         // WGS84坐标系的EPSG代码，用于定义地理坐标系统
         private final String WGS84 = "EPSG:4326";
 
-        // Web Mercator投影系统的EPSG代码，用于统一投影坐标系统
-        private final String WEB_MERCATOR = "EPSG:3857";
-
         // 地球半径（米），用于Haversine公式计算两点间距离
         private final double R = 6371000;
 
-        // 长半轴（椭球体的赤道半径）
-        private final double semiMajorAxis = 6378245.0;
-
-        // 椭球体偏心率的平方
-        private final double eccentricitySquared = 0.00669342162296594323;
-
         // CRS缓存，避免重复解析WKT
         private final ConcurrentHashMap<String, CoordinateReferenceSystem> crsCache = new ConcurrentHashMap<>();
+        // 变换缓存，避免重复构建同一分带的投影转换
+        private final ConcurrentHashMap<String, MathTransform> txCache = new ConcurrentHashMap<>();
 
         // GeometryFactory缓存，避免重复创建
         private final GeometryFactory geometryFactory = new GeometryFactory();
@@ -111,13 +102,6 @@ public class GisUtil implements AutoCloseable {
 
         private final double MIN_COMPACTNESS = 0.12; // 紧致度阈值，过滤细长道路型轮廓
         private final double MAX_ASPECT_RATIO = 8.0; // 长宽比阈值，识别道路形（越大越细长）
-        // 首段有效性与防抖参数（可根据实际数据调整）
-        private final int SESSION_MIN_SECONDS_FIRST = 60; // 首段最小时长（秒），小于则视为短段
-        private final int SESSION_MIN_POINTS_FIRST = 10; // 首段最少点数，小于则视为短段
-        private final int SESSION_GRACE_SECONDS = 15; // 会话间隙宽限（秒），小于等于此间隙则合并为一个段
-
-        private volatile MathTransform txWgsToMercator;
-        private volatile MathTransform txMercatorToWgs;
     }
 
     /**
@@ -222,82 +206,97 @@ public class GisUtil implements AutoCloseable {
         });
     }
 
-    private MathTransform getTxWgsToMercator() {
-        MathTransform tx = config.txWgsToMercator;
-        if (tx == null) {
-            synchronized (this) {
-                if (config.txWgsToMercator == null) {
-                    try {
-                        CoordinateReferenceSystem src = getCachedCRS(config.WGS84);
-                        CoordinateReferenceSystem tgt = getCachedCRS(config.WEB_MERCATOR);
-                        config.txWgsToMercator = CRS.findMathTransform(src, tgt, true);
-                    } catch (Exception e) {
-                        throw new RuntimeException("初始化WGS->Mercator变换失败", e);
-                    }
-                }
-                tx = config.txWgsToMercator;
-            }
-        }
-        return tx;
+    // ===== 高斯-克吕格（6°分带）投影辅助方法：按首点经度自动分带 =====
+    private int gkZoneFromLon(double lon) {
+        // 6°分带：1区中心经线为3°，中心经线 L0 = 6*zone - 3
+        int zone = (int) Math.floor(lon / 6.0) + 1;
+        // 保护性限制（中国范围）：13–23区
+        if (zone < 1)
+            zone = 1;
+        return zone;
     }
 
-    private MathTransform getTxMercatorToWgs() {
-        MathTransform tx = config.txMercatorToWgs;
-        if (tx == null) {
-            synchronized (this) {
-                if (config.txMercatorToWgs == null) {
-                    try {
-                        CoordinateReferenceSystem src = getCachedCRS(config.WEB_MERCATOR);
-                        CoordinateReferenceSystem tgt = getCachedCRS(config.WGS84);
-                        config.txMercatorToWgs = CRS.findMathTransform(src, tgt, true);
-                    } catch (Exception e) {
-                        throw new RuntimeException("初始化Mercator->WGS变换失败", e);
-                    }
-                }
-                tx = config.txMercatorToWgs;
-            }
-        }
-        return tx;
+    private double gkCentralMeridian(int zone) {
+        return zone * 6.0 - 3.0;
     }
 
-    /**
-     * 将WGS84坐标转换为Web Mercator投影坐标
-     *
-     * @param g WGS84坐标系下的几何图形
-     *
-     * @return Web Mercator投影坐标系下的几何图形
-     *
-     * @throws Exception 坐标转换异常
-     */
-    private Geometry wgs84ToWebMercator(Geometry g) throws Exception {
-        // 通过 getTxWgsToMercator() 懒加载，无需重复初始化逻辑
-        return JTS.transform(g, getTxWgsToMercator());
+    private double gkFalseEasting(int zone) {
+        // 通用约定：假东距 = 区号 * 1,000,000 + 500,000（不会影响形状，仅影响坐标值）
+        return zone * 1_000_000.0 + 500_000.0;
     }
 
-    /**
-     * 将Web Mercator投影坐标转换为WGS84坐标
-     *
-     * @param g Web Mercator投影坐标系下的几何图形
-     *
-     * @return WGS84坐标系下的几何图形
-     *
-     * @throws Exception 坐标转换异常
-     */
-    private Geometry webMercatorToWgs84(Geometry g) throws Exception {
-        try {
-            // 通过 getTxMercatorToWgs() 懒加载，无需重复初始化逻辑
-            Geometry result = JTS.transform(g, getTxMercatorToWgs());
-            if (!isValidWgs84Geometry(result)) {
-                CoordinateReferenceSystem src = getCachedCRS(config.WEB_MERCATOR);
-                CoordinateReferenceSystem tgt = getCachedCRS(config.WGS84);
-                MathTransform strict = CRS.findMathTransform(src, tgt, false);
-                result = JTS.transform(g, strict);
-            }
-            return result;
-        } catch (Exception e) {
-            log.error("Web Mercator到WGS84坐标转换失败: " + e.getMessage(), e);
-            throw e;
+    // 依据东距反推分带（近似），用于从高斯坐标推断区号
+    private int gkZoneFromEasting(double easting) {
+        int zone = (int) Math.round((easting - 500_000.0) / 1_000_000.0);
+        if (zone < 1)
+            zone = 1;
+        if (zone > 60)
+            zone = 60;
+        return zone;
+    }
+
+    // 从几何的质心东距推断分带
+    private int inferGkZoneFromGeometryEasting(Geometry g) {
+        if (g == null || g.isEmpty()) {
+            return 30; // 安全回退：中间分带，避免异常
         }
+        Envelope env = g.getEnvelopeInternal();
+        if (env == null || env.isNull()) {
+            return 30;
+        }
+        double easting = env.getMinX() + env.getWidth() / 2.0;
+        return gkZoneFromEasting(easting);
+    }
+
+    private CoordinateReferenceSystem getGaussKrugerCRSByLon(double lon) throws Exception {
+        int zone = gkZoneFromLon(lon);
+        double central = gkCentralMeridian(zone);
+        double falseEasting = gkFalseEasting(zone);
+        String key = "GK6:" + zone;
+        CoordinateReferenceSystem crs = config.crsCache.get(key);
+        if (crs != null)
+            return crs;
+
+        // 基于WKT定义高斯-克吕格（Transverse_Mercator）投影，基于WGS84椭球
+        String wkt = "PROJCS[\"WGS 84 / Gauss-Kruger zone " + zone + "\", " +
+                "GEOGCS[\"WGS 84\", DATUM[\"WGS_1984\", SPHEROID[\"WGS 84\",6378137,298.257223563]], " +
+                "PRIMEM[\"Greenwich\",0], UNIT[\"degree\",0.0174532925199433]], " +
+                "PROJECTION[\"Transverse_Mercator\"], " +
+                "PARAMETER[\"latitude_of_origin\",0], " +
+                "PARAMETER[\"central_meridian\"," + central + "], " +
+                "PARAMETER[\"scale_factor\",1], " +
+                "PARAMETER[\"false_easting\"," + falseEasting + "], " +
+                "PARAMETER[\"false_northing\",0], " +
+                "UNIT[\"metre\",1], AXIS[\"Easting\",EAST], AXIS[\"Northing\",NORTH]]";
+        crs = CRS.parseWKT(wkt);
+        config.crsCache.put(key, crs);
+        return crs;
+    }
+
+    private MathTransform getTxWgsToGaussByLon(double lon) throws Exception {
+        int zone = gkZoneFromLon(lon);
+        String key = "W2G:" + zone;
+        MathTransform cached = config.txCache.get(key);
+        if (cached != null)
+            return cached;
+        CoordinateReferenceSystem src = getCachedCRS(config.WGS84);
+        CoordinateReferenceSystem tgt = getGaussKrugerCRSByLon(lon);
+        MathTransform mt = CRS.findMathTransform(src, tgt, true);
+        config.txCache.put(key, mt);
+        return mt;
+    }
+
+    private MathTransform getTxGaussToWgsByLon(double lon) throws Exception {
+        int zone = gkZoneFromLon(lon);
+        String key = "G2W:" + zone;
+        MathTransform cached = config.txCache.get(key);
+        if (cached != null)
+            return cached;
+        CoordinateReferenceSystem src = getGaussKrugerCRSByLon(lon);
+        CoordinateReferenceSystem tgt = getCachedCRS(config.WGS84);
+        MathTransform mt = CRS.findMathTransform(src, tgt, true);
+        config.txCache.put(key, mt);
+        return mt;
     }
 
     /**
@@ -327,7 +326,7 @@ public class GisUtil implements AutoCloseable {
     }
 
     // 统一过滤与排序 TrackPoint
-    private List<TrackPoint> filterAndSortTrackPoints(List<TrackPoint> seg) {
+    public List<TrackPoint> filterAndSortTrackPoints(List<TrackPoint> seg) {
         if (seg == null)
             return java.util.Collections.emptyList();
         java.util.Comparator<java.time.LocalDateTime> cmp = java.util.Comparator
@@ -386,6 +385,10 @@ public class GisUtil implements AutoCloseable {
             Geometry result = buildOutlineBySimpleBuffers(sortedSeg, widthM);
             long buildTime = System.currentTimeMillis() - buildStartTime;
 
+            // 基于首点经度构建高斯-克吕格米制投影（用于面积与形态计算）
+            double originLonArea = sortedSeg.get(0).getLon();
+            MathTransform txWgsToGkArea = getTxWgsToGaussByLon(originLonArea);
+
             // 基于宽度的最小面积阈值（直接使用宽度，不再依赖配置因子）
             double minAreaThresholdM2 = Math.PI * widthM * widthM;
             if (result instanceof MultiPolygon) {
@@ -393,7 +396,7 @@ public class GisUtil implements AutoCloseable {
                 List<Polygon> keep = new ArrayList<>();
                 for (int i = 0; i < mp.getNumGeometries(); i++) {
                     Polygon poly = (Polygon) mp.getGeometryN(i);
-                    Geometry projPoly = wgs84ToWebMercator(poly);
+                    Geometry projPoly = JTS.transform(poly, txWgsToGkArea);
                     double areaM2 = projPoly.getArea();
                     if (areaM2 >= minAreaThresholdM2) {
                         keep.add(poly);
@@ -466,6 +469,10 @@ public class GisUtil implements AutoCloseable {
         long bufferTime = 0;
         long totalTime = 0;
 
+        // 基于首点经度构建高斯-克吕格投影转换（6°分带）
+        double originLon = seg.get(0).getLon();
+        MathTransform txWgsToGk = getTxWgsToGaussByLon(originLon);
+
         for (int i = 0; i < seg.size(); i++) {
             long startPoint = System.currentTimeMillis();
 
@@ -473,9 +480,9 @@ public class GisUtil implements AutoCloseable {
             Coordinate coord = new Coordinate(point.getLon(), point.getLat());
             Geometry pointGeom = config.geometryFactory.createPoint(coord);
 
-            // 转换到Web Mercator投影坐标系
+            // 转换到高斯-克吕格投影坐标系（米制）
             long startConvert = System.currentTimeMillis();
-            Geometry projPoint = wgs84ToWebMercator(pointGeom);
+            Geometry projPoint = JTS.transform(pointGeom, txWgsToGk);
             convertTime += System.currentTimeMillis() - startConvert;
 
             // 创建缓冲区（降低圆近似复杂度以提升性能）
@@ -506,7 +513,7 @@ public class GisUtil implements AutoCloseable {
         // 使用GeometryCollection优化合并所有缓冲区
         log.trace("[buildOutlineBySimpleBuffers] 开始使用GeometryCollection优化合并 {} 个缓冲区", pointBuffers.size());
 
-        // 分桶：在 WebMercator 上按网格将缓冲分组，降低相互参与的多边形数量
+        // 分桶：在高斯-克吕格投影平面按网格将缓冲分组，降低相互参与的多边形数量
         long startBucket = System.currentTimeMillis();
         // 基于整体包络自适应格子大小，目标桶数约300
         Envelope overall = new Envelope();
@@ -569,9 +576,10 @@ public class GisUtil implements AutoCloseable {
         long unionTime = bucketUnionTime + finalUnionTime;
         log.trace("[buildOutlineBySimpleBuffers] 最终合并完成 桶内:{}ms 总合并:{}ms", bucketUnionTime, finalUnionTime);
 
-        // 转换回WGS84坐标系
+        // 转换回WGS84坐标系（使用高斯-克吕格反转换）
         long startBackConvert = System.currentTimeMillis();
-        Geometry result = webMercatorToWgs84(union);
+        MathTransform txGkToWgs = getTxGaussToWgsByLon(originLon);
+        Geometry result = JTS.transform(union, txGkToWgs);
         long backConvertTime = System.currentTimeMillis() - startBackConvert;
 
         long endTime = System.currentTimeMillis();
@@ -582,32 +590,13 @@ public class GisUtil implements AutoCloseable {
     }
 
     /**
-     * 使用haversine公式计算两点间距离
-     * haversine公式用于计算球面上两点间的最短距离（大圆距离）
-     *
-     * @param p1 第一个点，包含经纬度信息
-     * @param p2 第二个点，包含经纬度信息
-     *
-     * @return 距离（米），两点间的地理距离
-     */
-    public double haversine(CoordinatePoint p1, CoordinatePoint p2) {
-        double dLat = Math.toRadians(p2.getLat() - p1.getLat());
-        double dLon = Math.toRadians(p2.getLon() - p1.getLon());
-        double a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-                Math.cos(Math.toRadians(p1.getLat())) *
-                        Math.cos(Math.toRadians(p2.getLat())) *
-                        Math.sin(dLon / 2) * Math.sin(dLon / 2);
-        return config.R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-    }
-
-    /**
      * 检查几何图形中的坐标是否有效（没有接近零的异常值）
      *
      * @param g 几何图形对象
      *
      * @return 如果坐标有效返回true，否则返回false
      */
-    public boolean hasValidCoordinates(Geometry g) {
+    private boolean hasValidCoordinates(Geometry g) {
         Coordinate[] coordinates = g.getCoordinates();
         for (Coordinate coord : coordinates) {
             // 检查是否存在非常接近0但非0的坐标值，这通常表示转换错误
@@ -621,88 +610,6 @@ public class GisUtil implements AutoCloseable {
             }
         }
         return true;
-    }
-
-    /**
-     * 判断几何图形是否可能已经是WGS84坐标系
-     *
-     * @param g 几何图形对象
-     *
-     * @return 如果可能是WGS84坐标系返回true，否则返回false
-     */
-    private boolean isLikelyWgs84(Geometry g) {
-        Coordinate[] coordinates = g.getCoordinates();
-        int invalidCount = 0;
-        int totalCount = coordinates.length;
-
-        for (Coordinate coord : coordinates) {
-            // 更严格的判断：如果坐标值非常接近0（在误差范围内）或者超出地理范围，则认为不是WGS84坐标系
-            if (Math.abs(coord.x) > 180 || Math.abs(coord.y) > 90 ||
-                    (Math.abs(coord.x) < 1e-10 && Math.abs(coord.x) > 0) ||
-                    (Math.abs(coord.y) < 1e-10 && Math.abs(coord.y) > 0) ||
-                    (coord.x == 0 && coord.y == 0)) {
-                invalidCount++;
-            }
-        }
-
-        // 如果超过5%的坐标点有问题，认为不是WGS84坐标系
-        return (double) invalidCount / totalCount < 0.05;
-    }
-
-    /**
-     * 计算加密参数
-     *
-     * @param lon 经度
-     * @param lat 纬度
-     *
-     * @return 加密偏移量数组，[0]为经度偏移，[1]为纬度偏移
-     */
-    private double[] delta(double lon, double lat) {
-        double dLat = transformLat(lon - 105.0, lat - 35.0);
-        double dLon = transformLon(lon - 105.0, lat - 35.0);
-        double radLat = lat / 180.0 * Math.PI;
-        double magic = Math.sin(radLat);
-        magic = 1 - config.eccentricitySquared * magic * magic;
-        double sqrtMagic = Math.sqrt(magic);
-        if (magic * sqrtMagic < 1e-10) {
-            throw new IllegalArgumentException("纬度值导致除零错误");
-        }
-        dLat = (dLat * 180.0)
-                / ((config.semiMajorAxis * (1 - config.eccentricitySquared)) / (magic * sqrtMagic) * Math.PI);
-        dLon = (dLon * 180.0) / (config.semiMajorAxis / sqrtMagic * Math.cos(radLat) * Math.PI);
-        return new double[] { dLon, dLat };
-    }
-
-    /**
-     * 转换纬度
-     *
-     * @param x 经度差值
-     * @param y 纬度差值
-     *
-     * @return 转换后的纬度值
-     */
-    private double transformLat(double x, double y) {
-        double ret = -100.0 + 2.0 * x + 3.0 * y + 0.2 * y * y + 0.1 * x * y + 0.2 * Math.sqrt(Math.abs(x));
-        ret += (20.0 * Math.sin(6.0 * x * Math.PI) + 20.0 * Math.sin(2.0 * x * Math.PI)) * 2.0 / 3.0;
-        ret += (20.0 * Math.sin(y * Math.PI) + 40.0 * Math.sin(y / 3.0 * Math.PI)) * 2.0 / 3.0;
-        ret += (160.0 * Math.sin(y / 12.0 * Math.PI) + 320 * Math.sin(y * Math.PI / 30.0)) * 2.0 / 3.0;
-        return ret;
-    }
-
-    /**
-     * 转换经度
-     *
-     * @param x 经度差值
-     * @param y 纬度差值
-     *
-     * @return 转换后的经度值
-     */
-    private double transformLon(double x, double y) {
-        double ret = 300.0 + x + 2.0 * y + 0.1 * x * x + 0.1 * x * y + 0.1 * Math.sqrt(Math.abs(x));
-        ret += (20.0 * Math.sin(6.0 * x * Math.PI) + 20.0 * Math.sin(2.0 * x * Math.PI)) * 2.0 / 3.0;
-        ret += (20.0 * Math.sin(x * Math.PI) + 40.0 * Math.sin(x / 3.0 * Math.PI)) * 2.0 / 3.0;
-        ret += (150.0 * Math.sin(x / 12.0 * Math.PI) + 300.0 * Math.sin(x / 30.0 * Math.PI)) * 2.0 / 3.0;
-        return ret;
     }
 
     // 新增：按面积倒序保留最大的 N 个多边形
@@ -900,37 +807,54 @@ public class GisUtil implements AutoCloseable {
      *
      * @return WKT字符串，表示几何图形
      */
+    /**
+     * 计算两点间的大圆距离（Haversine公式）
+     *
+     * @return 距离（米），两点间的地理距离
+     */
+    public double haversine(CoordinatePoint p1, CoordinatePoint p2) {
+        double dLat = Math.toRadians(p2.getLat() - p1.getLat());
+        double dLon = Math.toRadians(p2.getLon() - p1.getLon());
+        double a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+                Math.cos(Math.toRadians(p1.getLat())) *
+                        Math.cos(Math.toRadians(p2.getLat())) *
+                        Math.sin(dLon / 2) * Math.sin(dLon / 2);
+        return config.R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    }
+
     public String toWkt(Geometry g) {
         try {
-            // 检查几何图形是否已经是WGS84坐标系并且坐标有效
-            if (isLikelyWgs84(g) && hasValidCoordinates(g)) {
-                String wkt = g.toText();
-                return wkt;
+            // 空几何直接返回其WKT
+            if (g == null) {
+                return "GEOMETRYCOLLECTION EMPTY";
             }
-
-            // 转换到WGS84坐标系
-            Geometry wgs = webMercatorToWgs84(g);
-            // 验证转换后的几何图形
-            if (!isValidWgs84Geometry(wgs) || !hasValidCoordinates(wgs)) {
-                // 尝试清理几何图形
+            if (g.isEmpty()) {
+                return g.toText();
+            }
+            // 自动识别坐标系：WGS84直接输出，否则视为高斯并转换到WGS84
+            Geometry wgs;
+            if (isValidWgs84Geometry(g)) {
+                wgs = g;
+            } else {
+                int zone = inferGkZoneFromGeometryEasting(g);
+                double lon = gkCentralMeridian(zone);
+                MathTransform tx = getTxGaussToWgsByLon(lon);
+                wgs = JTS.transform(g, tx);
+            }
+            if (!hasValidCoordinates(wgs)) {
                 wgs = wgs.buffer(0);
-                if (!isValidWgs84Geometry(wgs) || !hasValidCoordinates(wgs)) {
-                    String wkt = g.toText();
-                    return wkt;
-                }
             }
-
-            String wkt = wgs.toText();
-            return wkt;
+            return wgs.toText();
         } catch (Exception e) {
-            log.error("坐标转换失败: " + e.getMessage(), e);
-            String wkt = g.toText();
-            return wkt;
+            log.error("坐标转换到WGS84失败: " + e.getMessage(), e);
+            return g != null ? g.toText() : "GEOMETRYCOLLECTION EMPTY";
         }
     }
 
     /**
-     * 计算几何图形的面积（mu单位，支持 Polygon 与 MultiPolygon），按 WGS84 球面公式对齐 Turf.js
+     * 计算几何图形的面积（mu单位，支持 Polygon 与 MultiPolygon）。
+     * - 自动识别坐标系：若为 WGS84（经纬度范围合理）则直接按球面公式计算；否则视为高斯-克吕格投影并转换到 WGS84。
+     * - 面积计算与 Turf.js 对齐（球面面积，平方米）。
      *
      * @param outline 几何图形（POLYGON 或 MULTIPOLYGON）
      *
@@ -939,18 +863,32 @@ public class GisUtil implements AutoCloseable {
      * @throws RuntimeException 如果面积计算过程中发生错误
      */
     public double calcMu(Geometry outline) throws RuntimeException {
+        if (outline == null || outline.isEmpty()) {
+            return 0.0;
+        }
         try {
+            // 自动识别坐标系：WGS84 直接使用；否则按高斯→WGS84转换
+            Geometry wgs;
+            if (isValidWgs84Geometry(outline)) {
+                wgs = outline;
+            } else {
+                int zone = inferGkZoneFromGeometryEasting(outline);
+                double lon = gkCentralMeridian(zone);
+                MathTransform tx = getTxGaussToWgsByLon(lon);
+                wgs = JTS.transform(outline, tx);
+            }
+
             double areaSqm = 0.0;
-            if (outline instanceof org.locationtech.jts.geom.Polygon) {
-                org.locationtech.jts.geom.Polygon p = (org.locationtech.jts.geom.Polygon) outline;
+            if (wgs instanceof org.locationtech.jts.geom.Polygon) {
+                org.locationtech.jts.geom.Polygon p = (org.locationtech.jts.geom.Polygon) wgs;
                 double areaOuter = Math.abs(ringArea(p.getExteriorRing()));
                 double holesArea = 0.0;
                 for (int i = 0; i < p.getNumInteriorRing(); i++) {
                     holesArea += Math.abs(ringArea(p.getInteriorRingN(i)));
                 }
                 areaSqm = areaOuter - holesArea;
-            } else if (outline instanceof org.locationtech.jts.geom.MultiPolygon) {
-                org.locationtech.jts.geom.MultiPolygon mp = (org.locationtech.jts.geom.MultiPolygon) outline;
+            } else if (wgs instanceof org.locationtech.jts.geom.MultiPolygon) {
+                org.locationtech.jts.geom.MultiPolygon mp = (org.locationtech.jts.geom.MultiPolygon) wgs;
                 for (int i = 0; i < mp.getNumGeometries(); i++) {
                     org.locationtech.jts.geom.Polygon p = (org.locationtech.jts.geom.Polygon) mp.getGeometryN(i);
                     double areaOuter = Math.abs(ringArea(p.getExteriorRing()));
@@ -979,8 +917,39 @@ public class GisUtil implements AutoCloseable {
      * @return 面积（mu），以亩为单位，保留4位小数
      */
     public double calcMu(String wkt) {
-        Geometry geometry = fromWkt(wkt);
-        return calcMu(geometry);
+        if (wkt == null || wkt.trim().isEmpty()) {
+            return 0.0;
+        }
+        try {
+            WKTReader reader = new WKTReader(config.geometryFactory);
+            Geometry wgs = reader.read(wkt);
+            double areaSqm = 0.0;
+            if (wgs instanceof org.locationtech.jts.geom.Polygon) {
+                org.locationtech.jts.geom.Polygon p = (org.locationtech.jts.geom.Polygon) wgs;
+                double areaOuter = Math.abs(ringArea(p.getExteriorRing()));
+                double holesArea = 0.0;
+                for (int i = 0; i < p.getNumInteriorRing(); i++) {
+                    holesArea += Math.abs(ringArea(p.getInteriorRingN(i)));
+                }
+                areaSqm = areaOuter - holesArea;
+            } else if (wgs instanceof org.locationtech.jts.geom.MultiPolygon) {
+                org.locationtech.jts.geom.MultiPolygon mp = (org.locationtech.jts.geom.MultiPolygon) wgs;
+                for (int i = 0; i < mp.getNumGeometries(); i++) {
+                    org.locationtech.jts.geom.Polygon p = (org.locationtech.jts.geom.Polygon) mp.getGeometryN(i);
+                    double areaOuter = Math.abs(ringArea(p.getExteriorRing()));
+                    double holesArea = 0.0;
+                    for (int j = 0; j < p.getNumInteriorRing(); j++) {
+                        holesArea += Math.abs(ringArea(p.getInteriorRingN(j)));
+                    }
+                    areaSqm += (areaOuter - holesArea);
+                }
+            } else {
+                return 0.0;
+            }
+            return Math.round((areaSqm / 666.6667) * 10000.0) / 10000.0;
+        } catch (org.locationtech.jts.io.ParseException e) {
+            throw new RuntimeException("解析WKT字符串时出错: " + e.getMessage(), e);
+        }
     }
 
     /**
@@ -998,97 +967,25 @@ public class GisUtil implements AutoCloseable {
         if (wkt == null || wkt.trim().isEmpty()) {
             throw new IllegalArgumentException("WKT字符串不能为空");
         }
-
         try {
             WKTReader wktReader = new WKTReader(config.geometryFactory);
-            Geometry geometry = wktReader.read(wkt);
-
-            if (geometry == null) {
+            Geometry wgs = wktReader.read(wkt);
+            if (wgs == null) {
                 throw new RuntimeException("无法解析WKT字符串: " + wkt);
             }
-
-            String geometryType = geometry.getGeometryType().toUpperCase();
+            String geometryType = wgs.getGeometryType().toUpperCase();
             if (!("POLYGON".equals(geometryType) || "MULTIPOLYGON".equals(geometryType))) {
                 throw new IllegalArgumentException("不支持的几何类型: " + geometryType + "。仅支持POLYGON和MULTIPOLYGON");
             }
-
-            return geometry;
+            double lon = wgs.getCentroid().getX();
+            MathTransform tx = getTxWgsToGaussByLon(lon);
+            Geometry gauss = JTS.transform(wgs, tx);
+            return gauss;
         } catch (org.locationtech.jts.io.ParseException e) {
             throw new RuntimeException("解析WKT字符串时出错: " + e.getMessage(), e);
-        }
-    }
-
-    /**
-     * 判断点是否在矩形内
-     */
-    public boolean inRectangle(double pointLon, double pointLat,
-            double rectMinLon, double rectMinLat,
-            double rectMaxLon, double rectMaxLat) {
-        if (rectMinLon > rectMaxLon || rectMinLat > rectMaxLat) {
-            throw new IllegalArgumentException("矩形参数无效：minLon不能大于maxLon，minLat不能大于maxLat");
-        }
-
-        return pointLon >= rectMinLon && pointLon <= rectMaxLon &&
-                pointLat >= rectMinLat && pointLat <= rectMaxLat;
-    }
-
-    /**
-     * 判断点是否在圆形内
-     */
-    public boolean inCircle(CoordinatePoint point, CoordinatePoint center, double radiusM) {
-        if (point == null || center == null) {
-            throw new IllegalArgumentException("点坐标不能为null");
-        }
-
-        double distance = haversine(point, center);
-        return distance <= radiusM;
-    }
-
-    /**
-     * 判断点是否在圆形内
-     */
-    public boolean inCircle(double pointLon, double pointLat,
-            double centerLon, double centerLat,
-            double radiusM) {
-        return inCircle(
-                new CoordinatePoint(pointLon, pointLat),
-                new CoordinatePoint(centerLon, centerLat),
-                radiusM);
-    }
-
-    /**
-     * 判断点是否在多边形内
-     */
-    public boolean inPolygon(double pointLon, double pointLat, String polygonWkt) throws Exception {
-        if (polygonWkt == null || polygonWkt.isEmpty()) {
-            throw new IllegalArgumentException("多边形WKT不能为null或空");
-        }
-
-        try {
-            Geometry polygon = fromWkt(polygonWkt);
-            if (polygon == null) {
-                throw new IllegalArgumentException("解析多边形WKT失败");
-            }
-
-            Geometry point = config.geometryFactory.createPoint(new Coordinate(pointLon, pointLat));
-            return point.within(polygon);
         } catch (Exception e) {
-            throw new Exception("解析多边形WKT或判断点在多边形内时出错: " + e.getMessage(), e);
+            throw new RuntimeException("WGS84→Gauss投影转换失败: " + e.getMessage(), e);
         }
-    }
-
-    /**
-     * 判断两个多边形是否相交（支持POLYGON与MULTIPOLYGON）
-     *
-     * @param wktA 第一个几何的WKT（WGS84）
-     * @param wktB 第二个几何的WKT（WGS84）
-     * @return 是否相交
-     * @throws Exception 解析或计算过程中出错
-     */
-    public boolean intersects(String wktA, String wktB) throws Exception {
-        Geometry g1 = fromWkt(wktA);
-        Geometry g2 = fromWkt(wktB);
-        return g1.intersects(g2);
     }
 
     /**
@@ -1106,241 +1003,6 @@ public class GisUtil implements AutoCloseable {
         String wkt = toWkt(inter);
         double mu = calcMu(inter);
         return new WktIntersectionResult(wkt, mu);
-    }
-
-    /**
-     * 判断两个多边形是否相邻（共享边界，支持POLYGON与MULTIPOLYGON）
-     *
-     * @param wktA 第一个几何的WKT（WGS84）
-     * @param wktB 第二个几何的WKT（WGS84）
-     * @return 是否相邻（touches）
-     * @throws Exception 解析或计算过程中出错
-     */
-    public boolean touches(String wktA, String wktB) throws Exception {
-        Geometry g1 = fromWkt(wktA);
-        Geometry g2 = fromWkt(wktB);
-        return g1.touches(g2);
-    }
-
-    /**
-     * 创建缓冲区
-     */
-    public Geometry buffer(Geometry geom, double distance, double originLon) throws Exception {
-        try {
-            // 转换到Web Mercator投影坐标
-            Geometry proj = wgs84ToWebMercator(geom);
-            Geometry buffer = proj.buffer(distance);
-            // 转换回WGS84坐标系
-            return webMercatorToWgs84(buffer);
-        } catch (Exception e) {
-            throw new Exception("创建缓冲区时出错: " + e.getMessage(), e);
-        }
-    }
-
-    /**
-     * 将WGS84坐标转换为GCJ02坐标（火星坐标）
-     */
-    public CoordinatePoint wgs84ToGcj02(double lon, double lat) {
-        if (outOfChina(lon, lat)) {
-            return new CoordinatePoint(lon, lat);
-        }
-
-        double[] delta = delta(lon, lat);
-        return new CoordinatePoint(lon + delta[0], lat + delta[1]);
-    }
-
-    /**
-     * 将GCJ02坐标转换为WGS84坐标
-     */
-    public CoordinatePoint gcj02ToWgs84(double lon, double lat) {
-        if (outOfChina(lon, lat)) {
-            return new CoordinatePoint(lon, lat);
-        }
-
-        double[] delta = delta(lon, lat);
-        return new CoordinatePoint(lon - delta[0], lat - delta[1]);
-    }
-
-    /**
-     * 将GCJ02坐标转换为BD09坐标（百度坐标）
-     */
-    public CoordinatePoint gcj02ToBd09(double lon, double lat) {
-        double z = Math.sqrt(lon * lon + lat * lat) + 0.00002 * Math.sin(lat * Math.PI);
-        double theta = Math.atan2(lat, lon) + 0.000003 * Math.cos(lon * Math.PI);
-        double bd_lon = z * Math.cos(theta) + 0.0065;
-        double bd_lat = z * Math.sin(theta) + 0.006;
-        return new CoordinatePoint(bd_lon, bd_lat);
-    }
-
-    /**
-     * 将BD09坐标转换为GCJ02坐标
-     */
-    public CoordinatePoint bd09ToGcj02(double lon, double lat) {
-        double x = lon - 0.0065, y = lat - 0.006;
-        double z = Math.sqrt(x * x + y * y) - 0.00002 * Math.sin(y * Math.PI);
-        double theta = Math.atan2(y, x) - 0.000003 * Math.cos(x * Math.PI);
-        double gg_lon = z * Math.cos(theta);
-        double gg_lat = z * Math.sin(theta);
-        return new CoordinatePoint(gg_lon, gg_lat);
-    }
-
-    /**
-     * 将WGS84坐标直接转换为BD09坐标
-     */
-    public CoordinatePoint wgs84ToBd09(double lon, double lat) {
-        CoordinatePoint gcj02 = wgs84ToGcj02(lon, lat);
-        return gcj02ToBd09(gcj02.getLon(), gcj02.getLat());
-    }
-
-    /**
-     * 将BD09坐标直接转换为WGS84坐标
-     */
-    public CoordinatePoint bd09ToWgs84(double lon, double lat) {
-        CoordinatePoint gcj02 = bd09ToGcj02(lon, lat);
-        return gcj02ToWgs84(gcj02.getLon(), gcj02.getLat());
-    }
-
-    /**
-     * 批量将WGS84坐标点列表转换为GCJ02坐标点列表
-     */
-    public List<CoordinatePoint> wgs84ToGcj02(List<CoordinatePoint> points) {
-        return points.stream()
-                .map(p -> wgs84ToGcj02(p.getLon(), p.getLat()))
-                .collect(Collectors.toList());
-    }
-
-    /**
-     * 批量将GCJ02坐标点列表转换为WGS84坐标点列表
-     */
-    public List<CoordinatePoint> gcj02ToWgs84(List<CoordinatePoint> points) {
-        return points.stream()
-                .map(p -> gcj02ToWgs84(p.getLon(), p.getLat()))
-                .collect(Collectors.toList());
-    }
-
-    /**
-     * 批量将GCJ02坐标点列表转换为BD09坐标点列表
-     */
-    public List<CoordinatePoint> gcj02ToBd09(List<CoordinatePoint> points) {
-        return points.stream()
-                .map(p -> gcj02ToBd09(p.getLon(), p.getLat()))
-                .collect(Collectors.toList());
-    }
-
-    /**
-     * 批量将BD09坐标点列表转换为GCJ02坐标点列表
-     */
-    public List<CoordinatePoint> bd09ToGcj02(List<CoordinatePoint> points) {
-        return points.stream()
-                .map(p -> bd09ToGcj02(p.getLon(), p.getLat()))
-                .collect(Collectors.toList());
-    }
-
-    /**
-     * 批量将WGS84坐标点列表直接转换为BD09坐标点列表
-     */
-    public List<CoordinatePoint> wgs84ToBd09(List<CoordinatePoint> points) {
-        return points.stream()
-                .map(p -> wgs84ToBd09(p.getLon(), p.getLat()))
-                .collect(Collectors.toList());
-    }
-
-    /**
-     * 批量将BD09坐标点列表直接转换为WGS84坐标点列表
-     */
-    public List<CoordinatePoint> bd09ToWgs84(List<CoordinatePoint> points) {
-        return points.stream()
-                .map(p -> bd09ToWgs84(p.getLon(), p.getLat()))
-                .collect(Collectors.toList());
-    }
-
-    /**
-     * 批量将TrackPoint列表从WGS84坐标转换为GCJ02坐标（修改原对象）
-     */
-    public List<TrackPoint> wgs84ToGcj02TrackPoints(List<TrackPoint> points) {
-        return points.stream()
-                .peek(p -> {
-                    CoordinatePoint result = wgs84ToGcj02(p.getLon(), p.getLat());
-                    p.setLon(result.getLon());
-                    p.setLat(result.getLat());
-                })
-                .collect(Collectors.toList());
-    }
-
-    /**
-     * 批量将TrackPoint列表从GCJ02坐标转换为WGS84坐标（修改原对象）
-     */
-    public List<TrackPoint> gcj02ToWgs84TrackPoints(List<TrackPoint> points) {
-        return points.stream()
-                .peek(p -> {
-                    CoordinatePoint result = gcj02ToWgs84(p.getLon(), p.getLat());
-                    p.setLon(result.getLon());
-                    p.setLat(result.getLat());
-                })
-                .collect(Collectors.toList());
-    }
-
-    /**
-     * 批量将TrackPoint列表从GCJ02坐标转换为BD09坐标（创建新对象）
-     */
-    public List<TrackPoint> gcj02ToBd09TrackPoints(List<TrackPoint> points) {
-        return points.stream()
-                .map(p -> {
-                    CoordinatePoint result = gcj02ToBd09(p.getLon(), p.getLat());
-                    TrackPoint tp = new TrackPoint(p.getTime(), result.getLon(), result.getLat());
-                    BeanUtil.copyProperties(p, tp, "lon", "lat");
-                    return tp;
-                })
-                .collect(Collectors.toList());
-    }
-
-    /**
-     * 批量将TrackPoint列表从BD09坐标转换为GCJ02坐标（创建新对象）
-     */
-    public List<TrackPoint> bd09ToGcj02TrackPoints(List<TrackPoint> points) {
-        return points.stream()
-                .map(p -> {
-                    CoordinatePoint result = bd09ToGcj02(p.getLon(), p.getLat());
-                    TrackPoint tp = new TrackPoint(p.getTime(), result.getLon(), result.getLat());
-                    BeanUtil.copyProperties(p, tp, "lon", "lat");
-                    return tp;
-                })
-                .collect(Collectors.toList());
-    }
-
-    /**
-     * 批量将TrackPoint列表从WGS84坐标直接转换为BD09坐标（创建新对象）
-     */
-    public List<TrackPoint> wgs84ToBd09TrackPoints(List<TrackPoint> points) {
-        return points.stream()
-                .map(p -> {
-                    CoordinatePoint result = wgs84ToBd09(p.getLon(), p.getLat());
-                    TrackPoint tp = new TrackPoint(p.getTime(), result.getLon(), result.getLat());
-                    BeanUtil.copyProperties(p, tp, "lon", "lat");
-                    return tp;
-                })
-                .collect(Collectors.toList());
-    }
-
-    /**
-     * 批量将TrackPoint列表从BD09坐标直接转换为WGS84坐标（创建新对象）
-     */
-    public List<TrackPoint> bd09ToWgs84TrackPoints(List<TrackPoint> points) {
-        return points.stream()
-                .map(p -> {
-                    CoordinatePoint result = bd09ToWgs84(p.getLon(), p.getLat());
-                    TrackPoint tp = new TrackPoint(p.getTime(), result.getLon(), result.getLat());
-                    BeanUtil.copyProperties(p, tp, "lon", "lat");
-                    return tp;
-                })
-                .collect(Collectors.toList());
-    }
-
-    /**
-     * 判断点是否在中国境外
-     */
-    public boolean outOfChina(double lon, double lat) {
-        return lon < 72.004 || lon > 137.8347 || lat < 0.8293 || lat > 55.8271;
     }
 
     /**
@@ -1385,12 +1047,17 @@ public class GisUtil implements AutoCloseable {
         long tBuildEnd = System.currentTimeMillis();
         log.trace("[getOutline] 轮廓构建完成，耗时: {}ms", (tBuildEnd - tBuildStart));
 
+        // 基于首点经度构建高斯-克吕格米制投影转换（形态学处理）
+        double originLonGk = points.get(0).getLon();
+        MathTransform txWgsToGkOutline = getTxWgsToGaussByLon(originLonGk);
+        MathTransform txGkToWgsOutline = getTxGaussToWgsByLon(originLonGk);
+
         // 若为 MultiPolygon，则转换为单个 Polygon（凹包）：基于 alpha-like 形态操作
         if (outline instanceof MultiPolygon) {
             try {
                 // 在米制下进行形态学处理以获得凹包
                 Geometry unioned = UnaryUnionOp.union(outline);
-                Geometry proj = wgs84ToWebMercator(unioned);
+                Geometry proj = JTS.transform(unioned, txWgsToGkOutline);
                 BufferParameters bp = new BufferParameters();
                 bp.setQuadrantSegments(config.DEFAULT_BUFFER_QUADRANT);
                 bp.setEndCapStyle(BufferParameters.CAP_FLAT);
@@ -1402,7 +1069,7 @@ public class GisUtil implements AutoCloseable {
                 Geometry hull = dilated.convexHull();
                 double shrink = Math.max(0.5, widthM * 0.9); // 收缩半径：略小于扩张，保留凹特征
                 Geometry eroded = BufferOp.bufferOp(hull, -shrink, bp);
-                Geometry concaveWgs = webMercatorToWgs84(eroded);
+                Geometry concaveWgs = JTS.transform(eroded, txGkToWgsOutline);
 
                 if (concaveWgs instanceof Polygon) {
                     outline = (Polygon) concaveWgs;
@@ -1455,66 +1122,18 @@ public class GisUtil implements AutoCloseable {
     /**
      * 基于轨迹点与总宽度生成轮廓，并按面积保留 Top-N 最大区块。
      *
-     * <p>参数说明</p>
-     * - seg：轨迹点列表（WGS84，经度范围[-180,180]、纬度范围[-90,90]），至少 3 个有效点；
-     *   方法内部会按时间升序处理，并自动过滤非法点（越界以及 0,0）。
-     * - totalWidthM：道路“总宽度”（米），等于左右两侧宽度之和；内部以 totalWidthM/2 作为单侧缓冲宽度。
-     *
-     * <p>返回结果</p>
-     * - 仅形成一个区块时返回 `Polygon`；形成多个区块时返回 `MultiPolygon`；
-     * - 会按面积从大到小保留前 N 个区块（默认 N=10）；
-     * - 若过滤后无有效区块，则返回空 `MultiPolygon`；
-     * - 返回坐标系为 WGS84。
-     *
-     * <p>行为特性</p>
-     * - 以宽度为依据的最小面积阈值过滤小区块，阈值约为 π*(totalWidthM/2)^2；
-     * - 面积倒序裁剪，最多保留 `maxSegments` 个区块；若仅 1 个区块将返回 `Polygon`。
-     *
-     * <p>异常</p>
-     * - IllegalArgumentException：seg 少于 3 个有效点，或 totalWidthM < 0；
-     * - Exception：坐标转换或几何运算异常。
-     *
-     * <p>示例</p>
-     * `GisUtil util = GisUtil.builder().build();`
-     * `Geometry outline = util.splitRoad(points, 8.0);`
-     *
      * @param seg         轨迹点列表（WGS84），至少 3 个有效点
      * @param totalWidthM 道路总宽度（米），左右合计，必须非负
      * @return            轮廓几何，可能为 `Polygon` 或 `MultiPolygon`（裁剪后最多保留前 N 个）
      * @throws Exception  坐标转换或几何运算异常
      */
-
     public SplitRoadResult splitRoad(List<TrackPoint> seg, double totalWidthM) throws Exception {
         return splitRoad(seg, totalWidthM, config.DEFAULT_MAX_OUTLINE_SEGMENTS);
     }
 
     /**
      * 基于轨迹点与总宽度生成轮廓，并按面积保留不超过 maxSegments 的最大区块。
-     *
-     * <p>参数说明</p>
-     * - seg：轨迹点列表（WGS84，经度范围[-180,180]、纬度范围[-90,90]），至少 3 个有效点；
-     *   方法内部会按时间升序处理，并自动过滤非法点（越界以及 0,0）。
-     * - totalWidthM：道路“总宽度”（米），等于左右两侧宽度之和；内部以 totalWidthM/2 作为单侧缓冲宽度。
-     * - maxSegments：返回区块数量上限；为 null 或 <=0 时使用默认值 N=10；
-     *   当原始区块数 ≤ 上限时不会进行裁剪（不输出“裁剪结果”日志）。
-     *
-     * <p>返回结果</p>
-     * - 仅形成一个区块时返回 `Polygon`；形成多个区块时返回 `MultiPolygon`；
-     * - 若过滤后无有效区块，则返回空 `MultiPolygon`；
-     * - 返回坐标系为 WGS84。
-     *
-     * <p>行为特性</p>
-     * - 以宽度为依据的最小面积阈值过滤小区块，阈值约为 π*(totalWidthM/2)^2；
-     * - 面积倒序裁剪，最多保留 `maxSegments` 个区块；若仅 1 个区块将返回 `Polygon`。
-     *
-     * <p>异常</p>
-     * - IllegalArgumentException：seg 少于 3 个有效点，或 totalWidthM < 0；
-     * - Exception：坐标转换或几何运算异常。
-     *
-     * <p>示例</p>
-     * `GisUtil util = GisUtil.builder().build();`
-     * `Geometry outline = util.splitRoad(points, 8.0, 5);`
-     *
+     * 
      * @param seg         轨迹点列表（WGS84），至少 3 个有效点
      * @param totalWidthM 道路总宽度（米），左右合计，必须非负
      * @param maxSegments 返回的区块数量上限；为 null 或 <=0 时取默认值 N=10
@@ -1617,158 +1236,8 @@ public class GisUtil implements AutoCloseable {
                     .flatMap(java.util.List::stream)
                     .collect(java.util.stream.Collectors.toList());
 
-            java.time.LocalDateTime start = null;
-            java.time.LocalDateTime end = null;
-            if (!sessions.isEmpty()) {
-                sessions.sort(java.util.Comparator.comparing(
-                        s -> s.get(0).getTime(),
-                        java.util.Comparator.nullsLast(java.util.Comparator.naturalOrder())));
-                // 宽限合并相邻短间隙，得到更稳定的段
-                java.util.List<java.util.List<TrackPoint>> merged = new java.util.ArrayList<>();
-                java.util.List<TrackPoint> acc = null;
-                for (java.util.List<TrackPoint> s : sessions) {
-                    if (acc == null) {
-                        acc = new java.util.ArrayList<>(s);
-                        merged.add(acc);
-                    } else {
-                        java.time.LocalDateTime prevEnd = acc.get(acc.size() - 1).getTime();
-                        java.time.LocalDateTime currStart = s.get(0).getTime();
-                        long gapSec = java.time.Duration.between(prevEnd, currStart).getSeconds();
-                        if (gapSec <= config.SESSION_GRACE_SECONDS) {
-                            acc.addAll(s);
-                        } else {
-                            acc = new java.util.ArrayList<>(s);
-                            merged.add(acc);
-                        }
-                    }
-                }
-                // 选取首个“有效首段”：满足最小时长或最少点数；若都不满足，取最长段
-                java.util.List<TrackPoint> firstSess = null;
-                long longestSec = -1;
-                for (java.util.List<TrackPoint> s : merged) {
-                    java.time.LocalDateTime a = s.get(0).getTime();
-                    java.time.LocalDateTime b = s.get(s.size() - 1).getTime();
-                    long sec = java.time.Duration.between(a, b).getSeconds();
-                    if (firstSess == null && (sec >= config.SESSION_MIN_SECONDS_FIRST
-                            || s.size() >= config.SESSION_MIN_POINTS_FIRST)) {
-                        firstSess = s;
-                        break;
-                    }
-                    if (sec > longestSec) {
-                        longestSec = sec;
-                        firstSess = s;
-                    }
-                }
-                if (!merged.isEmpty()) {
-                    java.util.List<TrackPoint> firstMerged = merged.get(0);
-                    java.util.List<TrackPoint> lastMerged = merged.get(merged.size() - 1);
-                    TrackPoint p0 = firstMerged.get(0);
-                    TrackPoint pn = lastMerged.get(lastMerged.size() - 1);
-                    // 默认采用跨度首尾点时间（合并短间隙后）
-                    start = p0.getTime();
-                    end = pn.getTime();
-                    // 进入时间插值：prev -> p0 与边界的交点
-                    try {
-                        int idxStart = -1;
-                        for (int k = 0; k < sortedSeg.size(); k++) {
-                            if (sortedSeg.get(k) == p0) {
-                                idxStart = k;
-                                break;
-                            }
-                        }
-                        if (idxStart > 0) {
-                            TrackPoint prev = sortedSeg.get(idxStart - 1);
-                            org.locationtech.jts.geom.LineString segLine = config.geometryFactory
-                                    .createLineString(new Coordinate[] {
-                                            new Coordinate(prev.getLon(), prev.getLat()),
-                                            new Coordinate(p0.getLon(), p0.getLat())
-                                    });
-                            Geometry inter = segLine.intersection(poly.getBoundary());
-                            Coordinate target = new Coordinate(p0.getLon(), p0.getLat());
-                            Coordinate best = null;
-                            double bestDist = Double.MAX_VALUE;
-                            if (inter != null) {
-                                Coordinate[] arr = inter.getCoordinates();
-                                if (arr != null && arr.length > 0) {
-                                    for (Coordinate cc : arr) {
-                                        double d = cc.distance(target);
-                                        if (d < bestDist) {
-                                            bestDist = d;
-                                            best = cc;
-                                        }
-                                    }
-                                }
-                            }
-                            if (best != null && prev.getTime() != null && p0.getTime() != null) {
-                                Coordinate cPrev = new Coordinate(prev.getLon(), prev.getLat());
-                                Coordinate cP0 = new Coordinate(p0.getLon(), p0.getLat());
-                                double dTot = cPrev.distance(cP0);
-                                double dPrev = cPrev.distance(best);
-                                if (dTot > 0) {
-                                    double ratio = Math.max(0.0, Math.min(1.0, dPrev / dTot));
-                                    long nanos = java.time.Duration.between(prev.getTime(), p0.getTime()).toNanos();
-                                    long nanoOffset = Math.round(nanos * ratio);
-                                    start = prev.getTime().plusNanos(nanoOffset);
-                                }
-                            }
-                        }
-                    } catch (Exception e) {
-                        log.trace("[splitRoad] Polygon 进入时间插值失败，使用首点时间", e);
-                    }
-                    // 离开时间插值：pn -> next 与边界的交点
-                    try {
-                        int idxEnd = -1;
-                        for (int k = 0; k < sortedSeg.size(); k++) {
-                            if (sortedSeg.get(k) == pn) {
-                                idxEnd = k;
-                                break;
-                            }
-                        }
-                        if (idxEnd >= 0 && idxEnd < sortedSeg.size() - 1) {
-                            TrackPoint next = sortedSeg.get(idxEnd + 1);
-                            org.locationtech.jts.geom.LineString segLine = config.geometryFactory
-                                    .createLineString(new Coordinate[] {
-                                            new Coordinate(pn.getLon(), pn.getLat()),
-                                            new Coordinate(next.getLon(), next.getLat())
-                                    });
-                            Geometry inter = segLine.intersection(poly.getBoundary());
-                            Coordinate target = new Coordinate(pn.getLon(), pn.getLat());
-                            Coordinate best = null;
-                            double bestDist = Double.MAX_VALUE;
-                            if (inter != null) {
-                                Coordinate[] arr = inter.getCoordinates();
-                                if (arr != null && arr.length > 0) {
-                                    for (Coordinate cc : arr) {
-                                        double d = cc.distance(target);
-                                        if (d < bestDist) {
-                                            bestDist = d;
-                                            best = cc;
-                                        }
-                                    }
-                                }
-                            }
-                            if (best != null && pn.getTime() != null && next.getTime() != null) {
-                                Coordinate cPn = new Coordinate(pn.getLon(), pn.getLat());
-                                Coordinate cNext = new Coordinate(next.getLon(), next.getLat());
-                                double dTot = cPn.distance(cNext);
-                                double dPn = cPn.distance(best);
-                                if (dTot > 0) {
-                                    double ratio = Math.max(0.0, Math.min(1.0, dPn / dTot));
-                                    long nanos = java.time.Duration.between(pn.getTime(), next.getTime()).toNanos();
-                                    long nanoOffset = Math.round(nanos * ratio);
-                                    end = pn.getTime().plusNanos(nanoOffset);
-                                }
-                            }
-                        }
-                    } catch (Exception e) {
-                        log.trace("[splitRoad] Polygon 离开时间插值失败，使用末点时间", e);
-                    }
-                    // 兜底：保证 end > start
-                    if (start != null && end != null && !end.isAfter(start)) {
-                        end = start.plusSeconds(1);
-                    }
-                }
-            }
+            java.time.LocalDateTime start = sortedSeg.isEmpty() ? null : sortedSeg.get(0).getTime();
+            java.time.LocalDateTime end = sortedSeg.isEmpty() ? null : sortedSeg.get(sortedSeg.size() - 1).getTime();
             log.trace("[splitRoad] Polygon 跨度(插值) 时间范围 start={} end={} inPoly={} sessions={}", start, end,
                     inPoly.size(), sessions.size());
 
@@ -1825,159 +1294,10 @@ public class GisUtil implements AutoCloseable {
                 log.trace("[splitRoad] Part#{} 会话段统计完成 sessions={} 耗时={}ms", i, sessions.size(),
                         (tWithinEnd - tWithinStart));
 
-                java.time.LocalDateTime start = null;
-                java.time.LocalDateTime end = null;
-                if (!sessions.isEmpty()) {
-                    // 方案1：边界插值计算首段进入/离开时间（不合并后续返回）
-                    sessions.sort(java.util.Comparator.comparing(
-                            s -> s.get(0).getTime(),
-                            java.util.Comparator.nullsLast(java.util.Comparator.naturalOrder())));
-                    // 宽限合并相邻短间隙，得到更稳定的段
-                    java.util.List<java.util.List<TrackPoint>> merged = new java.util.ArrayList<>();
-                    java.util.List<TrackPoint> acc = null;
-                    for (java.util.List<TrackPoint> s : sessions) {
-                        if (acc == null) {
-                            acc = new java.util.ArrayList<>(s);
-                            merged.add(acc);
-                        } else {
-                            java.time.LocalDateTime prevEnd = acc.get(acc.size() - 1).getTime();
-                            java.time.LocalDateTime currStart = s.get(0).getTime();
-                            long gapSec = java.time.Duration.between(prevEnd, currStart).getSeconds();
-                            if (gapSec <= config.SESSION_GRACE_SECONDS) {
-                                acc.addAll(s);
-                            } else {
-                                acc = new java.util.ArrayList<>(s);
-                                merged.add(acc);
-                            }
-                        }
-                    }
-                    // 选取首个“有效首段”：满足最小时长或最少点数；若都不满足，取最长段
-                    java.util.List<TrackPoint> firstSess = null;
-                    long longestSec = -1;
-                    for (java.util.List<TrackPoint> s : merged) {
-                        java.time.LocalDateTime a = s.get(0).getTime();
-                        java.time.LocalDateTime b = s.get(s.size() - 1).getTime();
-                        long sec = java.time.Duration.between(a, b).getSeconds();
-                        if (firstSess == null && (sec >= config.SESSION_MIN_SECONDS_FIRST
-                                || s.size() >= config.SESSION_MIN_POINTS_FIRST)) {
-                            firstSess = s;
-                            break;
-                        }
-                        if (sec > longestSec) {
-                            longestSec = sec;
-                            firstSess = s;
-                        }
-                    }
-                    if (!merged.isEmpty()) {
-                        java.util.List<TrackPoint> firstMerged = merged.get(0);
-                        java.util.List<TrackPoint> lastMerged = merged.get(merged.size() - 1);
-                        TrackPoint p0 = firstMerged.get(0);
-                        TrackPoint pn = lastMerged.get(lastMerged.size() - 1);
-                        start = p0.getTime();
-                        end = pn.getTime();
-                        // 进入：prev -> p0 与边界交点插值
-                        try {
-                            int idxStart = -1;
-                            for (int k = 0; k < sortedSeg.size(); k++) {
-                                if (sortedSeg.get(k) == p0) {
-                                    idxStart = k;
-                                    break;
-                                }
-                            }
-                            if (idxStart > 0) {
-                                TrackPoint prev = sortedSeg.get(idxStart - 1);
-                                org.locationtech.jts.geom.LineString segLine = config.geometryFactory
-                                        .createLineString(new Coordinate[] {
-                                                new Coordinate(prev.getLon(), prev.getLat()),
-                                                new Coordinate(p0.getLon(), p0.getLat())
-                                        });
-                                Geometry inter = segLine.intersection(poly.getBoundary());
-                                Coordinate target = new Coordinate(p0.getLon(), p0.getLat());
-                                Coordinate best = null;
-                                double bestDist = Double.MAX_VALUE;
-                                if (inter != null) {
-                                    Coordinate[] arr = inter.getCoordinates();
-                                    if (arr != null && arr.length > 0) {
-                                        for (Coordinate cc : arr) {
-                                            double d = cc.distance(target);
-                                            if (d < bestDist) {
-                                                bestDist = d;
-                                                best = cc;
-                                            }
-                                        }
-                                    }
-                                }
-                                if (best != null && prev.getTime() != null && p0.getTime() != null) {
-                                    Coordinate cPrev = new Coordinate(prev.getLon(), prev.getLat());
-                                    Coordinate cP0 = new Coordinate(p0.getLon(), p0.getLat());
-                                    double dTot = cPrev.distance(cP0);
-                                    double dPrev = cPrev.distance(best);
-                                    if (dTot > 0) {
-                                        double ratio = Math.max(0.0, Math.min(1.0, dPrev / dTot));
-                                        long nanos = java.time.Duration.between(prev.getTime(), p0.getTime()).toNanos();
-                                        long nanoOffset = Math.round(nanos * ratio);
-                                        start = prev.getTime().plusNanos(nanoOffset);
-                                    }
-                                }
-                            }
-                        } catch (Exception e) {
-                            log.trace("[splitRoad] Part#{} 进入时间插值失败，使用首点时间", i, e);
-                        }
-                        // 离开：pn -> next 与边界交点插值
-                        try {
-                            int idxEnd = -1;
-                            for (int k = 0; k < sortedSeg.size(); k++) {
-                                if (sortedSeg.get(k) == pn) {
-                                    idxEnd = k;
-                                    break;
-                                }
-                            }
-                            if (idxEnd >= 0 && idxEnd < sortedSeg.size() - 1) {
-                                TrackPoint next = sortedSeg.get(idxEnd + 1);
-                                org.locationtech.jts.geom.LineString segLine = config.geometryFactory
-                                        .createLineString(new Coordinate[] {
-                                                new Coordinate(pn.getLon(), pn.getLat()),
-                                                new Coordinate(next.getLon(), next.getLat())
-                                        });
-                                Geometry inter = segLine.intersection(poly.getBoundary());
-                                Coordinate target = new Coordinate(pn.getLon(), pn.getLat());
-                                Coordinate best = null;
-                                double bestDist = Double.MAX_VALUE;
-                                if (inter != null) {
-                                    Coordinate[] arr = inter.getCoordinates();
-                                    if (arr != null && arr.length > 0) {
-                                        for (Coordinate cc : arr) {
-                                            double d = cc.distance(target);
-                                            if (d < bestDist) {
-                                                bestDist = d;
-                                                best = cc;
-                                            }
-                                        }
-                                    }
-                                }
-                                if (best != null && pn.getTime() != null && next.getTime() != null) {
-                                    Coordinate cPn = new Coordinate(pn.getLon(), pn.getLat());
-                                    Coordinate cNext = new Coordinate(next.getLon(), next.getLat());
-                                    double dTot = cPn.distance(cNext);
-                                    double dPn = cPn.distance(best);
-                                    if (dTot > 0) {
-                                        double ratio = Math.max(0.0, Math.min(1.0, dPn / dTot));
-                                        long nanos = java.time.Duration.between(pn.getTime(), next.getTime()).toNanos();
-                                        long nanoOffset = Math.round(nanos * ratio);
-                                        end = pn.getTime().plusNanos(nanoOffset);
-                                    }
-                                }
-                            }
-                        } catch (Exception e) {
-                            log.trace("[splitRoad] Part#{} 离开时间插值失败，使用末点时间", i, e);
-                        }
-                        // 兜底：保证 end > start
-                        if (start != null && end != null && !end.isAfter(start)) {
-                            end = start.plusSeconds(1);
-                        }
-                    }
-                }
-                log.trace("[splitRoad] Part#{} 跨度(插值) 时间范围 start={} end={} (sessions={})", i, start, end,
+                java.time.LocalDateTime start = sortedSeg.isEmpty() ? null : sortedSeg.get(0).getTime();
+                java.time.LocalDateTime end = sortedSeg.isEmpty() ? null
+                        : sortedSeg.get(sortedSeg.size() - 1).getTime();
+                log.trace("[splitRoad] Part#{} 跨度(简化) 时间范围 start={} end={} (sessions={})", i, start, end,
                         sessions.size());
 
                 long tMuStart = System.currentTimeMillis();
