@@ -32,6 +32,7 @@ import sunyu.util.pojo.CoordinatePoint;
 import sunyu.util.pojo.OutlinePart;
 import sunyu.util.pojo.SplitRoadResult;
 import sunyu.util.pojo.TrackPoint;
+import sunyu.util.pojo.WktIntersectionResult;
 
 /**
  * GIS工具类
@@ -1088,6 +1089,23 @@ public class GisUtil implements AutoCloseable {
         Geometry g1 = fromWkt(wktA);
         Geometry g2 = fromWkt(wktB);
         return g1.intersects(g2);
+    }
+
+    /**
+     * 计算两个WKT（WGS84）的相交部分，返回相交WKT与亩数。
+     * 如果无相交或相交结果为空几何，则返回 wkt=null，mu=0。
+     * 支持 POLYGON 与 MULTIPOLYGON 输入，输出为相交几何的 WKT 字符串。
+     */
+    public WktIntersectionResult intersection(String wktA, String wktB) throws Exception {
+        Geometry g1 = fromWkt(wktA);
+        Geometry g2 = fromWkt(wktB);
+        Geometry inter = g1.intersection(g2);
+        if (inter == null || inter.isEmpty()) {
+            return new WktIntersectionResult(null, 0.0);
+        }
+        String wkt = toWkt(inter);
+        double mu = calcMu(inter);
+        return new WktIntersectionResult(wkt, mu);
     }
 
     /**

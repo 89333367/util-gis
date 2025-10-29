@@ -31,6 +31,7 @@ import sunyu.util.TDengineUtil;
 import sunyu.util.pojo.OutlinePart;
 import sunyu.util.pojo.SplitRoadResult;
 import sunyu.util.pojo.TrackPoint;
+import sunyu.util.pojo.WktIntersectionResult;
 
 public class TestGisUtil {
     Log log = LogFactory.get();
@@ -96,15 +97,23 @@ public class TestGisUtil {
 
     @Test
     void 计算轮廓() throws Exception {
-        String trackStr = "";
+        String trackStr = FileUtil.readUtf8String(path + "/track.txt");
         List<TrackPoint> seg = new ArrayList<>();
         for (String split : trackStr.split("#")) {
             String[] ss = split.split(",");
             seg.add(new TrackPoint(LocalDateTimeUtil.parse(ss[2], "yyyyMMddHHmmss"), Convert.toDouble(ss[0]),
                     Convert.toDouble(ss[1])));
         }
-        OutlinePart r = gisUtil.getOutline(seg, 2.5);
+        OutlinePart r = gisUtil.getOutline(seg, 5);
         FileUtil.writeUtf8String(StrUtil.format("wkt: {}\nmu: {}", r.getWkt(), r.getMu()), path + "/outline.txt");
+    }
+
+    @Test
+    void 测试相交() throws Exception {
+        String wktA = FileUtil.readUtf8String(path + "/118.txt");
+        String wktB = FileUtil.readUtf8String(path + "/335.txt");
+        WktIntersectionResult r = gisUtil.intersection(wktA, wktB);
+        FileUtil.writeUtf8String(StrUtil.format("wkt: {}\nmu: {}", r.getWkt(), r.getMu()), path + "/intersection.txt");
     }
 
     @Test
