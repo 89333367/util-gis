@@ -74,9 +74,6 @@ public class GisUtil implements AutoCloseable {
      * 使用内部类封装配置参数，提高代码组织性和封装性
      */
     private static class Config {
-        // 最小亩数阈值，过滤小面积多边形
-        private final double MIN_MU_THRESHOLD = 0.76;
-
         // WGS84坐标系的EPSG代码，用于定义地理坐标系统
         private final String WGS84 = "EPSG:4326";
 
@@ -1155,8 +1152,11 @@ public class GisUtil implements AutoCloseable {
         long tTrimStart = System.currentTimeMillis();
         Geometry trimmed = keepLargestPolygons(outline, limit);
         int partsAfterKeep = (trimmed instanceof MultiPolygon) ? trimmed.getNumGeometries() : 1;
+        // 动态设置最小亩数阈值：>5段→1；>3段→0.76；≤3段→0.3
+        double minMuDynamic = (partsAfterKeep > 5) ? 1.0 : (partsAfterKeep > 3 ? 0.76 : 0.3);
+        log.trace("[splitRoad] 动态最小亩数阈值 minMuDynamic={} (partsAfterKeep={})", minMuDynamic, partsAfterKeep);
         // 依据最小亩数阈值过滤小区块
-        trimmed = removeSmallMuPolygons(trimmed, config.MIN_MU_THRESHOLD);
+        trimmed = removeSmallMuPolygons(trimmed, minMuDynamic);
         int partsAfterAreaFilter = (trimmed instanceof MultiPolygon) ? trimmed.getNumGeometries() : 1;
         int removedByArea = partsAfterKeep - partsAfterAreaFilter;
         // 形状过滤：紧致度+长宽比，避免道路型细长形状
