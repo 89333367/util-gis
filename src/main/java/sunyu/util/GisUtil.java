@@ -33,14 +33,37 @@ import sunyu.util.pojo.TrackPoint;
 import sunyu.util.pojo.WktIntersectionResult;
 
 /**
- * GIS工具类，封装轨迹轮廓构建、道路分段、坐标转换与面积计算等能力。
+ * GIS工具类，封装轨迹轮廓构建、道路分段、坐标转换、拓扑判断与面积计算。
+ *
+ * 公共方法一览：
+ * - builder()：创建构建器，用于配置并构建 `GisUtil`
+ * - close()：释放资源（实现 `AutoCloseable`）
+ * - toWkt(Geometry)：将几何转换为 WKT（统一 WGS84），含坐标识别与修复
+ * - fromWkt(String)：解析 WKT（WGS84）为 Geometry 并转换到高斯-克吕格米制坐标
+ * - haversine(CoordinatePoint, CoordinatePoint)：计算两点大圆距离（米，WGS84）
+ * - calcMu(Geometry)：计算几何面积的亩数（球面公式）
+ * - calcMu(String)：解析 WKT 后计算亩数
+ * - intersection(String, String)：计算两 WKT 相交的几何与面积，返回 `WktIntersectionResult`
+ * - intersects(String, String)：判断两 WKT 是否相交（WGS84，支持 `POLYGON`/`MULTIPOLYGON`）
+ * - equalsWkt(String, String)：判断两 WKT 是否拓扑相等
+ * - disjoint(String, String)：判断是否脱节
+ * - touches(String, String)：判断是否接触（边界接触）
+ * - crosses(String, String)：判断是否交叉
+ * - within(String, String)：判断 A 是否在 B 内
+ * - contains(String, String)：判断 A 是否包含 B
+ * - overlaps(String, String)：判断是否重叠
+ * - pointInPolygon(CoordinatePoint, String)：判断点是否在多边形内（含边界）
+ * - getOutline(List<TrackPoint>, double)：生成轨迹轮廓（`Polygon`），返回 `OutlinePart`
+ * - splitRoad(List<TrackPoint>, double)：按总宽度对轨迹进行分段并返回结果
+ * - splitRoad(List<TrackPoint>, double, Integer)：指定最大段数的道路分段
+ *
  * 设计要点：
- * - 坐标系：内部优先在WGS84下处理，需投影时使用高斯-克吕格（6度分带）参数化变换或权威EPSG。
- * - 变换缓存：按分带缓存CRS与MathTransform，避免重复构建。
- * - 轮廓构建：对轨迹进行网格化/分桶缓冲与分组合并，控制几何规模与性能。
+ * - 坐标系：内部优先在 WGS84 下处理；涉及形态学与面积计算时使用高斯-克吕格米制投影（6 度分带）。
+ * - 变换缓存：按分带缓存 CRS 与 MathTransform，避免重复构建。
+ * - 轮廓构建：网格化/分桶缓冲与分组合并，控制几何规模与性能。
  * - 清理过滤：紧致度、长宽比、面积（亩数）等规则过滤非道路形或过小碎片。
- * - 输出：支持WKT输出并在必要时进行坐标系识别与修复。
- * 
+ * - 输出：支持 WKT 输出并在必要时进行坐标系识别与修复。
+ *
  * @author SunYu
  */
 public class GisUtil implements AutoCloseable {
@@ -406,7 +429,7 @@ public class GisUtil implements AutoCloseable {
      * @param seg 原始轨迹点列表
      * @return 过滤并按时间排序后的轨迹点列表
      */
-    public List<TrackPoint> filterAndSortTrackPoints(List<TrackPoint> seg) {
+    private List<TrackPoint> filterAndSortTrackPoints(List<TrackPoint> seg) {
         if (seg == null)
             return java.util.Collections.emptyList();
         java.util.Comparator<java.time.LocalDateTime> cmp = java.util.Comparator
