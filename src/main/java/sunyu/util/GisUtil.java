@@ -1835,9 +1835,9 @@ public class GisUtil implements AutoCloseable {
                     .flatMap(java.util.List::stream)
                     .collect(java.util.stream.Collectors.toList());
 
-            java.time.LocalDateTime start = sortedSeg.isEmpty() ? null : sortedSeg.get(0).getTime();
-            java.time.LocalDateTime end = sortedSeg.isEmpty() ? null : sortedSeg.get(sortedSeg.size() - 1).getTime();
-            log.trace("[splitRoad] Polygon 跨度(插值) 时间范围 start={} end={} inPoly={} sessions={}", start, end,
+            java.time.LocalDateTime start = inPoly.isEmpty() ? null : inPoly.get(0).getTime();
+            java.time.LocalDateTime end = inPoly.isEmpty() ? null : inPoly.get(inPoly.size() - 1).getTime();
+            log.trace("[splitRoad] Polygon 跨度(按轮廓内点) 时间范围 start={} end={} inPoly={} sessions={}", start, end,
                     inPoly.size(), sessions.size());
 
             long tMuStart = System.currentTimeMillis();
@@ -1893,10 +1893,14 @@ public class GisUtil implements AutoCloseable {
                 log.trace("[splitRoad] Part#{} 会话段统计完成 sessions={} 耗时={}ms", i, sessions.size(),
                         (tWithinEnd - tWithinStart));
 
-                java.time.LocalDateTime start = sortedSeg.isEmpty() ? null : sortedSeg.get(0).getTime();
-                java.time.LocalDateTime end = sortedSeg.isEmpty() ? null
-                        : sortedSeg.get(sortedSeg.size() - 1).getTime();
-                log.trace("[splitRoad] Part#{} 跨度(简化) 时间范围 start={} end={} (sessions={})", i, start, end,
+                // 展平会话段，形成该区块内的轨迹点集合（时间按区块内最早/最晚点）
+                java.util.List<TrackPoint> inPoly = sessions.stream()
+                        .flatMap(java.util.List::stream)
+                        .collect(java.util.stream.Collectors.toList());
+
+                java.time.LocalDateTime start = inPoly.isEmpty() ? null : inPoly.get(0).getTime();
+                java.time.LocalDateTime end = inPoly.isEmpty() ? null : inPoly.get(inPoly.size() - 1).getTime();
+                log.trace("[splitRoad] Part#{} 跨度(按轮廓内点) 时间范围 start={} end={} (sessions={})", i, start, end,
                         sessions.size());
 
                 long tMuStart = System.currentTimeMillis();
@@ -1909,10 +1913,6 @@ public class GisUtil implements AutoCloseable {
                 long tWktEnd = System.currentTimeMillis();
                 log.trace("[splitRoad] Part#{} WKT生成完成 长度={} 耗时={}ms", i, wkt.length(), (tWktEnd - tWktStart));
 
-                // 展平会话段，形成该区块内的轨迹点集合
-                java.util.List<TrackPoint> inPoly = sessions.stream()
-                        .flatMap(java.util.List::stream)
-                        .collect(java.util.stream.Collectors.toList());
                 parts.add(new OutlinePart(poly, start, end, mu, wkt, inPoly).setTotalWidthM(totalWidthM));
                 if ((i + 1) % 10 == 0 || i == mp.getNumGeometries() - 1) {
                     log.trace("[splitRoad] MultiPolygon 进度 {}/{}", (i + 1), mp.getNumGeometries());
