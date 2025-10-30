@@ -28,6 +28,7 @@ import cn.hutool.log.LogFactory;
 import cn.hutool.log.level.Level;
 import sunyu.util.GisUtil;
 import sunyu.util.TDengineUtil;
+import sunyu.util.pojo.CoordinatePoint;
 import sunyu.util.pojo.OutlinePart;
 import sunyu.util.pojo.SplitRoadResult;
 import sunyu.util.pojo.TrackPoint;
@@ -72,6 +73,14 @@ public class TestGisUtil {
 
     private TDengineUtil getTdengineUtil() {
         return TDengineUtil.builder().dataSource(getTdengineDatasource()).build();
+    }
+
+    @Test
+    void 测试两点距离() {
+        CoordinatePoint p1 = new CoordinatePoint(116.55470301, 40.21296700);
+        CoordinatePoint p2 = new CoordinatePoint(116.55473883, 40.21364248);
+        double distance = gisUtil.haversine(p1, p2);
+        log.info("{} 米", distance);
     }
 
     @Test
