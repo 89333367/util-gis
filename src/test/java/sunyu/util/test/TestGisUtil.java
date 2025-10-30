@@ -192,8 +192,10 @@ public class TestGisUtil {
             List<String> l = new ArrayList<>();
             for (Map<String, Object> row : rows) {
                 Map<String, String> protocol = protocolSdk.parseProtocolString(row.get("protocol").toString());
-                if (!Convert.toStr(protocol.get("2601"), "1").equals("0")) {//定位状态,0已定位，1未定位
-                    continue;
+                if (protocol.containsKey("2601")) {//定位状态,0已定位，1未定位
+                    if (!Convert.toStr(protocol.get("2601"), "1").equals("0")) {
+                        continue;
+                    }
                 }
                 double lon = Convert.toDouble(protocol.get("2602"), 0.0);//经度
                 double lat = Convert.toDouble(protocol.get("2603"), 0.0);//纬度
