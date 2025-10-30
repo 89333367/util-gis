@@ -33,8 +33,14 @@ import sunyu.util.pojo.TrackPoint;
 import sunyu.util.pojo.WktIntersectionResult;
 
 /**
- * GIS工具类
- *
+ * GIS工具类，封装轨迹轮廓构建、道路分段、坐标转换与面积计算等能力。
+ * 设计要点：
+ * - 坐标系：内部优先在WGS84下处理，需投影时使用高斯-克吕格（6度分带）参数化变换或权威EPSG。
+ * - 变换缓存：按分带缓存CRS与MathTransform，避免重复构建。
+ * - 轮廓构建：对轨迹进行网格化/分桶缓冲与分组合并，控制几何规模与性能。
+ * - 清理过滤：紧致度、长宽比、面积（亩数）等规则过滤非道路形或过小碎片。
+ * - 输出：支持WKT输出并在必要时进行坐标系识别与修复。
+ * 
  * @author SunYu
  */
 public class GisUtil implements AutoCloseable {
@@ -44,20 +50,20 @@ public class GisUtil implements AutoCloseable {
     private final Config config;
 
     /**
-     * 获取构建器实例，使用构建器模式创建GisUtil对象
-     * 构建器模式允许逐步构建复杂对象，提高代码可读性和灵活性
+     * 创建构建器实例（Builder）。
+     * 通过构建器配置参数后再构建 `GisUtil`，避免直接实例化带来的不完整/不一致配置。
      *
-     * @return Builder对象，用于构建GisUtil实例
+     * @return 用于配置并构建 `GisUtil` 的构建器
      */
     public static Builder builder() {
         return new Builder();
     }
 
     /**
-     * 私有构造函数，通过Builder创建GisUtil实例
-     * 采用私有构造函数防止直接实例化，强制使用Builder模式
+     * 私有构造函数，通过 Builder 创建实例。
+     * 保持不可直接实例化，集中初始化日志与配置引用。
      *
-     * @param config 配置参数，包含各种常量和默认值
+     * @param config 内部配置对象，包含常量、默认值与缓存实例
      */
     private GisUtil(Config config) {
         // 记录工具类构建开始日志
@@ -70,8 +76,8 @@ public class GisUtil implements AutoCloseable {
     }
 
     /**
-     * 内部配置类，定义一些常量
-     * 使用内部类封装配置参数，提高代码组织性和封装性
+     * 内部配置类。
+     * 持有常量、默认参数、线程安全缓存与几何工厂；供 `GisUtil` 使用。
      */
     private static class Config {
         // WGS84坐标系的EPSG代码，用于定义地理坐标系统
@@ -91,14 +97,21 @@ public class GisUtil implements AutoCloseable {
         // 默认轮廓返回的最多多边形数量（TopN）
         private final int DEFAULT_MAX_OUTLINE_SEGMENTS = 10;
 
-        private final int DEFAULT_UNION_GROUP_SIZE = 600; // 分组合并组大小：600，避免 GeometryCollection 一次性过大
-        private final int DEFAULT_BUFFER_QUADRANT = 4; // 圆近似细分：4，提升性能，误差满足道路宽度场景
-        private final int DEFAULT_BUCKET_TARGET = 300; // 目标桶数：300，平衡桶内复杂度与最终合并规模
-        private final int DEFAULT_BUCKET_CELL_MIN_FACTOR = 5; // cellSize 下限系数：5，避免过多小桶导致合并碎片化
-        private final int DEFAULT_BUCKET_CELL_MAX_FACTOR = 36; // cellSize 上限系数：36
+        // 分组合并组大小：600，避免 GeometryCollection 一次性过大
+        private final int DEFAULT_UNION_GROUP_SIZE = 600;
+        // 圆近似细分：4，提升性能，误差满足道路宽度场景
+        private final int DEFAULT_BUFFER_QUADRANT = 4;
+        // 目标桶数：300，平衡桶内复杂度与最终合并规模
+        private final int DEFAULT_BUCKET_TARGET = 300;
+        // cellSize 下限系数：5，避免过多小桶导致合并碎片化
+        private final int DEFAULT_BUCKET_CELL_MIN_FACTOR = 5;
+        // cellSize 上限系数：36
+        private final int DEFAULT_BUCKET_CELL_MAX_FACTOR = 36;
 
-        private final double MIN_COMPACTNESS = 0.12; // 紧致度阈值，过滤细长道路型轮廓
-        private final double MAX_ASPECT_RATIO = 8.0; // 长宽比阈值，识别道路形（越大越细长）
+        // 紧致度阈值，过滤细长道路型轮廓
+        private final double MIN_COMPACTNESS = 0.12;
+        // 长宽比阈值，识别道路形（越大越细长）
+        private final double MAX_ASPECT_RATIO = 8.0;
     }
 
     /**
@@ -132,8 +145,11 @@ public class GisUtil implements AutoCloseable {
     }
 
     /**
-     * 几何图形合并工具（内部类）
-     * 使用分组批量合并策略避免大量单独 union 操作的性能问题
+     * 高效合并多几何（Union）
+     * 对输入几何集合做并集运算；内部采用分组并集与缓冲修复策略以提升性能与稳健性。
+     *
+     * @param geometries 待合并的几何列表；为空或元素为空时返回空集合
+     * @return 合并后的几何；可能为 `Polygon`/`MultiPolygon`/`GeometryCollection`
      */
     private Geometry unionGeometries(List<Geometry> geometries) {
         if (geometries == null || geometries.isEmpty()) {
@@ -169,6 +185,14 @@ public class GisUtil implements AutoCloseable {
         return unionInGroups(geometries, groupSize);
     }
 
+    /**
+     * 分组并集（Union）以提升性能
+     * 将几何列表按 `groupSize` 分组，分别做并集后再统一并集，避免一次性并集过多要素导致性能问题。
+     *
+     * @param geometries 待合并的几何列表
+     * @param groupSize 每组并集的最大要素数量（>0），建议在百级到千级之间
+     * @return 合并后的几何
+     */
     private Geometry unionInGroups(List<Geometry> geometries, int groupSize) {
         if (geometries.size() <= groupSize) {
             GeometryCollection collection = config.geometryFactory.createGeometryCollection(
@@ -187,11 +211,11 @@ public class GisUtil implements AutoCloseable {
     }
 
     /**
-     * 从缓存中获取或创建CoordinateReferenceSystem
+     * 获取/缓存坐标参考系（CRS）。
+     * 使用并发缓存按 code（如 EPSG:4326）惰性解析并存储，避免重复调用 CRS.decode。
      *
-     * @param code EPSG代码
-     *
-     * @return CoordinateReferenceSystem对象
+     * @param code 坐标系代码，如 EPSG:4326
+     * @return 解析后的CRS，线程安全缓存
      */
     private CoordinateReferenceSystem getCachedCRS(String code) {
         return config.crsCache.computeIfAbsent(code, key -> {
@@ -203,7 +227,13 @@ public class GisUtil implements AutoCloseable {
         });
     }
 
-    // ===== 高斯-克吕格（6°分带）投影辅助方法：按首点经度自动分带 =====
+    /**
+     * 按经度计算6度分带区号。
+     * 规则：zone = floor(lon / 6) + 1，并限制下界为1（上界由使用场景保证）。
+     *
+     * @param lon 经度（度）
+     * @return 分带区号
+     */
     private int gkZoneFromLon(double lon) {
         // 6°分带：1区中心经线为3°，中心经线 L0 = 6*zone - 3
         int zone = (int) Math.floor(lon / 6.0) + 1;
@@ -213,16 +243,36 @@ public class GisUtil implements AutoCloseable {
         return zone;
     }
 
+    /**
+     * 计算分带的中央经线（度）。
+     * 公式：central_meridian = zone * 6 - 3。
+     *
+     * @param zone 分带区号
+     * @return 中央经线（度）
+     */
     private double gkCentralMeridian(int zone) {
         return zone * 6.0 - 3.0;
     }
 
+    /**
+     * 计算假东距（米）。
+     * 约定：false_easting = zone * 1,000,000 + 500,000（仅影响坐标值，不影响几何形状）。
+     *
+     * @param zone 分带区号
+     * @return 假东距（米）
+     */
     private double gkFalseEasting(int zone) {
         // 通用约定：假东距 = 区号 * 1,000,000 + 500,000（不会影响形状，仅影响坐标值）
         return zone * 1_000_000.0 + 500_000.0;
     }
 
-    // 依据东距反推分带（近似），用于从高斯坐标推断区号
+    /**
+     * 按高斯投影东距近似反推分带区号。
+     * 公式：round((E - 500000) / 1000000)；并限制在[1,60]。
+     *
+     * @param easting 东距（米）
+     * @return 分带区号（1-60）
+     */
     private int gkZoneFromEasting(double easting) {
         int zone = (int) Math.round((easting - 500_000.0) / 1_000_000.0);
         if (zone < 1)
@@ -232,7 +282,13 @@ public class GisUtil implements AutoCloseable {
         return zone;
     }
 
-    // 从几何的质心东距推断分带
+    /**
+     * 从几何包络的质心东距推断分带。
+     * 输入为空或包络无效时返回安全中间带30。
+     *
+     * @param g 输入几何（高斯坐标系假定）
+     * @return 分带区号
+     */
     private int inferGkZoneFromGeometryEasting(Geometry g) {
         if (g == null || g.isEmpty()) {
             return 30; // 安全回退：中间分带，避免异常
@@ -245,6 +301,13 @@ public class GisUtil implements AutoCloseable {
         return gkZoneFromEasting(easting);
     }
 
+    /**
+     * 构造并缓存高斯-克吕格（横轴墨卡托）投影CRS（6度分带）。
+     * 基于WKT使用 WGS84 椭球，按分带设置中央经线与假东距，缓存键：GK6:<zone>。
+     *
+     * @param lon WGS84经度（度），用于选择分带
+     * @return 对应分带的米制投影CRS
+     */
     private CoordinateReferenceSystem getGaussKrugerCRSByLon(double lon) throws Exception {
         int zone = gkZoneFromLon(lon);
         double central = gkCentralMeridian(zone);
@@ -270,6 +333,13 @@ public class GisUtil implements AutoCloseable {
         return crs;
     }
 
+    /**
+     * 获取并缓存 WGS84→高斯（米制）前向变换。
+     * 源CRS：EPSG:4326；目标CRS：按经度选择分带的高斯-克吕格；缓存键：W2G:<zone>。
+     *
+     * @param lon WGS84经度（度），用于选择分带
+     * @return 前向投影变换（WGS84→Gauss）
+     */
     private MathTransform getTxWgsToGaussByLon(double lon) throws Exception {
         int zone = gkZoneFromLon(lon);
         String key = "W2G:" + zone;
@@ -283,6 +353,13 @@ public class GisUtil implements AutoCloseable {
         return mt;
     }
 
+    /**
+     * 获取并缓存 高斯→WGS84 逆向变换。
+     * 源CRS：按经度选择分带的高斯-克吕格；目标CRS：EPSG:4326；缓存键：G2W:<zone>。
+     *
+     * @param lon WGS84经度（度），用于选择分带
+     * @return 逆向投影变换（Gauss→WGS84）
+     */
     private MathTransform getTxGaussToWgsByLon(double lon) throws Exception {
         int zone = gkZoneFromLon(lon);
         String key = "G2W:" + zone;
@@ -297,11 +374,11 @@ public class GisUtil implements AutoCloseable {
     }
 
     /**
-     * 验证WGS84坐标系下的几何图形坐标是否在合理范围内
+     * 校验 WGS84 坐标几何的经纬度范围是否有效。
+     * 经度在 [-180, 180]，纬度在 [-90, 90]；排除 NaN/Inf。
      *
-     * @param g WGS84坐标系下的几何图形
-     *
-     * @return 如果坐标在合理范围内返回true，否则返回false
+     * @param g WGS84坐标系下的几何
+     * @return 坐标范围有效返回 true，否则 false
      */
     private boolean isValidWgs84Geometry(Geometry g) {
         Coordinate[] coordinates = g.getCoordinates();
@@ -322,7 +399,13 @@ public class GisUtil implements AutoCloseable {
         return true;
     }
 
-    // 统一过滤与排序 TrackPoint
+    /**
+     * 过滤异常点并按时间升序排序。
+     * 条件：时间非空；经纬度在有效范围；排除(0,0)；保留 `isValidWgs84Geometry` 检查通过的点。
+     *
+     * @param seg 原始轨迹点列表
+     * @return 过滤并按时间排序后的轨迹点列表
+     */
     public List<TrackPoint> filterAndSortTrackPoints(List<TrackPoint> seg) {
         if (seg == null)
             return java.util.Collections.emptyList();
@@ -337,15 +420,13 @@ public class GisUtil implements AutoCloseable {
     }
 
     /**
-     * 构建轨迹轮廓（重载方法，使用统一宽度）
-     * 通过轨迹点生成带宽度的轮廓多边形，左右宽度相同（各为总宽度的一半）
+     * 构建轨迹轮廓（统一左右宽度）。
+     * 过滤与排序轨迹点 → 点圆缓冲并合并 → 面积阈值过滤 → 扁平化MultiPolygon。
      *
-     * @param seg         轨迹点列表，至少需要3个点，要求点位坐标系为WGS84
-     * @param totalWidthM 总宽度（米），轨迹线两侧的扩展距离之和
-     *
-     * @return Geometry对象，表示生成的轮廓多边形
-     *
-     * @throws Exception 可能抛出异常，如坐标转换错误或几何操作失败
+     * @param seg         轨迹点列表（WGS84），至少3个有效点
+     * @param totalWidthM 总宽度（米），两侧合计宽度
+     * @return 轮廓几何（Polygon 或 MultiPolygon）
+     * @throws Exception 坐标转换或几何计算异常
      */
     private Geometry buildOutlineCore(List<TrackPoint> seg, double totalWidthM) throws Exception {
         long startTime = System.currentTimeMillis();
@@ -446,14 +527,13 @@ public class GisUtil implements AutoCloseable {
     }
 
     /**
-     * 使用相同左右宽度构建轮廓
+     * 使用相同左右宽度构建轮廓（点圆缓冲 + 分桶合并）。
+     * 步骤：轨迹点按时间排序 → 点缓冲（米制）→ 按自适应网格分桶 → 桶内并集 → 桶间并集 → 形态修复。
      *
-     * @param seg    轨迹点列表
-     * @param widthM 宽度（米）
-     *
-     * @return 生成的几何对象
-     *
-     * @throws Exception 坐标转换异常
+     * @param seg    轨迹点列表（WGS84）
+     * @param widthM 单侧缓冲宽度（米）
+     * @return 轮廓几何
+     * @throws Exception 坐标转换或几何运算异常
      */
     private Geometry buildOutlineBySimpleBuffers(List<TrackPoint> seg, double widthM) throws Exception {
         long startTime = System.currentTimeMillis();
@@ -587,11 +667,11 @@ public class GisUtil implements AutoCloseable {
     }
 
     /**
-     * 检查几何图形中的坐标是否有效（没有接近零的异常值）
+     * 检查几何是否包含有效坐标。
+     * 要求坐标数至少为1，并且不含 NaN/Inf。
      *
-     * @param g 几何图形对象
-     *
-     * @return 如果坐标有效返回true，否则返回false
+     * @param g 几何
+     * @return 坐标有效返回 true，否则 false
      */
     private boolean hasValidCoordinates(Geometry g) {
         Coordinate[] coordinates = g.getCoordinates();
@@ -609,7 +689,14 @@ public class GisUtil implements AutoCloseable {
         return true;
     }
 
-    // 新增：按面积倒序保留最大的 N 个多边形
+    /**
+     * 保留面积最大的前 N 个区块
+     * 适用于 `Polygon` 或 `MultiPolygon`：按 JTS 计算的平方米面积排序并截取前 `maxCount` 个。
+     *
+     * @param geometry 输入几何（`Polygon`/`MultiPolygon`），为空或非面类型时直接返回原值
+     * @param maxCount 保留的最大区块数量（<=0 时返回原值）
+     * @return 面积前 N 的几何；当 N 小于区块数时可能返回 `MultiPolygon`
+     */
     private Geometry keepLargestPolygons(Geometry geometry, int maxCount) {
         if (geometry == null)
             return null;
@@ -646,7 +733,14 @@ public class GisUtil implements AutoCloseable {
         return gf.createMultiPolygon(top);
     }
 
-    // 新增：按最小亩数阈值过滤小面积多边形
+    /**
+     * 移除面积（亩）小于阈值的区块
+     * 适用于 `Polygon` 或 `MultiPolygon`：按球面面积（与 Turf.js 对齐）换算亩数，删除小于 `minMu` 的部分。
+     *
+     * @param geometry 输入几何（`Polygon`/`MultiPolygon`）
+     * @param minMu 最小亩数阈值（>0），小于等于 0 时返回原值
+     * @return 过滤后的几何；若全部被移除则返回空几何
+     */
     private Geometry removeSmallMuPolygons(Geometry geometry, double minMu) {
         if (geometry == null)
             return null;
@@ -676,7 +770,15 @@ public class GisUtil implements AutoCloseable {
         return geometry;
     }
 
-    // 形状过滤：按紧致度+长宽比移除细长道路型多边形；当全部被筛掉时保留紧致度最高者
+    /**
+     * 根据紧致度与长宽比移除道路型细长多边形。
+     * 若全部被移除，则保留紧致度最高的一个作为兜底。
+     *
+     * @param geometry 输入几何
+     * @param minCompactness 最小紧致度阈值
+     * @param maxAspectRatio 最大长宽比阈值
+     * @return 过滤后的几何
+     */
     private Geometry removeElongatedPolygons(Geometry geometry, double minCompactness, double maxAspectRatio) {
         if (geometry == null)
             return null;
@@ -717,7 +819,13 @@ public class GisUtil implements AutoCloseable {
         return geometry;
     }
 
-    // 紧致度：4πA / P²（A为球面面积平方米，P为周长米数）
+    /**
+     * 计算紧致度指标 4πA / P²（越大越接近圆形）。
+     * 面积 A 使用球面环面积（外环减内环），周长 P 为 Haversine 累加。
+     *
+     * @param polygon 多边形
+     * @return 紧致度值
+     */
     private double compactness(Polygon polygon) {
         if (polygon == null)
             return 0.0;
@@ -736,7 +844,12 @@ public class GisUtil implements AutoCloseable {
         return 4.0 * Math.PI * area / (perimeter * perimeter);
     }
 
-    // 环周长（米），按haversine累加
+    /**
+     * 计算环线周长（米），按相邻点的 Haversine 距离累加。
+     *
+     * @param ring 外/内环线
+     * @return 周长（米）
+     */
     private double ringPerimeterMeters(org.locationtech.jts.geom.LineString ring) {
         org.locationtech.jts.geom.Coordinate[] coords = ring.getCoordinates();
         if (coords == null || coords.length < 2)
@@ -750,7 +863,13 @@ public class GisUtil implements AutoCloseable {
         return sum;
     }
 
-    // 轴对齐包围盒的长宽比（米），用于识别道路型细长形状
+    /**
+     * 估算轴对齐包围盒的长宽比（米）。
+     * 通过经纬度距离换算得到宽度与高度，再取比值。
+     *
+     * @param polygon 多边形
+     * @return 长宽比（越大越细长）
+     */
     private double aspectRatioMeters(Polygon polygon) {
         Envelope env = polygon.getEnvelopeInternal();
         double midLat = (env.getMinY() + env.getMaxY()) / 2.0;
@@ -764,7 +883,13 @@ public class GisUtil implements AutoCloseable {
         return a / b;
     }
 
-    // 球面环面积（平方米），与 Turf.js 的 ringArea 保持一致
+    /**
+     * 计算球面环面积（平方米），与 Turf.js 的 ringArea 对齐。
+     * 使用 WGS84 半径（6378137）与经纬度弧度。
+     *
+     * @param ring 外/内环线
+     * @return 面积（平方米）
+     */
     private static double ringArea(org.locationtech.jts.geom.LineString ring) {
         org.locationtech.jts.geom.Coordinate[] coords = ring.getCoordinates();
         int len = (coords == null) ? 0 : coords.length;
@@ -792,22 +917,22 @@ public class GisUtil implements AutoCloseable {
         return area * R * R / 2.0;
     }
 
+    /**
+     * 角度转弧度。
+     *
+     * @param deg 角度
+     * @return 弧度
+     */
     private static double toRad(double deg) {
         return deg * Math.PI / 180.0;
     }
 
     /**
-     * 将几何图形转换为WKT格式
-     * 确保输出为WGS84坐标系的标准地理坐标
+     * 计算两点间的大圆距离（Haversine公式）。
      *
-     * @param g 几何图形对象
-     *
-     * @return WKT字符串，表示几何图形
-     */
-    /**
-     * 计算两点间的大圆距离（Haversine公式）
-     *
-     * @return 距离（米），两点间的地理距离
+     * @param p1 点1（经纬度）
+     * @param p2 点2（经纬度）
+     * @return 距离（米）
      */
     public double haversine(CoordinatePoint p1, CoordinatePoint p2) {
         double dLat = Math.toRadians(p2.getLat() - p1.getLat());
@@ -819,6 +944,16 @@ public class GisUtil implements AutoCloseable {
         return config.R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
     }
 
+    /**
+     * 将几何转换为WKT（统一WGS84）
+     * 自动识别坐标系：若坐标范围合理则视为 WGS84 直接输出；否则按高斯-克吕格投影推断分带并转换到 WGS84 后输出。
+     * 处理策略：null 返回 GEOMETRYCOLLECTION EMPTY；空几何直接 `toText()`；坐标非法时先 `buffer(0)` 修复再输出。
+     *
+     * @param g 几何对象（WGS84 或高斯-克吕格），支持任意 `Geometry`
+     * @return 统一为 WGS84 的 WKT 字符串
+     *
+     * @implNote 分带依据几何的东距范围推断，中央子午线由分带计算；异常时回退为原始 WKT 或空集合。
+     */
     public String toWkt(Geometry g) {
         try {
             // 空几何直接返回其WKT
@@ -906,12 +1041,14 @@ public class GisUtil implements AutoCloseable {
     }
 
     /**
-     * WKT计算亩数（WGS84坐标系），支持POLYGON与MULTIPOLYGON
-     * 直接计算WGS84坐标系下几何图形的面积，结果以亩为单位
+     * WKT面积计算（亩，WGS84）
+     * 解析 `POLYGON`/`MULTIPOLYGON` 的 WKT（需为 WGS84），按球面公式计算面积并换算为亩，与 Turf.js 口径对齐。
      *
-     * @param wkt WKT字符串，要求为WGS84坐标系
+     * @param wkt WKT 字符串（WGS84），类型必须是 `POLYGON` 或 `MULTIPOLYGON`
+     * @return 面积（亩），四舍五入保留 4 位小数；非法或空输入返回 0
+     * @throws RuntimeException 解析失败或 WKT 非法时抛出
      *
-     * @return 面积（mu），以亩为单位，保留4位小数
+     * @implNote 面积以外环减内环之和计算；环面积采用 WGS84 半径与经纬度弧度（参见 `ringArea`）。
      */
     public double calcMu(String wkt) {
         if (wkt == null || wkt.trim().isEmpty()) {
@@ -950,15 +1087,15 @@ public class GisUtil implements AutoCloseable {
     }
 
     /**
-     * 从WKT字符串创建Geometry对象,WKT字符串必须是WGS84坐标系
-     * 支持POLYGON和MULTIPOLYGON两种几何类型
+     * 解析 WKT（WGS84）为 Geometry，并转换到高斯-克吕格米制坐标
+     * 支持 `POLYGON` 与 `MULTIPOLYGON`；用于后续形态学运算与裁剪。
      *
-     * @param wkt WKT字符串，必须是POLYGON或MULTIPOLYGON类型
+     * @param wkt WKT 字符串（WGS84），类型必须为 `POLYGON` 或 `MULTIPOLYGON`
+     * @return 高斯-克吕格投影下的几何对象（中央子午线依据几何质心经度选择）
+     * @throws IllegalArgumentException WKT 为空或类型不支持时抛出
+     * @throws RuntimeException 解析失败或坐标转换异常时抛出
      *
-     * @return 解析后的Geometry对象
-     *
-     * @throws IllegalArgumentException 如果WKT字符串为空或不支持的几何类型
-     * @throws RuntimeException         如果解析过程中发生错误
+     * @implNote 投影转换缓存复用，避免频繁构建；转换失败时抛异常。
      */
     public Geometry fromWkt(String wkt) {
         if (wkt == null || wkt.trim().isEmpty()) {
@@ -986,9 +1123,15 @@ public class GisUtil implements AutoCloseable {
     }
 
     /**
-     * 计算两个WKT（WGS84）的相交部分，返回相交WKT与亩数。
-     * 如果无相交或相交结果为空几何，则返回 wkt=null，mu=0。
-     * 支持 POLYGON 与 MULTIPOLYGON 输入，输出为相交几何的 WKT 字符串。
+     * WKT 相交（WGS84）
+     * 计算两个 WKT 的相交部分，返回相交 WKT（统一为 WGS84）与面积（亩）。
+     *
+     * @param wktA 输入几何 A 的 WKT（WGS84，`POLYGON`/`MULTIPOLYGON`）
+     * @param wktB 输入几何 B 的 WKT（WGS84，`POLYGON`/`MULTIPOLYGON`）
+     * @return `WktIntersectionResult`：当无相交或为空几何时 `wkt=null, mu=0`
+     * @throws Exception 解析或坐标转换、几何运算失败时抛出
+     *
+     * @implNote 内部将 WKT 转为高斯-克吕格进行运算，再统一输出 WGS84；面积计算对齐球面公式。
      */
     public WktIntersectionResult intersection(String wktA, String wktB) throws Exception {
         Geometry g1 = fromWkt(wktA);
@@ -1003,12 +1146,14 @@ public class GisUtil implements AutoCloseable {
     }
 
     /**
-     * 基于轨迹点与总宽度生成轮廓，不会进行拆分操作
-     * 
-     * @param seg 轨迹点列表
-     * @param totalWidthM 总宽度（米）
-     * @return 轮廓部分
-     * @throws Exception 异常
+     * 生成轨迹轮廓（不拆分）
+     * 根据轨迹点与总宽度，构建单个轮廓（Polygon），并返回包含亩数、WKT、时间范围与点集的 `OutlinePart`。
+     * 步骤：过滤/排序轨迹点 → 点圆缓冲合并（WGS84）→ 在米制下形态学处理（凹包/凸包兜底）→ 计算亩数与 WKT。
+     *
+     * @param seg 轨迹点列表（WGS84），至少 3 个有效点
+     * @param totalWidthM 总宽度（米，左右合计），必须非负
+     * @return `OutlinePart`：结果几何为 `Polygon`，包含 `mu`、`wkt`、起止时间与有效点集
+     * @throws Exception 坐标转换或几何运算异常
      */
     public OutlinePart getOutline(List<TrackPoint> seg, double totalWidthM) throws Exception {
         long t0 = System.currentTimeMillis();
