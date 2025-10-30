@@ -149,10 +149,58 @@ public class TestGisUtil {
     }
 
     @Test
-    void 计算重复亩数() throws Exception {
+    void 计算重复亩数018_335() throws Exception {
         String wkt1 = FileUtil.readUtf8Lines(path + "/EC73BD2506050018_20251029161736_20251029162905_outline018.txt")
                 .get(0).replace("wkt: ", "");
         String wkt2 = FileUtil.readUtf8Lines(path + "/EC73BD2509061335_20251029155746_20251029161032_outline335.txt")
+                .get(0).replace("wkt: ", "");
+        WktIntersectionResult r = gisUtil.intersection(wkt1, wkt2);
+        log.info("相交面积：{} 亩", r.getMu());
+    }
+
+    @Test
+    void 计算亩数与屏幕上报做对比001() throws Exception {
+        String did = "EC71BT2402000001";
+        String startTime = "20251015141847";
+        String endTime = "20251015142510";
+        double widthM = 3;
+        读取一段(did, startTime, endTime);
+        List<TrackPoint> seg = new ArrayList<>();
+        FileUtil.readUtf8Lines(path + StrUtil.format("/{}_{}_{}_trace.txt", did, startTime, endTime)).forEach(line -> {
+            String[] ss = line.split(",");
+            seg.add(new TrackPoint(LocalDateTimeUtil.parse(ss[0], "yyyyMMddHHmmss"), Convert.toDouble(ss[1]),
+                    Convert.toDouble(ss[2])));
+        });
+        OutlinePart outline = gisUtil.getOutline(seg, widthM);
+        FileUtil.writeUtf8String(StrUtil.format("wkt: {}\nmu: {}", outline.getWkt(), outline.getMu()),
+                path + StrUtil.format("/{}_{}_{}_outline001.txt", did, startTime, endTime));
+        log.info("屏幕上报亩数 1.18 ，平台计算亩数={}", outline.getMu());
+    }
+
+    @Test
+    void 计算亩数与屏幕上报做对比335_2() throws Exception {
+        String did = "EC73BD2509060335";
+        String startTime = "20251015125319";
+        String endTime = "20251015131516";
+        double widthM = 3;
+        读取一段(did, startTime, endTime);
+        List<TrackPoint> seg = new ArrayList<>();
+        FileUtil.readUtf8Lines(path + StrUtil.format("/{}_{}_{}_trace.txt", did, startTime, endTime)).forEach(line -> {
+            String[] ss = line.split(",");
+            seg.add(new TrackPoint(LocalDateTimeUtil.parse(ss[0], "yyyyMMddHHmmss"), Convert.toDouble(ss[1]),
+                    Convert.toDouble(ss[2])));
+        });
+        OutlinePart outline = gisUtil.getOutline(seg, widthM);
+        FileUtil.writeUtf8String(StrUtil.format("wkt: {}\nmu: {}", outline.getWkt(), outline.getMu()),
+                path + StrUtil.format("/{}_{}_{}_outline335.txt", did, startTime, endTime));
+        log.info("屏幕上报亩数 3.44 ，平台计算亩数={}", outline.getMu());
+    }
+
+    @Test
+    void 计算重复亩数001_335() throws Exception {
+        String wkt1 = FileUtil.readUtf8Lines(path + "/EC71BT2402000001_20251015141847_20251015142510_outline001.txt")
+                .get(0).replace("wkt: ", "");
+        String wkt2 = FileUtil.readUtf8Lines(path + "/EC73BD2509060335_20251015125319_20251015131516_outline335.txt")
                 .get(0).replace("wkt: ", "");
         WktIntersectionResult r = gisUtil.intersection(wkt1, wkt2);
         log.info("相交面积：{} 亩", r.getMu());

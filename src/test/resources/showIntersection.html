@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>两段WKT轮廓绘制</title>
+    <style>
+        html, body { height: 100%; margin: 0; }
+        #mapContainer { width: 100vw; height: 100vh; position: relative; }
+        .panel {
+            position: absolute; top: 16px; right: 12px; z-index: 1000;
+            background: #fff; padding: 12px; border-radius: 6px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.15); width: min(380px, 92vw);
+            box-sizing: border-box;
+        }
+        .panel h3 { margin: 0 0 8px; font-size: 15px; }
+        .field { margin-bottom: 8px; }
+        .field label { display: block; font-size: 12px; color: #333; margin-bottom: 4px; }
+        .field textarea {
+            width: 100%; height: 110px; padding: 8px; border: 1px solid #ddd; border-radius: 4px;
+            box-sizing: border-box; font-family: monospace; resize: vertical;
+        }
+        .row { display: flex; gap: 8px; align-items: center; }
+        .row .color { width: 28px; height: 28px; padding: 0; border: 1px solid #ddd; border-radius: 4px; }
+        .row button {
+            flex: 1; padding: 8px 0; border: none; border-radius: 4px; cursor: pointer; font-size: 14px;
+        }
+        #drawBtn { background: #337AFF; color: #fff; }
+        #clearBtn { background: #f5f5f5; color: #333; }
+        #drawBtn:disabled, #clearBtn:disabled { background: #e0e0e0; color: #999; cursor: not-allowed; }
+        #loadingOverlay {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(255,255,255,0.8); display: flex; justify-content: center; align-items: center;
+            z-index: 999; transition: opacity 0.2s;
+        }
+        .loading-text { font-size: 16px; color: #333; padding: 10px 20px; background: #fff; border-radius: 4px; box-shadow: 0 2px 8px rgba(0,0,0,0.2); }
+    </style>
+    <script src="https://api.tianditu.gov.cn/api?v=4.0&tk=bff6b76492ebb706fd7c39b07acf6569"></script>
+    <script src="https://cdn.bootcdn.net/ajax/libs/Turf.js/6.5.0/turf.min.js"></script>
+    <script src="https://lib.baomitu.com/terraformer/1.0.12/terraformer.min.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+    <script src="https://unpkg.com/terraformer-wkt-parser@1.2.1/terraformer-wkt-parser.min.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+</head>
+<body>
+<div id="mapContainer">
+    <div id="loadingOverlay"><div class="loading-text">地图正在加载中...</div></div>
+    <div class="panel">
+        <h3>输入两个WKT并绘制</h3>
+        <div class="field">
+            <label for="wktA">WKT A（红色）</label>
+            <textarea id="wktA" placeholder="示例：POLYGON((116.40 39.90,116.41 39.90,116.41 39.91,116.40 39.91,116.40 39.90))"></textarea>
+        </div>
+        <div class="field">
+            <label for="wktB">WKT B（蓝色）</label>
+            <textarea id="wktB" placeholder="示例：POLYGON((116.405 39.905,116.415 39.905,116.415 39.915,116.405 39.915,116.405 39.905))"></textarea>
+        </div>
+        <div class="row">
+            <button id="drawBtn" disabled>绘制</button>
+            <button id="clearBtn" disabled>清空</button>
+        </div>
+    </div>
+</div>
+
+<script>
+    let map;
+    let overlaysA = [];
+    let overlaysB = [];
+    let mapLoaded = false;
+
+    function disableButtons(disabled) {
+        const drawBtn = document.getElementById('drawBtn');
+        const clearBtn = document.getElementById('clearBtn');
+        if (drawBtn) drawBtn.disabled = disabled;
+        if (clearBtn) clearBtn.disabled = disabled;
+    }
+    function hideLoading() {
+        const el = document.getElementById('loadingOverlay');
+        if (el) el.style.display = 'none';
+    }
+
+    function initMap() {
+        try {
+            map = new T.Map('mapContainer', { zoom: 12, center: new T.LngLat(116.40769, 39.90403) });
+            map.enableScrollWheelZoom();
+            map.setMapType(TMAP_SATELLITE_MAP);
+
+            const vecLayer = new T.TileLayer('https://t0.tianditu.gov.cn/img_w/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=img&STYLE=default&TILEMATRIXSET=w&FORMAT=tiles&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}&tk=bff6b76492ebb706fd7c39b07acf6569');
+            const cvaLayer = new T.TileLayer('https://t0.tianditu.gov.cn/cia_w/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=cia&STYLE=default&TILEMATRIXSET=w&FORMAT=tiles&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}&tk=bff6b76492ebb706fd7c39b07acf6569');
+            map.addLayer(vecLayer); map.addLayer(cvaLayer);
+
+            const markLoaded = () => { if (!mapLoaded) { mapLoaded = true; hideLoading(); disableButtons(false); } };
+            map.addEventListener('loaded', markLoaded);
+            map.addEventListener('load', markLoaded);
+            map.addEventListener('tilesloaded', markLoaded);
+            setTimeout(markLoaded, 6000);
+        } catch (e) {
+            alert('地图初始化失败：' + e.message);
+            console.error(e);
+        }
+    }
+
+    function clearOverlays(arr) {
+        if (!arr) return;
+        for (const o of arr) { try { map.removeOverLay(o); } catch(_){} }
+        arr.length = 0;
+    }
+
+    function coordArrayToLngLat(path) {
+        // path: [[lng,lat], [lng,lat], ...]
+        return path.map(pt => new T.LngLat(pt[0], pt[1]));
+    }
+
+    // 新增：解析WKT为GeoJSON
+    function parseWkt(wkt) {
+        if (!wkt || !wkt.trim()) return null;
+        try {
+            return Terraformer.WKT.parse(wkt.trim());
+        } catch (e) {
+            alert('WKT解析失败：' + e.message);
+            console.error('WKT解析失败', e);
+            return null;
+        }
+    }
+
+    // 新增：从GeoJSON收集用于视图缩放的点
+    function collectViewportPointsFromGeoJSON(gj) {
+        const pts = [];
+        if (!gj) return pts;
+        const pushLngLat = (lng, lat) => pts.push(new T.LngLat(lng, lat));
+        if (gj.type === 'Polygon') {
+            const rings = gj.coordinates;
+            if (rings && rings.length) {
+                const outer = rings[0];
+                for (const p of outer) pushLngLat(p[0], p[1]);
+            }
+        } else if (gj.type === 'MultiPolygon') {
+            for (const poly of gj.coordinates) {
+                const outer = poly[0];
+                for (const p of outer) pushLngLat(p[0], p[1]);
+            }
+        } else if (gj.type === 'LineString') {
+            for (const p of gj.coordinates) pushLngLat(p[0], p[1]);
+        } else if (gj.type === 'Point') {
+            pushLngLat(gj.coordinates[0], gj.coordinates[1]);
+        }
+        return pts;
+    }
+
+    // 新增：按GeoJSON绘制覆盖物
+    function drawGeoJSON(gj, color, storeArr) {
+        if (!gj) return;
+        const style = { color: color, weight: 2, opacity: 1, fillColor: color, fillOpacity: 0.25 };
+        if (gj.type === 'Polygon') {
+            const rings = gj.coordinates;
+            if (rings && rings.length > 0) {
+                const outer = rings[0];
+                const polygon = new T.Polygon(coordArrayToLngLat(outer), style);
+                map.addOverLay(polygon);
+                storeArr.push(polygon);
+            }
+        } else if (gj.type === 'MultiPolygon') {
+            for (const poly of gj.coordinates) {
+                const outer = poly[0];
+                const polygon = new T.Polygon(coordArrayToLngLat(outer), style);
+                map.addOverLay(polygon);
+                storeArr.push(polygon);
+            }
+        } else if (gj.type === 'LineString') {
+            const line = new T.Polyline(coordArrayToLngLat(gj.coordinates), { color: color, weight: 3, opacity: 1 });
+            map.addOverLay(line);
+            storeArr.push(line);
+        } else if (gj.type === 'Point') {
+            const marker = new T.Marker(new T.LngLat(gj.coordinates[0], gj.coordinates[1]));
+            map.addOverLay(marker);
+            storeArr.push(marker);
+        } else {
+            alert('暂不支持该几何类型：' + gj.type);
+        }
+    }
+
+    function bindEvents() {
+        const drawBtn = document.getElementById('drawBtn');
+        const clearBtn = document.getElementById('clearBtn');
+        const wktA = document.getElementById('wktA');
+        const wktB = document.getElementById('wktB');
+        if (drawBtn) {
+            drawBtn.addEventListener('click', function () {
+                clearOverlays(overlaysA);
+                clearOverlays(overlaysB);
+                const wktAVal = wktA.value;
+                const wktBVal = wktB.value;
+                const gjA = parseWkt(wktAVal);
+                const gjB = parseWkt(wktBVal);
+                const viewportPts = [];
+                if (gjA) {
+                    drawGeoJSON(gjA, '#FF3B30', overlaysA); // 红色
+                    viewportPts.push.apply(viewportPts, collectViewportPointsFromGeoJSON(gjA));
+                }
+                if (gjB) {
+                    drawGeoJSON(gjB, '#337AFF', overlaysB); // 蓝色
+                    viewportPts.push.apply(viewportPts, collectViewportPointsFromGeoJSON(gjB));
+                }
+                if (viewportPts.length > 0) {
+                    try { map.setViewport(viewportPts); } catch (e) { console.warn('视图缩放失败', e); }
+                }
+            });
+        }
+        if (clearBtn) {
+            clearBtn.addEventListener('click', function () {
+                clearOverlays(overlaysA);
+                clearOverlays(overlaysB);
+            });
+        }
+    }
+
+    window.onload = function () {
+        if (typeof T === 'undefined') {
+            alert('天地图API加载失败，请检查网络或密钥！');
+            return;
+        }
+        initMap();
+        bindEvents();
+    };
+</script>
+</body>
+</html>
