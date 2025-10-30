@@ -84,6 +84,81 @@ public class TestGisUtil {
     }
 
     @Test
+    void 测试轨迹段距离() {
+        String did = "EC73BD2506050018";
+        String startTime = "20251029161721";
+        String endTime = "20251029161856";
+        读取一段(did, startTime, endTime);
+        List<String> lines = FileUtil
+                .readUtf8Lines(path + StrUtil.format("/{}_{}_{}_trace.txt", did, startTime, endTime));
+        double total = 0.0;
+        CoordinatePoint prev = null;
+        for (String line : lines) {
+            if (StrUtil.isBlank(line)) {
+                continue;
+            }
+            String[] ss = line.split(",");
+            if (ss.length < 2) {
+                continue;
+            }
+            CoordinatePoint p = new CoordinatePoint(Convert.toDouble(ss[1]), Convert.toDouble(ss[2]));
+            if (prev != null) {
+                total += gisUtil.haversine(prev, p);
+            }
+            prev = p;
+        }
+        log.info("轨迹点数={} 总距离={} 米", lines.size(), total);
+    }
+
+    @Test
+    void 计算亩数与屏幕上报做对比335() throws Exception {
+        String did = "EC73BD2509061335";
+        String startTime = "20251029155746";
+        String endTime = "20251029161032";
+        double widthM = 4;
+        读取一段(did, startTime, endTime);
+        List<TrackPoint> seg = new ArrayList<>();
+        FileUtil.readUtf8Lines(path + StrUtil.format("/{}_{}_{}_trace.txt", did, startTime, endTime)).forEach(line -> {
+            String[] ss = line.split(",");
+            seg.add(new TrackPoint(LocalDateTimeUtil.parse(ss[0], "yyyyMMddHHmmss"), Convert.toDouble(ss[1]),
+                    Convert.toDouble(ss[2])));
+        });
+        OutlinePart outline = gisUtil.getOutline(seg, widthM);
+        FileUtil.writeUtf8String(StrUtil.format("wkt: {}\nmu: {}", outline.getWkt(), outline.getMu()),
+                path + StrUtil.format("/{}_{}_{}_outline335.txt", did, startTime, endTime));
+        log.info("屏幕上报亩数 2.85 ，平台计算亩数={}", outline.getMu());
+    }
+
+    @Test
+    void 计算亩数与屏幕上报做对比018() throws Exception {
+        String did = "EC73BD2506050018";
+        String startTime = "20251029161736";
+        String endTime = "20251029162905";
+        double widthM = 4;
+        读取一段(did, startTime, endTime);
+        List<TrackPoint> seg = new ArrayList<>();
+        FileUtil.readUtf8Lines(path + StrUtil.format("/{}_{}_{}_trace.txt", did, startTime, endTime)).forEach(line -> {
+            String[] ss = line.split(",");
+            seg.add(new TrackPoint(LocalDateTimeUtil.parse(ss[0], "yyyyMMddHHmmss"), Convert.toDouble(ss[1]),
+                    Convert.toDouble(ss[2])));
+        });
+        OutlinePart outline = gisUtil.getOutline(seg, widthM);
+        FileUtil.writeUtf8String(StrUtil.format("wkt: {}\nmu: {}", outline.getWkt(), outline.getMu()),
+                path + StrUtil.format("/{}_{}_{}_outline018.txt", did, startTime, endTime));
+        log.info("屏幕上报亩数 2.9 ，平台计算亩数={}", outline.getMu());
+    }
+
+    @Test
+    void 计算重复亩数() throws Exception {
+        String wkt1 = FileUtil.readUtf8Lines(path + "/EC73BD2506050018_20251029161736_20251029162905_outline018.txt")
+                .get(0).replace("wkt: ", "");
+        String wkt2 = FileUtil.readUtf8Lines(path + "/EC73BD2509061335_20251029155746_20251029161032_outline335.txt")
+                .get(0).replace("wkt: ", "");
+        WktIntersectionResult r = gisUtil.intersection(wkt1, wkt2);
+        log.info("相交面积：{} 亩", r.getMu());
+    }
+
+    @Test
     void 循环() throws SQLException {
         Db db = getMysqlDb();
         List<Entity> rows = db.query(
@@ -93,7 +168,7 @@ public class TestGisUtil {
             Date jobStartTime = row.getDate("jobStartTime");
             double jobWidth = row.getDouble("jobWidth");
             String yyyyMMdd = DateUtil.format(jobStartTime, "yyyyMMdd");
-            读取数据(did, yyyyMMdd);
+            读取一天(did, yyyyMMdd);
             测试一天(did, yyyyMMdd, jobWidth);
         }
     }
@@ -160,7 +235,7 @@ public class TestGisUtil {
     void t001() {
         String did = "EC73BD2509060248";
         String yyyyMMdd = "20251023";
-        读取数据(did, yyyyMMdd);
+        读取一天(did, yyyyMMdd);
         测试一天(did, yyyyMMdd, 2.5);
     }
 
@@ -168,7 +243,7 @@ public class TestGisUtil {
     void t002() {
         String did = "EC73BD2508220055";
         String yyyyMMdd = "20251013";
-        读取数据(did, yyyyMMdd);
+        读取一天(did, yyyyMMdd);
         测试一天(did, yyyyMMdd, 2.6);
     }
 
@@ -176,7 +251,7 @@ public class TestGisUtil {
     void t003() {
         String did = "EC71BT2402000001";
         String yyyyMMdd = "20251015";
-        读取数据(did, yyyyMMdd);
+        读取一天(did, yyyyMMdd);
         测试一天(did, yyyyMMdd, 3);
     }
 
@@ -184,11 +259,53 @@ public class TestGisUtil {
     void t004() {
         String did = "EC73BD2509060335";
         String yyyyMMdd = "20251015";
-        读取数据(did, yyyyMMdd);
+        读取一天(did, yyyyMMdd);
         测试一天(did, yyyyMMdd, 3);
     }
 
-    void 读取数据(String did, String yyyyMMdd) {
+    void 读取一段(String did, String startTime, String endTime) {
+        if (!FileUtil.exist(path + StrUtil.format("/{}_{}_{}_trace.txt", did, startTime, endTime))) {
+            TDengineUtil tDengineUtil = getTdengineUtil();
+            String jobStartTime = DateUtil.parse(startTime, "yyyyMMddHHmmss").toString("yyyy-MM-dd HH:mm:ss");
+            String jobEndTime = DateUtil.parse(endTime, "yyyyMMddHHmmss").toString("yyyy-MM-dd HH:mm:ss");
+            String tdSql = StrUtil.format(
+                    "select protocol from frequent.d_p where did='{}' and _rowts>='{}' and _rowts<='{}'",
+                    did, jobStartTime, jobEndTime);
+            log.debug("{}", tdSql);
+            List<Map<String, Object>> rows = tDengineUtil.executeQuery(tdSql);
+            List<String> l = new ArrayList<>();
+            for (Map<String, Object> row : rows) {
+                Map<String, String> protocol = protocolSdk.parseProtocolString(row.get("protocol").toString());
+                if (protocol.containsKey("2601")) {//定位状态,0已定位，1未定位
+                    if (!Convert.toStr(protocol.get("2601"), "1").equals("0")) {
+                        continue;
+                    }
+                }
+                double lon = Convert.toDouble(protocol.get("2602"), 0.0);//经度
+                double lat = Convert.toDouble(protocol.get("2603"), 0.0);//纬度
+                if (lon == 0 || lat == 0) {//0也算异常的点
+                    continue;
+                }
+                if (Math.abs(lon) > 180 || Math.abs(lat) > 90) {//经度范围不在[-180,180],纬度范围不在[-90,90]，就是异常点
+                    continue;
+                }
+                if (protocol.containsKey("3020")) {//终端ACC状态,0关闭，1开启
+                    if (!Convert.toStr(protocol.get("3020"), "0").equals("1")) {
+                        continue;
+                    }
+                }
+                if (protocol.containsKey("4031")) {//作业标识,1作业,0非作业,2暂停
+                    if (!Convert.toStr(protocol.get("4031"), "0").equals("1")) {
+                        continue;
+                    }
+                }
+                l.add(StrUtil.format("{},{},{}", protocol.get("3014"), protocol.get("2602"), protocol.get("2603")));
+            }
+            FileUtil.writeUtf8Lines(l, path + StrUtil.format("/{}_{}_{}_trace.txt", did, startTime, endTime));
+        }
+    }
+
+    void 读取一天(String did, String yyyyMMdd) {
         if (!FileUtil.exist(path + StrUtil.format("/{}_{}_trace.txt", did, yyyyMMdd))) {
             TDengineUtil tDengineUtil = getTdengineUtil();
             String jobStartTime = DateUtil.parse(yyyyMMdd, "yyyyMMdd").toString("yyyy-MM-dd") + " 00:00:00";

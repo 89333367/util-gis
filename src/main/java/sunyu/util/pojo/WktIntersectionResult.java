@@ -1,10 +1,17 @@
 package sunyu.util.pojo;
 
 public class WktIntersectionResult {
+    /**
+     * 相交轮廓wkt，WGS84坐标系
+     */
     private String wkt;
+    /**
+     * 相交面积亩数
+     */
     private double mu;
 
-    public WktIntersectionResult() {}
+    public WktIntersectionResult() {
+    }
 
     public WktIntersectionResult(String wkt, double mu) {
         this.wkt = wkt;
