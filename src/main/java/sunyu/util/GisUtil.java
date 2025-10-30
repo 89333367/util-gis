@@ -162,9 +162,11 @@ public class GisUtil implements AutoCloseable {
      */
     @Override
     public void close() {
+        log.info("[销毁{}] 开始", this.getClass().getSimpleName());
         // 清理缓存
         config.crsCache.clear();
         // 回收各种资源（预留扩展点）
+        log.info("[销毁{}] 结束", this.getClass().getSimpleName());
     }
 
     /**
