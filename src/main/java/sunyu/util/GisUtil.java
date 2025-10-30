@@ -945,6 +945,60 @@ public class GisUtil implements AutoCloseable {
     }
 
     /**
+     * 点是否在多边形内（WGS84）
+     * 接收点（WGS84，经纬度）和 WKT（WGS84，`POLYGON`/`MULTIPOLYGON`），判断点是否在多边形内；边界视为内。
+     *
+     * @param point 点坐标（WGS84，经度 `lon`、纬度 `lat`，单位度）
+     * @param wktPolygon 多边形 WKT（WGS84，类型为 `POLYGON` 或 `MULTIPOLYGON`）
+     * @return 是否在内（含边界）；解析失败、类型不支持或为空几何返回 false
+     *
+     * @implNote 先用包络矩形快速裁剪，再用 `PreparedGeometry#covers(Point)` 判断；若多边形坐标非法，先通过 `buffer(0)` 进行拓扑修复。
+     */
+    public boolean pointInPolygon(CoordinatePoint point, String wktPolygon) {
+        if (point == null || wktPolygon == null || wktPolygon.trim().isEmpty()) {
+            return false;
+        }
+        double lon = point.getLon();
+        double lat = point.getLat();
+        if (Double.isNaN(lon) || Double.isNaN(lat)) {
+            return false;
+        }
+        if (lon < -180.0 || lon > 180.0 || lat < -90.0 || lat > 90.0) {
+            return false;
+        }
+        try {
+            WKTReader reader = new WKTReader(config.geometryFactory);
+            Geometry poly = reader.read(wktPolygon);
+            if (poly == null || poly.isEmpty()) {
+                return false;
+            }
+            String type = poly.getGeometryType().toUpperCase();
+            if (!("POLYGON".equals(type) || "MULTIPOLYGON".equals(type))) {
+                return false;
+            }
+            if (!hasValidCoordinates(poly)) {
+                poly = poly.buffer(0);
+                if (poly.isEmpty()) {
+                    return false;
+                }
+            }
+            Geometry pt = config.geometryFactory.createPoint(new Coordinate(lon, lat));
+            Envelope env = poly.getEnvelopeInternal();
+            if (!env.contains(pt.getCoordinate())) {
+                return false;
+            }
+            PreparedGeometry prep = PreparedGeometryFactory.prepare(poly);
+            return prep.covers(pt);
+        } catch (org.locationtech.jts.io.ParseException ex) {
+            log.error("解析 WKT 失败: {}", ex.getMessage());
+            return false;
+        } catch (Exception ex) {
+            log.error("pointInPolygon 判断出错: {}", ex.getMessage(), ex);
+            return false;
+        }
+    }
+
+    /**
      * 将几何转换为WKT（统一WGS84）
      * 自动识别坐标系：若坐标范围合理则视为 WGS84 直接输出；否则按高斯-克吕格投影推断分带并转换到 WGS84 后输出。
      * 处理策略：null 返回 GEOMETRYCOLLECTION EMPTY；空几何直接 `toText()`；坐标非法时先 `buffer(0)` 修复再输出。
@@ -1143,6 +1197,381 @@ public class GisUtil implements AutoCloseable {
         String wkt = toWkt(inter);
         double mu = calcMu(inter);
         return new WktIntersectionResult(wkt, mu);
+    }
+
+    /**
+     * 判断两个 WKT（WGS84）是否相交
+     * 接收两个 WKT 字符串（WGS84），解析为 `POLYGON`/`MULTIPOLYGON` 后判断是否相交。
+     *
+     * @param wktA WKT（WGS84），类型必须为 `POLYGON` 或 `MULTIPOLYGON`
+     * @param wktB WKT（WGS84），类型必须为 `POLYGON` 或 `MULTIPOLYGON`
+     * @return 是否相交；解析失败、类型不支持或为空几何返回 false
+     *
+     * @implNote 优先用包络矩形快速裁剪；必要时使用 PreparedGeometry 提升判断性能。
+     */
+    public boolean intersects(String wktA, String wktB) {
+        if (wktA == null || wktA.trim().isEmpty() || wktB == null || wktB.trim().isEmpty()) {
+            return false;
+        }
+        try {
+            WKTReader reader = new WKTReader(config.geometryFactory);
+            Geometry g1 = reader.read(wktA);
+            Geometry g2 = reader.read(wktB);
+
+            if (g1 == null || g2 == null || g1.isEmpty() || g2.isEmpty()) {
+                return false;
+            }
+            String t1 = g1.getGeometryType().toUpperCase();
+            String t2 = g2.getGeometryType().toUpperCase();
+            if (!("POLYGON".equals(t1) || "MULTIPOLYGON".equals(t1))) {
+                return false;
+            }
+            if (!("POLYGON".equals(t2) || "MULTIPOLYGON".equals(t2))) {
+                return false;
+            }
+
+            // 坐标/几何修复（自相交等）
+            if (!hasValidCoordinates(g1)) {
+                g1 = g1.buffer(0);
+                if (g1.isEmpty())
+                    return false;
+            }
+            if (!hasValidCoordinates(g2)) {
+                g2 = g2.buffer(0);
+                if (g2.isEmpty())
+                    return false;
+            }
+
+            // 先做包络矩形快速判断
+            Envelope e1 = g1.getEnvelopeInternal();
+            Envelope e2 = g2.getEnvelopeInternal();
+            if (!e1.intersects(e2)) {
+                return false;
+            }
+
+            // 使用 PreparedGeometry 提升判断性能
+            PreparedGeometry prep = PreparedGeometryFactory.prepare(g1);
+            return prep.intersects(g2);
+        } catch (org.locationtech.jts.io.ParseException ex) {
+            log.error("解析 WKT 失败: {}", ex.getMessage());
+            return false;
+        } catch (Exception ex) {
+            log.error("相交判断出错: {}", ex.getMessage(), ex);
+            return false;
+        }
+    }
+
+    /**
+     * 判断两个 WKT（WGS84）是否相等（拓扑）
+     * 解析为 `POLYGON`/`MULTIPOLYGON` 后使用 JTS 拓扑相等判断（`equalsTopo`）。
+     *
+     * @param wktA WKT（WGS84），类型必须为 `POLYGON` 或 `MULTIPOLYGON`
+     * @param wktB WKT（WGS84），类型必须为 `POLYGON` 或 `MULTIPOLYGON`
+     * @return 是否拓扑相等；解析失败、类型不支持或为空几何返回 false
+     *
+     * @implNote 坐标非法时先 `buffer(0)` 修复；相等判断不做包络裁剪。
+     */
+    public boolean equalsWkt(String wktA, String wktB) {
+        if (wktA == null || wktA.trim().isEmpty() || wktB == null || wktB.trim().isEmpty()) {
+            return false;
+        }
+        try {
+            WKTReader reader = new WKTReader(config.geometryFactory);
+            Geometry g1 = reader.read(wktA);
+            Geometry g2 = reader.read(wktB);
+            if (g1 == null || g2 == null || g1.isEmpty() || g2.isEmpty()) {
+                return false;
+            }
+            String t1 = g1.getGeometryType().toUpperCase();
+            String t2 = g2.getGeometryType().toUpperCase();
+            if (!("POLYGON".equals(t1) || "MULTIPOLYGON".equals(t1)))
+                return false;
+            if (!("POLYGON".equals(t2) || "MULTIPOLYGON".equals(t2)))
+                return false;
+            if (!hasValidCoordinates(g1)) {
+                g1 = g1.buffer(0);
+                if (g1.isEmpty())
+                    return false;
+            }
+            if (!hasValidCoordinates(g2)) {
+                g2 = g2.buffer(0);
+                if (g2.isEmpty())
+                    return false;
+            }
+            return g1.equalsTopo(g2);
+        } catch (org.locationtech.jts.io.ParseException ex) {
+            log.error("解析 WKT 失败: {}", ex.getMessage());
+            return false;
+        } catch (Exception ex) {
+            log.error("相等判断出错: {}", ex.getMessage(), ex);
+            return false;
+        }
+    }
+
+    /**
+     * 判断两个 WKT（WGS84）是否脱节（disjoint）
+     *
+     * @param wktA WKT（WGS84），类型必须为 `POLYGON` 或 `MULTIPOLYGON`
+     * @param wktB WKT（WGS84），类型必须为 `POLYGON` 或 `MULTIPOLYGON`
+     * @return 是否脱节；解析失败、类型不支持或为空几何返回 false
+     *
+     * @implNote 先用包络矩形快速裁剪；再用 `PreparedGeometry#disjoint` 判断。
+     */
+    public boolean disjoint(String wktA, String wktB) {
+        if (wktA == null || wktA.trim().isEmpty() || wktB == null || wktB.trim().isEmpty()) {
+            return false;
+        }
+        try {
+            WKTReader reader = new WKTReader(config.geometryFactory);
+            Geometry g1 = reader.read(wktA);
+            Geometry g2 = reader.read(wktB);
+            if (g1 == null || g2 == null || g1.isEmpty() || g2.isEmpty())
+                return false;
+            String t1 = g1.getGeometryType().toUpperCase();
+            String t2 = g2.getGeometryType().toUpperCase();
+            if (!("POLYGON".equals(t1) || "MULTIPOLYGON".equals(t1)))
+                return false;
+            if (!("POLYGON".equals(t2) || "MULTIPOLYGON".equals(t2)))
+                return false;
+            if (!hasValidCoordinates(g1)) {
+                g1 = g1.buffer(0);
+                if (g1.isEmpty())
+                    return false;
+            }
+            if (!hasValidCoordinates(g2)) {
+                g2 = g2.buffer(0);
+                if (g2.isEmpty())
+                    return false;
+            }
+            Envelope e1 = g1.getEnvelopeInternal();
+            Envelope e2 = g2.getEnvelopeInternal();
+            if (!e1.intersects(e2))
+                return true;
+            PreparedGeometry prep = PreparedGeometryFactory.prepare(g1);
+            return prep.disjoint(g2);
+        } catch (org.locationtech.jts.io.ParseException ex) {
+            log.error("解析 WKT 失败: {}", ex.getMessage());
+            return false;
+        } catch (Exception ex) {
+            log.error("disjoint 判断出错: {}", ex.getMessage(), ex);
+            return false;
+        }
+    }
+
+    /**
+     * 判断两个 WKT（WGS84）是否接触（touches）
+     * 边界接触但内部不相交。
+     *
+     * @param wktA WKT（WGS84），类型必须为 `POLYGON` 或 `MULTIPOLYGON`
+     * @param wktB WKT（WGS84），类型必须为 `POLYGON` 或 `MULTIPOLYGON`
+     * @return 是否接触；解析失败、类型不支持或为空几何返回 false
+     */
+    public boolean touches(String wktA, String wktB) {
+        if (wktA == null || wktA.trim().isEmpty() || wktB == null || wktB.trim().isEmpty())
+            return false;
+        try {
+            WKTReader reader = new WKTReader(config.geometryFactory);
+            Geometry g1 = reader.read(wktA);
+            Geometry g2 = reader.read(wktB);
+            if (g1 == null || g2 == null || g1.isEmpty() || g2.isEmpty())
+                return false;
+            String t1 = g1.getGeometryType().toUpperCase();
+            String t2 = g2.getGeometryType().toUpperCase();
+            if (!("POLYGON".equals(t1) || "MULTIPOLYGON".equals(t1)))
+                return false;
+            if (!("POLYGON".equals(t2) || "MULTIPOLYGON".equals(t2)))
+                return false;
+            if (!hasValidCoordinates(g1)) {
+                g1 = g1.buffer(0);
+                if (g1.isEmpty())
+                    return false;
+            }
+            if (!hasValidCoordinates(g2)) {
+                g2 = g2.buffer(0);
+                if (g2.isEmpty())
+                    return false;
+            }
+            PreparedGeometry prep = PreparedGeometryFactory.prepare(g1);
+            return prep.touches(g2);
+        } catch (org.locationtech.jts.io.ParseException ex) {
+            log.error("解析 WKT 失败: {}", ex.getMessage());
+            return false;
+        } catch (Exception ex) {
+            log.error("touches 判断出错: {}", ex.getMessage(), ex);
+            return false;
+        }
+    }
+
+    /**
+     * 判断两个 WKT（WGS84）是否交叉（crosses）
+     * 交叉表示几何在维度上“穿过”彼此（多边形相交且交集不是包含/覆盖的关系）。
+     *
+     * @param wktA WKT（WGS84），类型必须为 `POLYGON` 或 `MULTIPOLYGON`
+     * @param wktB WKT（WGS84），类型必须为 `POLYGON` 或 `MULTIPOLYGON`
+     * @return 是否交叉；解析失败、类型不支持或为空几何返回 false
+     */
+    public boolean crosses(String wktA, String wktB) {
+        if (wktA == null || wktA.trim().isEmpty() || wktB == null || wktB.trim().isEmpty())
+            return false;
+        try {
+            WKTReader reader = new WKTReader(config.geometryFactory);
+            Geometry g1 = reader.read(wktA);
+            Geometry g2 = reader.read(wktB);
+            if (g1 == null || g2 == null || g1.isEmpty() || g2.isEmpty())
+                return false;
+            String t1 = g1.getGeometryType().toUpperCase();
+            String t2 = g2.getGeometryType().toUpperCase();
+            if (!("POLYGON".equals(t1) || "MULTIPOLYGON".equals(t1)))
+                return false;
+            if (!("POLYGON".equals(t2) || "MULTIPOLYGON".equals(t2)))
+                return false;
+            if (!hasValidCoordinates(g1)) {
+                g1 = g1.buffer(0);
+                if (g1.isEmpty())
+                    return false;
+            }
+            if (!hasValidCoordinates(g2)) {
+                g2 = g2.buffer(0);
+                if (g2.isEmpty())
+                    return false;
+            }
+            PreparedGeometry prep = PreparedGeometryFactory.prepare(g1);
+            return prep.crosses(g2);
+        } catch (org.locationtech.jts.io.ParseException ex) {
+            log.error("解析 WKT 失败: {}", ex.getMessage());
+            return false;
+        } catch (Exception ex) {
+            log.error("crosses 判断出错: {}", ex.getMessage(), ex);
+            return false;
+        }
+    }
+
+    /**
+     * 判断 A 是否在 B 内（within）
+     *
+     * @param wktA WKT（WGS84），A，`POLYGON`/`MULTIPOLYGON`
+     * @param wktB WKT（WGS84），B，`POLYGON`/`MULTIPOLYGON`
+     * @return A 是否在 B 内；解析失败、类型不支持或为空几何返回 false
+     */
+    public boolean within(String wktA, String wktB) {
+        if (wktA == null || wktA.trim().isEmpty() || wktB == null || wktB.trim().isEmpty())
+            return false;
+        try {
+            WKTReader reader = new WKTReader(config.geometryFactory);
+            Geometry g1 = reader.read(wktA);
+            Geometry g2 = reader.read(wktB);
+            if (g1 == null || g2 == null || g1.isEmpty() || g2.isEmpty())
+                return false;
+            String t1 = g1.getGeometryType().toUpperCase();
+            String t2 = g2.getGeometryType().toUpperCase();
+            if (!("POLYGON".equals(t1) || "MULTIPOLYGON".equals(t1)))
+                return false;
+            if (!("POLYGON".equals(t2) || "MULTIPOLYGON".equals(t2)))
+                return false;
+            if (!hasValidCoordinates(g1)) {
+                g1 = g1.buffer(0);
+                if (g1.isEmpty())
+                    return false;
+            }
+            if (!hasValidCoordinates(g2)) {
+                g2 = g2.buffer(0);
+                if (g2.isEmpty())
+                    return false;
+            }
+            return g1.within(g2);
+        } catch (org.locationtech.jts.io.ParseException ex) {
+            log.error("解析 WKT 失败: {}", ex.getMessage());
+            return false;
+        } catch (Exception ex) {
+            log.error("within 判断出错: {}", ex.getMessage(), ex);
+            return false;
+        }
+    }
+
+    /**
+     * 判断 A 是否包含 B（contains）
+     *
+     * @param wktA WKT（WGS84），A，`POLYGON`/`MULTIPOLYGON`
+     * @param wktB WKT（WGS84），B，`POLYGON`/`MULTIPOLYGON`
+     * @return A 是否包含 B；解析失败、类型不支持或为空几何返回 false
+     */
+    public boolean contains(String wktA, String wktB) {
+        if (wktA == null || wktA.trim().isEmpty() || wktB == null || wktB.trim().isEmpty())
+            return false;
+        try {
+            WKTReader reader = new WKTReader(config.geometryFactory);
+            Geometry g1 = reader.read(wktA);
+            Geometry g2 = reader.read(wktB);
+            if (g1 == null || g2 == null || g1.isEmpty() || g2.isEmpty())
+                return false;
+            String t1 = g1.getGeometryType().toUpperCase();
+            String t2 = g2.getGeometryType().toUpperCase();
+            if (!("POLYGON".equals(t1) || "MULTIPOLYGON".equals(t1)))
+                return false;
+            if (!("POLYGON".equals(t2) || "MULTIPOLYGON".equals(t2)))
+                return false;
+            if (!hasValidCoordinates(g1)) {
+                g1 = g1.buffer(0);
+                if (g1.isEmpty())
+                    return false;
+            }
+            if (!hasValidCoordinates(g2)) {
+                g2 = g2.buffer(0);
+                if (g2.isEmpty())
+                    return false;
+            }
+            return g1.contains(g2);
+        } catch (org.locationtech.jts.io.ParseException ex) {
+            log.error("解析 WKT 失败: {}", ex.getMessage());
+            return false;
+        } catch (Exception ex) {
+            log.error("contains 判断出错: {}", ex.getMessage(), ex);
+            return false;
+        }
+    }
+
+    /**
+     * 判断两个 WKT（WGS84）是否重叠（overlaps）
+     * 多边形维度一致，交集维度同为 2，且交集既不是包含也不是相等。
+     *
+     * @param wktA WKT（WGS84），类型必须为 `POLYGON` 或 `MULTIPOLYGON`
+     * @param wktB WKT（WGS84），类型必须为 `POLYGON` 或 `MULTIPOLYGON`
+     * @return 是否重叠；解析失败、类型不支持或为空几何返回 false
+     */
+    public boolean overlaps(String wktA, String wktB) {
+        if (wktA == null || wktA.trim().isEmpty() || wktB == null || wktB.trim().isEmpty())
+            return false;
+        try {
+            WKTReader reader = new WKTReader(config.geometryFactory);
+            Geometry g1 = reader.read(wktA);
+            Geometry g2 = reader.read(wktB);
+            if (g1 == null || g2 == null || g1.isEmpty() || g2.isEmpty())
+                return false;
+            String t1 = g1.getGeometryType().toUpperCase();
+            String t2 = g2.getGeometryType().toUpperCase();
+            if (!("POLYGON".equals(t1) || "MULTIPOLYGON".equals(t1)))
+                return false;
+            if (!("POLYGON".equals(t2) || "MULTIPOLYGON".equals(t2)))
+                return false;
+            if (!hasValidCoordinates(g1)) {
+                g1 = g1.buffer(0);
+                if (g1.isEmpty())
+                    return false;
+            }
+            if (!hasValidCoordinates(g2)) {
+                g2 = g2.buffer(0);
+                if (g2.isEmpty())
+                    return false;
+            }
+            PreparedGeometry prep = PreparedGeometryFactory.prepare(g1);
+            return prep.overlaps(g2);
+        } catch (org.locationtech.jts.io.ParseException ex) {
+            log.error("解析 WKT 失败: {}", ex.getMessage());
+            return false;
+        } catch (Exception ex) {
+            log.error("overlaps 判断出错: {}", ex.getMessage(), ex);
+            return false;
+        }
     }
 
     /**

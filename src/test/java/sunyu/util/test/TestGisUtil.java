@@ -185,20 +185,30 @@ public class TestGisUtil {
             String jobStartTime = DateUtil.parse(yyyyMMdd, "yyyyMMdd").toString("yyyy-MM-dd") + " 00:00:00";
             String jobEndTime = DateUtil.parse(yyyyMMdd + "235959", "yyyyMMddHHmmss").toString("yyyy-MM-dd HH:mm:ss");
             String tdSql = StrUtil.format(
-                    "select protocol from frequent.d_p where did='{}' and `3014`>='{}' and `3014`<='{}'",
+                    "select protocol from frequent.d_p where did='{}' and _rowts>='{}' and _rowts<='{}'",
                     did, jobStartTime, jobEndTime);
             log.debug("{}", tdSql);
             List<Map<String, Object>> rows = tDengineUtil.executeQuery(tdSql);
             List<String> l = new ArrayList<>();
             for (Map<String, Object> row : rows) {
                 Map<String, String> protocol = protocolSdk.parseProtocolString(row.get("protocol").toString());
-                if (!Convert.toStr(protocol.get("2601"), "1").equals("0")) {
+                if (!Convert.toStr(protocol.get("2601"), "1").equals("0")) {//定位状态,0已定位，1未定位
                     continue;
                 }
-                if (Convert.toDouble(protocol.get("2602")) <= 0 || Convert.toDouble(protocol.get("2603")) <= 0) {
+                double lon = Convert.toDouble(protocol.get("2602"), 0.0);//经度
+                double lat = Convert.toDouble(protocol.get("2603"), 0.0);//纬度
+                if (lon == 0 || lat == 0) {//0也算异常的点
                     continue;
                 }
-                if (protocol.containsKey("4031")) {
+                if (Math.abs(lon) > 180 || Math.abs(lat) > 90) {//经度范围不在[-180,180],纬度范围不在[-90,90]，就是异常点
+                    continue;
+                }
+                if (protocol.containsKey("3020")) {//终端ACC状态,0关闭，1开启
+                    if (!Convert.toStr(protocol.get("3020"), "0").equals("1")) {
+                        continue;
+                    }
+                }
+                if (protocol.containsKey("4031")) {//作业标识,1作业,0非作业,2暂停
                     if (!Convert.toStr(protocol.get("4031"), "0").equals("1")) {
                         continue;
                     }
