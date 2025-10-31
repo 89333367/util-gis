@@ -1,24 +1,11 @@
 package sunyu.util.test;
 
-import java.sql.SQLException;
-import java.util.ArrayList;
-import java.util.Date;
-import java.util.List;
-import java.util.Map;
-
-import javax.sql.DataSource;
-
-import org.junit.jupiter.api.Test;
-import org.locationtech.jts.geom.Geometry;
-
-import com.zaxxer.hikari.HikariConfig;
-import com.zaxxer.hikari.HikariDataSource;
-
 import cn.hutool.core.convert.Convert;
 import cn.hutool.core.date.DateTime;
 import cn.hutool.core.date.DateUtil;
 import cn.hutool.core.date.LocalDateTimeUtil;
 import cn.hutool.core.io.FileUtil;
+import cn.hutool.core.io.resource.ResourceUtil;
 import cn.hutool.core.util.StrUtil;
 import cn.hutool.db.Db;
 import cn.hutool.db.DbUtil;
@@ -26,13 +13,20 @@ import cn.hutool.db.Entity;
 import cn.hutool.log.Log;
 import cn.hutool.log.LogFactory;
 import cn.hutool.log.level.Level;
+import com.zaxxer.hikari.HikariConfig;
+import com.zaxxer.hikari.HikariDataSource;
+import org.junit.jupiter.api.Test;
+import org.locationtech.jts.geom.Geometry;
 import sunyu.util.GisUtil;
 import sunyu.util.TDengineUtil;
-import sunyu.util.pojo.CoordinatePoint;
-import sunyu.util.pojo.OutlinePart;
-import sunyu.util.pojo.SplitRoadResult;
-import sunyu.util.pojo.TrackPoint;
-import sunyu.util.pojo.WktIntersectionResult;
+import sunyu.util.pojo.*;
+
+import javax.sql.DataSource;
+import java.sql.SQLException;
+import java.util.ArrayList;
+import java.util.Date;
+import java.util.List;
+import java.util.Map;
 
 public class TestGisUtil {
     Log log = LogFactory.get();
@@ -285,6 +279,7 @@ public class TestGisUtil {
         String yyyyMMdd = "20251023";
         读取一天(did, yyyyMMdd);
         测试一天(did, yyyyMMdd, 2.5);
+        输出html(did, yyyyMMdd);
     }
 
     @Test
@@ -293,22 +288,7 @@ public class TestGisUtil {
         String yyyyMMdd = "20251013";
         读取一天(did, yyyyMMdd);
         测试一天(did, yyyyMMdd, 2.6);
-    }
-
-    @Test
-    void t003() {
-        String did = "EC71BT2402000001";
-        String yyyyMMdd = "20251015";
-        读取一天(did, yyyyMMdd);
-        测试一天(did, yyyyMMdd, 3);
-    }
-
-    @Test
-    void t004() {
-        String did = "EC73BD2509060335";
-        String yyyyMMdd = "20251015";
-        读取一天(did, yyyyMMdd);
-        测试一天(did, yyyyMMdd, 3);
+        输出html(did, yyyyMMdd);
     }
 
     void 读取一段(String did, String startTime, String endTime) {
@@ -446,5 +426,18 @@ public class TestGisUtil {
         } catch (Exception e) {
             log.error(e);
         }
+    }
+
+    void 输出html(String did, String yyyyMMdd) {
+        // 利用 showGeometryTemplate.html 当做模版，将trace输出到轨迹的TAB中
+        String html = ResourceUtil.readUtf8Str("showGeometryTemplate.html");
+
+        String trace = FileUtil.readUtf8String(path + StrUtil.format("/{}_{}_trace.txt", did, yyyyMMdd));
+        html = StrUtil.replace(html, "${trace}", trace);
+
+        String outline = FileUtil.readUtf8Lines(path + StrUtil.format("/{}_{}_outline.txt", did, yyyyMMdd)).get(4);
+        html = StrUtil.replace(html, "${outline}", outline.replace("WKT: ", ""));
+
+        FileUtil.writeUtf8String(html, path + StrUtil.format("/{}_{}.html", did, yyyyMMdd));
     }
 }

@@ -518,7 +518,7 @@ public class GisUtil implements AutoCloseable {
             log.trace("[buildOutlineCore] 轮廓构建完成，构建耗时: {}ms", buildTime);
 
             if (result instanceof MultiPolygon && result.getNumGeometries() > 1) {
-                log.debug("[buildOutlineCore] 输入参数 点数={} 总宽度={}m 单侧宽度={}m", seg != null ? seg.size() : 0, totalWidthM,
+                log.debug("[buildOutlineCore] 输入参数 点数={} 总宽度={}m 单侧宽度={}m", seg.size(), totalWidthM,
                         widthM);
                 log.debug("[buildOutlineCore] 结果为MultiPolygon，包含 {} 个部分", result.getNumGeometries());
                 long endTime = System.currentTimeMillis();
@@ -1747,7 +1747,7 @@ public class GisUtil implements AutoCloseable {
 
         int limit = (maxSegments == null || maxSegments <= 0) ? config.DEFAULT_MAX_OUTLINE_SEGMENTS
                 : maxSegments.intValue();
-        log.debug("[splitRoad] 输入参数 点数={} 总宽度={}m 返回上限={}", seg != null ? seg.size() : 0, totalWidthM, limit);
+        log.debug("[splitRoad] 输入参数 点数={} 总宽度={}m 返回上限={}", seg.size(), totalWidthM, limit);
         long tTrimStart = System.currentTimeMillis();
         Geometry trimmed = keepLargestPolygons(outline, limit);
         int partsAfterKeep = (trimmed instanceof MultiPolygon) ? trimmed.getNumGeometries() : 1;
