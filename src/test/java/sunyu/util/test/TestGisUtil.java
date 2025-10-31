@@ -213,7 +213,7 @@ public class TestGisUtil {
             String yyyyMMdd = DateUtil.format(jobStartTime, "yyyyMMdd");
             读取一天(did, yyyyMMdd);
             测试一天(did, yyyyMMdd, jobWidth);
-            输出html(did, yyyyMMdd);
+            输出一天HTML(did, yyyyMMdd);
         }
     }
 
@@ -281,7 +281,7 @@ public class TestGisUtil {
         String yyyyMMdd = "20251023";
         读取一天(did, yyyyMMdd);
         测试一天(did, yyyyMMdd, 2.5);
-        输出html(did, yyyyMMdd);
+        输出一天HTML(did, yyyyMMdd);
     }
 
     @Test
@@ -290,7 +290,18 @@ public class TestGisUtil {
         String yyyyMMdd = "20251013";
         读取一天(did, yyyyMMdd);
         测试一天(did, yyyyMMdd, 2.6);
-        输出html(did, yyyyMMdd);
+        输出一天HTML(did, yyyyMMdd);
+    }
+
+    @Test
+    void t003() {
+        String did = "EC73BD2509061335";
+        String startTime = "20251029101603";
+        String endTime = "20251029102521";
+        double widthM = 2;
+        读取一段(did, startTime, endTime);
+        测试一段(did, startTime, endTime, widthM);
+        输出一段HTML(did, startTime, endTime);
     }
 
     void 读取一段(String did, String startTime, String endTime) {
@@ -435,7 +446,64 @@ public class TestGisUtil {
         }
     }
 
-    void 输出html(String did, String yyyyMMdd) {
+    void 测试一段(String did, String startTime, String endTime, double jobWidth) {
+        String fileName = path + StrUtil.format("/{}_{}_{}_trace.txt", did, startTime, endTime);
+        if (!FileUtil.exist(fileName)) {
+            return;
+        }
+        List<TrackPoint> l = new ArrayList<>();
+        String jobStartTime = DateUtil.parse(startTime, "yyyyMMddHHmmss").toString("yyyy-MM-dd HH:mm:ss");
+        String jobEndTime = DateUtil.parse(endTime, "yyyyMMddHHmmss").toString("yyyy-MM-dd HH:mm:ss");
+        for (String line : FileUtil.readUtf8Lines(fileName)) {
+            // 20251013120625,113.33316443,28.08500825
+            String[] split = line.split(",");
+            TrackPoint trackPoint = new TrackPoint(LocalDateTimeUtil.parse(split[0], "yyyyMMddHHmmss"),
+                    Double.parseDouble(split[1]), Double.parseDouble(split[2]));
+            l.add(trackPoint);
+        }
+        try {
+            SplitRoadResult res = gisUtil.splitRoad(l, jobWidth, Integer.MAX_VALUE);
+            Geometry outline = res.getOutline();
+            String outlineWkt = res.getWkt();
+            List<OutlinePart> parts = res.getParts();
+
+            String outlineFile = StrUtil.format(path + "/{}_{}_{}_outline.txt", did, startTime, endTime);
+            String partsFile = StrUtil.format(path + "/{}_{}_{}_parts.txt", did, startTime, endTime);
+
+            StringBuilder ob = new StringBuilder();
+            ob.append("Outline type: ").append(outline.getGeometryType()).append('\n')
+                    .append("Parts: ")
+                    .append(outline instanceof org.locationtech.jts.geom.MultiPolygon ? outline.getNumGeometries() : 1)
+                    .append('\n')
+                    .append("mu: ").append(gisUtil.calcMu(outline)).append('\n')
+                    .append("totalWidthM: ").append(res.getTotalWidthM()).append('\n')
+                    .append("WKT: ").append(outlineWkt).append('\n');
+            FileUtil.writeUtf8String(ob.toString(), outlineFile);
+
+            StringBuilder pb = new StringBuilder();
+            pb.append("Parts: ").append(parts == null ? 0 : parts.size()).append('\n');
+            if (parts != null) {
+                for (int i = 0; i < parts.size(); i++) {
+                    OutlinePart p = parts.get(i);
+                    pb.append("== Part ").append(i).append(" ==\n")
+                            .append("type: ").append(p.getOutline().getGeometryType()).append('\n')
+                            .append("mu: ").append(p.getMu()).append('\n')
+                            .append("totalWidthM: ").append(p.getTotalWidthM()).append('\n')
+                            .append("startTime: ").append(p.getStartTime()).append('\n')
+                            .append("endTime: ").append(p.getEndTime()).append('\n')
+                            .append("wkt: ").append(p.getWkt()).append('\n')
+                            .append("trackStr: ").append(p.getTrackStr()).append('\n');
+                }
+            }
+            FileUtil.writeUtf8String(pb.toString(), partsFile);
+
+            log.info("结果文件已生成：outline={}, parts={}", outlineFile, partsFile);
+        } catch (Exception e) {
+            log.error(e);
+        }
+    }
+
+    void 输出一天HTML(String did, String yyyyMMdd) {
         // 利用 showGeometryTemplate.html 当做模版，将trace输出到轨迹的TAB中
         String html = ResourceUtil.readUtf8Str("showGeometryTemplate.html");
 
@@ -450,5 +518,22 @@ public class TestGisUtil {
         html = StrUtil.replace(html, "${outline}", outline.replace("WKT: ", ""));
 
         FileUtil.writeUtf8String(html, path + StrUtil.format("/{}_{}.html", did, yyyyMMdd));
+    }
+
+    void 输出一段HTML(String did, String startTime, String endTime) {
+        // 利用 showGeometryTemplate.html 当做模版，将trace输出到轨迹的TAB中
+        String html = ResourceUtil.readUtf8Str("showGeometryTemplate.html");
+
+        String fileName = path + StrUtil.format("/{}_{}_{}_trace.txt", did, startTime, endTime);
+        if (!FileUtil.exist(fileName)) {
+            return;
+        }
+        String trace = FileUtil.readUtf8String(fileName);
+        html = StrUtil.replace(html, "${trace}", trace);
+
+        String outline = FileUtil.readUtf8Lines(path + StrUtil.format("/{}_{}_{}_outline.txt", did, startTime, endTime)).get(4);
+        html = StrUtil.replace(html, "${outline}", outline.replace("WKT: ", ""));
+
+        FileUtil.writeUtf8String(html, path + StrUtil.format("/{}_{}_{}.html", did, startTime, endTime));
     }
 }
