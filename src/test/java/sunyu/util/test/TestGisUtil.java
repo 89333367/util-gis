@@ -1,5 +1,6 @@
 package sunyu.util.test;
 
+import cn.hutool.core.collection.CollUtil;
 import cn.hutool.core.convert.Convert;
 import cn.hutool.core.date.DateTime;
 import cn.hutool.core.date.DateUtil;
@@ -212,6 +213,7 @@ public class TestGisUtil {
             String yyyyMMdd = DateUtil.format(jobStartTime, "yyyyMMdd");
             读取一天(did, yyyyMMdd);
             测试一天(did, yyyyMMdd, jobWidth);
+            输出html(did, yyyyMMdd);
         }
     }
 
@@ -371,12 +373,17 @@ public class TestGisUtil {
                 }
                 l.add(StrUtil.format("{},{},{}", protocol.get("3014"), protocol.get("2602"), protocol.get("2603")));
             }
-            FileUtil.writeUtf8Lines(l, path + StrUtil.format("/{}_{}_trace.txt", did, yyyyMMdd));
+            if (CollUtil.isNotEmpty(l)) {
+                FileUtil.writeUtf8Lines(l, path + StrUtil.format("/{}_{}_trace.txt", did, yyyyMMdd));
+            }
         }
     }
 
     void 测试一天(String did, String yyyyMMdd, double jobWidth) {
         String fileName = path + StrUtil.format("/{}_{}_trace.txt", did, yyyyMMdd);
+        if (!FileUtil.exist(fileName)) {
+            return;
+        }
         List<TrackPoint> l = new ArrayList<>();
         DateTime jobEndTime = DateUtil.parse(yyyyMMdd + "235959", "yyyyMMddHHmmss");
         for (String line : FileUtil.readUtf8Lines(fileName)) {
@@ -432,7 +439,11 @@ public class TestGisUtil {
         // 利用 showGeometryTemplate.html 当做模版，将trace输出到轨迹的TAB中
         String html = ResourceUtil.readUtf8Str("showGeometryTemplate.html");
 
-        String trace = FileUtil.readUtf8String(path + StrUtil.format("/{}_{}_trace.txt", did, yyyyMMdd));
+        String fileName = path + StrUtil.format("/{}_{}_trace.txt", did, yyyyMMdd);
+        if (!FileUtil.exist(fileName)) {
+            return;
+        }
+        String trace = FileUtil.readUtf8String(fileName);
         html = StrUtil.replace(html, "${trace}", trace);
 
         String outline = FileUtil.readUtf8Lines(path + StrUtil.format("/{}_{}_outline.txt", did, yyyyMMdd)).get(4);
