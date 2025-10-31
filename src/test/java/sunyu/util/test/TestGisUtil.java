@@ -311,6 +311,15 @@ public class TestGisUtil {
         输出一段HTML(did, startTime, endTime);
     }
 
+    @Test
+    void t004() {
+        String did = "NJ4GBQSAX0000687";
+        String yyyyMMdd = "20250503";
+        读取一天(did, yyyyMMdd);
+        测试一天(did, yyyyMMdd, 2.7);
+        输出一天HTML(did, yyyyMMdd);
+    }
+
     void 读取一段(String did, String startTime, String endTime) {
         if (!FileUtil.exist(path + StrUtil.format("/{}_{}_{}_trace.txt", did, startTime, endTime))) {
             TDengineUtil tDengineUtil = getTdengineUtil();
