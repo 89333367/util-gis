@@ -4,10 +4,7 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
-import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
@@ -16,7 +13,6 @@ import org.geotools.referencing.CRS;
 import org.locationtech.jts.geom.Coordinate;
 import org.locationtech.jts.geom.Envelope;
 import org.locationtech.jts.geom.Geometry;
-import org.locationtech.jts.geom.GeometryCollection;
 import org.locationtech.jts.geom.GeometryFactory;
 import org.locationtech.jts.geom.MultiPolygon;
 import org.locationtech.jts.geom.Polygon;
@@ -133,16 +129,8 @@ public class GisUtil implements AutoCloseable {
         // 默认轮廓返回的最多多边形数量（TopN）
         private final int DEFAULT_MAX_OUTLINE_SEGMENTS = 10;
 
-        // 分组合并组大小：600，避免 GeometryCollection 一次性过大
-        private final int DEFAULT_UNION_GROUP_SIZE = 600;
         // 圆近似细分：4，提升性能，误差满足道路宽度场景
         private final int DEFAULT_BUFFER_QUADRANT = 2;
-        // 目标桶数：300，平衡桶内复杂度与最终合并规模
-        private final int DEFAULT_BUCKET_TARGET = 300;
-        // cellSize 下限系数：5，避免过多小桶导致合并碎片化
-        private final int DEFAULT_BUCKET_CELL_MIN_FACTOR = 5;
-        // cellSize 上限系数：36
-        private final int DEFAULT_BUCKET_CELL_MAX_FACTOR = 36;
 
         // 作业最大速度阈值（km/h），用于前置速度过滤；可通过 Builder 配置
         private double WORK_MAX_SPEED_KMH = 20.0;
@@ -206,72 +194,6 @@ public class GisUtil implements AutoCloseable {
         config.crsCache.clear();
         // 回收各种资源（预留扩展点）
         log.info("[销毁{}] 结束", this.getClass().getSimpleName());
-    }
-
-    /**
-     * 高效合并多几何（Union）
-     * 对输入几何集合做并集运算；内部采用分组并集与缓冲修复策略以提升性能与稳健性。
-     *
-     * @param geometries 待合并的几何列表；为空或元素为空时返回空集合
-     * @return 合并后的几何；可能为 `Polygon`/`MultiPolygon`/`GeometryCollection`
-     */
-    private Geometry unionGeometries(List<Geometry> geometries) {
-        if (geometries == null || geometries.isEmpty()) {
-            return null;
-        }
-        if (geometries.size() == 1) {
-            return geometries.get(0);
-        }
-
-        // 优先使用 CascadedPolygonUnion 合并多边形，性能更优
-        List<Polygon> polys = new ArrayList<>();
-        for (Geometry g : geometries) {
-            if (g instanceof Polygon) {
-                polys.add((Polygon) g);
-            } else if (g instanceof MultiPolygon) {
-                MultiPolygon mp = (MultiPolygon) g;
-                for (int i = 0; i < mp.getNumGeometries(); i++) {
-                    polys.add((Polygon) mp.getGeometryN(i));
-                }
-            }
-        }
-        if (!polys.isEmpty()) {
-            return UnaryUnionOp.union(polys);
-        }
-
-        // 非多边形集合，退回 GeometryCollection.union() 或分组合并
-        int groupSize = config.DEFAULT_UNION_GROUP_SIZE;
-        if (geometries.size() <= groupSize) {
-            GeometryCollection collection = config.geometryFactory.createGeometryCollection(
-                    geometries.toArray(new Geometry[0]));
-            return collection.union();
-        }
-        return unionInGroups(geometries, groupSize);
-    }
-
-    /**
-     * 分组并集（Union）以提升性能
-     * 将几何列表按 `groupSize` 分组，分别做并集后再统一并集，避免一次性并集过多要素导致性能问题。
-     *
-     * @param geometries 待合并的几何列表
-     * @param groupSize  每组并集的最大要素数量（>0），建议在百级到千级之间
-     * @return 合并后的几何
-     */
-    private Geometry unionInGroups(List<Geometry> geometries, int groupSize) {
-        if (geometries.size() <= groupSize) {
-            GeometryCollection collection = config.geometryFactory.createGeometryCollection(
-                    geometries.toArray(new Geometry[0]));
-            return collection.union();
-        }
-        List<Geometry> groups = new ArrayList<>();
-        for (int i = 0; i < geometries.size(); i += groupSize) {
-            int end = Math.min(i + groupSize, geometries.size());
-            List<Geometry> group = geometries.subList(i, end);
-            GeometryCollection collection = config.geometryFactory.createGeometryCollection(
-                    group.toArray(new Geometry[0]));
-            groups.add(collection.union());
-        }
-        return unionInGroups(groups, groupSize);
     }
 
     /**
@@ -513,131 +435,6 @@ public class GisUtil implements AutoCloseable {
             }
         }
         return res;
-    }
-
-    /**
-     * 使用相同左右宽度构建轮廓（点圆缓冲 + 分桶合并）。
-     * 步骤：轨迹点按时间排序 → 点缓冲（米制）→ 按自适应网格分桶 → 桶内并集 → 桶间并集 → 形态修复。
-     *
-     * @param seg    轨迹点列表（WGS84）
-     * @param widthM 单侧缓冲宽度（米）
-     * @return 轮廓几何
-     * @throws Exception 坐标转换或几何运算异常
-     */
-    private Geometry buildOutlineBySimpleBuffers(List<TrackPoint> seg, double widthM) throws Exception {
-        long startTime = System.currentTimeMillis();
-        log.trace("[buildOutlineBySimpleBuffers] 开始处理 {} 个轨迹点，缓冲区宽度: {} 米", seg.size(), widthM);
-
-        if (seg == null || seg.isEmpty()) {
-            return config.geometryFactory.createGeometryCollection(null);
-        }
-
-        double originLon = seg.get(0).getLon();
-        MathTransform txWgsToGk = getTxWgsToGaussByLon(originLon);
-
-        List<Geometry> pointBuffers = new ArrayList<>();
-        long convertTime = 0;
-        long bufferTime = 0;
-
-        BufferParameters params = new BufferParameters();
-        params.setQuadrantSegments(config.DEFAULT_BUFFER_QUADRANT);
-        params.setEndCapStyle(config.BUFFER_END_CAP_STYLE);
-        params.setJoinStyle(config.BUFFER_JOIN_STYLE);
-        params.setMitreLimit(config.BUFFER_MITRE_LIMIT);
-
-        for (int i = 0; i < seg.size(); i++) {
-            TrackPoint point = seg.get(i);
-            Geometry pointGeom = config.geometryFactory.createPoint(new Coordinate(point.getLon(), point.getLat()));
-
-            long startConvert = System.currentTimeMillis();
-            Geometry projPoint = JTS.transform(pointGeom, txWgsToGk);
-            convertTime += System.currentTimeMillis() - startConvert;
-
-            long startBuffer = System.currentTimeMillis();
-            Geometry buffer = BufferOp.bufferOp(projPoint, widthM, params);
-            bufferTime += System.currentTimeMillis() - startBuffer;
-
-            pointBuffers.add(buffer);
-
-            if (i > 0 && i % 200 == 0) {
-                log.trace("[buildOutlineBySimpleBuffers] 进度 {}/{} 转换:{}ms 缓冲:{}ms", i, seg.size(), convertTime,
-                        bufferTime);
-            }
-        }
-
-        // 分桶：在高斯-克吕格投影平面按网格将缓冲分组，降低相互参与的多边形数量
-        long startBucket = System.currentTimeMillis();
-        Envelope overall = new Envelope();
-        for (Geometry g : pointBuffers) {
-            overall.expandToInclude(g.getEnvelopeInternal());
-        }
-        double area = overall.getWidth() * overall.getHeight();
-        double cellSize;
-        if (area > 0) {
-            int targetBuckets = config.DEFAULT_BUCKET_TARGET;
-            int minFactor = config.DEFAULT_BUCKET_CELL_MIN_FACTOR;
-            int maxFactor = config.DEFAULT_BUCKET_CELL_MAX_FACTOR;
-            targetBuckets = Math.max(1, targetBuckets);
-            minFactor = Math.max(1, minFactor);
-            maxFactor = Math.max(minFactor, maxFactor);
-            cellSize = Math.sqrt(area / targetBuckets);
-            cellSize = Math.max(widthM * minFactor, Math.min(cellSize, widthM * maxFactor));
-            log.trace("[buildOutlineBySimpleBuffers] 分桶参数 targetBuckets={} minFactor={} maxFactor={} cellSize={}",
-                    targetBuckets, minFactor, maxFactor, Math.round(cellSize));
-        } else {
-            cellSize = widthM * 16;
-        }
-
-        Map<String, List<Geometry>> buckets = new HashMap<>();
-        for (Geometry g : pointBuffers) {
-            Envelope e = g.getEnvelopeInternal();
-            double cx = e.getMinX() + e.getWidth() / 2.0;
-            double cy = e.getMinY() + e.getHeight() / 2.0;
-            long bx = (long) Math.floor(cx / cellSize);
-            long by = (long) Math.floor(cy / cellSize);
-            String key = bx + ":" + by;
-            buckets.computeIfAbsent(key, k -> new ArrayList<>()).add(g);
-        }
-        long bucketTime = System.currentTimeMillis() - startBucket;
-        int bucketCount = buckets.size();
-        int avgBucketSize = bucketCount == 0 ? 0 : (pointBuffers.size() / bucketCount);
-        log.trace("[buildOutlineBySimpleBuffers] 分桶完成 桶数={} 平均每桶={} 耗时={}ms", bucketCount, avgBucketSize, bucketTime);
-
-        // 桶内合并（并行）
-        long startBucketUnion = System.currentTimeMillis();
-        List<Geometry> bucketUnions = buckets.entrySet()
-                .parallelStream()
-                .map(e -> unionGeometries(e.getValue()))
-                .filter(Objects::nonNull)
-                .collect(Collectors.toList());
-        long bucketUnionTime = System.currentTimeMillis() - startBucketUnion;
-        log.trace("[buildOutlineBySimpleBuffers] 桶内合并完成(并行) 桶数={} 合并结果数={} 耗时={}ms", bucketCount, bucketUnions.size(),
-                bucketUnionTime);
-
-        // 最终合并
-        long startFinalUnion = System.currentTimeMillis();
-        Geometry union;
-        if (bucketUnions.isEmpty()) {
-            GeometryCollection collection = config.geometryFactory
-                    .createGeometryCollection(pointBuffers.toArray(new Geometry[0]));
-            union = collection.union();
-        } else {
-            union = unionGeometries(bucketUnions);
-        }
-        long finalUnionTime = System.currentTimeMillis() - startFinalUnion;
-        long unionTime = bucketUnionTime + finalUnionTime;
-
-        // 转回 WGS84
-        long startBackConvert = System.currentTimeMillis();
-        MathTransform txGkToWgs = getTxGaussToWgsByLon(originLon);
-        Geometry result = JTS.transform(union, txGkToWgs);
-        long backConvertTime = System.currentTimeMillis() - startBackConvert;
-
-        long endTime = System.currentTimeMillis();
-        log.trace("[buildOutlineBySimpleBuffers] 完成，总计耗时: {}ms (转换:{}ms, 缓冲:{}ms, 合并:{}ms, 回转:{}ms)",
-                endTime - startTime, convertTime, bufferTime, unionTime, backConvertTime);
-
-        return result;
     }
 
     // 更快的线缓冲实现：将轨迹组装为折线，并在米制投影下缓冲合并
@@ -1688,11 +1485,11 @@ public class GisUtil implements AutoCloseable {
             }
         }
 
-        // 使用点圆缓冲 + 方格分桶算法获取轮廓（WGS84坐标系）
+        // 使用线缓冲轮廓构建（WGS84坐标系），保持过滤异常点与不拆分道路，只返回单个Polygon
         long tBuildStart = System.currentTimeMillis();
-        Geometry outline = buildOutlineBySimpleBuffers(points, widthM);
+        Geometry outline = buildOutlineByLineBuffers(points, widthM);
         long tBuildEnd = System.currentTimeMillis();
-        log.trace("[getOutline] 轮廓构建完成，耗时: {}ms", (tBuildEnd - tBuildStart));
+        log.trace("[getOutline] 轮廓构建完成（线缓冲），耗时: {}ms", (tBuildEnd - tBuildStart));
 
         // 基于首点经度构建高斯-克吕格米制投影转换（形态学处理）
         double originLonGk = points.get(0).getLon();
@@ -1711,47 +1508,53 @@ public class GisUtil implements AutoCloseable {
                 bp.setJoinStyle(BufferParameters.JOIN_BEVEL);
                 bp.setMitreLimit(2.0);
 
-                double r = Math.max(1.0, widthM); // 扩张半径：用单侧宽度作为桥接尺度
-                // 形态学近似凹包：膨胀 → 凸包 → 腐蚀
-                Geometry dilated = BufferOp.bufferOp(proj, r, bp);
-                Geometry hull = dilated.convexHull();
-                double shrink = Math.max(0.5, widthM * 0.9); // 收缩半径：略小于扩张，保留凹特征
-                Geometry eroded = BufferOp.bufferOp(hull, -shrink, bp);
-                Geometry concaveWgs = JTS.transform(eroded, txGkToWgsOutline);
+                // 不进行凸包/闭运算，不裁剪不平滑；仅做轻微“开运算”以保留缝隙
+                double openR = Math.max(0.2, widthM * config.GAP_ENHANCE_ERODE_FACTOR);
+                Geometry opened = BufferOp.bufferOp(proj, -openR, bp);
+                opened = BufferOp.bufferOp(opened, openR, bp);
+                Geometry openedWgs = JTS.transform(opened, txGkToWgsOutline);
 
-                if (concaveWgs instanceof Polygon) {
-                    outline = (Polygon) concaveWgs;
-                } else if (concaveWgs instanceof MultiPolygon && concaveWgs.getNumGeometries() == 1) {
-                    outline = (Polygon) ((MultiPolygon) concaveWgs).getGeometryN(0);
-                } else {
-                    // 兜底：再做一次轻微闭运算后选单个外轮廓
-                    Geometry closed = BufferOp.bufferOp(concaveWgs, Math.max(0.5, widthM * 0.25), bp);
-                    closed = BufferOp.bufferOp(closed, -Math.max(0.5, widthM * 0.25), bp);
-                    if (closed instanceof Polygon) {
-                        outline = (Polygon) closed;
-                    } else if (closed instanceof MultiPolygon) {
-                        // 若仍为多面，合为外包凹形（最后兜底保证 Polygon）
-                        Geometry finalHull = UnaryUnionOp.union(closed).convexHull();
-                        if (finalHull instanceof Polygon) {
-                            outline = (Polygon) finalHull;
-                        } else if (finalHull instanceof MultiPolygon && finalHull.getNumGeometries() == 1) {
-                            outline = (Polygon) ((MultiPolygon) finalHull).getGeometryN(0);
-                        } else {
-                            // 极端兜底：矩形外包
-                            Geometry env = closed.getEnvelope();
-                            outline = (env instanceof Polygon)
-                                    ? (Polygon) env
-                                    : (Polygon) ((MultiPolygon) env).getGeometryN(0);
+                if (openedWgs instanceof Polygon) {
+                    outline = (Polygon) openedWgs;
+                } else if (openedWgs instanceof MultiPolygon) {
+                    // 保留缝隙与洞，不做闭运算；选择面积最大的外轮廓
+                    MultiPolygon mp = (MultiPolygon) openedWgs;
+                    int maxIdx = 0;
+                    double maxArea = -1;
+                    for (int i = 0; i < mp.getNumGeometries(); i++) {
+                        Polygon p = (Polygon) mp.getGeometryN(i);
+                        double a = p.getArea();
+                        if (a > maxArea) {
+                            maxArea = a;
+                            maxIdx = i;
                         }
                     }
+                    outline = (Polygon) mp.getGeometryN(maxIdx);
                 }
-                log.trace("[getOutline] 已将MultiPolygon转换为单个Polygon（凹包近似）");
+                log.trace("[getOutline] 已将MultiPolygon转换为单个Polygon（凹包，保留缝隙，未裁剪/未平滑）");
             } catch (Exception ex) {
-                log.warn("[getOutline] 凹包转换失败，使用凸包兜底: {}", ex.getMessage());
-                Geometry hull = outline.convexHull();
-                outline = (hull instanceof Polygon)
-                        ? (Polygon) hull
-                        : (Polygon) ((MultiPolygon) hull).getGeometryN(0);
+                log.warn("[getOutline] 凹包处理失败，保留最大面积外轮廓: {}", ex.getMessage());
+                if (outline instanceof MultiPolygon) {
+                    MultiPolygon mp = (MultiPolygon) outline;
+                    int maxIdx = 0;
+                    double maxArea = -1;
+                    for (int i = 0; i < mp.getNumGeometries(); i++) {
+                        Polygon p = (Polygon) mp.getGeometryN(i);
+                        double a = p.getArea();
+                        if (a > maxArea) {
+                            maxArea = a;
+                            maxIdx = i;
+                        }
+                    }
+                    outline = (Polygon) mp.getGeometryN(maxIdx);
+                } else if (outline instanceof Polygon) {
+                    // 已是单面，直接保留
+                } else {
+                    Geometry env = outline.getEnvelope();
+                    outline = (env instanceof Polygon)
+                            ? (Polygon) env
+                            : (Polygon) ((MultiPolygon) env).getGeometryN(0);
+                }
             }
         }
 
