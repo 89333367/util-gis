@@ -1,10 +1,15 @@
 package sunyu.util;
 
+import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.stream.Collectors;
 
 import org.geotools.geometry.jts.JTS;
 import org.geotools.referencing.CRS;
@@ -57,6 +62,14 @@ import sunyu.util.pojo.WktIntersectionResult;
  * - splitRoad(List<TrackPoint>, double)：按总宽度对轨迹进行分段并返回结果
  * - splitRoad(List<TrackPoint>, double, Integer)：指定最大段数的道路分段
  *
+ * 概览：
+ * - 坐标系：默认 WGS84；轮廓构建在高斯-克吕格按首点经度分带做形态学与分桶，结果再转换回 WGS84。
+ * - 常量：距离计算使用平均地球半径 R=6371000；面积计算在 ringArea 使用 WGS84 半径 6378137（与 Turf.js 对齐）。
+ * - 分桶/合并：`DEFAULT_BUCKET_TARGET` 与 cellSize
+ * 因子控制网格尺度；`DEFAULT_UNION_GROUP_SIZE` 采用分组合并以平衡性能与内存。
+ * - 轮廓：点圆缓冲 + 方格分桶 + 分组合并 + 膨胀→凸包→腐蚀 近似凹包；失败兜底使用凸包。
+ * - 边界：`pointInPolygon` 边界视为内；几何谓词遵循 JTS 语义。
+ *
  * 设计要点：
  * - 坐标系：内部优先在 WGS84 下处理；涉及形态学与面积计算时使用高斯-克吕格米制投影（6 度分带）。
  * - 变换缓存：按分带缓存 CRS 与 MathTransform，避免重复构建。
@@ -67,7 +80,6 @@ import sunyu.util.pojo.WktIntersectionResult;
  * @author SunYu
  */
 public class GisUtil implements AutoCloseable {
-    // 日志记录器，用于记录工具类的运行状态和调试信息
     private final Log log = LogFactory.get();
     // 配置参数，包含各种常量和默认值
     private final Config config;
@@ -107,7 +119,7 @@ public class GisUtil implements AutoCloseable {
         private final String WGS84 = "EPSG:4326";
 
         // 地球半径（米），用于Haversine公式计算两点间距离
-        private final double R = 6371000;
+        private final double R = 6371000; // 距离计算使用的平均地球半径（米）；面积计算在 ringArea 使用 6378137
 
         // CRS缓存，避免重复解析WKT
         private final ConcurrentHashMap<String, CoordinateReferenceSystem> crsCache = new ConcurrentHashMap<>();
@@ -131,10 +143,6 @@ public class GisUtil implements AutoCloseable {
         // cellSize 上限系数：36
         private final int DEFAULT_BUCKET_CELL_MAX_FACTOR = 36;
 
-        // 紧致度阈值，过滤细长道路型轮廓
-        private final double MIN_COMPACTNESS = 0.12;
-        // 长宽比阈值，识别道路形（越大越细长）
-        private final double MAX_ASPECT_RATIO = 8.0;
     }
 
     /**
@@ -185,7 +193,7 @@ public class GisUtil implements AutoCloseable {
         }
 
         // 优先使用 CascadedPolygonUnion 合并多边形，性能更优
-        java.util.List<Polygon> polys = new java.util.ArrayList<>();
+        List<Polygon> polys = new ArrayList<>();
         for (Geometry g : geometries) {
             if (g instanceof Polygon) {
                 polys.add((Polygon) g);
@@ -215,7 +223,7 @@ public class GisUtil implements AutoCloseable {
      * 将几何列表按 `groupSize` 分组，分别做并集后再统一并集，避免一次性并集过多要素导致性能问题。
      *
      * @param geometries 待合并的几何列表
-     * @param groupSize 每组并集的最大要素数量（>0），建议在百级到千级之间
+     * @param groupSize  每组并集的最大要素数量（>0），建议在百级到千级之间
      * @return 合并后的几何
      */
     private Geometry unionInGroups(List<Geometry> geometries, int groupSize) {
@@ -224,7 +232,7 @@ public class GisUtil implements AutoCloseable {
                     geometries.toArray(new Geometry[0]));
             return collection.union();
         }
-        List<Geometry> groups = new java.util.ArrayList<>();
+        List<Geometry> groups = new ArrayList<>();
         for (int i = 0; i < geometries.size(); i += groupSize) {
             int end = Math.min(i + groupSize, geometries.size());
             List<Geometry> group = geometries.subList(i, end);
@@ -260,9 +268,9 @@ public class GisUtil implements AutoCloseable {
      * @return 分带区号
      */
     private int gkZoneFromLon(double lon) {
-        // 6°分带：1区中心经线为3°，中心经线 L0 = 6*zone - 3
+        // 6°分带：区号计算 floor(lon/6)+1；中央经线 L0 = 6*zone - 3
         int zone = (int) Math.floor(lon / 6.0) + 1;
-        // 保护性限制（中国范围）：13–23区
+        // 区号最小限制为 1（度制经度输入），不做国家范围特定限制
         if (zone < 1)
             zone = 1;
         return zone;
@@ -433,15 +441,15 @@ public class GisUtil implements AutoCloseable {
      */
     private List<TrackPoint> filterAndSortTrackPoints(List<TrackPoint> seg) {
         if (seg == null)
-            return java.util.Collections.emptyList();
-        java.util.Comparator<java.time.LocalDateTime> cmp = java.util.Comparator
-                .nullsLast(java.util.Comparator.naturalOrder());
+            return Collections.emptyList();
+        Comparator<LocalDateTime> cmp = Comparator
+                .nullsLast(Comparator.naturalOrder());
         return seg.stream()
                 .filter(p -> p.getTime() != null)
                 .filter(p -> Math.abs(p.getLon()) <= 180 && Math.abs(p.getLat()) <= 90)
                 .filter(p -> !(p.getLon() == 0 && p.getLat() == 0))
-                .sorted(java.util.Comparator.comparing(TrackPoint::getTime, cmp))
-                .collect(java.util.stream.Collectors.toList());
+                .sorted(Comparator.comparing(TrackPoint::getTime, cmp))
+                .collect(Collectors.toList());
     }
 
     /**
@@ -636,6 +644,7 @@ public class GisUtil implements AutoCloseable {
             log.trace("[buildOutlineBySimpleBuffers] 分桶参数 targetBuckets={} minFactor={} maxFactor={} cellSize={}",
                     targetBuckets, minFactor, maxFactor, Math.round(cellSize));
         } else {
+            // 包络退化（宽或高为0）时按宽度的固定倍数退回网格尺度
             cellSize = widthM * 16;
         }
         Map<String, List<Geometry>> buckets = new HashMap<>();
@@ -658,8 +667,8 @@ public class GisUtil implements AutoCloseable {
         List<Geometry> bucketUnions = buckets.entrySet()
                 .parallelStream()
                 .map(e -> unionGeometries(e.getValue()))
-                .filter(java.util.Objects::nonNull)
-                .collect(java.util.stream.Collectors.toList());
+                .filter(Objects::nonNull)
+                .collect(Collectors.toList());
         long bucketUnionTime = System.currentTimeMillis() - startBucketUnion;
         log.trace("[buildOutlineBySimpleBuffers] 桶内合并完成(并行) 桶数={} 合并结果数={} 耗时={}ms", bucketCount, bucketUnions.size(),
                 bucketUnionTime);
@@ -729,7 +738,7 @@ public class GisUtil implements AutoCloseable {
             return geometry;
 
         GeometryFactory gf = geometry.getFactory();
-        java.util.List<Polygon> polys = new java.util.ArrayList<>();
+        List<Polygon> polys = new ArrayList<>();
 
         // 展开并收集所有 Polygon
         for (int i = 0; i < geometry.getNumGeometries(); i++) {
@@ -748,7 +757,7 @@ public class GisUtil implements AutoCloseable {
             return geometry;
 
         // 按面积倒序
-        polys.sort(java.util.Comparator.comparingDouble(Polygon::getArea).reversed());
+        polys.sort(Comparator.comparingDouble(Polygon::getArea).reversed());
 
         int limit = Math.min(maxCount, polys.size());
         if (limit == 1) {
@@ -759,11 +768,12 @@ public class GisUtil implements AutoCloseable {
     }
 
     /**
-     * 移除面积（亩）小于阈值的区块
-     * 适用于 `Polygon` 或 `MultiPolygon`：按球面面积（与 Turf.js 对齐）换算亩数，删除小于 `minMu` 的部分。
+     * 按面积阈值过滤 MultiPolygon 中的小区块（亩）。
+     * 单个 Polygon 不进行过滤；MultiPolygon 中逐个子面计算球面面积（与 Turf.js 对齐）并换算为亩，移除小于 `minMu`
+     * 的区块。
      *
      * @param geometry 输入几何（`Polygon`/`MultiPolygon`）
-     * @param minMu 最小亩数阈值（>0），小于等于 0 时返回原值
+     * @param minMu    最小亩数阈值（>0），小于等于 0 时返回原值
      * @return 过滤后的几何；若全部被移除则返回空几何
      */
     private Geometry removeSmallMuPolygons(Geometry geometry, double minMu) {
@@ -776,7 +786,7 @@ public class GisUtil implements AutoCloseable {
             return poly;
         } else if (geometry instanceof MultiPolygon) {
             MultiPolygon mp = (MultiPolygon) geometry;
-            java.util.List<Polygon> kept = new java.util.ArrayList<>();
+            List<Polygon> kept = new ArrayList<>();
             for (int i = 0; i < mp.getNumGeometries(); i++) {
                 Polygon p = (Polygon) mp.getGeometryN(i);
                 double mu = calcMu(p);
@@ -793,119 +803,6 @@ public class GisUtil implements AutoCloseable {
             return gf.createMultiPolygon(kept.toArray(new Polygon[0]));
         }
         return geometry;
-    }
-
-    /**
-     * 根据紧致度与长宽比移除道路型细长多边形。
-     * 若全部被移除，则保留紧致度最高的一个作为兜底。
-     *
-     * @param geometry 输入几何
-     * @param minCompactness 最小紧致度阈值
-     * @param maxAspectRatio 最大长宽比阈值
-     * @return 过滤后的几何
-     */
-    private Geometry removeElongatedPolygons(Geometry geometry, double minCompactness, double maxAspectRatio) {
-        if (geometry == null)
-            return null;
-        GeometryFactory gf = geometry.getFactory();
-        if (geometry instanceof Polygon) {
-            Polygon p = (Polygon) geometry;
-            double comp = compactness(p);
-            double ar = aspectRatioMeters(p);
-            if (Double.isFinite(comp) && Double.isFinite(ar) && comp < minCompactness && ar > maxAspectRatio) {
-                return gf.createMultiPolygon(new Polygon[0]);
-            }
-            return p;
-        } else if (geometry instanceof MultiPolygon) {
-            MultiPolygon mp = (MultiPolygon) geometry;
-            java.util.List<Polygon> kept = new java.util.ArrayList<>();
-            Polygon best = null;
-            double bestComp = -1.0;
-            for (int i = 0; i < mp.getNumGeometries(); i++) {
-                Polygon p = (Polygon) mp.getGeometryN(i);
-                double comp = compactness(p);
-                double ar = aspectRatioMeters(p);
-                if (comp >= minCompactness || ar <= maxAspectRatio) {
-                    kept.add(p);
-                }
-                if (comp > bestComp) {
-                    bestComp = comp;
-                    best = p;
-                }
-            }
-            if (kept.isEmpty()) {
-                return (best != null) ? best : gf.createMultiPolygon(new Polygon[0]);
-            }
-            if (kept.size() == 1) {
-                return kept.get(0);
-            }
-            return gf.createMultiPolygon(kept.toArray(new Polygon[0]));
-        }
-        return geometry;
-    }
-
-    /**
-     * 计算紧致度指标 4πA / P²（越大越接近圆形）。
-     * 面积 A 使用球面环面积（外环减内环），周长 P 为 Haversine 累加。
-     *
-     * @param polygon 多边形
-     * @return 紧致度值
-     */
-    private double compactness(Polygon polygon) {
-        if (polygon == null)
-            return 0.0;
-        double area = Math.abs(ringArea(polygon.getExteriorRing()));
-        for (int i = 0; i < polygon.getNumInteriorRing(); i++) {
-            area -= Math.abs(ringArea(polygon.getInteriorRingN(i)));
-        }
-        if (area <= 0)
-            return 0.0;
-        double perimeter = ringPerimeterMeters(polygon.getExteriorRing());
-        for (int i = 0; i < polygon.getNumInteriorRing(); i++) {
-            perimeter += ringPerimeterMeters(polygon.getInteriorRingN(i));
-        }
-        if (perimeter <= 0)
-            return 0.0;
-        return 4.0 * Math.PI * area / (perimeter * perimeter);
-    }
-
-    /**
-     * 计算环线周长（米），按相邻点的 Haversine 距离累加。
-     *
-     * @param ring 外/内环线
-     * @return 周长（米）
-     */
-    private double ringPerimeterMeters(org.locationtech.jts.geom.LineString ring) {
-        org.locationtech.jts.geom.Coordinate[] coords = ring.getCoordinates();
-        if (coords == null || coords.length < 2)
-            return 0.0;
-        double sum = 0.0;
-        for (int i = 1; i < coords.length; i++) {
-            CoordinatePoint a = new CoordinatePoint(coords[i - 1].x, coords[i - 1].y);
-            CoordinatePoint b = new CoordinatePoint(coords[i].x, coords[i].y);
-            sum += haversine(a, b);
-        }
-        return sum;
-    }
-
-    /**
-     * 估算轴对齐包围盒的长宽比（米）。
-     * 通过经纬度距离换算得到宽度与高度，再取比值。
-     *
-     * @param polygon 多边形
-     * @return 长宽比（越大越细长）
-     */
-    private double aspectRatioMeters(Polygon polygon) {
-        Envelope env = polygon.getEnvelopeInternal();
-        double midLat = (env.getMinY() + env.getMaxY()) / 2.0;
-        double midLon = (env.getMinX() + env.getMaxX()) / 2.0;
-        double widthM = haversine(new CoordinatePoint(env.getMinX(), midLat),
-                new CoordinatePoint(env.getMaxX(), midLat));
-        double heightM = haversine(new CoordinatePoint(midLon, env.getMinY()),
-                new CoordinatePoint(midLon, env.getMaxY()));
-        double a = Math.max(widthM, heightM);
-        double b = Math.max(1e-6, Math.min(widthM, heightM));
-        return a / b;
     }
 
     /**
@@ -973,11 +870,12 @@ public class GisUtil implements AutoCloseable {
      * 点是否在多边形内（WGS84）
      * 接收点（WGS84，经纬度）和 WKT（WGS84，`POLYGON`/`MULTIPOLYGON`），判断点是否在多边形内；边界视为内。
      *
-     * @param point 点坐标（WGS84，经度 `lon`、纬度 `lat`，单位度）
+     * @param point      点坐标（WGS84，经度 `lon`、纬度 `lat`，单位度）
      * @param wktPolygon 多边形 WKT（WGS84，类型为 `POLYGON` 或 `MULTIPOLYGON`）
      * @return 是否在内（含边界）；解析失败、类型不支持或为空几何返回 false
      *
-     * @implNote 先用包络矩形快速裁剪，再用 `PreparedGeometry#covers(Point)` 判断；若多边形坐标非法，先通过 `buffer(0)` 进行拓扑修复。
+     * @implNote 先用包络矩形快速裁剪，再用 `PreparedGeometry#covers(Point)` 判断；若多边形坐标非法，先通过
+     *           `buffer(0)` 进行拓扑修复。
      */
     public boolean pointInPolygon(CoordinatePoint point, String wktPolygon) {
         if (point == null || wktPolygon == null || wktPolygon.trim().isEmpty()) {
@@ -1026,7 +924,8 @@ public class GisUtil implements AutoCloseable {
     /**
      * 将几何转换为WKT（统一WGS84）
      * 自动识别坐标系：若坐标范围合理则视为 WGS84 直接输出；否则按高斯-克吕格投影推断分带并转换到 WGS84 后输出。
-     * 处理策略：null 返回 GEOMETRYCOLLECTION EMPTY；空几何直接 `toText()`；坐标非法时先 `buffer(0)` 修复再输出。
+     * 处理策略：null 返回 GEOMETRYCOLLECTION EMPTY；空几何直接 `toText()`；坐标非法时先 `buffer(0)`
+     * 修复再输出。
      *
      * @param g 几何对象（WGS84 或高斯-克吕格），支持任意 `Geometry`
      * @return 统一为 WGS84 的 WKT 字符串
@@ -1172,7 +1071,7 @@ public class GisUtil implements AutoCloseable {
      * @param wkt WKT 字符串（WGS84），类型必须为 `POLYGON` 或 `MULTIPOLYGON`
      * @return 高斯-克吕格投影下的几何对象（中央子午线依据几何质心经度选择）
      * @throws IllegalArgumentException WKT 为空或类型不支持时抛出
-     * @throws RuntimeException 解析失败或坐标转换异常时抛出
+     * @throws RuntimeException         解析失败或坐标转换异常时抛出
      *
      * @implNote 投影转换缓存复用，避免频繁构建；转换失败时抛异常。
      */
@@ -1604,7 +1503,7 @@ public class GisUtil implements AutoCloseable {
      * 根据轨迹点与总宽度，构建单个轮廓（Polygon），并返回包含亩数、WKT、时间范围与点集的 `OutlinePart`。
      * 步骤：过滤/排序轨迹点 → 点圆缓冲合并（WGS84）→ 在米制下形态学处理（凹包/凸包兜底）→ 计算亩数与 WKT。
      *
-     * @param seg 轨迹点列表（WGS84），至少 3 个有效点
+     * @param seg         轨迹点列表（WGS84），至少 3 个有效点
      * @param totalWidthM 总宽度（米，左右合计），必须非负
      * @return `OutlinePart`：结果几何为 `Polygon`，包含 `mu`、`wkt`、起止时间与有效点集
      * @throws Exception 坐标转换或几何运算异常
@@ -1627,8 +1526,8 @@ public class GisUtil implements AutoCloseable {
         }
 
         // 计算起止时间（忽略空时间）
-        java.time.LocalDateTime startTime = null;
-        java.time.LocalDateTime endTime = null;
+        LocalDateTime startTime = null;
+        LocalDateTime endTime = null;
         for (TrackPoint p : points) {
             if (p.getTime() != null) {
                 if (startTime == null)
@@ -1661,6 +1560,7 @@ public class GisUtil implements AutoCloseable {
                 bp.setMitreLimit(2.0);
 
                 double r = Math.max(1.0, widthM); // 扩张半径：用单侧宽度作为桥接尺度
+                // 形态学近似凹包：膨胀 → 凸包 → 腐蚀
                 Geometry dilated = BufferOp.bufferOp(proj, r, bp);
                 Geometry hull = dilated.convexHull();
                 double shrink = Math.max(0.5, widthM * 0.9); // 收缩半径：略小于扩张，保留凹特征
@@ -1720,8 +1620,8 @@ public class GisUtil implements AutoCloseable {
      *
      * @param seg         轨迹点列表（WGS84），至少 3 个有效点
      * @param totalWidthM 道路总宽度（米），左右合计，必须非负
-     * @return            轮廓几何，可能为 `Polygon` 或 `MultiPolygon`（裁剪后最多保留前 N 个）
-     * @throws Exception  坐标转换或几何运算异常
+     * @return 轮廓几何，可能为 `Polygon` 或 `MultiPolygon`（裁剪后最多保留前 N 个）
+     * @throws Exception 坐标转换或几何运算异常
      */
     public SplitRoadResult splitRoad(List<TrackPoint> seg, double totalWidthM) throws Exception {
         return splitRoad(seg, totalWidthM, config.DEFAULT_MAX_OUTLINE_SEGMENTS);
@@ -1731,10 +1631,10 @@ public class GisUtil implements AutoCloseable {
      * 基于轨迹点与总宽度生成轮廓，并按面积保留不超过 maxSegments 的最大区块。
      * 
      * @param seg         轨迹点列表（WGS84），至少 3 个有效点
-     * @param totalWidthM 道路总宽度（米），左右合计，必须非负
+     * @param totalWidthM 作业机具总宽度（米），左右合计，必须非负
      * @param maxSegments 返回的区块数量上限；为 null 或 <=0 时取默认值 N=10
-     * @return            轮廓几何，可能为 `Polygon` 或 `MultiPolygon`（最多保留 `maxSegments` 个）
-     * @throws Exception  坐标转换或几何运算异常
+     * @return 轮廓几何，可能为 `Polygon` 或 `MultiPolygon`（最多保留 `maxSegments` 个）
+     * @throws Exception 坐标转换或几何运算异常
      */
     public SplitRoadResult splitRoad(List<TrackPoint> seg, double totalWidthM, Integer maxSegments) throws Exception {
         long t0 = System.currentTimeMillis();
@@ -1758,31 +1658,27 @@ public class GisUtil implements AutoCloseable {
         trimmed = removeSmallMuPolygons(trimmed, minMuDynamic);
         int partsAfterAreaFilter = (trimmed instanceof MultiPolygon) ? trimmed.getNumGeometries() : 1;
         int removedByArea = partsAfterKeep - partsAfterAreaFilter;
-        // 形状过滤：紧致度+长宽比，避免道路型细长形状
-        trimmed = removeElongatedPolygons(trimmed, config.MIN_COMPACTNESS, config.MAX_ASPECT_RATIO);
-        int partsAfterFilter = (trimmed instanceof MultiPolygon) ? trimmed.getNumGeometries() : 1;
-        int removedByShape = partsAfterAreaFilter - partsAfterFilter;
+
         long tTrimEnd = System.currentTimeMillis();
-        log.trace("[splitRoad] 裁剪+面积+形状过滤完成 type={} parts={} 移除面积={} 移除形状={} 阈值紧致度={} 阈值长宽比={} 耗时={}ms",
-                trimmed.getGeometryType(), partsAfterFilter, removedByArea, removedByShape,
-                config.MIN_COMPACTNESS, config.MAX_ASPECT_RATIO, (tTrimEnd - tTrimStart));
+        log.trace("[splitRoad] 裁剪完成 type={} parts={} 移除面积={} 耗时={}ms",
+                trimmed.getGeometryType(), (trimmed instanceof MultiPolygon) ? trimmed.getNumGeometries() : 1,
+                removedByArea, (tTrimEnd - tTrimStart));
 
         // 最终返回日志：当少于上限时说明原因，否则保持原样
-        if (partsAfterFilter < limit) {
+        if (((trimmed instanceof MultiPolygon) ? trimmed.getNumGeometries() : 1) < limit) {
             String reason;
-            if (removedByShape > 0) {
-                reason = "形状过滤(紧致度/长宽比)";
-            } else if (partsAfterFilter != partsAfterKeep) {
+            if (((trimmed instanceof MultiPolygon) ? trimmed.getNumGeometries() : 1) != partsAfterKeep) {
                 reason = "小面积过滤";
             } else if (partsOutline < limit) {
                 reason = "原始区块数小于上限";
             } else {
                 reason = "面积裁剪后区块数不超过上限";
             }
-            log.debug("[splitRoad] 返回结果 type={} parts={} (上限={}，原因：{}；小面积移除={}；形状移除={})", trimmed.getGeometryType(),
-                    partsAfterFilter, limit, reason, removedByArea, removedByShape);
+            log.debug("[splitRoad] 返回结果 type={} parts={} (上限={}，原因：{}；小面积移除={})", trimmed.getGeometryType(),
+                    (trimmed instanceof MultiPolygon) ? trimmed.getNumGeometries() : 1, limit, reason, removedByArea);
         } else {
-            log.debug("[splitRoad] 返回结果 type={} parts={}", trimmed.getGeometryType(), partsAfterFilter);
+            log.debug("[splitRoad] 返回结果 type={} parts={}", trimmed.getGeometryType(),
+                    (trimmed instanceof MultiPolygon) ? trimmed.getNumGeometries() : 1);
         }
 
         // 准备有效的轨迹点（与轮廓构建一致的过滤逻辑）
@@ -1791,7 +1687,7 @@ public class GisUtil implements AutoCloseable {
         long tFilterEnd = System.currentTimeMillis();
         log.trace("[splitRoad] 点过滤+排序完成 有效点={} 耗时={}ms", sortedSeg.size(), (tFilterEnd - tFilterStart));
 
-        java.util.List<OutlinePart> parts = new java.util.ArrayList<>();
+        List<OutlinePart> parts = new ArrayList<>();
 
         if (trimmed instanceof Polygon) {
             log.trace("[splitRoad] 进入Polygon分支");
@@ -1800,8 +1696,8 @@ public class GisUtil implements AutoCloseable {
             Envelope env = poly.getEnvelopeInternal();
             // 找出属于该区块的点（点在多边形内），并统计“会话段”（连续在内的首段）
             long tWithinStart = System.currentTimeMillis();
-            java.util.List<java.util.List<TrackPoint>> sessions = new java.util.ArrayList<>();
-            java.util.List<TrackPoint> current = null;
+            List<List<TrackPoint>> sessions = new ArrayList<>();
+            List<TrackPoint> current = null;
             for (TrackPoint p : sortedSeg) {
                 Coordinate c = new Coordinate(p.getLon(), p.getLat());
                 if (!env.contains(c)) {
@@ -1815,7 +1711,7 @@ public class GisUtil implements AutoCloseable {
                 boolean inside = preparedPoly.contains(point);
                 if (inside) {
                     if (current == null)
-                        current = new java.util.ArrayList<>();
+                        current = new ArrayList<>();
                     current.add(p);
                 } else {
                     if (current != null) {
@@ -1831,12 +1727,12 @@ public class GisUtil implements AutoCloseable {
             log.trace("[splitRoad] Polygon 会话段统计完成 sessions={} 耗时={}ms", sessions.size(), (tWithinEnd - tWithinStart));
 
             // 展平所有在内点集合（几何与点集保持原样），但时间口径采用首段
-            java.util.List<TrackPoint> inPoly = sessions.stream()
-                    .flatMap(java.util.List::stream)
-                    .collect(java.util.stream.Collectors.toList());
+            List<TrackPoint> inPoly = sessions.stream()
+                    .flatMap(List::stream)
+                    .collect(Collectors.toList());
 
-            java.time.LocalDateTime start = inPoly.isEmpty() ? null : inPoly.get(0).getTime();
-            java.time.LocalDateTime end = inPoly.isEmpty() ? null : inPoly.get(inPoly.size() - 1).getTime();
+            LocalDateTime start = inPoly.isEmpty() ? null : inPoly.get(0).getTime();
+            LocalDateTime end = inPoly.isEmpty() ? null : inPoly.get(inPoly.size() - 1).getTime();
             log.trace("[splitRoad] Polygon 跨度(按轮廓内点) 时间范围 start={} end={} inPoly={} sessions={}", start, end,
                     inPoly.size(), sessions.size());
 
@@ -1862,8 +1758,8 @@ public class GisUtil implements AutoCloseable {
                 PreparedGeometry preparedPoly = PreparedGeometryFactory.prepare(poly);
                 Envelope env = poly.getEnvelopeInternal();
                 long tWithinStart = System.currentTimeMillis();
-                java.util.List<java.util.List<TrackPoint>> sessions = new java.util.ArrayList<>();
-                java.util.List<TrackPoint> current = null;
+                List<List<TrackPoint>> sessions = new ArrayList<>();
+                List<TrackPoint> current = null;
                 for (TrackPoint p : sortedSeg) {
                     Coordinate c = new Coordinate(p.getLon(), p.getLat());
                     if (!env.contains(c)) {
@@ -1877,7 +1773,7 @@ public class GisUtil implements AutoCloseable {
                     boolean inside = preparedPoly.contains(point);
                     if (inside) {
                         if (current == null)
-                            current = new java.util.ArrayList<>();
+                            current = new ArrayList<>();
                         current.add(p);
                     } else {
                         if (current != null) {
@@ -1894,12 +1790,12 @@ public class GisUtil implements AutoCloseable {
                         (tWithinEnd - tWithinStart));
 
                 // 展平会话段，形成该区块内的轨迹点集合（时间按区块内最早/最晚点）
-                java.util.List<TrackPoint> inPoly = sessions.stream()
-                        .flatMap(java.util.List::stream)
-                        .collect(java.util.stream.Collectors.toList());
+                List<TrackPoint> inPoly = sessions.stream()
+                        .flatMap(List::stream)
+                        .collect(Collectors.toList());
 
-                java.time.LocalDateTime start = inPoly.isEmpty() ? null : inPoly.get(0).getTime();
-                java.time.LocalDateTime end = inPoly.isEmpty() ? null : inPoly.get(inPoly.size() - 1).getTime();
+                LocalDateTime start = inPoly.isEmpty() ? null : inPoly.get(0).getTime();
+                LocalDateTime end = inPoly.isEmpty() ? null : inPoly.get(inPoly.size() - 1).getTime();
                 log.trace("[splitRoad] Part#{} 跨度(按轮廓内点) 时间范围 start={} end={} (sessions={})", i, start, end,
                         sessions.size());
 

@@ -1,6 +1,9 @@
 package sunyu.util.pojo;
 
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.List;
 
 import org.locationtech.jts.geom.Geometry;
 
@@ -10,6 +13,7 @@ import cn.hutool.core.util.StrUtil;
 
 /**
  * 轮廓区块详情：单个 Polygon 的元数据。
+ * 
  * @author SunYu
  */
 public class OutlinePart {
@@ -36,7 +40,7 @@ public class OutlinePart {
     /**
      * 轮廓内的轨迹点集合（按时间升序）
      */
-    private java.util.List<TrackPoint> trackPoints;
+    private List<TrackPoint> trackPoints;
     /**
      * 轮廓内的轨迹点字符串表示（按时间升序）
      */
@@ -55,13 +59,13 @@ public class OutlinePart {
     }
 
     public OutlinePart(Geometry outline, LocalDateTime startTime, LocalDateTime endTime, double mu, String wkt,
-            java.util.List<TrackPoint> trackPoints) {
+            List<TrackPoint> trackPoints) {
         this(outline, startTime, endTime, mu, wkt);
         if (trackPoints != null) {
-            java.util.List<TrackPoint> copy = new java.util.ArrayList<>(trackPoints);
-            copy.sort(java.util.Comparator.comparing(
+            List<TrackPoint> copy = new ArrayList<>(trackPoints);
+            copy.sort(Comparator.comparing(
                     TrackPoint::getTime,
-                    java.util.Comparator.nullsLast(java.util.Comparator.naturalOrder())));
+                    Comparator.nullsLast(Comparator.naturalOrder())));
             this.trackPoints = copy;
         } else {
             this.trackPoints = null;
@@ -88,7 +92,7 @@ public class OutlinePart {
         return wkt;
     }
 
-    public java.util.List<TrackPoint> getTrackPoints() {
+    public List<TrackPoint> getTrackPoints() {
         return trackPoints;
     }
 

@@ -1,11 +1,14 @@
 package sunyu.util.pojo;
 
+import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 
 import org.locationtech.jts.geom.Geometry;
 
 /**
  * 分割道路的结果，包含整体轮廓以及每个区块的详情（起止时间、亩数）
+ * 
  * @author SunYu
  */
 public class SplitRoadResult {
@@ -44,11 +47,11 @@ public class SplitRoadResult {
         if (parts == null || parts.isEmpty()) {
             return parts;
         }
-        java.util.List<OutlinePart> sorted = new java.util.ArrayList<>(parts);
+        List<OutlinePart> sorted = new ArrayList<>(parts);
         sorted.sort(
-                java.util.Comparator.comparing(
+                Comparator.comparing(
                         OutlinePart::getStartTime,
-                        java.util.Comparator.nullsLast(java.util.Comparator.naturalOrder())));
+                        Comparator.nullsLast(Comparator.naturalOrder())));
         return sorted;
     }
 
