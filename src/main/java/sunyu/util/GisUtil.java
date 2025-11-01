@@ -139,6 +139,8 @@ public class GisUtil implements AutoCloseable {
         private double WORK_MAX_SPEED_KMH = 20.0;
         // 作业最小速度阈值（km/h），用于前置速度过滤；可通过 Builder 配置
         private double MIN_WORK_SPEED_KMH = 1.0;
+        // 最小亩数动态阈值（亩），用于 splitRoad 动态过滤小块
+        private double MIN_MU_DYNAMIC_THRESHOLD_MU = 0.6;
 
         // 外缘细长裁剪开关（仅 splitRoad 使用；getOutline 不使用）
         private boolean ENABLE_OUTER_THIN_TRIM = true;
@@ -1744,13 +1746,12 @@ public class GisUtil implements AutoCloseable {
         int limit = (maxSegments == null || maxSegments <= 0) ? config.DEFAULT_MAX_OUTLINE_SEGMENTS
                 : maxSegments.intValue();
         log.debug("[splitRoad] 输入参数 原始点数={} 过滤后点数={} 总宽度={}m 返回上限={}", seg.size(), workSeg.size(), totalWidthM, limit);
-
         long tTrimStart = System.currentTimeMillis();
         Geometry trimmed = keepLargestPolygons(outline, limit);
         int partsAfterKeep = (trimmed instanceof MultiPolygon) ? trimmed.getNumGeometries() : 1;
-        double minMuDynamic = (partsAfterKeep > 5) ? 1.0 : (partsAfterKeep > 3 ? 0.76 : 0.3);
-        log.trace("[splitRoad] 动态最小亩数阈值 minMuDynamic={} (partsAfterKeep={})", minMuDynamic, partsAfterKeep);
-        trimmed = removeSmallMuPolygons(trimmed, minMuDynamic);
+        log.trace("[splitRoad] 动态最小亩数阈值 minMuDynamic={} (partsAfterKeep={})", config.MIN_MU_DYNAMIC_THRESHOLD_MU,
+                partsAfterKeep);
+        trimmed = removeSmallMuPolygons(trimmed, config.MIN_MU_DYNAMIC_THRESHOLD_MU);
         int partsAfterAreaFilter = (trimmed instanceof MultiPolygon) ? trimmed.getNumGeometries() : 1;
         int removedByArea = partsAfterKeep - partsAfterAreaFilter;
         long tTrimEnd = System.currentTimeMillis();
