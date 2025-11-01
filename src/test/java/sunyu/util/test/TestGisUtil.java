@@ -302,6 +302,15 @@ public class TestGisUtil {
 
     @Test
     void t003() {
+        String did = "NJ4GBQSAX0000687";
+        String yyyyMMdd = "20250503";
+        读取一天(did, yyyyMMdd);
+        测试一天(did, yyyyMMdd, 2.7);
+        输出一天HTML(did, yyyyMMdd);
+    }
+
+    @Test
+    void t004() {
         String did = "EC73BD2509061335";
         String startTime = "20251029101603";
         String endTime = "20251029102521";
@@ -309,15 +318,6 @@ public class TestGisUtil {
         读取一段(did, startTime, endTime);
         测试一段(did, startTime, endTime, widthM);
         输出一段HTML(did, startTime, endTime);
-    }
-
-    @Test
-    void t004() {
-        String did = "NJ4GBQSAX0000687";
-        String yyyyMMdd = "20250503";
-        读取一天(did, yyyyMMdd);
-        测试一天(did, yyyyMMdd, 2.7);
-        输出一天HTML(did, yyyyMMdd);
     }
 
     void 读取一段(String did, String startTime, String endTime) {

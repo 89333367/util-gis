@@ -136,7 +136,7 @@ public class GisUtil implements AutoCloseable {
         // 分组合并组大小：600，避免 GeometryCollection 一次性过大
         private final int DEFAULT_UNION_GROUP_SIZE = 600;
         // 圆近似细分：4，提升性能，误差满足道路宽度场景
-        private final int DEFAULT_BUFFER_QUADRANT = 4;
+        private final int DEFAULT_BUFFER_QUADRANT = 2;
         // 目标桶数：300，平衡桶内复杂度与最终合并规模
         private final int DEFAULT_BUCKET_TARGET = 300;
         // cellSize 下限系数：5，避免过多小桶导致合并碎片化
@@ -148,16 +148,12 @@ public class GisUtil implements AutoCloseable {
         private double WORK_MAX_SPEED_KMH = 20.0;
         // 作业最小速度阈值（km/h），用于前置速度过滤；可通过 Builder 配置
         private double MIN_WORK_SPEED_KMH = 1.0;
-        // 是否启用速度过滤
-        private boolean ENABLE_SPEED_FILTER = true;
 
         // 仅裁剪外轮廓边缘细长条开关
         private boolean ENABLE_OUTER_THIN_TRIM = true;
         // 外缘细长裁剪半径系数（相对单侧宽度）
-        private double THIN_TRIM_RADIUS_FACTOR = 1.2;
+        private double THIN_TRIM_RADIUS_FACTOR = 1.6;
 
-        // 是否启用线缓冲模式（更快）：将轨迹组装为折线并缓冲
-        private boolean ENABLE_LINE_BUFFER = true;
         // 线段断裂距离系数（倍数*单侧宽度），超过则切分会话
         private double LINE_BREAK_FACTOR = 4.0;
         // 线简化公差系数（倍数*单侧宽度），用于Douglas-Peucker
@@ -166,7 +162,7 @@ public class GisUtil implements AutoCloseable {
         // 凹包平滑（保留镂空/洞）：在米制下做轻微形态学闭/开
         private boolean ENABLE_CONCAVE_SMOOTHING = true;
         // 平滑半径系数（相对于单侧宽度widthM）；建议 0.3–0.8
-        private double CONCAVE_SMOOTH_RADIUS_FACTOR = 0.3;
+        private double CONCAVE_SMOOTH_RADIUS_FACTOR = 0.4;
 
         // 线缓冲样式（更锐利边界）：拐角样式、端头样式与mitre限制
         private int BUFFER_JOIN_STYLE = BufferParameters.JOIN_MITRE;
@@ -174,8 +170,8 @@ public class GisUtil implements AutoCloseable {
         private double BUFFER_MITRE_LIMIT = 2.0;
 
         // 可选：轻微蚀刻扩大缝隙（在米制下对并集做负缓冲）
-        private boolean ENABLE_GAP_ENHANCE_ERODE = false;
-        private double GAP_ENHANCE_ERODE_FACTOR = 0.15;
+        private boolean ENABLE_GAP_ENHANCE_ERODE = true;
+        private double GAP_ENHANCE_ERODE_FACTOR = 0.2;
 
     }
 
@@ -517,148 +513,6 @@ public class GisUtil implements AutoCloseable {
             }
         }
         return res;
-    }
-
-    /**
-     * 构建轨迹轮廓（统一左右宽度）。
-     * 过滤与排序轨迹点 → 点圆缓冲并合并 → 面积阈值过滤 → 扁平化MultiPolygon。
-     *
-     * @param seg         轨迹点列表（WGS84），至少3个有效点
-     * @param totalWidthM 总宽度（米），两侧合计宽度
-     * @return 轮廓几何（Polygon 或 MultiPolygon）
-     * @throws Exception 坐标转换或几何计算异常
-     */
-    private Geometry buildOutlineCore(List<TrackPoint> seg, double totalWidthM) throws Exception {
-        long startTime = System.currentTimeMillis();
-        double widthM = totalWidthM / 2.0;
-        log.trace("[buildOutlineCore] 开始处理轨迹轮廓，轨迹点数: {}, 宽度(单侧): {} 米",
-                seg != null ? seg.size() : 0, widthM);
-
-        if (seg == null) {
-            throw new IllegalArgumentException("轨迹段至少需要3个点");
-        }
-        if (widthM < 0) {
-            throw new IllegalArgumentException("所有参数必须为非负数");
-        }
-
-        long processStartTime = System.currentTimeMillis();
-        List<TrackPoint> sortedSeg = filterAndSortTrackPoints(seg);
-        long processTime = System.currentTimeMillis() - processStartTime;
-        log.trace("[buildOutlineCore] 轨迹点过滤完成，原始点数: {}, 过滤后点数: {}, 过滤耗时: {}ms",
-                seg.size(), sortedSeg.size(), processTime);
-
-        if (sortedSeg.size() < 3) {
-            throw new IllegalArgumentException("轨迹段至少需要3个有效点");
-        }
-
-        // 速度前置过滤：剔除超过阈值的轨迹点（阈值可配置）
-        List<TrackPoint> workSeg = sortedSeg;
-        if (config.ENABLE_SPEED_FILTER) {
-            int before = sortedSeg.size();
-            workSeg = filterBySpeedRange(sortedSeg, config.MIN_WORK_SPEED_KMH, config.WORK_MAX_SPEED_KMH);
-            int removed = before - workSeg.size();
-            log.debug("[buildOutlineCore] 速度过滤 范围=[{}km/h, {}km/h] 移除点数={} 剩余点数={}",
-                    config.MIN_WORK_SPEED_KMH, config.WORK_MAX_SPEED_KMH, removed, workSeg.size());
-            if (workSeg.size() < 3) {
-                log.debug("[buildOutlineCore] 速度过滤后有效点不足(剩余={})，返回空几何", workSeg.size());
-                return config.geometryFactory.createMultiPolygon(new Polygon[0]);
-            }
-        }
-
-        try {
-            double minLon = workSeg.stream().mapToDouble(TrackPoint::getLon).min().orElse(0);
-            double maxLon = workSeg.stream().mapToDouble(TrackPoint::getLon).max().orElse(0);
-            double minLat = workSeg.stream().mapToDouble(TrackPoint::getLat).min().orElse(0);
-            double maxLat = workSeg.stream().mapToDouble(TrackPoint::getLat).max().orElse(0);
-
-            log.trace("[buildOutlineCore] 轨迹范围: 经度[{}, {}], 纬度[{}, {}]", minLon, maxLon, minLat, maxLat);
-
-            long buildStartTime = System.currentTimeMillis();
-            Geometry result = config.ENABLE_LINE_BUFFER
-                    ? buildOutlineByLineBuffers(workSeg, widthM)
-                    : buildOutlineBySimpleBuffers(workSeg, widthM);
-            long buildTime = System.currentTimeMillis() - buildStartTime;
-
-            // 基于首点经度构建高斯-克吕格米制投影（用于面积与形态计算）
-            double originLonArea = workSeg.get(0).getLon();
-            MathTransform txWgsToGkArea = getTxWgsToGaussByLon(originLonArea);
-
-            // 可选：仅裁剪外轮廓边缘的细长条（不影响内部细长区块）
-            if (config.ENABLE_OUTER_THIN_TRIM) {
-                double trimR = Math.max(0.1, widthM * config.THIN_TRIM_RADIUS_FACTOR);
-                Geometry beforeTrim = result;
-                Geometry afterTrim = trimOuterThinStrips(result, trimR);
-                if (afterTrim != null) {
-                    double beforeAreaM2 = JTS.transform(beforeTrim, txWgsToGkArea).getArea();
-                    double afterAreaM2 = JTS.transform(afterTrim, txWgsToGkArea).getArea();
-                    log.debug("[buildOutlineCore] 外缘细长裁剪 radius={}m 面积 {}→{} m² parts {}→{}",
-                            Math.round(trimR),
-                            Math.round(beforeAreaM2), Math.round(afterAreaM2),
-                            (beforeTrim instanceof MultiPolygon) ? beforeTrim.getNumGeometries() : 1,
-                            (afterTrim instanceof MultiPolygon) ? afterTrim.getNumGeometries() : 1);
-                    result = afterTrim;
-                } else {
-                    log.debug("[buildOutlineCore] 外缘细长裁剪失败或不适用，跳过");
-                }
-            }
-
-            // 基于宽度的最小面积阈值（直接使用宽度，不再依赖配置因子）
-            double minAreaThresholdM2 = Math.PI * widthM * widthM;
-            if (result instanceof MultiPolygon) {
-                MultiPolygon mp = (MultiPolygon) result;
-                List<Polygon> keep = new ArrayList<>();
-                for (int i = 0; i < mp.getNumGeometries(); i++) {
-                    Polygon poly = (Polygon) mp.getGeometryN(i);
-                    Geometry projPoly = JTS.transform(poly, txWgsToGkArea);
-                    double areaM2 = projPoly.getArea();
-                    if (areaM2 >= minAreaThresholdM2) {
-                        keep.add(poly);
-                    }
-                }
-                if (!keep.isEmpty()) {
-                    result = config.geometryFactory.createMultiPolygon(keep.toArray(new Polygon[0]));
-                } else {
-                    log.trace("[buildOutlineCore] 过滤后无有效多边形，阈值面积: {} m²", minAreaThresholdM2);
-                    result = config.geometryFactory.createMultiPolygon(new Polygon[0]);
-                }
-                log.trace("[buildOutlineCore] 小多边形过滤完成：原 {} 个 → 保留 {} 个；阈值面积: {} m²",
-                        mp.getNumGeometries(), keep.size(), minAreaThresholdM2);
-            }
-
-            log.trace("[buildOutlineCore] 轮廓构建完成，构建耗时: {}ms", buildTime);
-
-            if (result instanceof MultiPolygon && result.getNumGeometries() > 1) {
-                log.debug("[buildOutlineCore] 输入参数 点数={} 总宽度={}m 单侧宽度={}m", workSeg.size(), totalWidthM,
-                        widthM);
-                log.debug("[buildOutlineCore] 结果为MultiPolygon，包含 {} 个部分", result.getNumGeometries());
-                long endTime = System.currentTimeMillis();
-                log.trace("[buildOutlineCore] 总计耗时: {}ms", endTime - startTime);
-                return result;
-            }
-
-            if (result instanceof Polygon) {
-                log.trace("[buildOutlineCore] 结果为Polygon");
-                long endTime = System.currentTimeMillis();
-                log.trace("[buildOutlineCore] 总计耗时: {}ms", endTime - startTime);
-                return result;
-            }
-
-            if (result instanceof MultiPolygon && result.getNumGeometries() == 1) {
-                result = (Polygon) ((MultiPolygon) result).getGeometryN(0);
-                log.trace("[buildOutlineCore] 结果为单个Polygon（由单个MultiPolygon扁平化）");
-                long endTime = System.currentTimeMillis();
-                log.trace("[buildOutlineCore] 总计耗时: {}ms", endTime - startTime);
-                return result;
-            }
-
-            long endTime = System.currentTimeMillis();
-            log.info("[buildOutlineCore] 处理完成，总计耗时: {}ms", endTime - startTime);
-
-            return result;
-        } catch (Exception e) {
-            log.error("构建轨迹轮廓失败: " + e.getMessage(), e);
-            throw new Exception("构建轨迹轮廓失败: " + e.getMessage(), e);
-        }
     }
 
     /**
@@ -1058,8 +912,8 @@ public class GisUtil implements AutoCloseable {
                     ? shells.get(0)
                     : gf.createMultiPolygon(shells.toArray(new Polygon[0]));
 
-            // 可选：对外环集合做拓扑保留简化以减小缓冲成本（容差不超过0.5m）
-            double tolThin = Math.min(0.5, radiusM * 0.3);
+            // 可选：对外环集合做拓扑保留简化以减小缓冲成本（容差不超过1.0m，随半径调整）
+            double tolThin = Math.min(1.0, radiusM * 0.5);
             Geometry shellsSimplified = org.locationtech.jts.simplify.TopologyPreservingSimplifier
                     .simplify(shellsGeomGk, tolThin);
             if (shellsSimplified == null || shellsSimplified.isEmpty())
@@ -1079,31 +933,34 @@ public class GisUtil implements AutoCloseable {
             }
             Geometry reopened = org.locationtech.jts.operation.buffer.BufferOp.bufferOp(eroded, radiusM, params);
 
-            // 整体裁剪一次，避免逐面交集的重复成本
-            Geometry trimmedGk = gk.intersection(reopened);
+            // 使用 PreparedGeometry，逐面裁剪以降低一次性大规模交集的开销
+            org.locationtech.jts.geom.prep.PreparedGeometry prepReopened = org.locationtech.jts.geom.prep.PreparedGeometryFactory
+                    .prepare(reopened);
+            java.util.List<Geometry> trimmedParts = new java.util.ArrayList<>();
+            if (gk instanceof Polygon) {
+                Polygon p = (Polygon) gk;
+                if (prepReopened.intersects(p)) {
+                    Geometry t = p.intersection(reopened);
+                    if (t != null && !t.isEmpty())
+                        trimmedParts.add(t);
+                }
+            } else if (gk instanceof MultiPolygon) {
+                MultiPolygon mp2 = (MultiPolygon) gk;
+                for (int i = 0; i < mp2.getNumGeometries(); i++) {
+                    Polygon p = (Polygon) mp2.getGeometryN(i);
+                    if (prepReopened.intersects(p)) {
+                        Geometry t = p.intersection(reopened);
+                        if (t != null && !t.isEmpty())
+                            trimmedParts.add(t);
+                    }
+                }
+            }
+            Geometry trimmedGk = trimmedParts.isEmpty() ? gk
+                    : org.locationtech.jts.operation.union.UnaryUnionOp.union(trimmedParts);
             return JTS.transform(trimmedGk, txGkToWgs);
         } catch (Exception ex) {
             log.warn("[trimOuterThin] 处理失败: {}", ex.getMessage());
             return g;
-        }
-    }
-
-    // 对单个Polygon执行外缘裁剪（高斯-克吕格米制坐标）
-    private Geometry trimOuterThinOfPolygonGk(Polygon polyGk, double radiusM) {
-        try {
-            Coordinate[] shell = polyGk.getExteriorRing().getCoordinates();
-            Polygon shellOnly = polyGk.getFactory().createPolygon(shell);
-            Geometry eroded = shellOnly.buffer(-radiusM);
-            if (eroded == null || eroded.isEmpty()) {
-                // 半径过大导致核心消失，保持原面
-                return polyGk;
-            }
-            Geometry reopened = eroded.buffer(radiusM);
-            Geometry trimmed = polyGk.intersection(reopened);
-            return trimmed;
-        } catch (Exception ex) {
-            log.warn("[trimOuterThin] 单面处理失败: {}", ex.getMessage());
-            return polyGk;
         }
     }
 
