@@ -14,15 +14,19 @@ import org.locationtech.jts.geom.Coordinate;
 import org.locationtech.jts.geom.Envelope;
 import org.locationtech.jts.geom.Geometry;
 import org.locationtech.jts.geom.GeometryFactory;
+import org.locationtech.jts.geom.LineString;
+import org.locationtech.jts.geom.MultiLineString;
 import org.locationtech.jts.geom.MultiPolygon;
 import org.locationtech.jts.geom.Polygon;
 import org.locationtech.jts.geom.prep.PreparedGeometry;
 import org.locationtech.jts.geom.prep.PreparedGeometryFactory;
+import org.locationtech.jts.io.ParseException;
 import org.locationtech.jts.io.WKTReader;
 import org.locationtech.jts.operation.buffer.BufferOp;
 import org.locationtech.jts.operation.buffer.BufferParameters;
 import org.locationtech.jts.operation.union.UnaryUnionOp;
 import org.locationtech.jts.simplify.DouglasPeuckerSimplifier;
+import org.locationtech.jts.simplify.TopologyPreservingSimplifier;
 import org.opengis.referencing.crs.CoordinateReferenceSystem;
 import org.opengis.referencing.operation.MathTransform;
 
@@ -60,18 +64,17 @@ import sunyu.util.pojo.WktIntersectionResult;
  * - splitRoad(List<TrackPoint>, double, Integer)：指定最大段数的道路分段
  *
  * 概览：
- * - 坐标系：默认 WGS84；轮廓构建在高斯-克吕格按首点经度分带做形态学与分桶，结果再转换回 WGS84。
+ * - 坐标系：默认 WGS84；轮廓构建与形态学在高斯-克吕格米制投影（按首点经度分带）进行，结果回转 WGS84。
  * - 常量：距离计算使用平均地球半径 R=6371000；面积计算在 ringArea 使用 WGS84 半径 6378137（与 Turf.js 对齐）。
- * - 分桶/合并：`DEFAULT_BUCKET_TARGET` 与 cellSize
- * 因子控制网格尺度；`DEFAULT_UNION_GROUP_SIZE` 采用分组合并以平衡性能与内存。
- * - 轮廓：点圆缓冲 + 方格分桶 + 分组合并 + 膨胀→凸包→腐蚀 近似凹包；失败兜底使用凸包。
+ * - 轮廓：线缓冲构建（折线简化+缓冲，拐角/端头由 BufferParameters 控制）；getOutline 不切割、不平滑；splitRoad
+ * 可选轻微开运算、外缘细长裁剪与缝隙蚀刻。
  * - 边界：`pointInPolygon` 边界视为内；几何谓词遵循 JTS 语义。
  *
  * 设计要点：
  * - 坐标系：内部优先在 WGS84 下处理；涉及形态学与面积计算时使用高斯-克吕格米制投影（6 度分带）。
  * - 变换缓存：按分带缓存 CRS 与 MathTransform，避免重复构建。
- * - 轮廓构建：网格化/分桶缓冲与分组合并，控制几何规模与性能。
- * - 清理过滤：紧致度、长宽比、面积（亩数）等规则过滤非道路形或过小碎片。
+ * - 轮廓构建：线简化+线缓冲并合并，控制几何规模与性能。
+ * - 清理过滤：按面积（亩数）等规则过滤过小碎片（仅 splitRoad 中使用）。
  * - 输出：支持 WKT 输出并在必要时进行坐标系识别与修复。
  *
  * @author SunYu
@@ -137,7 +140,7 @@ public class GisUtil implements AutoCloseable {
         // 作业最小速度阈值（km/h），用于前置速度过滤；可通过 Builder 配置
         private double MIN_WORK_SPEED_KMH = 1.0;
 
-        // 仅裁剪外轮廓边缘细长条开关
+        // 外缘细长裁剪开关（仅 splitRoad 使用；getOutline 不使用）
         private boolean ENABLE_OUTER_THIN_TRIM = true;
         // 外缘细长裁剪半径系数（相对单侧宽度）
         private double THIN_TRIM_RADIUS_FACTOR = 1.6;
@@ -147,9 +150,9 @@ public class GisUtil implements AutoCloseable {
         // 线简化公差系数（倍数*单侧宽度），用于Douglas-Peucker
         private double LINE_SIMPLIFY_TOL_FACTOR = 0.1;
 
-        // 凹包平滑（保留镂空/洞）：在米制下做轻微形态学闭/开
+        // 凹包开运算（保留缝隙/洞）：在米制下做轻微开运算
         private boolean ENABLE_CONCAVE_SMOOTHING = true;
-        // 平滑半径系数（相对于单侧宽度widthM）；建议 0.3–0.8
+        // 开运算半径系数（相对于单侧宽度widthM）；建议 0.3–0.8
         private double CONCAVE_SMOOTH_RADIUS_FACTOR = 0.4;
 
         // 线缓冲样式（更锐利边界）：拐角样式、端头样式与mitre限制
@@ -405,7 +408,14 @@ public class GisUtil implements AutoCloseable {
                 .collect(Collectors.toList());
     }
 
-    // 计算两点间速度（km/h），基于球面距离与时间差
+    /**
+     * 计算两点间速度（km/h）。
+     * 使用哈弗辛球面距离与时间差计算瞬时速度；当时间差小于等于0或输入缺失时返回正无穷。
+     *
+     * @param a 起点（含经纬度与时间）
+     * @param b 终点（含经纬度与时间）
+     * @return 速度值（km/h）；无法计算时返回 Double.POSITIVE_INFINITY
+     */
     private double speedKmh(TrackPoint a, TrackPoint b) {
         if (a == null || b == null || a.getTime() == null || b.getTime() == null) {
             return Double.POSITIVE_INFINITY;
@@ -418,7 +428,15 @@ public class GisUtil implements AutoCloseable {
         return (meters / seconds) * 3.6; // m/s → km/h
     }
 
-    // 前置速度过滤：删除速度不在 [minSpeedKmh, maxSpeedKmh] 区间的点（含边界），保持时间升序
+    /**
+     * 速度预过滤：保留相邻点瞬时速度落在开区间 (minSpeedKmh, maxSpeedKmh) 的点。
+     * 首点始终保留，保持时间升序；边界速度值将被剔除。
+     *
+     * @param seg         输入轨迹点列表（需包含经纬度与时间，建议已按时间升序）
+     * @param minSpeedKmh 最小速度阈值（km/h），严格大于该值才保留
+     * @param maxSpeedKmh 最大速度阈值（km/h），严格小于该值才保留
+     * @return 过滤后的点列表（时间升序）；当输入少于2个点时返回原列表拷贝
+     */
     private List<TrackPoint> filterBySpeedRange(List<TrackPoint> seg, double minSpeedKmh, double maxSpeedKmh) {
         if (seg == null || seg.size() <= 1) {
             return seg == null ? Collections.emptyList() : new ArrayList<>(seg);
@@ -437,7 +455,15 @@ public class GisUtil implements AutoCloseable {
         return res;
     }
 
-    // 更快的线缓冲实现：将轨迹组装为折线，并在米制投影下缓冲合并
+    /**
+     * 线缓冲构建轮廓：在高斯-克吕格米制投影下将轨迹组装为折线，
+     * 进行道格拉斯-普克简化后按给定宽度缓冲并合并，最终回转为 WGS84。
+     *
+     * @param seg    轨迹点列表（WGS84，经纬度与时间有效，建议已按时间升序）
+     * @param widthM 总宽度（米），用于缓冲半径计算
+     * @return 轮廓几何（WGS84；可能为 MultiPolygon）；输入为空时返回空几何
+     * @throws Exception 投影转换、缓冲或几何合并过程中可能抛出的异常
+     */
     private Geometry buildOutlineByLineBuffers(List<TrackPoint> seg, double widthM) throws Exception {
         long startTime = System.currentTimeMillis();
         log.trace("[buildOutlineByLineBuffers] 开始处理 {} 个轨迹点，线缓冲宽度: {} 米", seg.size(), widthM);
@@ -484,7 +510,7 @@ public class GisUtil implements AutoCloseable {
         // 构造折线，简化，然后缓冲
         long simplifyTime = 0;
         long bufferTime = 0;
-        List<org.locationtech.jts.geom.LineString> simplifiedLines = new ArrayList<>();
+        List<LineString> simplifiedLines = new ArrayList<>();
         BufferParameters params = new BufferParameters();
         params.setQuadrantSegments(config.DEFAULT_BUFFER_QUADRANT);
         params.setEndCapStyle(config.BUFFER_END_CAP_STYLE);
@@ -497,28 +523,26 @@ public class GisUtil implements AutoCloseable {
             if (coords.size() < 2)
                 continue;
             Coordinate[] arr = coords.toArray(new Coordinate[0]);
-            org.locationtech.jts.geom.LineString line = config.geometryFactory.createLineString(arr);
+            LineString line = config.geometryFactory.createLineString(arr);
             long ts = System.currentTimeMillis();
             Geometry simplified = DouglasPeuckerSimplifier.simplify(line, tol);
             simplifyTime += System.currentTimeMillis() - ts;
 
-            if (simplified instanceof org.locationtech.jts.geom.LineString) {
-                org.locationtech.jts.geom.LineString ls = (org.locationtech.jts.geom.LineString) simplified;
+            if (simplified instanceof LineString) {
+                LineString ls = (LineString) simplified;
                 simplifiedLines.add(ls);
-            } else if (simplified instanceof org.locationtech.jts.geom.MultiLineString) {
-                org.locationtech.jts.geom.MultiLineString mls = (org.locationtech.jts.geom.MultiLineString) simplified;
+            } else if (simplified instanceof MultiLineString) {
+                MultiLineString mls = (MultiLineString) simplified;
                 for (int i = 0; i < mls.getNumGeometries(); i++) {
-                    org.locationtech.jts.geom.LineString ls = (org.locationtech.jts.geom.LineString) mls
-                            .getGeometryN(i);
+                    LineString ls = (LineString) mls.getGeometryN(i);
                     simplifiedLines.add(ls);
                 }
             }
         }
 
         // 将所有简化线拼为一个 MultiLineString，一次性缓冲
-        org.locationtech.jts.geom.LineString[] lsArr = simplifiedLines
-                .toArray(new org.locationtech.jts.geom.LineString[0]);
-        org.locationtech.jts.geom.MultiLineString mlsAll = config.geometryFactory.createMultiLineString(lsArr);
+        LineString[] lsArr = simplifiedLines.toArray(new LineString[0]);
+        MultiLineString mlsAll = config.geometryFactory.createMultiLineString(lsArr);
         long tb = System.currentTimeMillis();
         Geometry union = BufferOp.bufferOp(mlsAll, widthM, params);
         bufferTime += System.currentTimeMillis() - tb;
@@ -537,7 +561,16 @@ public class GisUtil implements AutoCloseable {
         return result;
     }
 
-    // 形态学凹包平滑：在米制投影下进行轻微闭/开操作，保留镂空（洞）且平滑外缘
+    /**
+     * 凹包开运算（保留缝隙/洞）：在米制投影下对轮廓施加轻微开运算，不做闭运算或外缘平滑，
+     * 以保留细小缝隙与内部洞结构；处理后回转为 WGS84。
+     *
+     * @param outlineWgs 输入轮廓（WGS84），允许为 Polygon 或 MultiPolygon
+     * @param widthM     总宽度（米），用于推导开运算半径
+     * @param originLon  原点经度，用于选取高斯-克吕格投影带（通常取轮廓中心经度）
+     * @return 开运算后的几何（WGS84）；输入为空时原样返回
+     * @throws Exception 投影转换或几何运算失败时抛出异常
+     */
     private Geometry concaveSmoothPreserveHoles(Geometry outlineWgs, double widthM, double originLon) throws Exception {
         if (outlineWgs == null || outlineWgs.isEmpty())
             return outlineWgs;
@@ -669,13 +702,13 @@ public class GisUtil implements AutoCloseable {
     }
 
     /**
-     * 计算球面环面积（平方米），与 Turf.js 的 ringArea 对齐。
-     * 使用 WGS84 半径（6378137）与经纬度弧度。
+     * 外缘细长裁剪：仅基于外环进行轻微开运算以移除边缘细长条（在米制投影下执行）。
+     * 仅在 `splitRoad` 中可能启用；`getOutline` 不使用该裁剪。
      *
-     * @param ring 外/内环线
-     * @return 面积（平方米）
+     * @param g       输入几何（WGS84）
+     * @param radiusM 开运算半径（米）
+     * @return 裁剪后的几何（WGS84）
      */
-    // 外缘细长裁剪：仅基于外环进行形态开运算，移除边缘细长条（在米制投影下执行）
     private Geometry trimOuterThinStrips(Geometry g, double radiusM) {
         if (g == null || g.isEmpty())
             return g;
@@ -711,8 +744,7 @@ public class GisUtil implements AutoCloseable {
 
             // 可选：对外环集合做拓扑保留简化以减小缓冲成本（容差不超过1.0m，随半径调整）
             double tolThin = Math.min(1.0, radiusM * 0.5);
-            Geometry shellsSimplified = org.locationtech.jts.simplify.TopologyPreservingSimplifier
-                    .simplify(shellsGeomGk, tolThin);
+            Geometry shellsSimplified = TopologyPreservingSimplifier.simplify(shellsGeomGk, tolThin);
             if (shellsSimplified == null || shellsSimplified.isEmpty())
                 shellsSimplified = shellsGeomGk;
 
@@ -722,17 +754,15 @@ public class GisUtil implements AutoCloseable {
                     config.BUFFER_END_CAP_STYLE,
                     config.BUFFER_JOIN_STYLE,
                     config.BUFFER_MITRE_LIMIT);
-            Geometry eroded = org.locationtech.jts.operation.buffer.BufferOp.bufferOp(shellsSimplified, -radiusM,
-                    params);
+            Geometry eroded = BufferOp.bufferOp(shellsSimplified, -radiusM, params);
             if (eroded == null || eroded.isEmpty()) {
                 // 半径过大导致核心消失，保持原面
                 return g;
             }
-            Geometry reopened = org.locationtech.jts.operation.buffer.BufferOp.bufferOp(eroded, radiusM, params);
+            Geometry reopened = BufferOp.bufferOp(eroded, radiusM, params);
 
             // 使用 PreparedGeometry，逐面裁剪以降低一次性大规模交集的开销
-            org.locationtech.jts.geom.prep.PreparedGeometry prepReopened = org.locationtech.jts.geom.prep.PreparedGeometryFactory
-                    .prepare(reopened);
+            PreparedGeometry prepReopened = PreparedGeometryFactory.prepare(reopened);
             java.util.List<Geometry> trimmedParts = new java.util.ArrayList<>();
             if (gk instanceof Polygon) {
                 Polygon p = (Polygon) gk;
@@ -753,7 +783,7 @@ public class GisUtil implements AutoCloseable {
                 }
             }
             Geometry trimmedGk = trimmedParts.isEmpty() ? gk
-                    : org.locationtech.jts.operation.union.UnaryUnionOp.union(trimmedParts);
+                    : UnaryUnionOp.union(trimmedParts);
             return JTS.transform(trimmedGk, txGkToWgs);
         } catch (Exception ex) {
             log.warn("[trimOuterThin] 处理失败: {}", ex.getMessage());
@@ -761,14 +791,21 @@ public class GisUtil implements AutoCloseable {
         }
     }
 
-    private static double ringArea(org.locationtech.jts.geom.LineString ring) {
-        org.locationtech.jts.geom.Coordinate[] coords = ring.getCoordinates();
+    /**
+     * 计算球面环面积（平方米），与 Turf.js 的 ringArea 对齐。
+     * 使用 WGS84 半径（6378137）与经纬度弧度。
+     *
+     * @param ring 外/内环线
+     * @return 面积（平方米）
+     */
+    private static double ringArea(LineString ring) {
+        Coordinate[] coords = ring.getCoordinates();
         int len = (coords == null) ? 0 : coords.length;
         if (len <= 2)
             return 0.0;
         double area = 0.0;
         for (int i = 0; i < len; i++) {
-            org.locationtech.jts.geom.Coordinate p1, p2, p3;
+            Coordinate p1, p2, p3;
             if (i == len - 2) {
                 p1 = coords[i];
                 p2 = coords[i + 1];
@@ -799,10 +836,12 @@ public class GisUtil implements AutoCloseable {
     }
 
     /**
-     * 计算两点间的大圆距离（Haversine公式）。
+     * 计算两点球面距离（哈弗辛公式，WGS84 平均地球半径）。
+     * 输入为经纬度（度），返回沿地球表面的近似测地距离（米）。
+     * 注意：这是球面近似的地理距离，不是投影平面直线距离；若需平面距离，请先做米制投影后再计算。
      *
-     * @param p1 点1（经纬度）
-     * @param p2 点2（经纬度）
+     * @param p1 点1（WGS84，经纬度，单位度）
+     * @param p2 点2（WGS84，经纬度，单位度）
      * @return 距离（米）
      */
     public double haversine(CoordinatePoint p1, CoordinatePoint p2) {
@@ -861,7 +900,7 @@ public class GisUtil implements AutoCloseable {
             }
             PreparedGeometry prep = PreparedGeometryFactory.prepare(poly);
             return prep.covers(pt);
-        } catch (org.locationtech.jts.io.ParseException ex) {
+        } catch (ParseException ex) {
             log.error("解析 WKT 失败: {}", ex.getMessage());
             return false;
         } catch (Exception ex) {
@@ -938,18 +977,18 @@ public class GisUtil implements AutoCloseable {
             }
 
             double areaSqm = 0.0;
-            if (wgs instanceof org.locationtech.jts.geom.Polygon) {
-                org.locationtech.jts.geom.Polygon p = (org.locationtech.jts.geom.Polygon) wgs;
+            if (wgs instanceof Polygon) {
+                Polygon p = (Polygon) wgs;
                 double areaOuter = Math.abs(ringArea(p.getExteriorRing()));
                 double holesArea = 0.0;
                 for (int i = 0; i < p.getNumInteriorRing(); i++) {
                     holesArea += Math.abs(ringArea(p.getInteriorRingN(i)));
                 }
                 areaSqm = areaOuter - holesArea;
-            } else if (wgs instanceof org.locationtech.jts.geom.MultiPolygon) {
-                org.locationtech.jts.geom.MultiPolygon mp = (org.locationtech.jts.geom.MultiPolygon) wgs;
+            } else if (wgs instanceof MultiPolygon) {
+                MultiPolygon mp = (MultiPolygon) wgs;
                 for (int i = 0; i < mp.getNumGeometries(); i++) {
-                    org.locationtech.jts.geom.Polygon p = (org.locationtech.jts.geom.Polygon) mp.getGeometryN(i);
+                    Polygon p = (Polygon) mp.getGeometryN(i);
                     double areaOuter = Math.abs(ringArea(p.getExteriorRing()));
                     double holesArea = 0.0;
                     for (int j = 0; j < p.getNumInteriorRing(); j++) {
@@ -985,18 +1024,18 @@ public class GisUtil implements AutoCloseable {
             WKTReader reader = new WKTReader(config.geometryFactory);
             Geometry wgs = reader.read(wkt);
             double areaSqm = 0.0;
-            if (wgs instanceof org.locationtech.jts.geom.Polygon) {
-                org.locationtech.jts.geom.Polygon p = (org.locationtech.jts.geom.Polygon) wgs;
+            if (wgs instanceof Polygon) {
+                Polygon p = (Polygon) wgs;
                 double areaOuter = Math.abs(ringArea(p.getExteriorRing()));
                 double holesArea = 0.0;
                 for (int i = 0; i < p.getNumInteriorRing(); i++) {
                     holesArea += Math.abs(ringArea(p.getInteriorRingN(i)));
                 }
                 areaSqm = areaOuter - holesArea;
-            } else if (wgs instanceof org.locationtech.jts.geom.MultiPolygon) {
-                org.locationtech.jts.geom.MultiPolygon mp = (org.locationtech.jts.geom.MultiPolygon) wgs;
+            } else if (wgs instanceof MultiPolygon) {
+                MultiPolygon mp = (MultiPolygon) wgs;
                 for (int i = 0; i < mp.getNumGeometries(); i++) {
-                    org.locationtech.jts.geom.Polygon p = (org.locationtech.jts.geom.Polygon) mp.getGeometryN(i);
+                    Polygon p = (Polygon) mp.getGeometryN(i);
                     double areaOuter = Math.abs(ringArea(p.getExteriorRing()));
                     double holesArea = 0.0;
                     for (int j = 0; j < p.getNumInteriorRing(); j++) {
@@ -1008,7 +1047,7 @@ public class GisUtil implements AutoCloseable {
                 return 0.0;
             }
             return Math.round((areaSqm / 666.6667) * 10000.0) / 10000.0;
-        } catch (org.locationtech.jts.io.ParseException e) {
+        } catch (ParseException e) {
             throw new RuntimeException("解析WKT字符串时出错: " + e.getMessage(), e);
         }
     }
@@ -1042,7 +1081,7 @@ public class GisUtil implements AutoCloseable {
             MathTransform tx = getTxWgsToGaussByLon(lon);
             Geometry gauss = JTS.transform(wgs, tx);
             return gauss;
-        } catch (org.locationtech.jts.io.ParseException e) {
+        } catch (ParseException e) {
             throw new RuntimeException("解析WKT字符串时出错: " + e.getMessage(), e);
         } catch (Exception e) {
             throw new RuntimeException("WGS84→Gauss投影转换失败: " + e.getMessage(), e);
@@ -1125,7 +1164,7 @@ public class GisUtil implements AutoCloseable {
             // 使用 PreparedGeometry 提升判断性能
             PreparedGeometry prep = PreparedGeometryFactory.prepare(g1);
             return prep.intersects(g2);
-        } catch (org.locationtech.jts.io.ParseException ex) {
+        } catch (ParseException ex) {
             log.error("解析 WKT 失败: {}", ex.getMessage());
             return false;
         } catch (Exception ex) {
@@ -1172,7 +1211,7 @@ public class GisUtil implements AutoCloseable {
                     return false;
             }
             return g1.equalsTopo(g2);
-        } catch (org.locationtech.jts.io.ParseException ex) {
+        } catch (ParseException ex) {
             log.error("解析 WKT 失败: {}", ex.getMessage());
             return false;
         } catch (Exception ex) {
@@ -1222,7 +1261,7 @@ public class GisUtil implements AutoCloseable {
                 return true;
             PreparedGeometry prep = PreparedGeometryFactory.prepare(g1);
             return prep.disjoint(g2);
-        } catch (org.locationtech.jts.io.ParseException ex) {
+        } catch (ParseException ex) {
             log.error("解析 WKT 失败: {}", ex.getMessage());
             return false;
         } catch (Exception ex) {
@@ -1266,7 +1305,7 @@ public class GisUtil implements AutoCloseable {
             }
             PreparedGeometry prep = PreparedGeometryFactory.prepare(g1);
             return prep.touches(g2);
-        } catch (org.locationtech.jts.io.ParseException ex) {
+        } catch (ParseException ex) {
             log.error("解析 WKT 失败: {}", ex.getMessage());
             return false;
         } catch (Exception ex) {
@@ -1310,7 +1349,7 @@ public class GisUtil implements AutoCloseable {
             }
             PreparedGeometry prep = PreparedGeometryFactory.prepare(g1);
             return prep.crosses(g2);
-        } catch (org.locationtech.jts.io.ParseException ex) {
+        } catch (ParseException ex) {
             log.error("解析 WKT 失败: {}", ex.getMessage());
             return false;
         } catch (Exception ex) {
@@ -1352,7 +1391,7 @@ public class GisUtil implements AutoCloseable {
                     return false;
             }
             return g1.within(g2);
-        } catch (org.locationtech.jts.io.ParseException ex) {
+        } catch (ParseException ex) {
             log.error("解析 WKT 失败: {}", ex.getMessage());
             return false;
         } catch (Exception ex) {
@@ -1394,7 +1433,7 @@ public class GisUtil implements AutoCloseable {
                     return false;
             }
             return g1.contains(g2);
-        } catch (org.locationtech.jts.io.ParseException ex) {
+        } catch (ParseException ex) {
             log.error("解析 WKT 失败: {}", ex.getMessage());
             return false;
         } catch (Exception ex) {
@@ -1438,7 +1477,7 @@ public class GisUtil implements AutoCloseable {
             }
             PreparedGeometry prep = PreparedGeometryFactory.prepare(g1);
             return prep.overlaps(g2);
-        } catch (org.locationtech.jts.io.ParseException ex) {
+        } catch (ParseException ex) {
             log.error("解析 WKT 失败: {}", ex.getMessage());
             return false;
         } catch (Exception ex) {
@@ -1448,9 +1487,9 @@ public class GisUtil implements AutoCloseable {
     }
 
     /**
-     * 生成轨迹轮廓（不拆分）
-     * 根据轨迹点与总宽度，构建单个轮廓（Polygon），并返回包含亩数、WKT、时间范围与点集的 `OutlinePart`。
-     * 步骤：过滤/排序轨迹点 → 点圆缓冲合并（WGS84）→ 在米制下形态学处理（凹包/凸包兜底）→ 计算亩数与 WKT。
+     * 生成轨迹轮廓（不拆分、不裁剪、不平滑）
+     * 根据轨迹点与总宽度，使用线缓冲构建单个轮廓（Polygon），并返回包含亩数、WKT、时间范围与点集的 `OutlinePart`。
+     * 步骤：过滤/排序轨迹点 → 在米制投影下线简化+线缓冲 → 若为MultiPolygon仅做轻微开运算保留缝隙并选面积最大面 → 计算亩数与 WKT。
      *
      * @param seg         轨迹点列表（WGS84），至少 3 个有效点
      * @param totalWidthM 总宽度（米，左右合计），必须非负
