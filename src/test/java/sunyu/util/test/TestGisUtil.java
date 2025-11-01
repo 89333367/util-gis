@@ -38,13 +38,7 @@ import sunyu.util.pojo.WktIntersectionResult;
 
 public class TestGisUtil {
     Log log = LogFactory.get();
-    GisUtil gisUtil = GisUtil.builder()
-            .enableSpeedFilter(true)
-            .setMinWorkSpeedKmh(1.0)
-            .setWorkMaxSpeedKmh(20.0)
-            .enableOuterThinTrim(true)
-            .setThinTrimRadiusFactor(1.2)
-            .build();
+    GisUtil gisUtil = GisUtil.builder().build();
     ProtocolSdk protocolSdk = new ProtocolSdk("http://192.168.11.8/config.xml");
     String path = "D:/tmp/java道路拆分算法测试";
 

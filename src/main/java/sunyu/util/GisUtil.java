@@ -26,9 +26,9 @@ import org.locationtech.jts.io.WKTReader;
 import org.locationtech.jts.operation.buffer.BufferOp;
 import org.locationtech.jts.operation.buffer.BufferParameters;
 import org.locationtech.jts.operation.union.UnaryUnionOp;
+import org.locationtech.jts.simplify.DouglasPeuckerSimplifier;
 import org.opengis.referencing.crs.CoordinateReferenceSystem;
 import org.opengis.referencing.operation.MathTransform;
-import org.locationtech.jts.simplify.DouglasPeuckerSimplifier;
 
 import cn.hutool.log.Log;
 import cn.hutool.log.LogFactory;
@@ -150,11 +150,11 @@ public class GisUtil implements AutoCloseable {
         private double MIN_WORK_SPEED_KMH = 1.0;
         // 是否启用速度过滤
         private boolean ENABLE_SPEED_FILTER = true;
-        
+
         // 仅裁剪外轮廓边缘细长条开关
-        private boolean ENABLE_OUTER_THIN_TRIM = false;
+        private boolean ENABLE_OUTER_THIN_TRIM = true;
         // 外缘细长裁剪半径系数（相对单侧宽度）
-        private double THIN_TRIM_RADIUS_FACTOR = 0.6;
+        private double THIN_TRIM_RADIUS_FACTOR = 1.2;
 
         // 是否启用线缓冲模式（更快）：将轨迹组装为折线并缓冲
         private boolean ENABLE_LINE_BUFFER = true;
@@ -197,82 +197,6 @@ public class GisUtil implements AutoCloseable {
             return new GisUtil(config);
         }
 
-        // 配置速度过滤：最大作业速度阈值（km/h）
-        public Builder setWorkMaxSpeedKmh(double v) {
-            config.WORK_MAX_SPEED_KMH = v;
-            return this;
-        }
-
-        // 开启/关闭速度过滤
-        public Builder enableSpeedFilter(boolean enable) {
-            config.ENABLE_SPEED_FILTER = enable;
-            return this;
-        }
-
-        // 配置速度过滤：最小作业速度阈值（km/h）
-        public Builder setMinWorkSpeedKmh(double v) {
-            config.MIN_WORK_SPEED_KMH = v;
-            return this;
-        }
-
-        // 开启/关闭仅外缘细长裁剪
-        public Builder enableOuterThinTrim(boolean enable) {
-            config.ENABLE_OUTER_THIN_TRIM = enable;
-            return this;
-        }
-
-        // 设置外缘细长裁剪半径系数（相对单侧宽度）
-        public Builder setThinTrimRadiusFactor(double factor) {
-            config.THIN_TRIM_RADIUS_FACTOR = factor;
-            return this;
-        }
-
-        // 启用/关闭线缓冲模式
-        public Builder enableLineBuffer(boolean enable) {
-            config.ENABLE_LINE_BUFFER = enable;
-            return this;
-        }
-
-        // 设置线段断裂距离系数（倍数*单侧宽度）
-        public Builder setLineBreakFactor(double factor) {
-            config.LINE_BREAK_FACTOR = factor;
-            return this;
-        }
-
-        // 设置线简化公差系数（倍数*单侧宽度）
-        public Builder setLineSimplifyTolFactor(double factor) {
-            config.LINE_SIMPLIFY_TOL_FACTOR = factor;
-            return this;
-        }
-
-        // 启用/关闭凹包平滑（保留镂空/洞）
-        public Builder enableConcaveSmoothing(boolean enable) {
-            config.ENABLE_CONCAVE_SMOOTHING = enable;
-            return this;
-        }
-
-        // 设置凹包平滑半径系数（相对单侧宽度）
-        public Builder setConcaveSmoothRadiusFactor(double factor) {
-            config.CONCAVE_SMOOTH_RADIUS_FACTOR = factor;
-            return this;
-        }
-
-        // 设置缓冲拐角样式（MITRE/BEVEL/ROUND）
-        public Builder setBufferJoinStyleMitre() { config.BUFFER_JOIN_STYLE = BufferParameters.JOIN_MITRE; return this; }
-        public Builder setBufferJoinStyleBevel() { config.BUFFER_JOIN_STYLE = BufferParameters.JOIN_BEVEL; return this; }
-        public Builder setBufferJoinStyleRound() { config.BUFFER_JOIN_STYLE = BufferParameters.JOIN_ROUND; return this; }
-
-        // 设置缓冲端头样式（FLAT/ROUND/SQUARE）
-        public Builder setBufferEndCapFlat() { config.BUFFER_END_CAP_STYLE = BufferParameters.CAP_FLAT; return this; }
-        public Builder setBufferEndCapRound() { config.BUFFER_END_CAP_STYLE = BufferParameters.CAP_ROUND; return this; }
-        public Builder setBufferEndCapSquare() { config.BUFFER_END_CAP_STYLE = BufferParameters.CAP_SQUARE; return this; }
-
-        // 设置mitre限制
-        public Builder setBufferMitreLimit(double limit) { config.BUFFER_MITRE_LIMIT = limit; return this; }
-
-        // 启用/关闭轻微蚀刻（扩大缝隙）
-        public Builder enableGapEnhanceErode(boolean enable) { config.ENABLE_GAP_ENHANCE_ERODE = enable; return this; }
-        public Builder setGapEnhanceErodeFactor(double factor) { config.GAP_ENHANCE_ERODE_FACTOR = factor; return this; }
     }
 
     /**
@@ -782,7 +706,8 @@ public class GisUtil implements AutoCloseable {
             pointBuffers.add(buffer);
 
             if (i > 0 && i % 200 == 0) {
-                log.trace("[buildOutlineBySimpleBuffers] 进度 {}/{} 转换:{}ms 缓冲:{}ms", i, seg.size(), convertTime, bufferTime);
+                log.trace("[buildOutlineBySimpleBuffers] 进度 {}/{} 转换:{}ms 缓冲:{}ms", i, seg.size(), convertTime,
+                        bufferTime);
             }
         }
 
@@ -918,7 +843,8 @@ public class GisUtil implements AutoCloseable {
         double tol = Math.max(0.01, widthM * config.LINE_SIMPLIFY_TOL_FACTOR);
 
         for (List<Coordinate> coords : lines) {
-            if (coords.size() < 2) continue;
+            if (coords.size() < 2)
+                continue;
             Coordinate[] arr = coords.toArray(new Coordinate[0]);
             org.locationtech.jts.geom.LineString line = config.geometryFactory.createLineString(arr);
             long ts = System.currentTimeMillis();
@@ -931,14 +857,16 @@ public class GisUtil implements AutoCloseable {
             } else if (simplified instanceof org.locationtech.jts.geom.MultiLineString) {
                 org.locationtech.jts.geom.MultiLineString mls = (org.locationtech.jts.geom.MultiLineString) simplified;
                 for (int i = 0; i < mls.getNumGeometries(); i++) {
-                    org.locationtech.jts.geom.LineString ls = (org.locationtech.jts.geom.LineString) mls.getGeometryN(i);
+                    org.locationtech.jts.geom.LineString ls = (org.locationtech.jts.geom.LineString) mls
+                            .getGeometryN(i);
                     simplifiedLines.add(ls);
                 }
             }
         }
 
         // 将所有简化线拼为一个 MultiLineString，一次性缓冲
-        org.locationtech.jts.geom.LineString[] lsArr = simplifiedLines.toArray(new org.locationtech.jts.geom.LineString[0]);
+        org.locationtech.jts.geom.LineString[] lsArr = simplifiedLines
+                .toArray(new org.locationtech.jts.geom.LineString[0]);
         org.locationtech.jts.geom.MultiLineString mlsAll = config.geometryFactory.createMultiLineString(lsArr);
         long tb = System.currentTimeMillis();
         Geometry union = BufferOp.bufferOp(mlsAll, widthM, params);
@@ -960,7 +888,8 @@ public class GisUtil implements AutoCloseable {
 
     // 形态学凹包平滑：在米制投影下进行轻微闭/开操作，保留镂空（洞）且平滑外缘
     private Geometry concaveSmoothPreserveHoles(Geometry outlineWgs, double widthM, double originLon) throws Exception {
-        if (outlineWgs == null || outlineWgs.isEmpty()) return outlineWgs;
+        if (outlineWgs == null || outlineWgs.isEmpty())
+            return outlineWgs;
         long t0 = System.currentTimeMillis();
         MathTransform txWgsToGk = getTxWgsToGaussByLon(originLon);
         MathTransform txGkToWgs = getTxGaussToWgsByLon(originLon);
@@ -968,9 +897,9 @@ public class GisUtil implements AutoCloseable {
         double r = Math.max(0.5, widthM * config.CONCAVE_SMOOTH_RADIUS_FACTOR);
         BufferParameters bp = new BufferParameters();
         bp.setQuadrantSegments(config.DEFAULT_BUFFER_QUADRANT);
-        bp.setEndCapStyle(BufferParameters.CAP_ROUND);
-        bp.setJoinStyle(BufferParameters.JOIN_BEVEL);
-        bp.setMitreLimit(2.0);
+        bp.setEndCapStyle(config.BUFFER_END_CAP_STYLE);
+        bp.setJoinStyle(config.BUFFER_JOIN_STYLE);
+        bp.setMitreLimit(config.BUFFER_MITRE_LIMIT);
 
         Geometry gk = JTS.transform(outlineWgs, txWgsToGk);
         // 改为“开运算”：先负缓冲（收缩以消除窄桥/毛刺），再正缓冲（拉回），更好地保留缝隙与洞
@@ -978,7 +907,8 @@ public class GisUtil implements AutoCloseable {
         Geometry opened2 = BufferOp.bufferOp(opened1, r, bp);
         Geometry wgs = JTS.transform(opened2, txGkToWgs);
         long t1 = System.currentTimeMillis();
-        log.debug("[concaveSmooth:opening] 半径={}m 输入类型={} 输出类型={} 耗时={}ms", r, outlineWgs.getGeometryType(), wgs.getGeometryType(), (t1 - t0));
+        log.debug("[concaveSmooth:opening] 半径={}m 输入类型={} 输出类型={} 耗时={}ms", r, outlineWgs.getGeometryType(),
+                wgs.getGeometryType(), (t1 - t0));
         return wgs;
     }
 
@@ -1096,7 +1026,8 @@ public class GisUtil implements AutoCloseable {
      */
     // 外缘细长裁剪：仅基于外环进行形态开运算，移除边缘细长条（在米制投影下执行）
     private Geometry trimOuterThinStrips(Geometry g, double radiusM) {
-        if (g == null || g.isEmpty()) return g;
+        if (g == null || g.isEmpty())
+            return g;
         try {
             // 根据几何包络的中心经度选择高斯-克吕格分带
             Envelope env = g.getEnvelopeInternal();
@@ -1121,19 +1052,27 @@ public class GisUtil implements AutoCloseable {
             } else {
                 return g;
             }
-            if (shells.isEmpty()) return g;
+            if (shells.isEmpty())
+                return g;
             Geometry shellsGeomGk = shells.size() == 1
                     ? shells.get(0)
                     : gf.createMultiPolygon(shells.toArray(new Polygon[0]));
+
+            // 可选：对外环集合做拓扑保留简化以减小缓冲成本（容差不超过0.5m）
+            double tolThin = Math.min(0.5, radiusM * 0.3);
+            Geometry shellsSimplified = org.locationtech.jts.simplify.TopologyPreservingSimplifier
+                    .simplify(shellsGeomGk, tolThin);
+            if (shellsSimplified == null || shellsSimplified.isEmpty())
+                shellsSimplified = shellsGeomGk;
 
             // 使用配置化缓冲参数，统一执行一次开运算（负缓冲再正缓冲）
             BufferParameters params = new BufferParameters(
                     config.DEFAULT_BUFFER_QUADRANT,
                     config.BUFFER_END_CAP_STYLE,
                     config.BUFFER_JOIN_STYLE,
-                    config.BUFFER_MITRE_LIMIT
-            );
-            Geometry eroded = org.locationtech.jts.operation.buffer.BufferOp.bufferOp(shellsGeomGk, -radiusM, params);
+                    config.BUFFER_MITRE_LIMIT);
+            Geometry eroded = org.locationtech.jts.operation.buffer.BufferOp.bufferOp(shellsSimplified, -radiusM,
+                    params);
             if (eroded == null || eroded.isEmpty()) {
                 // 半径过大导致核心消失，保持原面
                 return g;
@@ -2000,7 +1939,8 @@ public class GisUtil implements AutoCloseable {
         long tFilterStart = System.currentTimeMillis();
         List<TrackPoint> sortedSeg = filterAndSortTrackPoints(seg);
         long tFilterEnd = System.currentTimeMillis();
-        log.trace("[splitRoad] 异常点过滤完成 原始点数={} 过滤后点数={} 耗时={}ms", seg.size(), sortedSeg.size(), (tFilterEnd - tFilterStart));
+        log.trace("[splitRoad] 异常点过滤完成 原始点数={} 过滤后点数={} 耗时={}ms", seg.size(), sortedSeg.size(),
+                (tFilterEnd - tFilterStart));
 
         // 2) 速度过滤：删除小于等于1km/h或大于等于20km/h的点（使用配置阈值）
         long tSpeedStart = System.currentTimeMillis();
@@ -2008,7 +1948,8 @@ public class GisUtil implements AutoCloseable {
         long tSpeedEnd = System.currentTimeMillis();
         int removed = sortedSeg.size() - workSeg.size();
         log.debug("[splitRoad] 速度过滤 范围=[{}km/h, {}km/h] 移除点数={} 剩余点数={} 耗时={}ms",
-                config.MIN_WORK_SPEED_KMH, config.WORK_MAX_SPEED_KMH, removed, workSeg.size(), (tSpeedEnd - tSpeedStart));
+                config.MIN_WORK_SPEED_KMH, config.WORK_MAX_SPEED_KMH, removed, workSeg.size(),
+                (tSpeedEnd - tSpeedStart));
 
         // 3) 直接进行线缓冲构建轮廓（不使用点缓冲）
         long tBuildStart = System.currentTimeMillis();
@@ -2024,7 +1965,8 @@ public class GisUtil implements AutoCloseable {
             double originLon = workSeg.get(0).getLon();
             outline = concaveSmoothPreserveHoles(outline, widthM, originLon);
             long tSmoothEnd = System.currentTimeMillis();
-            log.debug("[splitRoad] 凹包平滑完成 半径系数={} 宽度={}m 耗时={}ms", config.CONCAVE_SMOOTH_RADIUS_FACTOR, widthM, (tSmoothEnd - tSmoothStart));
+            log.debug("[splitRoad] 凹包平滑完成 半径系数={} 宽度={}m 耗时={}ms", config.CONCAVE_SMOOTH_RADIUS_FACTOR, widthM,
+                    (tSmoothEnd - tSmoothStart));
         }
 
         // 3.2) 外缘细长条裁剪（避免道路窄条并入田块外缘）
@@ -2052,7 +1994,8 @@ public class GisUtil implements AutoCloseable {
             Geometry erodedGk = BufferOp.bufferOp(outlineGk, -erodeR, eParams);
             outline = JTS.transform(erodedGk, txGkToWgs);
             long tErodeEnd = System.currentTimeMillis();
-            log.debug("[splitRoad] 缝隙扩大蚀刻完成 半径={}m 因子={} 耗时={}ms", erodeR, config.GAP_ENHANCE_ERODE_FACTOR, (tErodeEnd - tErodeStart));
+            log.debug("[splitRoad] 缝隙扩大蚀刻完成 半径={}m 因子={} 耗时={}ms", erodeR, config.GAP_ENHANCE_ERODE_FACTOR,
+                    (tErodeEnd - tErodeStart));
         }
 
         // 4) 保留最大区块并按最小亩数过滤
@@ -2183,12 +2126,14 @@ public class GisUtil implements AutoCloseable {
                     sessions.add(current);
                 }
                 long tWithinEnd = System.currentTimeMillis();
-                log.trace("[splitRoad] Part#{} 会话段统计完成 sessions={} 耗时={}ms", i, sessions.size(), (tWithinEnd - tWithinStart));
+                log.trace("[splitRoad] Part#{} 会话段统计完成 sessions={} 耗时={}ms", i, sessions.size(),
+                        (tWithinEnd - tWithinStart));
 
                 List<TrackPoint> inPoly = sessions.stream().flatMap(List::stream).collect(Collectors.toList());
                 LocalDateTime start = inPoly.isEmpty() ? null : inPoly.get(0).getTime();
                 LocalDateTime end = inPoly.isEmpty() ? null : inPoly.get(inPoly.size() - 1).getTime();
-                log.trace("[splitRoad] Part#{} 跨度(按轮廓内点) 时间范围 start={} end={} (sessions={})", i, start, end, sessions.size());
+                log.trace("[splitRoad] Part#{} 跨度(按轮廓内点) 时间范围 start={} end={} (sessions={})", i, start, end,
+                        sessions.size());
 
                 long tMuStart = System.currentTimeMillis();
                 double mu = calcMu(poly);
@@ -2206,13 +2151,15 @@ public class GisUtil implements AutoCloseable {
                 }
             }
             long partsBuildEnd = System.currentTimeMillis();
-            log.trace("[splitRoad] MultiPolygon parts构建完成 size={} 总耗时={}ms", parts.size(), (partsBuildEnd - partsBuildStart));
+            log.trace("[splitRoad] MultiPolygon parts构建完成 size={} 总耗时={}ms", parts.size(),
+                    (partsBuildEnd - partsBuildStart));
         }
 
         long tOutlineWktStart = System.currentTimeMillis();
         String outlineWkt = toWkt(trimmed);
         long tOutlineWktEnd = System.currentTimeMillis();
-        log.trace("[splitRoad] Outline WKT生成完成 长度={} 耗时={}ms", outlineWkt.length(), (tOutlineWktEnd - tOutlineWktStart));
+        log.trace("[splitRoad] Outline WKT生成完成 长度={} 耗时={}ms", outlineWkt.length(),
+                (tOutlineWktEnd - tOutlineWktStart));
 
         long tTotalEnd = System.currentTimeMillis();
         log.debug("[splitRoad] 总耗时={}ms", (tTotalEnd - t0));
