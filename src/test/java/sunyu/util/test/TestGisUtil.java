@@ -125,6 +125,7 @@ public class TestGisUtil {
             seg.add(new TrackPoint(LocalDateTimeUtil.parse(ss[0], "yyyyMMddHHmmss"), Convert.toDouble(ss[1]),
                     Convert.toDouble(ss[2])));
         });
+        //测试一段(did, startTime, endTime, widthM);
         OutlinePart outline = gisUtil.getOutline(seg, widthM);
         FileUtil.writeUtf8String(StrUtil.format("wkt: {}\nmu: {}", outline.getWkt(), outline.getMu()),
                 path + StrUtil.format("/{}_{}_{}_outline335.txt", did, startTime, endTime));
@@ -144,6 +145,7 @@ public class TestGisUtil {
             seg.add(new TrackPoint(LocalDateTimeUtil.parse(ss[0], "yyyyMMddHHmmss"), Convert.toDouble(ss[1]),
                     Convert.toDouble(ss[2])));
         });
+        //测试一段(did, startTime, endTime, widthM);
         OutlinePart outline = gisUtil.getOutline(seg, widthM);
         FileUtil.writeUtf8String(StrUtil.format("wkt: {}\nmu: {}", outline.getWkt(), outline.getMu()),
                 path + StrUtil.format("/{}_{}_{}_outline018.txt", did, startTime, endTime));
