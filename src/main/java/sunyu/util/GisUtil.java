@@ -140,7 +140,7 @@ public class GisUtil implements AutoCloseable {
         // 作业最小速度阈值（km/h），用于前置速度过滤；可通过 Builder 配置
         private double MIN_WORK_SPEED_KMH = 1.0;
         // 最小亩数动态阈值（亩），用于 splitRoad 动态过滤小块
-        private double MIN_MU_DYNAMIC_THRESHOLD_MU = 0.6;
+        private double MIN_MU_DYNAMIC_THRESHOLD_MU = 0.5;
 
         // 外缘细长裁剪开关（仅 splitRoad 使用；getOutline 不使用）
         private boolean ENABLE_OUTER_THIN_TRIM = true;
@@ -1678,38 +1678,45 @@ public class GisUtil implements AutoCloseable {
     public SplitRoadResult splitRoad(List<TrackPoint> seg, double totalWidthM, Integer maxSegments) throws Exception {
         long t0 = System.currentTimeMillis();
         double widthM = totalWidthM / 2.0;
+        log.debug("[splitRoad] 开始 参数 原始点数={} 总宽度={}m 返回上限={}", seg.size(), totalWidthM,
+                (maxSegments == null || maxSegments <= 0) ? config.DEFAULT_MAX_OUTLINE_SEGMENTS
+                        : maxSegments.intValue());
 
         // 1) 过滤异常点（越界与(0,0)），按时间升序
+        log.debug("[splitRoad] 异常点过滤 开始 参数 输入点数={}", seg.size());
         long tFilterStart = System.currentTimeMillis();
         List<TrackPoint> sortedSeg = filterAndSortTrackPoints(seg);
         long tFilterEnd = System.currentTimeMillis();
-        log.trace("[splitRoad] 异常点过滤完成 原始点数={} 过滤后点数={} 耗时={}ms", seg.size(), sortedSeg.size(),
-                (tFilterEnd - tFilterStart));
+        log.debug("[splitRoad] 异常点过滤 结束 返回 返回点数={} 耗时={}ms", sortedSeg.size(), (tFilterEnd - tFilterStart));
 
         // 2) 速度过滤：删除小于等于1km/h或大于等于20km/h的点（使用配置阈值）
+        log.debug("[splitRoad] 速度过滤 开始 范围=[{}km/h, {}km/h] 输入点数={}",
+                config.MIN_WORK_SPEED_KMH, config.WORK_MAX_SPEED_KMH, sortedSeg.size());
         long tSpeedStart = System.currentTimeMillis();
         List<TrackPoint> workSeg = filterBySpeedRange(sortedSeg, config.MIN_WORK_SPEED_KMH, config.WORK_MAX_SPEED_KMH);
         long tSpeedEnd = System.currentTimeMillis();
         int removed = sortedSeg.size() - workSeg.size();
-        log.debug("[splitRoad] 速度过滤 范围=[{}km/h, {}km/h] 移除点数={} 剩余点数={} 耗时={}ms",
-                config.MIN_WORK_SPEED_KMH, config.WORK_MAX_SPEED_KMH, removed, workSeg.size(),
-                (tSpeedEnd - tSpeedStart));
+        log.debug("[splitRoad] 速度过滤 结束 返回 移除点数={} 剩余点数={} 耗时={}ms",
+                removed, workSeg.size(), (tSpeedEnd - tSpeedStart));
 
         // 3) 直接进行线缓冲构建轮廓（不使用点缓冲）
+        log.debug("[splitRoad] 构建线缓冲 开始 宽度={}m 输入点数={}", widthM, workSeg.size());
         long tBuildStart = System.currentTimeMillis();
         Geometry outline = buildOutlineByLineBuffers(workSeg, widthM);
         long tBuildEnd = System.currentTimeMillis();
-        log.debug("[splitRoad] 线缓冲轮廓构建完成 type={} parts={} 耗时={}ms", outline.getGeometryType(),
+        log.debug("[splitRoad] 构建线缓冲 结束 返回 type={} parts={} 耗时={}ms", outline.getGeometryType(),
                 (outline instanceof MultiPolygon) ? outline.getNumGeometries() : 1, (tBuildEnd - tBuildStart));
         int partsOutline = (outline instanceof MultiPolygon) ? outline.getNumGeometries() : 1;
 
         // 3.1) 凹包平滑（保留镂空/洞），轻微开运算以平滑外缘并扩大缝隙
         if (config.ENABLE_CONCAVE_SMOOTHING && workSeg != null && !workSeg.isEmpty()) {
             long tSmoothStart = System.currentTimeMillis();
+            log.debug("[splitRoad] 凹包平滑 开始 半径系数={} 宽度={}m 输入类型={}", config.CONCAVE_SMOOTH_RADIUS_FACTOR, widthM,
+                    outline.getGeometryType());
             double originLon = workSeg.get(0).getLon();
             outline = concaveSmoothPreserveHoles(outline, widthM, originLon);
             long tSmoothEnd = System.currentTimeMillis();
-            log.debug("[splitRoad] 凹包平滑完成 半径系数={} 宽度={}m 耗时={}ms", config.CONCAVE_SMOOTH_RADIUS_FACTOR, widthM,
+            log.debug("[splitRoad] 凹包平滑 结束 返回 输出类型={} 耗时={}ms", outline.getGeometryType(),
                     (tSmoothEnd - tSmoothStart));
         }
 
@@ -1717,9 +1724,17 @@ public class GisUtil implements AutoCloseable {
         if (config.ENABLE_OUTER_THIN_TRIM) {
             long tThinStart = System.currentTimeMillis();
             double radiusM = Math.max(0.5, widthM * config.THIN_TRIM_RADIUS_FACTOR);
-            outline = trimOuterThinStrips(outline, radiusM);
+            int partsBeforeThin = (outline instanceof MultiPolygon) ? outline.getNumGeometries() : 1;
+            log.debug("[splitRoad] 外缘细长裁剪 开始 半径={}m 输入类型={} 输入部分数={}", radiusM, outline.getGeometryType(),
+                    partsBeforeThin);
+            Geometry outlineAfterThin = trimOuterThinStrips(outline, radiusM);
+            int partsAfterThin = (outlineAfterThin instanceof MultiPolygon) ? outlineAfterThin.getNumGeometries() : 1;
+            int removedThin = Math.max(0, partsBeforeThin - partsAfterThin);
+            outline = outlineAfterThin;
             long tThinEnd = System.currentTimeMillis();
-            log.debug("[splitRoad] 外缘细长裁剪完成 半径={}m 耗时={}ms", radiusM, (tThinEnd - tThinStart));
+            log.debug("[splitRoad] 外缘细长裁剪 结束 返回 输出类型={} 移除部分数={} 剩余部分数={} 耗时={}ms", outline.getGeometryType(),
+                    removedThin, partsAfterThin,
+                    (tThinEnd - tThinStart));
         }
 
         // 3.3) 缝隙扩大轻微蚀刻（小幅整体收缩以凸显镂空与缝隙）
@@ -1727,6 +1742,8 @@ public class GisUtil implements AutoCloseable {
             long tErodeStart = System.currentTimeMillis();
             double originLon = workSeg.get(0).getLon();
             double erodeR = Math.max(0.2, widthM * config.GAP_ENHANCE_ERODE_FACTOR);
+            log.debug("[splitRoad] 缝隙扩大蚀刻 开始 半径={}m 因子={} 输入类型={}", erodeR, config.GAP_ENHANCE_ERODE_FACTOR,
+                    outline.getGeometryType());
             MathTransform txWgsToGk = getTxWgsToGaussByLon(originLon);
             MathTransform txGkToWgs = getTxGaussToWgsByLon(originLon);
             Geometry outlineGk = JTS.transform(outline, txWgsToGk);
@@ -1738,7 +1755,7 @@ public class GisUtil implements AutoCloseable {
             Geometry erodedGk = BufferOp.bufferOp(outlineGk, -erodeR, eParams);
             outline = JTS.transform(erodedGk, txGkToWgs);
             long tErodeEnd = System.currentTimeMillis();
-            log.debug("[splitRoad] 缝隙扩大蚀刻完成 半径={}m 因子={} 耗时={}ms", erodeR, config.GAP_ENHANCE_ERODE_FACTOR,
+            log.debug("[splitRoad] 缝隙扩大蚀刻 结束 返回 输出类型={} 耗时={}ms", outline.getGeometryType(),
                     (tErodeEnd - tErodeStart));
         }
 
@@ -1746,18 +1763,26 @@ public class GisUtil implements AutoCloseable {
         int limit = (maxSegments == null || maxSegments <= 0) ? config.DEFAULT_MAX_OUTLINE_SEGMENTS
                 : maxSegments.intValue();
         log.debug("[splitRoad] 输入参数 原始点数={} 过滤后点数={} 总宽度={}m 返回上限={}", seg.size(), workSeg.size(), totalWidthM, limit);
-        long tTrimStart = System.currentTimeMillis();
-        Geometry trimmed = keepLargestPolygons(outline, limit);
-        int partsAfterKeep = (trimmed instanceof MultiPolygon) ? trimmed.getNumGeometries() : 1;
+        log.debug("[splitRoad] 保留最大区块 开始 上限={} 输入类型={} parts={}", limit, outline.getGeometryType(), partsOutline);
+        long tKeepStart = System.currentTimeMillis();
+        Geometry kept = keepLargestPolygons(outline, limit);
+        long tKeepEnd = System.currentTimeMillis();
+        int partsAfterKeep = (kept instanceof MultiPolygon) ? kept.getNumGeometries() : 1;
+        log.debug("[splitRoad] 保留最大区块 结束 返回 输出部分数={} 耗时={}ms", partsAfterKeep, (tKeepEnd - tKeepStart));
+
         log.trace("[splitRoad] 动态最小亩数阈值 minMuDynamic={} (partsAfterKeep={})", config.MIN_MU_DYNAMIC_THRESHOLD_MU,
                 partsAfterKeep);
-        trimmed = removeSmallMuPolygons(trimmed, config.MIN_MU_DYNAMIC_THRESHOLD_MU);
+        log.debug("[splitRoad] 小面积过滤 开始 阈值(亩)={} 输入部分数={}", config.MIN_MU_DYNAMIC_THRESHOLD_MU, partsAfterKeep);
+        long tAreaStart = System.currentTimeMillis();
+        Geometry trimmed = removeSmallMuPolygons(kept, config.MIN_MU_DYNAMIC_THRESHOLD_MU);
+        long tAreaEnd = System.currentTimeMillis();
         int partsAfterAreaFilter = (trimmed instanceof MultiPolygon) ? trimmed.getNumGeometries() : 1;
         int removedByArea = partsAfterKeep - partsAfterAreaFilter;
-        long tTrimEnd = System.currentTimeMillis();
+        log.debug("[splitRoad] 小面积过滤 结束 返回 移除区块数={} 剩余部分数={} 耗时={}ms", removedByArea, partsAfterAreaFilter,
+                (tAreaEnd - tAreaStart));
         log.trace("[splitRoad] 裁剪完成 type={} parts={} 移除面积={} 耗时={}ms",
                 trimmed.getGeometryType(), (trimmed instanceof MultiPolygon) ? trimmed.getNumGeometries() : 1,
-                removedByArea, (tTrimEnd - tTrimStart));
+                removedByArea, ((tKeepEnd - tKeepStart) + (tAreaEnd - tAreaStart)));
 
         // 5) 返回日志说明
         if (((trimmed instanceof MultiPolygon) ? trimmed.getNumGeometries() : 1) < limit) {
@@ -1769,10 +1794,10 @@ public class GisUtil implements AutoCloseable {
             } else {
                 reason = "面积裁剪后区块数不超过上限";
             }
-            log.debug("[splitRoad] 返回结果 type={} parts={} (上限={}，原因：{}；小面积移除={})", trimmed.getGeometryType(),
-                    (trimmed instanceof MultiPolygon) ? trimmed.getNumGeometries() : 1, limit, reason, removedByArea);
+            log.debug("[splitRoad] 返回结果 结束 返回 type={} parts={} 原因={} 小面积移除={}", trimmed.getGeometryType(),
+                    (trimmed instanceof MultiPolygon) ? trimmed.getNumGeometries() : 1, reason, removedByArea);
         } else {
-            log.debug("[splitRoad] 返回结果 type={} parts={}", trimmed.getGeometryType(),
+            log.debug("[splitRoad] 返回结果 结束 返回 type={} parts={}", trimmed.getGeometryType(),
                     (trimmed instanceof MultiPolygon) ? trimmed.getNumGeometries() : 1);
         }
 
@@ -1905,7 +1930,8 @@ public class GisUtil implements AutoCloseable {
                 (tOutlineWktEnd - tOutlineWktStart));
 
         long tTotalEnd = System.currentTimeMillis();
-        log.debug("[splitRoad] 总耗时={}ms", (tTotalEnd - t0));
+        log.debug("[splitRoad] 结束 返回 parts={} 总耗时={}ms",
+                (trimmed instanceof MultiPolygon) ? trimmed.getNumGeometries() : 1, (tTotalEnd - t0));
         return new SplitRoadResult(trimmed, parts, outlineWkt).setTotalWidthM(totalWidthM);
     }
 
