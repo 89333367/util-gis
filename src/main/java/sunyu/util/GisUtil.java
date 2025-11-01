@@ -143,6 +143,13 @@ public class GisUtil implements AutoCloseable {
         // cellSize 上限系数：36
         private final int DEFAULT_BUCKET_CELL_MAX_FACTOR = 36;
 
+        // 作业最大速度阈值（km/h），用于前置速度过滤；可通过 Builder 配置
+        private double WORK_MAX_SPEED_KMH = 20.0;
+        // 作业最小速度阈值（km/h），用于前置速度过滤；可通过 Builder 配置
+        private double MIN_WORK_SPEED_KMH = 1.0;
+        // 是否启用速度过滤
+        private boolean ENABLE_SPEED_FILTER = true;
+
     }
 
     /**
@@ -161,6 +168,24 @@ public class GisUtil implements AutoCloseable {
          */
         public GisUtil build() {
             return new GisUtil(config);
+        }
+
+        // 配置速度过滤：最大作业速度阈值（km/h）
+        public Builder setWorkMaxSpeedKmh(double v) {
+            config.WORK_MAX_SPEED_KMH = v;
+            return this;
+        }
+
+        // 开启/关闭速度过滤
+        public Builder enableSpeedFilter(boolean enable) {
+            config.ENABLE_SPEED_FILTER = enable;
+            return this;
+        }
+
+        // 配置速度过滤：最小作业速度阈值（km/h）
+        public Builder setMinWorkSpeedKmh(double v) {
+            config.MIN_WORK_SPEED_KMH = v;
+            return this;
         }
     }
 
@@ -452,6 +477,38 @@ public class GisUtil implements AutoCloseable {
                 .collect(Collectors.toList());
     }
 
+    // 计算两点间速度（km/h），基于球面距离与时间差
+    private double speedKmh(TrackPoint a, TrackPoint b) {
+        if (a == null || b == null || a.getTime() == null || b.getTime() == null) {
+            return Double.POSITIVE_INFINITY;
+        }
+        double meters = haversine(a, b);
+        double seconds = (double) java.time.Duration.between(a.getTime(), b.getTime()).toMillis() / 1000.0;
+        if (seconds <= 0) {
+            return Double.POSITIVE_INFINITY;
+        }
+        return (meters / seconds) * 3.6; // m/s → km/h
+    }
+
+    // 前置速度过滤：删除速度不在 [minSpeedKmh, maxSpeedKmh] 区间的点（含边界），保持时间升序
+    private List<TrackPoint> filterBySpeedRange(List<TrackPoint> seg, double minSpeedKmh, double maxSpeedKmh) {
+        if (seg == null || seg.size() <= 1) {
+            return seg == null ? Collections.emptyList() : new ArrayList<>(seg);
+        }
+        List<TrackPoint> res = new ArrayList<>(seg.size());
+        res.add(seg.get(0));
+        for (int i = 1; i < seg.size(); i++) {
+            TrackPoint prev = seg.get(i - 1);
+            TrackPoint curr = seg.get(i);
+            double v = speedKmh(prev, curr);
+            // 删除小于等于 min 或大于等于 max 的点（删掉 curr）
+            if (v > minSpeedKmh && v < maxSpeedKmh) {
+                res.add(curr);
+            }
+        }
+        return res;
+    }
+
     /**
      * 构建轨迹轮廓（统一左右宽度）。
      * 过滤与排序轨迹点 → 点圆缓冲并合并 → 面积阈值过滤 → 扁平化MultiPolygon。
@@ -484,20 +541,34 @@ public class GisUtil implements AutoCloseable {
             throw new IllegalArgumentException("轨迹段至少需要3个有效点");
         }
 
+        // 速度前置过滤：剔除超过阈值的轨迹点（阈值可配置）
+        List<TrackPoint> workSeg = sortedSeg;
+        if (config.ENABLE_SPEED_FILTER) {
+            int before = sortedSeg.size();
+            workSeg = filterBySpeedRange(sortedSeg, config.MIN_WORK_SPEED_KMH, config.WORK_MAX_SPEED_KMH);
+            int removed = before - workSeg.size();
+            log.debug("[buildOutlineCore] 速度过滤 范围=[{}km/h, {}km/h] 移除点数={} 剩余点数={}",
+                    config.MIN_WORK_SPEED_KMH, config.WORK_MAX_SPEED_KMH, removed, workSeg.size());
+            if (workSeg.size() < 3) {
+                log.debug("[buildOutlineCore] 速度过滤后有效点不足(剩余={})，返回空几何", workSeg.size());
+                return config.geometryFactory.createMultiPolygon(new Polygon[0]);
+            }
+        }
+
         try {
-            double minLon = sortedSeg.stream().mapToDouble(TrackPoint::getLon).min().orElse(0);
-            double maxLon = sortedSeg.stream().mapToDouble(TrackPoint::getLon).max().orElse(0);
-            double minLat = sortedSeg.stream().mapToDouble(TrackPoint::getLat).min().orElse(0);
-            double maxLat = sortedSeg.stream().mapToDouble(TrackPoint::getLat).max().orElse(0);
+            double minLon = workSeg.stream().mapToDouble(TrackPoint::getLon).min().orElse(0);
+            double maxLon = workSeg.stream().mapToDouble(TrackPoint::getLon).max().orElse(0);
+            double minLat = workSeg.stream().mapToDouble(TrackPoint::getLat).min().orElse(0);
+            double maxLat = workSeg.stream().mapToDouble(TrackPoint::getLat).max().orElse(0);
 
             log.trace("[buildOutlineCore] 轨迹范围: 经度[{}, {}], 纬度[{}, {}]", minLon, maxLon, minLat, maxLat);
 
             long buildStartTime = System.currentTimeMillis();
-            Geometry result = buildOutlineBySimpleBuffers(sortedSeg, widthM);
+            Geometry result = buildOutlineBySimpleBuffers(workSeg, widthM);
             long buildTime = System.currentTimeMillis() - buildStartTime;
 
             // 基于首点经度构建高斯-克吕格米制投影（用于面积与形态计算）
-            double originLonArea = sortedSeg.get(0).getLon();
+            double originLonArea = workSeg.get(0).getLon();
             MathTransform txWgsToGkArea = getTxWgsToGaussByLon(originLonArea);
 
             // 基于宽度的最小面积阈值（直接使用宽度，不再依赖配置因子）
@@ -526,7 +597,7 @@ public class GisUtil implements AutoCloseable {
             log.trace("[buildOutlineCore] 轮廓构建完成，构建耗时: {}ms", buildTime);
 
             if (result instanceof MultiPolygon && result.getNumGeometries() > 1) {
-                log.debug("[buildOutlineCore] 输入参数 点数={} 总宽度={}m 单侧宽度={}m", seg.size(), totalWidthM,
+                log.debug("[buildOutlineCore] 输入参数 点数={} 总宽度={}m 单侧宽度={}m", workSeg.size(), totalWidthM,
                         widthM);
                 log.debug("[buildOutlineCore] 结果为MultiPolygon，包含 {} 个部分", result.getNumGeometries());
                 long endTime = System.currentTimeMillis();
@@ -1647,7 +1718,13 @@ public class GisUtil implements AutoCloseable {
 
         int limit = (maxSegments == null || maxSegments <= 0) ? config.DEFAULT_MAX_OUTLINE_SEGMENTS
                 : maxSegments.intValue();
-        log.debug("[splitRoad] 输入参数 点数={} 总宽度={}m 返回上限={}", seg.size(), totalWidthM, limit);
+        int originalCount = seg.size();
+        List<TrackPoint> sortedForLog = filterAndSortTrackPoints(seg);
+        List<TrackPoint> workSegForLog = config.ENABLE_SPEED_FILTER
+                ? filterBySpeedRange(sortedForLog, config.MIN_WORK_SPEED_KMH, config.WORK_MAX_SPEED_KMH)
+                : sortedForLog;
+        log.debug("[splitRoad] 输入参数 原始点数={} 过滤后点数={} 总宽度={}m 返回上限={}", originalCount, workSegForLog.size(), totalWidthM,
+                limit);
         long tTrimStart = System.currentTimeMillis();
         Geometry trimmed = keepLargestPolygons(outline, limit);
         int partsAfterKeep = (trimmed instanceof MultiPolygon) ? trimmed.getNumGeometries() : 1;
