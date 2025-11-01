@@ -125,7 +125,7 @@ public class TestGisUtil {
             seg.add(new TrackPoint(LocalDateTimeUtil.parse(ss[0], "yyyyMMddHHmmss"), Convert.toDouble(ss[1]),
                     Convert.toDouble(ss[2])));
         });
-        //测试一段(did, startTime, endTime, widthM);
+        // 测试一段(did, startTime, endTime, widthM);
         OutlinePart outline = gisUtil.getOutline(seg, widthM);
         FileUtil.writeUtf8String(StrUtil.format("wkt: {}\nmu: {}", outline.getWkt(), outline.getMu()),
                 path + StrUtil.format("/{}_{}_{}_outline335.txt", did, startTime, endTime));
@@ -145,7 +145,7 @@ public class TestGisUtil {
             seg.add(new TrackPoint(LocalDateTimeUtil.parse(ss[0], "yyyyMMddHHmmss"), Convert.toDouble(ss[1]),
                     Convert.toDouble(ss[2])));
         });
-        //测试一段(did, startTime, endTime, widthM);
+        // 测试一段(did, startTime, endTime, widthM);
         OutlinePart outline = gisUtil.getOutline(seg, widthM);
         FileUtil.writeUtf8String(StrUtil.format("wkt: {}\nmu: {}", outline.getWkt(), outline.getMu()),
                 path + StrUtil.format("/{}_{}_{}_outline018.txt", did, startTime, endTime));
@@ -211,10 +211,10 @@ public class TestGisUtil {
     }
 
     @Test
-    void 循环() throws SQLException {
+    void 循环一天() throws SQLException {
         Db db = getMysqlDb();
         List<Entity> rows = db.query(
-                "select id,did,jobArea,jobStartTime,jobEndTime,jobWidth from farm_work where jobStartTime >= '2025-05-01' and jobStartTime < '2025-06-01' and (did like 'NJ%' or did like 'EC%') and jobArea > 0 order by insertTime desc limit 10");
+                "select id,did,jobArea,jobStartTime,jobEndTime,jobWidth from farm_work where jobStartTime >= '2025-05-01' and jobStartTime < '2025-06-01' and (did like 'NJ%' or did like 'EC%') and jobArea > 0 and fixFlag = 1 and effectiveJobArea >0 order by insertTime desc limit 10");
         for (Entity row : rows) {
             String did = row.getStr("did");
             Date jobStartTime = row.getDate("jobStartTime");
@@ -223,6 +223,24 @@ public class TestGisUtil {
             读取一天(did, yyyyMMdd);
             测试一天(did, yyyyMMdd, jobWidth);
             输出一天HTML(did, yyyyMMdd);
+        }
+    }
+
+    @Test
+    void 循环farm_work() throws SQLException {
+        Db db = getMysqlDb();
+        List<Entity> rows = db.query(
+                "select id,did,jobArea,jobStartTime,jobEndTime,jobWidth from farm_work where jobStartTime >= '2025-05-01' and jobStartTime < '2025-06-01' and (did like 'NJ%' or did like 'EC%') and jobArea > 0 and fixFlag = 1 and effectiveJobArea >0 order by insertTime desc limit 10");
+        for (Entity row : rows) {
+            String did = row.getStr("did");
+            Date jobStartTime = row.getDate("jobStartTime");
+            Date jobEndTime = row.getDate("jobEndTime");
+            double jobWidth = row.getDouble("jobWidth");
+            String startTime = DateUtil.format(jobStartTime, "yyyyMMddHHmmss");
+            String endTime = DateUtil.format(jobEndTime, "yyyyMMddHHmmss");
+            读取一段(did, startTime, endTime);
+            测试一段(did, startTime, endTime, jobWidth);
+            输出一段HTML(did, startTime, endTime);
         }
     }
 
