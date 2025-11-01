@@ -28,6 +28,7 @@ import org.locationtech.jts.operation.buffer.BufferParameters;
 import org.locationtech.jts.operation.union.UnaryUnionOp;
 import org.opengis.referencing.crs.CoordinateReferenceSystem;
 import org.opengis.referencing.operation.MathTransform;
+import org.locationtech.jts.simplify.DouglasPeuckerSimplifier;
 
 import cn.hutool.log.Log;
 import cn.hutool.log.LogFactory;
@@ -149,6 +150,18 @@ public class GisUtil implements AutoCloseable {
         private double MIN_WORK_SPEED_KMH = 1.0;
         // 是否启用速度过滤
         private boolean ENABLE_SPEED_FILTER = true;
+        
+        // 仅裁剪外轮廓边缘细长条开关
+        private boolean ENABLE_OUTER_THIN_TRIM = false;
+        // 外缘细长裁剪半径系数（相对单侧宽度）
+        private double THIN_TRIM_RADIUS_FACTOR = 0.6;
+
+        // 是否启用线缓冲模式（更快）：将轨迹组装为折线并缓冲
+        private boolean ENABLE_LINE_BUFFER = true;
+        // 线段断裂距离系数（倍数*单侧宽度），超过则切分会话
+        private double LINE_BREAK_FACTOR = 4.0;
+        // 线简化公差系数（倍数*单侧宽度），用于Douglas-Peucker
+        private double LINE_SIMPLIFY_TOL_FACTOR = 0.2;
 
     }
 
@@ -185,6 +198,36 @@ public class GisUtil implements AutoCloseable {
         // 配置速度过滤：最小作业速度阈值（km/h）
         public Builder setMinWorkSpeedKmh(double v) {
             config.MIN_WORK_SPEED_KMH = v;
+            return this;
+        }
+
+        // 开启/关闭仅外缘细长裁剪
+        public Builder enableOuterThinTrim(boolean enable) {
+            config.ENABLE_OUTER_THIN_TRIM = enable;
+            return this;
+        }
+
+        // 设置外缘细长裁剪半径系数（相对单侧宽度）
+        public Builder setThinTrimRadiusFactor(double factor) {
+            config.THIN_TRIM_RADIUS_FACTOR = factor;
+            return this;
+        }
+
+        // 启用/关闭线缓冲模式
+        public Builder enableLineBuffer(boolean enable) {
+            config.ENABLE_LINE_BUFFER = enable;
+            return this;
+        }
+
+        // 设置线段断裂距离系数（倍数*单侧宽度）
+        public Builder setLineBreakFactor(double factor) {
+            config.LINE_BREAK_FACTOR = factor;
+            return this;
+        }
+
+        // 设置线简化公差系数（倍数*单侧宽度）
+        public Builder setLineSimplifyTolFactor(double factor) {
+            config.LINE_SIMPLIFY_TOL_FACTOR = factor;
             return this;
         }
     }
@@ -564,12 +607,33 @@ public class GisUtil implements AutoCloseable {
             log.trace("[buildOutlineCore] 轨迹范围: 经度[{}, {}], 纬度[{}, {}]", minLon, maxLon, minLat, maxLat);
 
             long buildStartTime = System.currentTimeMillis();
-            Geometry result = buildOutlineBySimpleBuffers(workSeg, widthM);
+            Geometry result = config.ENABLE_LINE_BUFFER
+                    ? buildOutlineByLineBuffers(workSeg, widthM)
+                    : buildOutlineBySimpleBuffers(workSeg, widthM);
             long buildTime = System.currentTimeMillis() - buildStartTime;
 
             // 基于首点经度构建高斯-克吕格米制投影（用于面积与形态计算）
             double originLonArea = workSeg.get(0).getLon();
             MathTransform txWgsToGkArea = getTxWgsToGaussByLon(originLonArea);
+
+            // 可选：仅裁剪外轮廓边缘的细长条（不影响内部细长区块）
+            if (config.ENABLE_OUTER_THIN_TRIM) {
+                double trimR = Math.max(0.1, widthM * config.THIN_TRIM_RADIUS_FACTOR);
+                Geometry beforeTrim = result;
+                Geometry afterTrim = trimOuterThinStrips(result, trimR);
+                if (afterTrim != null) {
+                    double beforeAreaM2 = JTS.transform(beforeTrim, txWgsToGkArea).getArea();
+                    double afterAreaM2 = JTS.transform(afterTrim, txWgsToGkArea).getArea();
+                    log.debug("[buildOutlineCore] 外缘细长裁剪 radius={}m 面积 {}→{} m² parts {}→{}",
+                            Math.round(trimR),
+                            Math.round(beforeAreaM2), Math.round(afterAreaM2),
+                            (beforeTrim instanceof MultiPolygon) ? beforeTrim.getNumGeometries() : 1,
+                            (afterTrim instanceof MultiPolygon) ? afterTrim.getNumGeometries() : 1);
+                    result = afterTrim;
+                } else {
+                    log.debug("[buildOutlineCore] 外缘细长裁剪失败或不适用，跳过");
+                }
+            }
 
             // 基于宽度的最小面积阈值（直接使用宽度，不再依赖配置因子）
             double minAreaThresholdM2 = Math.PI * widthM * widthM;
@@ -643,60 +707,43 @@ public class GisUtil implements AutoCloseable {
         long startTime = System.currentTimeMillis();
         log.trace("[buildOutlineBySimpleBuffers] 开始处理 {} 个轨迹点，缓冲区宽度: {} 米", seg.size(), widthM);
 
-        // 为每个点创建缓冲区
-        List<Geometry> pointBuffers = new ArrayList<>();
+        if (seg == null || seg.isEmpty()) {
+            return config.geometryFactory.createGeometryCollection(null);
+        }
 
-        long convertTime = 0;
-        long bufferTime = 0;
-        long totalTime = 0;
-
-        // 基于首点经度构建高斯-克吕格投影转换（6°分带）
         double originLon = seg.get(0).getLon();
         MathTransform txWgsToGk = getTxWgsToGaussByLon(originLon);
 
+        List<Geometry> pointBuffers = new ArrayList<>();
+        long convertTime = 0;
+        long bufferTime = 0;
+
+        BufferParameters params = new BufferParameters();
+        params.setQuadrantSegments(config.DEFAULT_BUFFER_QUADRANT);
+        params.setEndCapStyle(BufferParameters.CAP_ROUND);
+        params.setJoinStyle(BufferParameters.JOIN_ROUND);
+
         for (int i = 0; i < seg.size(); i++) {
-            long startPoint = System.currentTimeMillis();
-
             TrackPoint point = seg.get(i);
-            Coordinate coord = new Coordinate(point.getLon(), point.getLat());
-            Geometry pointGeom = config.geometryFactory.createPoint(coord);
+            Geometry pointGeom = config.geometryFactory.createPoint(new Coordinate(point.getLon(), point.getLat()));
 
-            // 转换到高斯-克吕格投影坐标系（米制）
             long startConvert = System.currentTimeMillis();
             Geometry projPoint = JTS.transform(pointGeom, txWgsToGk);
             convertTime += System.currentTimeMillis() - startConvert;
 
-            // 创建缓冲区（降低圆近似复杂度以提升性能）
             long startBuffer = System.currentTimeMillis();
-            BufferParameters params = new BufferParameters();
-            int quadSeg = config.DEFAULT_BUFFER_QUADRANT;
-            params.setQuadrantSegments(quadSeg); // 使用配置中的圆弧细分段数
-            // 点缓冲固定使用圆端+圆角，避免意外退化
-            params.setEndCapStyle(BufferParameters.CAP_ROUND);
-            params.setJoinStyle(BufferParameters.JOIN_ROUND);
             Geometry buffer = BufferOp.bufferOp(projPoint, widthM, params);
             bufferTime += System.currentTimeMillis() - startBuffer;
 
             pointBuffers.add(buffer);
 
-            totalTime += System.currentTimeMillis() - startPoint;
-
-            // 每处理100个点打印一次进度
-            if (i > 0 && i % 100 == 0) {
-                log.trace("[buildOutlineBySimpleBuffers] 已处理 {}/{} 个点, 转换耗时: {}ms, 缓冲耗时: {}ms, 平均每个点耗时: {}ms",
-                        i, seg.size(), convertTime, bufferTime, totalTime / i);
+            if (i > 0 && i % 200 == 0) {
+                log.trace("[buildOutlineBySimpleBuffers] 进度 {}/{} 转换:{}ms 缓冲:{}ms", i, seg.size(), convertTime, bufferTime);
             }
         }
 
-        log.trace("[buildOutlineBySimpleBuffers] 点缓冲区创建完成，共 {} 个缓冲区, 转换总耗时: {}ms, 缓冲总耗时: {}ms",
-                pointBuffers.size(), convertTime, bufferTime);
-
-        // 使用GeometryCollection优化合并所有缓冲区
-        log.trace("[buildOutlineBySimpleBuffers] 开始使用GeometryCollection优化合并 {} 个缓冲区", pointBuffers.size());
-
         // 分桶：在高斯-克吕格投影平面按网格将缓冲分组，降低相互参与的多边形数量
         long startBucket = System.currentTimeMillis();
-        // 基于整体包络自适应格子大小，目标桶数约300
         Envelope overall = new Envelope();
         for (Geometry g : pointBuffers) {
             overall.expandToInclude(g.getEnvelopeInternal());
@@ -715,9 +762,9 @@ public class GisUtil implements AutoCloseable {
             log.trace("[buildOutlineBySimpleBuffers] 分桶参数 targetBuckets={} minFactor={} maxFactor={} cellSize={}",
                     targetBuckets, minFactor, maxFactor, Math.round(cellSize));
         } else {
-            // 包络退化（宽或高为0）时按宽度的固定倍数退回网格尺度
             cellSize = widthM * 16;
         }
+
         Map<String, List<Geometry>> buckets = new HashMap<>();
         for (Geometry g : pointBuffers) {
             Envelope e = g.getEnvelopeInternal();
@@ -744,7 +791,7 @@ public class GisUtil implements AutoCloseable {
         log.trace("[buildOutlineBySimpleBuffers] 桶内合并完成(并行) 桶数={} 合并结果数={} 耗时={}ms", bucketCount, bucketUnions.size(),
                 bucketUnionTime);
 
-        // 最终合并（合并各桶的结果）
+        // 最终合并
         long startFinalUnion = System.currentTimeMillis();
         Geometry union;
         if (bucketUnions.isEmpty()) {
@@ -756,17 +803,115 @@ public class GisUtil implements AutoCloseable {
         }
         long finalUnionTime = System.currentTimeMillis() - startFinalUnion;
         long unionTime = bucketUnionTime + finalUnionTime;
-        log.trace("[buildOutlineBySimpleBuffers] 最终合并完成 桶内:{}ms 总合并:{}ms", bucketUnionTime, finalUnionTime);
 
-        // 转换回WGS84坐标系（使用高斯-克吕格反转换）
+        // 转回 WGS84
         long startBackConvert = System.currentTimeMillis();
         MathTransform txGkToWgs = getTxGaussToWgsByLon(originLon);
         Geometry result = JTS.transform(union, txGkToWgs);
         long backConvertTime = System.currentTimeMillis() - startBackConvert;
 
         long endTime = System.currentTimeMillis();
-        log.trace("[buildOutlineBySimpleBuffers] 处理完成，总计耗时: {}ms (转换:{}ms, 缓冲:{}ms, 合并:{}ms, 回转:{}ms)",
+        log.trace("[buildOutlineBySimpleBuffers] 完成，总计耗时: {}ms (转换:{}ms, 缓冲:{}ms, 合并:{}ms, 回转:{}ms)",
                 endTime - startTime, convertTime, bufferTime, unionTime, backConvertTime);
+
+        return result;
+    }
+
+    // 更快的线缓冲实现：将轨迹组装为折线，并在米制投影下缓冲合并
+    private Geometry buildOutlineByLineBuffers(List<TrackPoint> seg, double widthM) throws Exception {
+        long startTime = System.currentTimeMillis();
+        log.trace("[buildOutlineByLineBuffers] 开始处理 {} 个轨迹点，线缓冲宽度: {} 米", seg.size(), widthM);
+
+        if (seg == null || seg.size() < 2) {
+            return config.geometryFactory.createGeometryCollection(null);
+        }
+
+        double originLon = seg.get(0).getLon();
+        MathTransform txWgsToGk = getTxWgsToGaussByLon(originLon);
+
+        // 将点转换到米制坐标并按距离切段
+        double breakDist = Math.max(widthM, widthM * config.LINE_BREAK_FACTOR);
+        List<List<Coordinate>> lines = new ArrayList<>();
+        List<Coordinate> current = new ArrayList<>();
+
+        long convertTime = 0;
+        for (int i = 0; i < seg.size(); i++) {
+            TrackPoint p = seg.get(i);
+            Geometry pt = config.geometryFactory.createPoint(new Coordinate(p.getLon(), p.getLat()));
+            long t = System.currentTimeMillis();
+            Geometry projPt = JTS.transform(pt, txWgsToGk);
+            convertTime += System.currentTimeMillis() - t;
+            Coordinate c = projPt.getCoordinate();
+
+            if (!current.isEmpty()) {
+                Coordinate prev = current.get(current.size() - 1);
+                double dx = c.x - prev.x;
+                double dy = c.y - prev.y;
+                double dist = Math.hypot(dx, dy);
+                if (dist > breakDist) {
+                    if (current.size() >= 2) {
+                        lines.add(current);
+                    }
+                    current = new ArrayList<>();
+                }
+            }
+            current.add(c);
+        }
+        if (current.size() >= 2) {
+            lines.add(current);
+        }
+
+        // 构造折线，简化，然后缓冲
+        long simplifyTime = 0;
+        long bufferTime = 0;
+        List<Geometry> lineBuffers = new ArrayList<>();
+        BufferParameters params = new BufferParameters();
+        params.setQuadrantSegments(config.DEFAULT_BUFFER_QUADRANT);
+        params.setEndCapStyle(BufferParameters.CAP_ROUND);
+        params.setJoinStyle(BufferParameters.JOIN_ROUND);
+
+        double tol = Math.max(0.01, widthM * config.LINE_SIMPLIFY_TOL_FACTOR);
+
+        for (List<Coordinate> coords : lines) {
+            if (coords.size() < 2) continue;
+            Coordinate[] arr = coords.toArray(new Coordinate[0]);
+            org.locationtech.jts.geom.LineString line = config.geometryFactory.createLineString(arr);
+            long ts = System.currentTimeMillis();
+            Geometry simplified = DouglasPeuckerSimplifier.simplify(line, tol);
+            simplifyTime += System.currentTimeMillis() - ts;
+
+            if (simplified instanceof org.locationtech.jts.geom.LineString) {
+                org.locationtech.jts.geom.LineString ls = (org.locationtech.jts.geom.LineString) simplified;
+                long tb = System.currentTimeMillis();
+                Geometry buf = BufferOp.bufferOp(ls, widthM, params);
+                bufferTime += System.currentTimeMillis() - tb;
+                lineBuffers.add(buf);
+            } else if (simplified instanceof org.locationtech.jts.geom.MultiLineString) {
+                org.locationtech.jts.geom.MultiLineString mls = (org.locationtech.jts.geom.MultiLineString) simplified;
+                for (int i = 0; i < mls.getNumGeometries(); i++) {
+                    org.locationtech.jts.geom.LineString ls = (org.locationtech.jts.geom.LineString) mls.getGeometryN(i);
+                    long tb = System.currentTimeMillis();
+                    Geometry buf = BufferOp.bufferOp(ls, widthM, params);
+                    bufferTime += System.currentTimeMillis() - tb;
+                    lineBuffers.add(buf);
+                }
+            }
+        }
+
+        // 合并（分组以降低复杂度）
+        long unionStart = System.currentTimeMillis();
+        Geometry union = unionInGroups(lineBuffers, config.DEFAULT_UNION_GROUP_SIZE);
+        long unionTime = System.currentTimeMillis() - unionStart;
+
+        // 转回 WGS84
+        long backStart = System.currentTimeMillis();
+        MathTransform txGkToWgs = getTxGaussToWgsByLon(originLon);
+        Geometry result = JTS.transform(union, txGkToWgs);
+        long backTime = System.currentTimeMillis() - backStart;
+
+        long endTime = System.currentTimeMillis();
+        log.trace("[buildOutlineByLineBuffers] 完成，总计耗时: {}ms (转换:{}ms, 简化:{}ms, 缓冲:{}ms, 合并:{}ms, 回转:{}ms)",
+                endTime - startTime, convertTime, simplifyTime, bufferTime, unionTime, backTime);
 
         return result;
     }
@@ -883,6 +1028,59 @@ public class GisUtil implements AutoCloseable {
      * @param ring 外/内环线
      * @return 面积（平方米）
      */
+    // 外缘细长裁剪：仅基于外环进行形态开运算，移除边缘细长条（在米制投影下执行）
+    private Geometry trimOuterThinStrips(Geometry g, double radiusM) {
+        if (g == null || g.isEmpty()) return g;
+        try {
+            // 根据几何包络的中心经度选择高斯-克吕格分带
+            Envelope env = g.getEnvelopeInternal();
+            double cenLon = env.getMinX() + env.getWidth() / 2.0;
+            MathTransform txWgsToGk = getTxWgsToGaussByLon(cenLon);
+            MathTransform txGkToWgs = getTxGaussToWgsByLon(cenLon);
+
+            Geometry gk = JTS.transform(g, txWgsToGk);
+            List<Geometry> trimmedGk = new ArrayList<>();
+            if (gk instanceof Polygon) {
+                Geometry t = trimOuterThinOfPolygonGk((Polygon) gk, radiusM);
+                if (t != null && !t.isEmpty()) trimmedGk.add(t);
+            } else if (gk instanceof MultiPolygon) {
+                MultiPolygon mp = (MultiPolygon) gk;
+                for (int i = 0; i < mp.getNumGeometries(); i++) {
+                    Polygon p = (Polygon) mp.getGeometryN(i);
+                    Geometry t = trimOuterThinOfPolygonGk(p, radiusM);
+                    if (t != null && !t.isEmpty()) trimmedGk.add(t);
+                }
+            } else {
+                return g;
+            }
+            if (trimmedGk.isEmpty()) return g;
+            Geometry unionGk = UnaryUnionOp.union(trimmedGk);
+            return JTS.transform(unionGk, txGkToWgs);
+        } catch (Exception ex) {
+            log.warn("[trimOuterThin] 处理失败: {}", ex.getMessage());
+            return g;
+        }
+    }
+
+    // 对单个Polygon执行外缘裁剪（高斯-克吕格米制坐标）
+    private Geometry trimOuterThinOfPolygonGk(Polygon polyGk, double radiusM) {
+        try {
+            Coordinate[] shell = polyGk.getExteriorRing().getCoordinates();
+            Polygon shellOnly = polyGk.getFactory().createPolygon(shell);
+            Geometry eroded = shellOnly.buffer(-radiusM);
+            if (eroded == null || eroded.isEmpty()) {
+                // 半径过大导致核心消失，保持原面
+                return polyGk;
+            }
+            Geometry reopened = eroded.buffer(radiusM);
+            Geometry trimmed = polyGk.intersection(reopened);
+            return trimmed;
+        } catch (Exception ex) {
+            log.warn("[trimOuterThin] 单面处理失败: {}", ex.getMessage());
+            return polyGk;
+        }
+    }
+
     private static double ringArea(org.locationtech.jts.geom.LineString ring) {
         org.locationtech.jts.geom.Coordinate[] coords = ring.getCoordinates();
         int len = (coords == null) ? 0 : coords.length;
