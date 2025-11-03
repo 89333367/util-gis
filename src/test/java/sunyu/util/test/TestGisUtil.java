@@ -113,6 +113,17 @@ public class TestGisUtil {
     }
 
     @Test
+    void 测试镂空作业轮廓() throws Exception {
+        String did = "EC71BT2406060220";
+        String startTime = "20251102154200";
+        String endTime = "20251102172202";
+        double jobWidth = 1.75;
+        读取一段(did, startTime, endTime);
+        测试一段(did, startTime, endTime, jobWidth);
+        输出一段HTML(did, startTime, endTime);
+    }
+
+    @Test
     void 计算亩数与屏幕上报做对比335() throws Exception {
         String did = "EC73BD2509061335";
         String startTime = "20251029155746";
