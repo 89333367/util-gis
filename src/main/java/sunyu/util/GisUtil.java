@@ -1389,13 +1389,38 @@ public class GisUtil implements AutoCloseable {
                     double areaMu = calcMu(polygon);
                     String wkt = polygon.toText();
 
-                    // 创建OutlinePart，时间和轨迹点信息暂时留空
+                    // 找出属于这个多边形的轨迹点
+                    List<TrackPoint> partTrackPoints = new ArrayList<>();
+                    LocalDateTime partStartTime = null;
+                    LocalDateTime partEndTime = null;
+
+                    for (TrackPoint trackPoint : workSeg) {
+                        if (polygon.contains(config.geometryFactory.createPoint(
+                                new Coordinate(trackPoint.getLon(), trackPoint.getLat())))) {
+                            partTrackPoints.add(trackPoint);
+
+                            // 更新起止时间
+                            if (partStartTime == null || trackPoint.getTime().isBefore(partStartTime)) {
+                                partStartTime = trackPoint.getTime();
+                            }
+                            if (partEndTime == null || trackPoint.getTime().isAfter(partEndTime)) {
+                                partEndTime = trackPoint.getTime();
+                            }
+                        }
+                    }
+
+                    // 创建OutlinePart，设置所有属性
                     OutlinePart part = new OutlinePart(
                             polygon,
-                            null, // startTime
-                            null, // endTime
+                            partStartTime,
+                            partEndTime,
                             areaMu,
-                            wkt);
+                            wkt,
+                            partTrackPoints);
+
+                    // 设置总宽度
+                    part.setTotalWidthM(totalWidthM);
+
                     allParts.add(part);
                 }
             }
@@ -1444,7 +1469,7 @@ public class GisUtil implements AutoCloseable {
 
         // 生成WKT字符串用于输出
         String wkt = finalOutline != null && !finalOutline.isEmpty() ? finalOutline.toText() : null;
-        return new SplitRoadResult(finalOutline, finalParts, wkt);
+        return new SplitRoadResult(finalOutline, finalParts, wkt).setTotalWidthM(totalWidthM);
     }
 
 }
