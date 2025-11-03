@@ -152,10 +152,10 @@ public class GisUtil implements AutoCloseable {
         private double MIN_WORK_SPEED_KMH = 1.0;
 
         // 距离断开阈值因子（倍数*单侧宽度），用于buildOutlineByLineBuffersWithDistanceBreak方法
-        private double DISTANCE_BREAK_FACTOR = 2.0;
+        private double DISTANCE_BREAK_FACTOR = 1.5;
 
-        // 平方米转亩的换算系数
-        private final double MU_PER_SQUARE_METER = 0.0015;
+        // 最小亩数阈值（亩），小于此值的多边形将被过滤掉
+        private double MIN_AREA_MU = 0.5;
 
     }
 
@@ -181,6 +181,20 @@ public class GisUtil implements AutoCloseable {
                 throw new IllegalArgumentException("距离断开阈值因子必须大于0");
             }
             config.DISTANCE_BREAK_FACTOR = factor;
+            return this;
+        }
+
+        /**
+         * 设置最小亩数阈值（亩），小于此值的多边形将被过滤掉。
+         * 
+         * @param minAreaMu 最小亩数阈值，建议值：0.5（默认），可根据需要调整
+         * @return Builder实例，支持链式调用
+         */
+        public Builder withMinAreaMu(double minAreaMu) {
+            if (minAreaMu < 0) {
+                throw new IllegalArgumentException("最小亩数阈值必须大于等于0");
+            }
+            config.MIN_AREA_MU = minAreaMu;
             return this;
         }
 
@@ -1371,7 +1385,8 @@ public class GisUtil implements AutoCloseable {
             List<OutlinePart> allParts = new ArrayList<>();
             for (Geometry polygon : polygons) {
                 if (polygon instanceof Polygon) {
-                    double areaMu = polygon.getArea() * config.MU_PER_SQUARE_METER; // 转换为亩
+                    // 使用正确的calcMu方法计算球面面积
+                    double areaMu = calcMu(polygon);
                     String wkt = polygon.toText();
 
                     // 创建OutlinePart，时间和轨迹点信息暂时留空
@@ -1395,21 +1410,36 @@ public class GisUtil implements AutoCloseable {
 
             log.debug("[splitRoad] 保留多边形数量={}", selectedParts.size());
 
+            // 5) 根据最小亩数阈值过滤多边形
+            log.debug("[splitRoad] 亩数过滤 开始 最小亩数阈值={}", config.MIN_AREA_MU);
+            List<OutlinePart> filteredParts = new ArrayList<>();
+            for (OutlinePart part : selectedParts) {
+                if (part.getMu() >= config.MIN_AREA_MU) {
+                    filteredParts.add(part);
+                } else {
+                    log.debug("[splitRoad] 过滤掉小面积多边形 面积={}亩 阈值={}亩", part.getMu(), config.MIN_AREA_MU);
+                }
+            }
+            log.debug("[splitRoad] 亩数过滤 结束 过滤前数量={} 过滤后数量={}", selectedParts.size(), filteredParts.size());
+
             // 重新构建几何结果
-            if (selectedParts.size() == 1) {
-                finalOutline = selectedParts.get(0).getOutline();
-            } else {
+            if (filteredParts.size() == 1) {
+                finalOutline = filteredParts.get(0).getOutline();
+            } else if (filteredParts.size() > 1) {
                 GeometryFactory factory = config.geometryFactory;
-                Polygon[] selectedPolygons = selectedParts.stream()
+                Polygon[] selectedPolygons = filteredParts.stream()
                         .map(part -> (Polygon) part.getOutline())
                         .toArray(Polygon[]::new);
                 finalOutline = factory.createMultiPolygon(selectedPolygons);
+            } else {
+                // 如果没有多边形满足亩数要求，返回空多边形
+                finalOutline = config.geometryFactory.createPolygon();
             }
 
-            finalParts = selectedParts;
+            finalParts = filteredParts;
 
-            log.debug("[splitRoad] 多边形数量限制 结束 原始数量={} 保留数量={}",
-                    allParts.size(), selectedParts.size());
+            log.debug("[splitRoad] 多边形数量限制 结束 原始数量={} 保留数量={} 过滤后数量={}",
+                    allParts.size(), selectedParts.size(), filteredParts.size());
         }
 
         // 生成WKT字符串用于输出
