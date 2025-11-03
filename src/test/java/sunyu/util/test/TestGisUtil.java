@@ -113,10 +113,21 @@ public class TestGisUtil {
     }
 
     @Test
-    void 测试镂空作业轮廓() throws Exception {
+    void 测试镂空作业轮廓1() throws Exception {
         String did = "EC71BT2406060220";
         String startTime = "20251102154200";
         String endTime = "20251102172202";
+        double jobWidth = 1.75;
+        读取一段轨迹数据(did, startTime, endTime);
+        测试一段拆分数据(did, startTime, endTime, jobWidth);
+        输出一段HTML(did, startTime, endTime);
+    }
+
+    @Test
+    void 测试镂空作业轮廓2() throws Exception {
+        String did = "EC71BT2406060220";
+        String startTime = "20251102130028";
+        String endTime = "20251102153804";
         double jobWidth = 1.75;
         读取一段轨迹数据(did, startTime, endTime);
         测试一段拆分数据(did, startTime, endTime, jobWidth);

@@ -40,42 +40,57 @@ import sunyu.util.pojo.WktIntersectionResult;
 
 /**
  * GIS工具类，封装轨迹轮廓构建、道路分段、坐标转换、拓扑判断与面积计算。
- *
+ * 
+ * <p>
  * 公共方法一览：
- * - builder()：创建构建器，用于配置并构建 `GisUtil`
- * - close()：释放资源（实现 `AutoCloseable`）
- * - toWkt(Geometry)：将几何转换为 WKT（统一 WGS84），含坐标识别与修复
- * - fromWkt(String)：解析 WKT（WGS84）为 Geometry 并转换到高斯-克吕格米制坐标
- * - haversine(CoordinatePoint, CoordinatePoint)：计算两点大圆距离（米，WGS84）
- * - calcMu(Geometry)：计算几何面积的亩数（球面公式）
- * - calcMu(String)：解析 WKT 后计算亩数
- * - intersection(String, String)：计算两 WKT 相交的几何与面积，返回 `WktIntersectionResult`
- * - intersects(String, String)：判断两 WKT 是否相交（WGS84，支持 `POLYGON`/`MULTIPOLYGON`）
- * - equalsWkt(String, String)：判断两 WKT 是否拓扑相等
- * - disjoint(String, String)：判断是否脱节
- * - touches(String, String)：判断是否接触（边界接触）
- * - crosses(String, String)：判断是否交叉
- * - within(String, String)：判断 A 是否在 B 内
- * - contains(String, String)：判断 A 是否包含 B
- * - overlaps(String, String)：判断是否重叠
- * - pointInPolygon(CoordinatePoint, String)：判断点是否在多边形内（含边界）
- * - splitRoad(List<TrackPoint>, double)：按总宽度对轨迹进行分段并返回结果
- * - splitRoad(List<TrackPoint>, double, Integer)：指定最大段数的道路分段
- *
+ * </p>
+ * <ul>
+ * <li>builder()：创建构建器，用于配置并构建 {@code GisUtil}</li>
+ * <li>close()：释放资源（实现 {@code AutoCloseable}）</li>
+ * <li>toWkt(Geometry)：将几何转换为 WKT（统一 WGS84），含坐标识别与修复</li>
+ * <li>fromWkt(String)：解析 WKT（WGS84）为 Geometry 并转换到高斯-克吕格米制坐标</li>
+ * <li>haversine(CoordinatePoint, CoordinatePoint)：计算两点大圆距离（米，WGS84）</li>
+ * <li>calcMu(Geometry)：计算几何面积的亩数（球面公式）</li>
+ * <li>calcMu(String)：解析 WKT 后计算亩数</li>
+ * <li>intersection(String, String)：计算两 WKT 相交的几何与面积，返回
+ * {@code WktIntersectionResult}</li>
+ * <li>intersects(String, String)：判断两 WKT 是否相交（WGS84，支持
+ * {@code POLYGON}/{@code MULTIPOLYGON}）</li>
+ * <li>equalsWkt(String, String)：判断两 WKT 是否拓扑相等</li>
+ * <li>disjoint(String, String)：判断是否脱节</li>
+ * <li>touches(String, String)：判断是否接触（边界接触）</li>
+ * <li>crosses(String, String)：判断是否交叉</li>
+ * <li>within(String, String)：判断 A 是否在 B 内</li>
+ * <li>contains(String, String)：判断 A 是否包含 B</li>
+ * <li>overlaps(String, String)：判断是否重叠</li>
+ * <li>pointInPolygon(CoordinatePoint, String)：判断点是否在多边形内（含边界）</li>
+ * <li>splitRoad(List&lt;TrackPoint&gt;, double)：按总宽度对轨迹进行分段并返回结果</li>
+ * <li>splitRoad(List&lt;TrackPoint&gt;, double, Integer)：指定最大段数的道路分段</li>
+ * </ul>
+ * 
+ * <p>
  * 概览：
- * - 坐标系：默认 WGS84；轮廓构建与形态学在高斯-克吕格米制投影（按首点经度分带）进行，结果回转 WGS84。
- * - 常量：距离计算使用平均地球半径 R=6371000；面积计算在 ringArea 使用 WGS84 半径 6378137（与 Turf.js 对齐）。
- * - 轮廓：线缓冲构建（折线简化+缓冲，拐角/端头由 BufferParameters 控制）；getOutline 不切割，必要时进行轻微开运算以从
- * MultiPolygon 合并为单个 Polygon；splitRoad 可选外缘细长裁剪与缝隙增强蚀刻。
- * - 边界：`pointInPolygon` 边界视为内；几何谓词遵循 JTS 语义。
- *
+ * </p>
+ * <ul>
+ * <li>坐标系：默认 WGS84；轮廓构建与形态学在高斯-克吕格米制投影（按首点经度分带）进行，结果回转 WGS84。</li>
+ * <li>常量：距离计算使用平均地球半径 R=6371000；面积计算在 ringArea 使用 WGS84 半径 6378137（与 Turf.js
+ * 对齐）。</li>
+ * <li>轮廓：线缓冲构建（折线简化+缓冲，拐角/端头由 BufferParameters 控制）；splitRoad
+ * 可选外缘细长裁剪与缝隙增强蚀刻。</li>
+ * <li>边界：{@code pointInPolygon} 边界视为内；几何谓词遵循 JTS 语义。</li>
+ * </ul>
+ * 
+ * <p>
  * 设计要点：
- * - 坐标系：内部优先在 WGS84 下处理；涉及形态学与面积计算时使用高斯-克吕格米制投影（6 度分带）。
- * - 变换缓存：按分带缓存 CRS 与 MathTransform，避免重复构建。
- * - 轮廓构建：线简化+线缓冲并合并，控制几何规模与性能。
- * - 清理过滤：按面积（亩数）等规则过滤过小碎片（仅 splitRoad 中使用）。
- * - 输出：支持 WKT 输出并在必要时进行坐标系识别与修复。
- *
+ * </p>
+ * <ul>
+ * <li>坐标系：内部优先在 WGS84 下处理；涉及形态学与面积计算时使用高斯-克吕格米制投影（6 度分带）。</li>
+ * <li>变换缓存：按分带缓存 CRS 与 MathTransform，避免重复构建。</li>
+ * <li>轮廓构建：线简化+线缓冲并合并，控制几何规模与性能。</li>
+ * <li>清理过滤：按面积（亩数）等规则过滤过小碎片（仅 splitRoad 中使用）。</li>
+ * <li>输出：支持 WKT 输出并在必要时进行坐标系识别与修复。</li>
+ * </ul>
+ * 
  * @author SunYu
  */
 public class GisUtil implements AutoCloseable {
@@ -144,7 +159,7 @@ public class GisUtil implements AutoCloseable {
         // 最小亩数动态阈值（亩），用于 splitRoad 动态过滤小块
         private double MIN_MU_DYNAMIC_THRESHOLD_MU = 0.5;
 
-        // 外缘细长裁剪开关（仅 splitRoad 使用；getOutline 不使用）
+        // 外缘细长裁剪开关（仅 splitRoad 使用）
         private boolean ENABLE_OUTER_THIN_TRIM = true;
         // 外缘细长裁剪半径系数（相对单侧宽度）
         private double THIN_TRIM_RADIUS_FACTOR = 1.6;
@@ -763,7 +778,7 @@ public class GisUtil implements AutoCloseable {
 
     /**
      * 外缘细长裁剪：仅基于外环进行轻微开运算以移除边缘细长条（在米制投影下执行）。
-     * 仅在 `splitRoad` 中可能启用；`getOutline` 不使用该裁剪。
+     * 仅在 `splitRoad` 中启用该裁剪功能。
      *
      * @param g       输入几何（WGS84）
      * @param radiusM 开运算半径（米）
