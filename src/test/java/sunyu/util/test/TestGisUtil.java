@@ -90,7 +90,7 @@ public class TestGisUtil {
         String did = "EC73BD2506050018";
         String startTime = "20251029161721";
         String endTime = "20251029161856";
-        读取一段(did, startTime, endTime);
+        读取一段轨迹数据(did, startTime, endTime);
         List<String> lines = FileUtil
                 .readUtf8Lines(path + StrUtil.format("/{}_{}_{}_trace.txt", did, startTime, endTime));
         double total = 0.0;
@@ -118,8 +118,9 @@ public class TestGisUtil {
         String startTime = "20251102154200";
         String endTime = "20251102172202";
         double jobWidth = 1.75;
-        读取一段(did, startTime, endTime);
-        测试一段(did, startTime, endTime, jobWidth);
+        读取一段轨迹数据(did, startTime, endTime);
+        测试一段拆分数据(did, startTime, endTime, jobWidth);
+        //测试一段不拆分数据(did, startTime, endTime, jobWidth);
         输出一段HTML(did, startTime, endTime);
     }
 
@@ -129,7 +130,7 @@ public class TestGisUtil {
         String startTime = "20251029155746";
         String endTime = "20251029161032";
         double widthM = 4;
-        读取一段(did, startTime, endTime);
+        读取一段轨迹数据(did, startTime, endTime);
         List<TrackPoint> seg = new ArrayList<>();
         FileUtil.readUtf8Lines(path + StrUtil.format("/{}_{}_{}_trace.txt", did, startTime, endTime)).forEach(line -> {
             String[] ss = line.split(",");
@@ -149,7 +150,7 @@ public class TestGisUtil {
         String startTime = "20251029161736";
         String endTime = "20251029162905";
         double widthM = 4;
-        读取一段(did, startTime, endTime);
+        读取一段轨迹数据(did, startTime, endTime);
         List<TrackPoint> seg = new ArrayList<>();
         FileUtil.readUtf8Lines(path + StrUtil.format("/{}_{}_{}_trace.txt", did, startTime, endTime)).forEach(line -> {
             String[] ss = line.split(",");
@@ -179,7 +180,7 @@ public class TestGisUtil {
         String startTime = "20251015141847";
         String endTime = "20251015142510";
         double widthM = 3;
-        读取一段(did, startTime, endTime);
+        读取一段轨迹数据(did, startTime, endTime);
         List<TrackPoint> seg = new ArrayList<>();
         FileUtil.readUtf8Lines(path + StrUtil.format("/{}_{}_{}_trace.txt", did, startTime, endTime)).forEach(line -> {
             String[] ss = line.split(",");
@@ -198,7 +199,7 @@ public class TestGisUtil {
         String startTime = "20251015125319";
         String endTime = "20251015131516";
         double widthM = 3;
-        读取一段(did, startTime, endTime);
+        读取一段轨迹数据(did, startTime, endTime);
         List<TrackPoint> seg = new ArrayList<>();
         FileUtil.readUtf8Lines(path + StrUtil.format("/{}_{}_{}_trace.txt", did, startTime, endTime)).forEach(line -> {
             String[] ss = line.split(",");
@@ -231,8 +232,8 @@ public class TestGisUtil {
             Date jobStartTime = row.getDate("jobStartTime");
             double jobWidth = row.getDouble("jobWidth");
             String yyyyMMdd = DateUtil.format(jobStartTime, "yyyyMMdd");
-            读取一天(did, yyyyMMdd);
-            测试一天(did, yyyyMMdd, jobWidth);
+            读取一天轨迹数据(did, yyyyMMdd);
+            测试一天拆分数据(did, yyyyMMdd, jobWidth);
             输出一天HTML(did, yyyyMMdd);
         }
     }
@@ -249,8 +250,8 @@ public class TestGisUtil {
             double jobWidth = row.getDouble("jobWidth");
             String startTime = DateUtil.format(jobStartTime, "yyyyMMddHHmmss");
             String endTime = DateUtil.format(jobEndTime, "yyyyMMddHHmmss");
-            读取一段(did, startTime, endTime);
-            测试一段(did, startTime, endTime, jobWidth);
+            读取一段轨迹数据(did, startTime, endTime);
+            测试一段拆分数据(did, startTime, endTime, jobWidth);
             输出一段HTML(did, startTime, endTime);
         }
     }
@@ -317,8 +318,8 @@ public class TestGisUtil {
     void t001() {
         String did = "EC73BD2509060248";
         String yyyyMMdd = "20251023";
-        读取一天(did, yyyyMMdd);
-        测试一天(did, yyyyMMdd, 2.5);
+        读取一天轨迹数据(did, yyyyMMdd);
+        测试一天拆分数据(did, yyyyMMdd, 2.5);
         输出一天HTML(did, yyyyMMdd);
     }
 
@@ -326,8 +327,8 @@ public class TestGisUtil {
     void t002() {
         String did = "EC73BD2508220055";
         String yyyyMMdd = "20251013";
-        读取一天(did, yyyyMMdd);
-        测试一天(did, yyyyMMdd, 2.6);
+        读取一天轨迹数据(did, yyyyMMdd);
+        测试一天拆分数据(did, yyyyMMdd, 2.6);
         输出一天HTML(did, yyyyMMdd);
     }
 
@@ -335,8 +336,8 @@ public class TestGisUtil {
     void t003() {
         String did = "NJ4GBQSAX0000687";
         String yyyyMMdd = "20250503";
-        读取一天(did, yyyyMMdd);
-        测试一天(did, yyyyMMdd, 2.7);
+        读取一天轨迹数据(did, yyyyMMdd);
+        测试一天拆分数据(did, yyyyMMdd, 2.7);
         输出一天HTML(did, yyyyMMdd);
     }
 
@@ -346,12 +347,12 @@ public class TestGisUtil {
         String startTime = "20251029101603";
         String endTime = "20251029102521";
         double widthM = 2;
-        读取一段(did, startTime, endTime);
-        测试一段(did, startTime, endTime, widthM);
+        读取一段轨迹数据(did, startTime, endTime);
+        测试一段拆分数据(did, startTime, endTime, widthM);
         输出一段HTML(did, startTime, endTime);
     }
 
-    void 读取一段(String did, String startTime, String endTime) {
+    void 读取一段轨迹数据(String did, String startTime, String endTime) {
         if (!FileUtil.exist(path + StrUtil.format("/{}_{}_{}_trace.txt", did, startTime, endTime))) {
             TDengineUtil tDengineUtil = getTdengineUtil();
             String jobStartTime = DateUtil.parse(startTime, "yyyyMMddHHmmss").toString("yyyy-MM-dd HH:mm:ss");
@@ -393,7 +394,7 @@ public class TestGisUtil {
         }
     }
 
-    void 读取一天(String did, String yyyyMMdd) {
+    void 读取一天轨迹数据(String did, String yyyyMMdd) {
         if (!FileUtil.exist(path + StrUtil.format("/{}_{}_trace.txt", did, yyyyMMdd))) {
             TDengineUtil tDengineUtil = getTdengineUtil();
             String jobStartTime = DateUtil.parse(yyyyMMdd, "yyyyMMdd").toString("yyyy-MM-dd") + " 00:00:00";
@@ -437,7 +438,7 @@ public class TestGisUtil {
         }
     }
 
-    void 测试一天(String did, String yyyyMMdd, double jobWidth) {
+    void 测试一天拆分数据(String did, String yyyyMMdd, double jobWidth) {
         String fileName = path + StrUtil.format("/{}_{}_trace.txt", did, yyyyMMdd);
         if (!FileUtil.exist(fileName)) {
             return;
@@ -493,7 +494,7 @@ public class TestGisUtil {
         }
     }
 
-    void 测试一段(String did, String startTime, String endTime, double jobWidth) {
+    void 测试一段拆分数据(String did, String startTime, String endTime, double jobWidth) {
         String fileName = path + StrUtil.format("/{}_{}_{}_trace.txt", did, startTime, endTime);
         if (!FileUtil.exist(fileName)) {
             return;
@@ -543,6 +544,42 @@ public class TestGisUtil {
             FileUtil.writeUtf8String(pb.toString(), partsFile);
 
             log.info("结果文件已生成：outline={}, parts={}", outlineFile, partsFile);
+        } catch (Exception e) {
+            log.error(e);
+        }
+    }
+
+    void 测试一段不拆分数据(String did, String startTime, String endTime, double jobWidth) {
+        String fileName = path + StrUtil.format("/{}_{}_{}_trace.txt", did, startTime, endTime);
+        if (!FileUtil.exist(fileName)) {
+            return;
+        }
+        List<TrackPoint> l = new ArrayList<>();
+        for (String line : FileUtil.readUtf8Lines(fileName)) {
+            // 20251013120625,113.33316443,28.08500825
+            String[] split = line.split(",");
+            TrackPoint trackPoint = new TrackPoint(LocalDateTimeUtil.parse(split[0], "yyyyMMddHHmmss"),
+                    Double.parseDouble(split[1]), Double.parseDouble(split[2]));
+            l.add(trackPoint);
+        }
+        try {
+            OutlinePart res = gisUtil.getOutline(l, jobWidth);
+            Geometry outline = res.getOutline();
+            String outlineWkt = res.getWkt();
+
+            String outlineFile = StrUtil.format(path + "/{}_{}_{}_outline.txt", did, startTime, endTime);
+
+            StringBuilder ob = new StringBuilder();
+            ob.append("Outline type: ").append(outline.getGeometryType()).append('\n')
+                    .append("Parts: ")
+                    .append(outline instanceof org.locationtech.jts.geom.MultiPolygon ? outline.getNumGeometries() : 1)
+                    .append('\n')
+                    .append("mu: ").append(gisUtil.calcMu(outline)).append('\n')
+                    .append("totalWidthM: ").append(res.getTotalWidthM()).append('\n')
+                    .append("WKT: ").append(outlineWkt).append('\n');
+            FileUtil.writeUtf8String(ob.toString(), outlineFile);
+
+            log.info("结果文件已生成：outline={}", outlineFile);
         } catch (Exception e) {
             log.error(e);
         }
