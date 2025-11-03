@@ -66,8 +66,8 @@ import sunyu.util.pojo.WktIntersectionResult;
  * 概览：
  * - 坐标系：默认 WGS84；轮廓构建与形态学在高斯-克吕格米制投影（按首点经度分带）进行，结果回转 WGS84。
  * - 常量：距离计算使用平均地球半径 R=6371000；面积计算在 ringArea 使用 WGS84 半径 6378137（与 Turf.js 对齐）。
- * - 轮廓：线缓冲构建（折线简化+缓冲，拐角/端头由 BufferParameters 控制）；getOutline 不切割、不平滑；splitRoad
- * 可选轻微开运算、外缘细长裁剪与缝隙蚀刻。
+ * - 轮廓：线缓冲构建（折线简化+缓冲，拐角/端头由 BufferParameters 控制）；getOutline 不切割，必要时进行轻微开运算以从
+ * MultiPolygon 合并为单个 Polygon；splitRoad 可选外缘细长裁剪与缝隙增强蚀刻。
  * - 边界：`pointInPolygon` 边界视为内；几何谓词遵循 JTS 语义。
  *
  * 设计要点：
@@ -159,17 +159,23 @@ public class GisUtil implements AutoCloseable {
 
         // 线缓冲样式（更锐利边界）：拐角样式、端头样式与mitre限制
         private int BUFFER_JOIN_STYLE = BufferParameters.JOIN_MITRE;
+        // 线缓冲的端头样式（平端），影响线段端点的缓冲形状
         private int BUFFER_END_CAP_STYLE = BufferParameters.CAP_FLAT;
+        // 线缓冲的mitre限制值，控制锐角的处理方式，值越大允许越尖的角
         private double BUFFER_MITRE_LIMIT = 2.0;
 
         // 可选：轻微蚀刻扩大缝隙（在米制下对并集做负缓冲）
         private boolean ENABLE_GAP_ENHANCE_ERODE = true;
+        // 缝隙增强蚀刻因子，用于控制负缓冲的程度，值越大蚀刻越明显
         private double GAP_ENHANCE_ERODE_FACTOR = 0.2;
 
         // 直线道路段断开控制（防止窄直线连接合并两块大轮廓）
         private boolean ENABLE_ROAD_STRAIGHT_BREAK = true;
+        // 道路直线差异阈值（角度），用于识别道路方向变化
         private double ROAD_STRAIGHT_DIFF_THRESHOLD_DEG = 6.0;
+        // 道路直线窗口点数量，用于计算滑动窗口内的方向一致性
         private int ROAD_STRAIGHT_WINDOW_POINTS = 8;
+        // 道路断裂距离因子（倍数*单侧宽度），超过此距离的直线段将被断开
         private double ROAD_BREAK_DIST_FACTOR = 2.0;
 
     }
@@ -195,8 +201,8 @@ public class GisUtil implements AutoCloseable {
     }
 
     /**
-     * 关闭资源（AutoCloseable接口实现）
-     * 用于释放GIS工具类使用的各种资源，如文件句柄、网络连接等
+     * 关闭资源（AutoCloseable）
+     * 当前仅清理内部缓存；预留扩展以释放外部资源。
      */
     @Override
     public void close() {
@@ -371,11 +377,11 @@ public class GisUtil implements AutoCloseable {
     }
 
     /**
-     * 校验 WGS84 坐标几何的经纬度范围是否有效。
-     * 经度在 [-180, 180]，纬度在 [-90, 90]；排除 NaN/Inf。
+     * 校验 WGS84 坐标几何的经纬度范围是否合理。
+     * 判断规则：经度在 [-180, 180]、纬度在 [-90, 90]，且坐标不为 (0,0)；不显式检查 NaN/Inf（解析阶段应已过滤）。
      *
-     * @param g WGS84坐标系下的几何
-     * @return 坐标范围有效返回 true，否则 false
+     * @param g WGS84 坐标系下的几何
+     * @return 坐标范围合理返回 true，否则 false
      */
     private boolean isValidWgs84Geometry(Geometry g) {
         Coordinate[] coordinates = g.getCoordinates();
@@ -642,11 +648,12 @@ public class GisUtil implements AutoCloseable {
     }
 
     /**
-     * 检查几何是否包含有效坐标。
-     * 要求坐标数至少为1，并且不含 NaN/Inf。
+     * 检查几何坐标的基本有效性。
+     * 判断规则：坐标不为 (0,0)，且不存在接近 0 的可疑值（|x|<1e-10 或 |y|<1e-10）；不负责空几何与 NaN/Inf
+     * 检查（调用方需在前置流程处理）。
      *
-     * @param g 几何
-     * @return 坐标有效返回 true，否则 false
+     * @param g 几何（应为非空）
+     * @return 坐标通过基本检查返回 true，否则 false
      */
     private boolean hasValidCoordinates(Geometry g) {
         Coordinate[] coordinates = g.getCoordinates();
@@ -709,13 +716,15 @@ public class GisUtil implements AutoCloseable {
     }
 
     /**
-     * 按面积阈值过滤 MultiPolygon 中的小区块（亩）。
-     * 单个 Polygon 不进行过滤；MultiPolygon 中逐个子面计算球面面积（与 Turf.js 对齐）并换算为亩，移除小于 `minMu`
-     * 的区块。
+     * 按最小亩数过滤区块（仅对 MultiPolygon 生效）。
+     * 规则：
+     * - `Polygon`：不进行过滤，直接保留；
+     * - `MultiPolygon`：逐面计算亩数，保留面积 ≥ `minMu` 的面；
+     * 若全部移除则返回空 `MultiPolygon`；仅剩一个面时返回该 `Polygon`。
      *
-     * @param geometry 输入几何（`Polygon`/`MultiPolygon`）
-     * @param minMu    最小亩数阈值（>0），小于等于 0 时返回原值
-     * @return 过滤后的几何；若全部被移除则返回空几何
+     * @param geometry 输入几何（`Polygon`/`MultiPolygon`），可为空
+     * @param minMu    最小保留亩数阈值
+     * @return 过滤后的几何；类型可能为 `Polygon`、`MultiPolygon` 或原值（非面类型）
      */
     private Geometry removeSmallMuPolygons(Geometry geometry, double minMu) {
         if (geometry == null)
@@ -1592,7 +1601,7 @@ public class GisUtil implements AutoCloseable {
                 bp.setJoinStyle(BufferParameters.JOIN_BEVEL);
                 bp.setMitreLimit(2.0);
 
-                // 不进行凸包/闭运算，不裁剪不平滑；仅做轻微“开运算”以保留缝隙
+                // 不做凸包/闭运算，不切割不平滑；必要时做轻微开运算以保留缝隙并合并为单个 Polygon
                 double openR = Math.max(0.2, widthM * config.GAP_ENHANCE_ERODE_FACTOR);
                 Geometry opened = BufferOp.bufferOp(proj, -openR, bp);
                 opened = BufferOp.bufferOp(opened, openR, bp);
