@@ -120,48 +120,7 @@ public class TestGisUtil {
         double jobWidth = 1.75;
         读取一段轨迹数据(did, startTime, endTime);
         测试一段拆分数据(did, startTime, endTime, jobWidth);
-        //测试一段不拆分数据(did, startTime, endTime, jobWidth);
         输出一段HTML(did, startTime, endTime);
-    }
-
-    @Test
-    void 计算亩数与屏幕上报做对比335() throws Exception {
-        String did = "EC73BD2509061335";
-        String startTime = "20251029155746";
-        String endTime = "20251029161032";
-        double widthM = 4;
-        读取一段轨迹数据(did, startTime, endTime);
-        List<TrackPoint> seg = new ArrayList<>();
-        FileUtil.readUtf8Lines(path + StrUtil.format("/{}_{}_{}_trace.txt", did, startTime, endTime)).forEach(line -> {
-            String[] ss = line.split(",");
-            seg.add(new TrackPoint(LocalDateTimeUtil.parse(ss[0], "yyyyMMddHHmmss"), Convert.toDouble(ss[1]),
-                    Convert.toDouble(ss[2])));
-        });
-        // 测试一段(did, startTime, endTime, widthM);
-        OutlinePart outline = gisUtil.getOutline(seg, widthM);
-        FileUtil.writeUtf8String(StrUtil.format("wkt: {}\nmu: {}", outline.getWkt(), outline.getMu()),
-                path + StrUtil.format("/{}_{}_{}_outline335.txt", did, startTime, endTime));
-        log.info("屏幕上报亩数 2.85 ，平台计算亩数={}", outline.getMu());
-    }
-
-    @Test
-    void 计算亩数与屏幕上报做对比018() throws Exception {
-        String did = "EC73BD2506050018";
-        String startTime = "20251029161736";
-        String endTime = "20251029162905";
-        double widthM = 4;
-        读取一段轨迹数据(did, startTime, endTime);
-        List<TrackPoint> seg = new ArrayList<>();
-        FileUtil.readUtf8Lines(path + StrUtil.format("/{}_{}_{}_trace.txt", did, startTime, endTime)).forEach(line -> {
-            String[] ss = line.split(",");
-            seg.add(new TrackPoint(LocalDateTimeUtil.parse(ss[0], "yyyyMMddHHmmss"), Convert.toDouble(ss[1]),
-                    Convert.toDouble(ss[2])));
-        });
-        // 测试一段(did, startTime, endTime, widthM);
-        OutlinePart outline = gisUtil.getOutline(seg, widthM);
-        FileUtil.writeUtf8String(StrUtil.format("wkt: {}\nmu: {}", outline.getWkt(), outline.getMu()),
-                path + StrUtil.format("/{}_{}_{}_outline018.txt", did, startTime, endTime));
-        log.info("屏幕上报亩数 2.9 ，平台计算亩数={}", outline.getMu());
     }
 
     @Test
@@ -172,44 +131,6 @@ public class TestGisUtil {
                 .get(0).replace("wkt: ", "");
         WktIntersectionResult r = gisUtil.intersection(wkt1, wkt2);
         log.info("相交面积：{} 亩", r.getMu());
-    }
-
-    @Test
-    void 计算亩数与屏幕上报做对比001() throws Exception {
-        String did = "EC71BT2402000001";
-        String startTime = "20251015141847";
-        String endTime = "20251015142510";
-        double widthM = 3;
-        读取一段轨迹数据(did, startTime, endTime);
-        List<TrackPoint> seg = new ArrayList<>();
-        FileUtil.readUtf8Lines(path + StrUtil.format("/{}_{}_{}_trace.txt", did, startTime, endTime)).forEach(line -> {
-            String[] ss = line.split(",");
-            seg.add(new TrackPoint(LocalDateTimeUtil.parse(ss[0], "yyyyMMddHHmmss"), Convert.toDouble(ss[1]),
-                    Convert.toDouble(ss[2])));
-        });
-        OutlinePart outline = gisUtil.getOutline(seg, widthM);
-        FileUtil.writeUtf8String(StrUtil.format("wkt: {}\nmu: {}", outline.getWkt(), outline.getMu()),
-                path + StrUtil.format("/{}_{}_{}_outline001.txt", did, startTime, endTime));
-        log.info("屏幕上报亩数 1.18 ，平台计算亩数={}", outline.getMu());
-    }
-
-    @Test
-    void 计算亩数与屏幕上报做对比335_2() throws Exception {
-        String did = "EC73BD2509060335";
-        String startTime = "20251015125319";
-        String endTime = "20251015131516";
-        double widthM = 3;
-        读取一段轨迹数据(did, startTime, endTime);
-        List<TrackPoint> seg = new ArrayList<>();
-        FileUtil.readUtf8Lines(path + StrUtil.format("/{}_{}_{}_trace.txt", did, startTime, endTime)).forEach(line -> {
-            String[] ss = line.split(",");
-            seg.add(new TrackPoint(LocalDateTimeUtil.parse(ss[0], "yyyyMMddHHmmss"), Convert.toDouble(ss[1]),
-                    Convert.toDouble(ss[2])));
-        });
-        OutlinePart outline = gisUtil.getOutline(seg, widthM);
-        FileUtil.writeUtf8String(StrUtil.format("wkt: {}\nmu: {}", outline.getWkt(), outline.getMu()),
-                path + StrUtil.format("/{}_{}_{}_outline335.txt", did, startTime, endTime));
-        log.info("屏幕上报亩数 3.44 ，平台计算亩数={}", outline.getMu());
     }
 
     @Test
@@ -265,45 +186,6 @@ public class TestGisUtil {
         Geometry g = gisUtil.fromWkt(wkt);
         mu = gisUtil.calcMu(g);
         log.info("{}", mu);
-    }
-
-    @Test
-    void 计算轮廓() throws Exception {
-        String trackStr = FileUtil.readUtf8String(path + "/track.txt");
-        List<TrackPoint> seg = new ArrayList<>();
-        for (String split : trackStr.split("#")) {
-            String[] ss = split.split(",");
-            seg.add(new TrackPoint(LocalDateTimeUtil.parse(ss[2], "yyyyMMddHHmmss"), Convert.toDouble(ss[0]),
-                    Convert.toDouble(ss[1])));
-        }
-        OutlinePart r = gisUtil.getOutline(seg, 5);
-        FileUtil.writeUtf8String(StrUtil.format("wkt: {}\nmu: {}", r.getWkt(), r.getMu()), path + "/outline.txt");
-    }
-
-    @Test
-    void 计算轮廓335() throws Exception {
-        String trackStr = FileUtil.readUtf8String(path + "/track335.txt");
-        List<TrackPoint> seg = new ArrayList<>();
-        for (String split : trackStr.split("#")) {
-            String[] ss = split.split(",");
-            seg.add(new TrackPoint(LocalDateTimeUtil.parse(ss[2], "yyyyMMddHHmmss"), Convert.toDouble(ss[0]),
-                    Convert.toDouble(ss[1])));
-        }
-        OutlinePart r = gisUtil.getOutline(seg, 5);
-        FileUtil.writeUtf8String(StrUtil.format("wkt: {}\nmu: {}", r.getWkt(), r.getMu()), path + "/outline335.txt");
-    }
-
-    @Test
-    void 计算轮廓118() throws Exception {
-        String trackStr = FileUtil.readUtf8String(path + "/track118.txt");
-        List<TrackPoint> seg = new ArrayList<>();
-        for (String split : trackStr.split("#")) {
-            String[] ss = split.split(",");
-            seg.add(new TrackPoint(LocalDateTimeUtil.parse(ss[2], "yyyyMMddHHmmss"), Convert.toDouble(ss[0]),
-                    Convert.toDouble(ss[1])));
-        }
-        OutlinePart r = gisUtil.getOutline(seg, 5);
-        FileUtil.writeUtf8String(StrUtil.format("wkt: {}\nmu: {}", r.getWkt(), r.getMu()), path + "/outline118.txt");
     }
 
     @Test
@@ -544,42 +426,6 @@ public class TestGisUtil {
             FileUtil.writeUtf8String(pb.toString(), partsFile);
 
             log.info("结果文件已生成：outline={}, parts={}", outlineFile, partsFile);
-        } catch (Exception e) {
-            log.error(e);
-        }
-    }
-
-    void 测试一段不拆分数据(String did, String startTime, String endTime, double jobWidth) {
-        String fileName = path + StrUtil.format("/{}_{}_{}_trace.txt", did, startTime, endTime);
-        if (!FileUtil.exist(fileName)) {
-            return;
-        }
-        List<TrackPoint> l = new ArrayList<>();
-        for (String line : FileUtil.readUtf8Lines(fileName)) {
-            // 20251013120625,113.33316443,28.08500825
-            String[] split = line.split(",");
-            TrackPoint trackPoint = new TrackPoint(LocalDateTimeUtil.parse(split[0], "yyyyMMddHHmmss"),
-                    Double.parseDouble(split[1]), Double.parseDouble(split[2]));
-            l.add(trackPoint);
-        }
-        try {
-            OutlinePart res = gisUtil.getOutline(l, jobWidth);
-            Geometry outline = res.getOutline();
-            String outlineWkt = res.getWkt();
-
-            String outlineFile = StrUtil.format(path + "/{}_{}_{}_outline.txt", did, startTime, endTime);
-
-            StringBuilder ob = new StringBuilder();
-            ob.append("Outline type: ").append(outline.getGeometryType()).append('\n')
-                    .append("Parts: ")
-                    .append(outline instanceof org.locationtech.jts.geom.MultiPolygon ? outline.getNumGeometries() : 1)
-                    .append('\n')
-                    .append("mu: ").append(gisUtil.calcMu(outline)).append('\n')
-                    .append("totalWidthM: ").append(res.getTotalWidthM()).append('\n')
-                    .append("WKT: ").append(outlineWkt).append('\n');
-            FileUtil.writeUtf8String(ob.toString(), outlineFile);
-
-            log.info("结果文件已生成：outline={}", outlineFile);
         } catch (Exception e) {
             log.error(e);
         }

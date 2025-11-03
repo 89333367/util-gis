@@ -59,7 +59,6 @@ import sunyu.util.pojo.WktIntersectionResult;
  * - contains(String, String)：判断 A 是否包含 B
  * - overlaps(String, String)：判断是否重叠
  * - pointInPolygon(CoordinatePoint, String)：判断点是否在多边形内（含边界）
- * - getOutline(List<TrackPoint>, double)：生成轨迹轮廓（`Polygon`），返回 `OutlinePart`
  * - splitRoad(List<TrackPoint>, double)：按总宽度对轨迹进行分段并返回结果
  * - splitRoad(List<TrackPoint>, double, Integer)：指定最大段数的道路分段
  *
@@ -112,7 +111,10 @@ public class GisUtil implements AutoCloseable {
 
     /**
      * 内部配置类。
-     * 持有常量、默认参数、线程安全缓存与几何工厂；供 `GisUtil` 使用。
+     * <p>
+     * 持有常量、默认参数、线程安全缓存与几何工厂；供 {@link GisUtil} 使用。
+     * 该类包含所有GIS处理过程中需要的配置参数，确保线程安全的参数访问。
+     * </p>
      */
     private static class Config {
         // WGS84坐标系的EPSG代码，用于定义地理坐标系统
@@ -181,18 +183,22 @@ public class GisUtil implements AutoCloseable {
     }
 
     /**
-     * 构建器类，用于构建GisUtil实例
-     * 实现构建器模式，允许灵活配置和创建GisUtil对象
+     * 构建器类，用于构建GisUtil实例。
+     * <p>
+     * 实现构建器模式，允许灵活配置和创建GisUtil对象，提供流式API进行参数设置。
+     * </p>
      */
     public static class Builder {
         // 配置对象，包含各种常量和默认值
         private final Config config = new Config();
 
         /**
-         * 构建GisUtil实例
-         * 使用预配置的参数创建GisUtil对象
-         *
-         * @return GisUtil对象，已初始化完成可直接使用
+         * 构建GisUtil实例。
+         * <p>
+         * 使用预配置的参数创建GisUtil对象，完成所有必要的初始化工作。
+         * </p>
+         * 
+         * @return 已初始化完成的GisUtil对象，可直接使用
          */
         public GisUtil build() {
             return new GisUtil(config);
@@ -558,7 +564,7 @@ public class GisUtil implements AutoCloseable {
             lines.add(current);
         }
 
-        // 构造折线，简化，然后缓冲
+        // 构造折线，进行简化以提高性能，然后执行线缓冲操作
         long simplifyTime = 0;
         long bufferTime = 0;
         List<LineString> simplifiedLines = new ArrayList<>();
@@ -591,7 +597,7 @@ public class GisUtil implements AutoCloseable {
             }
         }
 
-        // 将所有简化线拼为一个 MultiLineString，一次性缓冲
+        // 将所有简化线合并为一个 MultiLineString，一次性执行缓冲以提高效率
         LineString[] lsArr = simplifiedLines.toArray(new LineString[0]);
         MultiLineString mlsAll = config.geometryFactory.createMultiLineString(lsArr);
         long tb = System.currentTimeMillis();
@@ -599,7 +605,7 @@ public class GisUtil implements AutoCloseable {
         bufferTime += System.currentTimeMillis() - tb;
         long unionTime = 0;
 
-        // 转回 WGS84
+        // 将结果从米制坐标转回 WGS84 地理坐标
         long backStart = System.currentTimeMillis();
         MathTransform txGkToWgs = getTxGaussToWgsByLon(originLon);
         Geometry result = JTS.transform(union, txGkToWgs);
@@ -890,8 +896,16 @@ public class GisUtil implements AutoCloseable {
     }
 
     /**
-     * 构建平滑轮廓的线缓冲方法（使用局部参数控制断段行为，不会修改共享配置）
-     * 该方法专门用于生成平滑的轮廓，禁用道路断裂控制并使用更大的断段阈值
+     * 构建平滑轮廓的线缓冲方法。
+     * <p>
+     * 该方法使用局部参数控制断段行为，不会修改共享配置，适用于生成平滑连续的轨迹轮廓。
+     * 通过禁用道路断裂控制并使用更大的断段阈值来减少轮廓中的断续问题。
+     * </p>
+     * 
+     * @param seg    轨迹点列表，用于构建轮廓的原始轨迹数据
+     * @param widthM 线缓冲宽度（米），控制生成轮廓的宽度
+     * @return 生成的平滑轮廓几何对象
+     * @throws Exception 当轨迹点处理、坐标转换或几何操作失败时抛出
      */
     private Geometry buildSmoothOutlineByLineBuffers(List<TrackPoint> seg, double widthM) throws Exception {
         long startTime = System.currentTimeMillis();
@@ -904,8 +918,8 @@ public class GisUtil implements AutoCloseable {
         double originLon = seg.get(0).getLon();
         MathTransform txWgsToGk = getTxWgsToGaussByLon(originLon);
 
-        // 将点转换到米制坐标并按距离切段 - 使用更大的断段阈值
-        double breakDist = Math.max(widthM, widthM * 20.0); // 使用20.0替代LINE_BREAK_FACTOR
+        // 将点转换到米制坐标并按距离切段，使用更大的断段阈值（widthM * 20.0）减少断段
+        double breakDist = Math.max(widthM, widthM * 20.0); // 增大断段阈值以提高轮廓连续性
         List<List<Coordinate>> lines = new ArrayList<>();
         List<Coordinate> current = new ArrayList<>();
 
@@ -929,7 +943,7 @@ public class GisUtil implements AutoCloseable {
                     }
                     current = new ArrayList<>();
                 }
-                // 注意：此处不进行道路断裂控制，保持轨迹连续性
+                // 不进行道路断裂控制，确保轨迹连续性，避免轮廓断续问题
             }
             current.add(c);
         }
@@ -1642,129 +1656,6 @@ public class GisUtil implements AutoCloseable {
     }
 
     /**
-     * 生成轨迹轮廓（不拆分、不裁剪、不平滑）
-     * 根据轨迹点与总宽度，使用线缓冲构建单个轮廓（Polygon），并返回包含亩数、WKT、时间范围与点集的 `OutlinePart`。
-     * 步骤：过滤/排序轨迹点 → 在米制投影下线简化+线缓冲 → 若为MultiPolygon仅做轻微开运算保留缝隙并选面积最大面 → 计算亩数与 WKT。
-     *
-     * @param seg         轨迹点列表（WGS84），至少 3 个有效点
-     * @param totalWidthM 总宽度（米，左右合计），必须非负
-     * @return `OutlinePart`：结果几何为 `Polygon`，包含 `mu`、`wkt`、起止时间与有效点集
-     * @throws Exception 坐标转换或几何运算异常
-     */
-    public OutlinePart getOutline(List<TrackPoint> seg, double totalWidthM) throws Exception {
-        long t0 = System.currentTimeMillis();
-        if (seg == null) {
-            throw new IllegalArgumentException("轨迹点列表不能为空");
-        }
-        if (totalWidthM < 0) {
-            throw new IllegalArgumentException("总宽度必须为非负数");
-        }
-        double widthM = totalWidthM / 2.0;
-
-        // 仅过滤异常点（越界与(0,0)），按时间升序；不做切割与删除
-        List<TrackPoint> points = filterAndSortTrackPoints(seg);
-        log.trace("[getOutline] 轨迹点过滤完成，原始点数: {}, 过滤后点数: {}", seg.size(), points.size());
-        if (points.size() < 3) {
-            throw new IllegalArgumentException("轨迹段至少需要3个有效点");
-        }
-
-        // 计算起止时间（忽略空时间）
-        LocalDateTime startTime = null;
-        LocalDateTime endTime = null;
-        for (TrackPoint p : points) {
-            if (p.getTime() != null) {
-                if (startTime == null)
-                    startTime = p.getTime();
-                endTime = p.getTime();
-            }
-        }
-
-        // 使用线缓冲轮廓构建（WGS84坐标系），保持过滤异常点与不拆分道路，只返回单个Polygon
-        long tBuildStart = System.currentTimeMillis();
-        Geometry outline = buildOutlineByLineBuffers(points, widthM);
-        long tBuildEnd = System.currentTimeMillis();
-        log.trace("[getOutline] 轮廓构建完成（线缓冲），耗时: {}ms", (tBuildEnd - tBuildStart));
-
-        // 基于首点经度构建高斯-克吕格米制投影转换（形态学处理）
-        double originLonGk = points.get(0).getLon();
-        MathTransform txWgsToGkOutline = getTxWgsToGaussByLon(originLonGk);
-        MathTransform txGkToWgsOutline = getTxGaussToWgsByLon(originLonGk);
-
-        // 若为 MultiPolygon，则转换为单个 Polygon（凹包）：基于 alpha-like 形态操作
-        if (outline instanceof MultiPolygon) {
-            try {
-                // 在米制下进行形态学处理以获得凹包
-                Geometry unioned = UnaryUnionOp.union(outline);
-                Geometry proj = JTS.transform(unioned, txWgsToGkOutline);
-                BufferParameters bp = new BufferParameters();
-                bp.setQuadrantSegments(config.DEFAULT_BUFFER_QUADRANT);
-                bp.setEndCapStyle(BufferParameters.CAP_FLAT);
-                bp.setJoinStyle(BufferParameters.JOIN_BEVEL);
-                bp.setMitreLimit(2.0);
-
-                // 不做凸包/闭运算，不切割不平滑；必要时做轻微开运算以保留缝隙并合并为单个 Polygon
-                double openR = Math.max(0.2, widthM * config.GAP_ENHANCE_ERODE_FACTOR);
-                Geometry opened = BufferOp.bufferOp(proj, -openR, bp);
-                opened = BufferOp.bufferOp(opened, openR, bp);
-                Geometry openedWgs = JTS.transform(opened, txGkToWgsOutline);
-
-                if (openedWgs instanceof Polygon) {
-                    outline = (Polygon) openedWgs;
-                } else if (openedWgs instanceof MultiPolygon) {
-                    // 保留缝隙与洞，不做闭运算；选择面积最大的外轮廓
-                    MultiPolygon mp = (MultiPolygon) openedWgs;
-                    int maxIdx = 0;
-                    double maxArea = -1;
-                    for (int i = 0; i < mp.getNumGeometries(); i++) {
-                        Polygon p = (Polygon) mp.getGeometryN(i);
-                        double a = p.getArea();
-                        if (a > maxArea) {
-                            maxArea = a;
-                            maxIdx = i;
-                        }
-                    }
-                    outline = (Polygon) mp.getGeometryN(maxIdx);
-                }
-                log.trace("[getOutline] 已将MultiPolygon转换为单个Polygon（凹包，保留缝隙，未裁剪/未平滑）");
-            } catch (Exception ex) {
-                log.warn("[getOutline] 凹包处理失败，保留最大面积外轮廓: {}", ex.getMessage());
-                if (outline instanceof MultiPolygon) {
-                    MultiPolygon mp = (MultiPolygon) outline;
-                    int maxIdx = 0;
-                    double maxArea = -1;
-                    for (int i = 0; i < mp.getNumGeometries(); i++) {
-                        Polygon p = (Polygon) mp.getGeometryN(i);
-                        double a = p.getArea();
-                        if (a > maxArea) {
-                            maxArea = a;
-                            maxIdx = i;
-                        }
-                    }
-                    outline = (Polygon) mp.getGeometryN(maxIdx);
-                } else if (outline instanceof Polygon) {
-                    // 已是单面，直接保留
-                } else {
-                    Geometry env = outline.getEnvelope();
-                    outline = (env instanceof Polygon)
-                            ? (Polygon) env
-                            : (Polygon) ((MultiPolygon) env).getGeometryN(0);
-                }
-            }
-        }
-
-        // 计算亩数与WKT（不删除任何区块）
-        double mu = calcMu(outline);
-        String wkt = toWkt(outline);
-
-        // 记录结果类型
-        log.debug("[getOutline] 返回结果 type=Polygon");
-
-        long t1 = System.currentTimeMillis();
-        log.debug("[getOutline] 总耗时={}ms", (t1 - t0));
-        return new OutlinePart(outline, startTime, endTime, mu, wkt, points).setTotalWidthM(totalWidthM);
-    }
-
-    /**
      * 基于轨迹点与总宽度生成轮廓，并按面积保留 Top-N 最大区块。
      *
      * @param seg         轨迹点列表（WGS84），至少 3 个有效点
@@ -2033,7 +1924,7 @@ public class GisUtil implements AutoCloseable {
                     (partsBuildEnd - partsBuildStart));
         }
 
-        // 为每个区块重新计算平滑轮廓（使用局部参数控制断段行为）
+        // 为每个区块重新计算平滑轮廓，使用局部方法而非修改共享配置，确保线程安全
         log.debug("[splitRoad] 开始为每个区块重新计算平滑轮廓");
         long tSmoothStart = System.currentTimeMillis();
         List<OutlinePart> smoothedParts = new ArrayList<>();
@@ -2042,10 +1933,10 @@ public class GisUtil implements AutoCloseable {
         for (OutlinePart part : parts) {
             if (part.getTrackPoints() != null && !part.getTrackPoints().isEmpty()) {
                 try {
-                    // 使用局部方法计算平滑轮廓，不修改共享的config对象
+                    // 使用局部方法计算平滑轮廓，避免修改共享的config对象，确保并发安全
                     Geometry smoothOutline = buildSmoothOutlineByLineBuffers(part.getTrackPoints(), widthM);
 
-                    // 应用相同的凹包平滑处理
+                    // 应用凹包平滑处理，保持与原始算法一致的平滑效果
                     if (config.ENABLE_CONCAVE_SMOOTHING) {
                         double originLon = part.getTrackPoints().get(0).getLon();
                         smoothOutline = concaveSmoothPreserveHoles(smoothOutline, widthM, originLon);
@@ -2055,7 +1946,7 @@ public class GisUtil implements AutoCloseable {
                     double smoothMu = calcMu(smoothOutline);
                     String smoothWkt = toWkt(smoothOutline);
 
-                    // 创建新的平滑OutlinePart
+                    // 创建新的平滑轮廓部分，包含更新后的几何信息
                     OutlinePart smoothedPart = new OutlinePart(
                             smoothOutline,
                             part.getStartTime(),
