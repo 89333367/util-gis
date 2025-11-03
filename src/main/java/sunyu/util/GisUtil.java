@@ -16,6 +16,7 @@ import org.locationtech.jts.geom.Geometry;
 import org.locationtech.jts.geom.GeometryFactory;
 import org.locationtech.jts.geom.LineString;
 import org.locationtech.jts.geom.MultiPolygon;
+import org.locationtech.jts.geom.Point;
 import org.locationtech.jts.geom.Polygon;
 import org.locationtech.jts.geom.prep.PreparedGeometry;
 import org.locationtech.jts.geom.prep.PreparedGeometryFactory;
@@ -157,6 +158,9 @@ public class GisUtil implements AutoCloseable {
         // 最小亩数阈值（亩），小于此值的多边形将被过滤掉
         private double MIN_AREA_MU = 0.5;
 
+        // 是否启用亩数过滤开关，true表示启用过滤，false表示禁用过滤
+        private boolean ENABLE_AREA_FILTER = true;
+
     }
 
     /**
@@ -195,6 +199,17 @@ public class GisUtil implements AutoCloseable {
                 throw new IllegalArgumentException("最小亩数阈值必须大于等于0");
             }
             config.MIN_AREA_MU = minAreaMu;
+            return this;
+        }
+
+        /**
+         * 设置是否启用亩数过滤开关。
+         * 
+         * @param enableAreaFilter true表示启用亩数过滤，false表示禁用亩数过滤
+         * @return Builder实例，支持链式调用
+         */
+        public Builder withAreaFilterEnabled(boolean enableAreaFilter) {
+            config.ENABLE_AREA_FILTER = enableAreaFilter;
             return this;
         }
 
@@ -1383,20 +1398,34 @@ public class GisUtil implements AutoCloseable {
 
             // 为每个多边形创建OutlinePart（按面积排序）
             List<OutlinePart> allParts = new ArrayList<>();
+
+            // 预创建轨迹点几何对象，避免重复创建
+            List<Point> trackPointsGeo = new ArrayList<>(workSeg.size());
+            for (TrackPoint trackPoint : workSeg) {
+                trackPointsGeo.add(config.geometryFactory.createPoint(
+                        new Coordinate(trackPoint.getLon(), trackPoint.getLat())));
+            }
+
             for (Geometry polygon : polygons) {
                 if (polygon instanceof Polygon) {
                     // 使用正确的calcMu方法计算球面面积
                     double areaMu = calcMu(polygon);
                     String wkt = polygon.toText();
 
+                    // 使用PreparedGeometry优化包含判断性能
+                    PreparedGeometry prepPolygon = PreparedGeometryFactory.prepare(polygon);
+
                     // 找出属于这个多边形的轨迹点
                     List<TrackPoint> partTrackPoints = new ArrayList<>();
                     LocalDateTime partStartTime = null;
                     LocalDateTime partEndTime = null;
 
-                    for (TrackPoint trackPoint : workSeg) {
-                        if (polygon.contains(config.geometryFactory.createPoint(
-                                new Coordinate(trackPoint.getLon(), trackPoint.getLat())))) {
+                    // 批量处理轨迹点
+                    for (int i = 0; i < workSeg.size(); i++) {
+                        TrackPoint trackPoint = workSeg.get(i);
+                        Point pointGeo = trackPointsGeo.get(i);
+
+                        if (prepPolygon.contains(pointGeo)) {
                             partTrackPoints.add(trackPoint);
 
                             // 更新起止时间
@@ -1436,16 +1465,21 @@ public class GisUtil implements AutoCloseable {
             log.debug("[splitRoad] 保留多边形数量={}", selectedParts.size());
 
             // 5) 根据最小亩数阈值过滤多边形
-            log.debug("[splitRoad] 亩数过滤 开始 最小亩数阈值={}", config.MIN_AREA_MU);
             List<OutlinePart> filteredParts = new ArrayList<>();
-            for (OutlinePart part : selectedParts) {
-                if (part.getMu() >= config.MIN_AREA_MU) {
-                    filteredParts.add(part);
-                } else {
-                    log.debug("[splitRoad] 过滤掉小面积多边形 面积={}亩 阈值={}亩", part.getMu(), config.MIN_AREA_MU);
+            if (config.ENABLE_AREA_FILTER) {
+                log.debug("[splitRoad] 亩数过滤 开始 最小亩数阈值={}", config.MIN_AREA_MU);
+                for (OutlinePart part : selectedParts) {
+                    if (part.getMu() >= config.MIN_AREA_MU) {
+                        filteredParts.add(part);
+                    } else {
+                        log.debug("[splitRoad] 过滤掉小面积多边形 面积={}亩 阈值={}亩", part.getMu(), config.MIN_AREA_MU);
+                    }
                 }
+                log.debug("[splitRoad] 亩数过滤 结束 过滤前数量={} 过滤后数量={}", selectedParts.size(), filteredParts.size());
+            } else {
+                log.debug("[splitRoad] 亩数过滤 已禁用，跳过过滤逻辑");
+                filteredParts.addAll(selectedParts);
             }
-            log.debug("[splitRoad] 亩数过滤 结束 过滤前数量={} 过滤后数量={}", selectedParts.size(), filteredParts.size());
 
             // 重新构建几何结果
             if (filteredParts.size() == 1) {
