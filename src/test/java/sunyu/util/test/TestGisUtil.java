@@ -256,6 +256,17 @@ public class TestGisUtil {
         输出一段HTML(did, startTime, endTime);
     }
 
+    @Test
+    void t005() {
+        String did = "NJ4GNBSAX0000693";
+        String startTime = "20250505080044";
+        String endTime = "20250505173658";
+        double widthM = 2.5;
+        读取一段轨迹数据(did, startTime, endTime);
+        测试一段拆分数据(did, startTime, endTime, widthM);
+        输出一段HTML(did, startTime, endTime);
+    }
+
     void 读取一段轨迹数据(String did, String startTime, String endTime) {
         if (!FileUtil.exist(path + StrUtil.format("/{}_{}_{}_trace.txt", did, startTime, endTime))) {
             TDengineUtil tDengineUtil = getTdengineUtil();
