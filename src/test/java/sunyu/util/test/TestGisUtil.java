@@ -135,6 +135,17 @@ public class TestGisUtil {
     }
 
     @Test
+    void 测试镂空作业轮廓3() throws Exception {
+        String did = "EC73BD2509060398";
+        String startTime = "20251103130852";
+        String endTime = "20251103151309";
+        double jobWidth = 1.0;
+        读取一段轨迹数据(did, startTime, endTime);
+        测试一段拆分数据(did, startTime, endTime, jobWidth);
+        输出一段HTML(did, startTime, endTime);
+    }
+
+    @Test
     void 计算重复亩数018_335() throws Exception {
         String wkt1 = FileUtil.readUtf8Lines(path + "/EC73BD2506050018_20251029161736_20251029162905_outline018.txt")
                 .get(0).replace("wkt: ", "");
