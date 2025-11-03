@@ -357,7 +357,7 @@ public class TestGisUtil {
             l.add(trackPoint);
         }
         try {
-            SplitRoadResult res = gisUtil.splitRoad(l, jobWidth, Integer.MAX_VALUE);
+            SplitRoadResult res = gisUtil.splitRoad(l, jobWidth);
             Geometry outline = res.getOutline();
             String outlineWkt = res.getWkt();
             List<OutlinePart> parts = res.getParts();
@@ -412,7 +412,7 @@ public class TestGisUtil {
             l.add(trackPoint);
         }
         try {
-            SplitRoadResult res = gisUtil.splitRoad(l, jobWidth, Integer.MAX_VALUE);
+            SplitRoadResult res = gisUtil.splitRoad(l, jobWidth);
             Geometry outline = res.getOutline();
             String outlineWkt = res.getWkt();
             List<OutlinePart> parts = res.getParts();
