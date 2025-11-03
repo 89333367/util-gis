@@ -368,8 +368,9 @@
             </div>
             <textarea id="trackTextarea" style="width:100%;height:120px;margin-bottom:10px;padding:8px;border:1px solid #ddd;border-radius:4px;font-family:monospace;resize:vertical;box-sizing:border-box;"></textarea>
             <div class="button-group">
-                <button id="drawTrackButton" disabled>绘制轨迹</button>
-                <button id="clearTrackButton" disabled>清空轨迹</button>
+                <button id="drawTrackButton" disabled style="flex: 1;">绘制轨迹</button>
+                <button id="showTrackPointsButton" disabled style="flex: 1;" class="btn-warning">打点</button>
+                <button id="clearTrackButton" disabled style="flex: 1;">清空轨迹</button>
             </div>
             <!-- 回放控制 -->
             <div class="split-section" style="margin-top:8px;">
@@ -552,8 +553,10 @@
 
     function disableTrackButtons(disabled) {
         const drawTrackBtn = document.getElementById("drawTrackButton");
+        const showTrackPointsBtn = document.getElementById("showTrackPointsButton");
         const clearTrackBtn = document.getElementById("clearTrackButton");
         if (drawTrackBtn) drawTrackBtn.disabled = disabled;
+        if (showTrackPointsBtn) showTrackPointsBtn.disabled = disabled;
         if (clearTrackBtn) clearTrackBtn.disabled = disabled;
     }
     // 回放控件的禁用/启用
@@ -1322,9 +1325,10 @@
 // 轨迹绘制与解析
     function bindTrackEvents() {
         const drawBtn = document.getElementById('drawTrackButton');
+        const showPointsBtn = document.getElementById('showTrackPointsButton');
         const clearBtn = document.getElementById('clearTrackButton');
         const ta = document.getElementById('trackTextarea');
-        if (!drawBtn || !clearBtn || !ta) return;
+        if (!drawBtn || !showPointsBtn || !clearBtn || !ta) return;
 
         drawBtn.addEventListener('click', function(){
             try {
@@ -1340,10 +1344,117 @@
             }
         });
 
+        showPointsBtn.addEventListener('click', function(){
+            try {
+                const text = ta.value.trim();
+                if (!text) { alert('请粘贴轨迹文本（时间戳,经度,纬度）'); return; }
+                const points = parseTrackText(text);
+                if (points.length === 0) { alert('未找到有效轨迹点'); return; }
+                showTrackPoints(points);
+                fitViewportToTrack(points);
+            } catch (e) {
+                alert('显示轨迹点失败：' + (e && e.message ? e.message : e));
+                console.error('显示轨迹点异常:', e);
+            }
+        });
+
         clearBtn.addEventListener('click', function(){
             clearTrackOverlays();
             console.log('已清空轨迹');
         });
+    }
+
+    function showTrackPoints(points) {
+        // 先移除旧轨迹（不影响轮廓）
+        clearTrackOverlays(false);
+        
+        if (!map || !points || points.length === 0) {
+            console.log('无轨迹点可显示');
+            return;
+        }
+        
+        console.log(`准备显示${points.length}个轨迹点`);
+        
+        // 使用批量处理和更小的图标来提高性能
+        // 创建一个极小的红点SVG图标
+        const smallRedDotIcon = new T.Icon({
+            iconUrl: 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="2" height="2"><circle cx="1" cy="1" r="0.75" fill="%23FF0000"/></svg>',
+            iconSize: new T.Point(2, 2),
+            iconAnchor: new T.Point(1, 1)
+        });
+        
+        // 优化批量添加点的速度
+        const batchSize = 2000; // 增加每批处理的点数
+        const concurrentBatches = 4; // 并发批次数量
+        
+        // 预创建点击事件处理函数，避免重复创建
+        function createClickHandler(point, index) {
+            return function() {
+                const infoWindow = new T.InfoWindow({
+                    content: `点${index + 1}<br/>经度: ${point.lng.toFixed(6)}<br/>纬度: ${point.lat.toFixed(6)}`,
+                    offset: new T.Point(0, -20)
+                });
+                infoWindow.open(map, point);
+            };
+        }
+        
+        // 使用setTimeout实现更高效的批量添加，避免阻塞UI
+        let currentIndex = 0;
+        
+        function addBatch() {
+            if (currentIndex >= points.length) {
+                console.log(`已显示${points.length}个轨迹点`);
+                return;
+            }
+            
+            // 添加当前批次的点
+            const endIndex = Math.min(currentIndex + batchSize, points.length);
+            const markersToAdd = [];
+            
+            // 先创建所有标记
+            for (let i = currentIndex; i < endIndex; i++) {
+                const point = points[i];
+                const index = i;
+                
+                const marker = new T.Marker(point, {
+                    icon: smallRedDotIcon
+                });
+                
+                // 添加点击事件
+                marker.addEventListener('click', createClickHandler(point, index));
+                
+                markersToAdd.push(marker);
+            }
+            
+            // 批量添加到地图和数组
+            markersToAdd.forEach(marker => {
+                map.addOverLay(marker);
+                currentTracks.push(marker);
+            });
+            
+            currentIndex = endIndex;
+            
+            // 使用setTimeout而不是requestAnimationFrame，减少对渲染周期的依赖
+            // 设置为0，将任务放入微任务队列，但允许UI有短暂的呼吸空间
+            setTimeout(addBatch, 0);
+        }
+        
+        // 启动批量添加
+        addBatch();
+    }
+    
+    // 恢复原始的clearTrackOverlays函数
+    function clearTrackOverlays(resetArray = true){        
+        try {
+            currentTracks.forEach(pl => {
+                if (pl && map && map.removeOverLay) {
+                    try { map.removeOverLay(pl); } catch (e) { console.warn('移除轨迹失败:', e); }
+                }
+            });
+            if (resetArray) currentTracks = [];
+        } catch (e) {
+            console.warn('清空轨迹时出错:', e);
+        }
     }
 
     function parseTrackText(text){
