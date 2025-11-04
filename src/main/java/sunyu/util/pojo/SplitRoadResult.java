@@ -86,6 +86,10 @@ public class SplitRoadResult {
         return Math.round(mu * 10000.0) / 10000.0;
     }
 
+    public void setMu(double mu) {
+        this.mu = mu;
+    }
+
     public SplitRoadResult setTotalWidthM(double totalWidthM) {
         this.totalWidthM = totalWidthM;
         return this;
