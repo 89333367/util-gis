@@ -15,13 +15,18 @@ import org.locationtech.jts.geom.Envelope;
 import org.locationtech.jts.geom.Geometry;
 import org.locationtech.jts.geom.GeometryFactory;
 import org.locationtech.jts.geom.LineString;
+import org.locationtech.jts.geom.MultiLineString;
 import org.locationtech.jts.geom.MultiPolygon;
-import org.locationtech.jts.geom.Point;
 import org.locationtech.jts.geom.Polygon;
 import org.locationtech.jts.geom.prep.PreparedGeometry;
 import org.locationtech.jts.geom.prep.PreparedGeometryFactory;
 import org.locationtech.jts.io.ParseException;
 import org.locationtech.jts.io.WKTReader;
+import org.locationtech.jts.operation.buffer.BufferOp;
+import org.locationtech.jts.operation.buffer.BufferParameters;
+import org.locationtech.jts.operation.union.UnaryUnionOp;
+import org.locationtech.jts.simplify.DouglasPeuckerSimplifier;
+import org.locationtech.jts.simplify.TopologyPreservingSimplifier;
 import org.opengis.referencing.crs.CoordinateReferenceSystem;
 import org.opengis.referencing.operation.MathTransform;
 
@@ -88,7 +93,7 @@ import sunyu.util.pojo.WktIntersectionResult;
  * 
  * @author SunYu
  */
-public class GisUtil implements AutoCloseable {
+public class GisUtilOld implements AutoCloseable {
     private final Log log = LogFactory.get();
     // 配置参数，包含各种常量和默认值
     private final Config config;
@@ -109,7 +114,7 @@ public class GisUtil implements AutoCloseable {
      *
      * @param config 内部配置对象，包含常量、默认值与缓存实例
      */
-    private GisUtil(Config config) {
+    private GisUtilOld(Config config) {
         // 记录工具类构建开始日志
         log.info("[构建{}] 开始", this.getClass().getSimpleName());
         // 其他初始化语句（预留扩展点）
@@ -148,18 +153,47 @@ public class GisUtil implements AutoCloseable {
         private final int DEFAULT_BUFFER_QUADRANT = 2;
 
         // 作业最大速度阈值（km/h），用于前置速度过滤；可通过 Builder 配置
-        private double WORK_MAX_SPEED_KMH = 15;
+        private double WORK_MAX_SPEED_KMH = 20.0;
         // 作业最小速度阈值（km/h），用于前置速度过滤；可通过 Builder 配置
         private double MIN_WORK_SPEED_KMH = 1.0;
+        // 最小亩数动态阈值（亩），用于 splitRoad 动态过滤小块
+        private double MIN_MU_DYNAMIC_THRESHOLD_MU = 0.5;
 
-        // 距离断开阈值因子（倍数*单侧宽度），用于buildOutlineByLineBuffersWithDistanceBreak方法
-        private double DISTANCE_BREAK_FACTOR = 2;
+        // 外缘细长裁剪开关（仅 splitRoad 使用）
+        private boolean ENABLE_OUTER_THIN_TRIM = true;
+        // 外缘细长裁剪半径系数（相对单侧宽度）
+        private double THIN_TRIM_RADIUS_FACTOR = 1.6;
 
-        // 最小亩数阈值（亩），小于此值的多边形将被过滤掉
-        private double MIN_AREA_MU = 0.5;
+        // 线段断裂距离系数（倍数*单侧宽度），超过则切分会话
+        private double LINE_BREAK_FACTOR = 4.0;
+        // 线简化公差系数（倍数*单侧宽度），用于Douglas-Peucker
+        private double LINE_SIMPLIFY_TOL_FACTOR = 0.1;
 
-        // 是否启用亩数过滤开关，true表示启用过滤，false表示禁用过滤
-        private boolean ENABLE_AREA_FILTER = true;
+        // 凹包开运算（保留缝隙/洞）：在米制下做轻微开运算
+        private boolean ENABLE_CONCAVE_SMOOTHING = true;
+        // 开运算半径系数（相对于单侧宽度widthM）；建议 0.3–0.8
+        private double CONCAVE_SMOOTH_RADIUS_FACTOR = 0.4;
+
+        // 线缓冲样式（更锐利边界）：拐角样式、端头样式与mitre限制
+        private int BUFFER_JOIN_STYLE = BufferParameters.JOIN_MITRE;
+        // 线缓冲的端头样式（平端），影响线段端点的缓冲形状
+        private int BUFFER_END_CAP_STYLE = BufferParameters.CAP_FLAT;
+        // 线缓冲的mitre限制值，控制锐角的处理方式，值越大允许越尖的角
+        private double BUFFER_MITRE_LIMIT = 2.0;
+
+        // 可选：轻微蚀刻扩大缝隙（在米制下对并集做负缓冲）
+        private boolean ENABLE_GAP_ENHANCE_ERODE = true;
+        // 缝隙增强蚀刻因子，用于控制负缓冲的程度，值越大蚀刻越明显
+        private double GAP_ENHANCE_ERODE_FACTOR = 0.2;
+
+        // 直线道路段断开控制（防止窄直线连接合并两块大轮廓）
+        private boolean ENABLE_ROAD_STRAIGHT_BREAK = true;
+        // 道路直线差异阈值（角度），用于识别道路方向变化
+        private double ROAD_STRAIGHT_DIFF_THRESHOLD_DEG = 6.0;
+        // 道路直线窗口点数量，用于计算滑动窗口内的方向一致性
+        private int ROAD_STRAIGHT_WINDOW_POINTS = 8;
+        // 道路断裂距离因子（倍数*单侧宽度），超过此距离的直线段将被断开
+        private double ROAD_BREAK_DIST_FACTOR = 2.0;
 
     }
 
@@ -174,46 +208,6 @@ public class GisUtil implements AutoCloseable {
         private final Config config = new Config();
 
         /**
-         * 设置距离断开阈值因子（倍数*单侧宽度），用于buildOutlineByLineBuffersWithDistanceBreak方法。
-         * 当相邻轨迹点距离超过（单侧宽度*此因子）时，会断开窗口形成独立多边形。
-         * 
-         * @param factor 距离断开阈值因子，建议值：2.0（默认），可根据需要调整为3.0或其他值
-         * @return Builder实例，支持链式调用
-         */
-        public Builder withDistanceBreakFactor(double factor) {
-            if (factor <= 0) {
-                throw new IllegalArgumentException("距离断开阈值因子必须大于0");
-            }
-            config.DISTANCE_BREAK_FACTOR = factor;
-            return this;
-        }
-
-        /**
-         * 设置最小亩数阈值（亩），小于此值的多边形将被过滤掉。
-         * 
-         * @param minAreaMu 最小亩数阈值，建议值：0.5（默认），可根据需要调整
-         * @return Builder实例，支持链式调用
-         */
-        public Builder withMinAreaMu(double minAreaMu) {
-            if (minAreaMu < 0) {
-                throw new IllegalArgumentException("最小亩数阈值必须大于等于0");
-            }
-            config.MIN_AREA_MU = minAreaMu;
-            return this;
-        }
-
-        /**
-         * 设置是否启用亩数过滤开关。
-         * 
-         * @param enableAreaFilter true表示启用亩数过滤，false表示禁用亩数过滤
-         * @return Builder实例，支持链式调用
-         */
-        public Builder withAreaFilterEnabled(boolean enableAreaFilter) {
-            config.ENABLE_AREA_FILTER = enableAreaFilter;
-            return this;
-        }
-
-        /**
          * 构建GisUtil实例。
          * <p>
          * 使用预配置的参数创建GisUtil对象，完成所有必要的初始化工作。
@@ -221,8 +215,8 @@ public class GisUtil implements AutoCloseable {
          * 
          * @return 已初始化完成的GisUtil对象，可直接使用
          */
-        public GisUtil build() {
-            return new GisUtil(config);
+        public GisUtilOld build() {
+            return new GisUtilOld(config);
         }
 
     }
@@ -497,6 +491,184 @@ public class GisUtil implements AutoCloseable {
     }
 
     /**
+     * 线缓冲构建轮廓：在高斯-克吕格米制投影下将轨迹组装为折线，
+     * 进行道格拉斯-普克简化后按给定宽度缓冲并合并，最终回转为 WGS84。
+     *
+     * @param seg    轨迹点列表（WGS84，经纬度与时间有效，建议已按时间升序）
+     * @param widthM 总宽度（米），用于缓冲半径计算
+     * @return 轮廓几何（WGS84；可能为 MultiPolygon）；输入为空时返回空几何
+     * @throws Exception 投影转换、缓冲或几何合并过程中可能抛出的异常
+     */
+    private Geometry buildOutlineByLineBuffers(List<TrackPoint> seg, double widthM) throws Exception {
+        long startTime = System.currentTimeMillis();
+        log.trace("[buildOutlineByLineBuffers] 开始处理 {} 个轨迹点，线缓冲宽度: {} 米", seg.size(), widthM);
+
+        if (seg == null || seg.size() < 2) {
+            return config.geometryFactory.createGeometryCollection(null);
+        }
+
+        double originLon = seg.get(0).getLon();
+        MathTransform txWgsToGk = getTxWgsToGaussByLon(originLon);
+
+        // 将点转换到米制坐标并按距离切段
+        double breakDist = Math.max(widthM, widthM * config.LINE_BREAK_FACTOR);
+        List<List<Coordinate>> lines = new ArrayList<>();
+        List<Coordinate> current = new ArrayList<>();
+        // 新增：跟踪连续航向变化与累计直线长度
+        List<Double> headingWindow = new ArrayList<>();
+        double straightRunLen = 0.0;
+
+        long convertTime = 0;
+        for (int i = 0; i < seg.size(); i++) {
+            TrackPoint p = seg.get(i);
+            Coordinate src = new Coordinate(p.getLon(), p.getLat());
+            Coordinate c = new Coordinate();
+            long t = System.currentTimeMillis();
+            JTS.transform(src, c, txWgsToGk);
+            convertTime += System.currentTimeMillis() - t;
+
+            if (!current.isEmpty()) {
+                Coordinate prev = current.get(current.size() - 1);
+                double dx = c.x - prev.x;
+                double dy = c.y - prev.y;
+                double dist = Math.hypot(dx, dy);
+                if (dist > breakDist) {
+                    if (current.size() >= 2) {
+                        lines.add(current);
+                    }
+                    current = new ArrayList<>();
+                    // 新增：断段后重置直线跑动状态
+                    headingWindow.clear();
+                    straightRunLen = 0.0;
+                }
+                // 新增：计算航向并进行“长直线跑动”断段判断
+                double hdeg = Math.toDegrees(Math.atan2(dy, dx));
+                if (hdeg < 0)
+                    hdeg += 360.0;
+                headingWindow.add(hdeg);
+                if (headingWindow.size() > config.ROAD_STRAIGHT_WINDOW_POINTS) {
+                    headingWindow.remove(0);
+                }
+                straightRunLen += dist;
+                if (config.ENABLE_ROAD_STRAIGHT_BREAK && headingWindow.size() >= config.ROAD_STRAIGHT_WINDOW_POINTS) {
+                    double maxAbsDiff = 0.0;
+                    for (int k = 1; k < headingWindow.size(); k++) {
+                        double d = headingWindow.get(k) - headingWindow.get(k - 1);
+                        while (d > 180)
+                            d -= 360;
+                        while (d < -180)
+                            d += 360;
+                        double ad = Math.abs(d);
+                        if (ad > maxAbsDiff)
+                            maxAbsDiff = ad;
+                    }
+                    double straightLenThreshold = Math.max(widthM, widthM * config.ROAD_BREAK_DIST_FACTOR);
+                    if (maxAbsDiff < config.ROAD_STRAIGHT_DIFF_THRESHOLD_DEG && straightRunLen > straightLenThreshold) {
+                        if (current.size() >= 2) {
+                            lines.add(current);
+                        }
+                        current = new ArrayList<>();
+                        headingWindow.clear();
+                        straightRunLen = 0.0;
+                    }
+                }
+            }
+            current.add(c);
+        }
+        if (current.size() >= 2) {
+            lines.add(current);
+        }
+
+        // 构造折线，进行简化以提高性能，然后执行线缓冲操作
+        long simplifyTime = 0;
+        long bufferTime = 0;
+        List<LineString> simplifiedLines = new ArrayList<>();
+        BufferParameters params = new BufferParameters();
+        params.setQuadrantSegments(config.DEFAULT_BUFFER_QUADRANT);
+        params.setEndCapStyle(config.BUFFER_END_CAP_STYLE);
+        params.setJoinStyle(config.BUFFER_JOIN_STYLE);
+        params.setMitreLimit(config.BUFFER_MITRE_LIMIT);
+
+        double tol = Math.max(0.01, widthM * config.LINE_SIMPLIFY_TOL_FACTOR);
+
+        for (List<Coordinate> coords : lines) {
+            if (coords.size() < 2)
+                continue;
+            Coordinate[] arr = coords.toArray(new Coordinate[0]);
+            LineString line = config.geometryFactory.createLineString(arr);
+            long ts = System.currentTimeMillis();
+            Geometry simplified = DouglasPeuckerSimplifier.simplify(line, tol);
+            simplifyTime += System.currentTimeMillis() - ts;
+
+            if (simplified instanceof LineString) {
+                LineString ls = (LineString) simplified;
+                simplifiedLines.add(ls);
+            } else if (simplified instanceof MultiLineString) {
+                MultiLineString mls = (MultiLineString) simplified;
+                for (int i = 0; i < mls.getNumGeometries(); i++) {
+                    LineString ls = (LineString) mls.getGeometryN(i);
+                    simplifiedLines.add(ls);
+                }
+            }
+        }
+
+        // 将所有简化线合并为一个 MultiLineString，一次性执行缓冲以提高效率
+        LineString[] lsArr = simplifiedLines.toArray(new LineString[0]);
+        MultiLineString mlsAll = config.geometryFactory.createMultiLineString(lsArr);
+        long tb = System.currentTimeMillis();
+        Geometry union = BufferOp.bufferOp(mlsAll, widthM, params);
+        bufferTime += System.currentTimeMillis() - tb;
+        long unionTime = 0;
+
+        // 将结果从米制坐标转回 WGS84 地理坐标
+        long backStart = System.currentTimeMillis();
+        MathTransform txGkToWgs = getTxGaussToWgsByLon(originLon);
+        Geometry result = JTS.transform(union, txGkToWgs);
+        long backTime = System.currentTimeMillis() - backStart;
+
+        long endTime = System.currentTimeMillis();
+        log.debug("[buildOutlineByLineBuffers] 完成，总计耗时: {}ms (转换:{}ms, 简化:{}ms, 缓冲:{}ms, 合并:{}ms, 回转:{}ms)",
+                endTime - startTime, convertTime, simplifyTime, bufferTime, unionTime, backTime);
+
+        return result;
+    }
+
+    /**
+     * 凹包开运算（保留缝隙/洞）：在米制投影下对轮廓施加轻微开运算，不做闭运算或外缘平滑，
+     * 以保留细小缝隙与内部洞结构；处理后回转为 WGS84。
+     *
+     * @param outlineWgs 输入轮廓（WGS84），允许为 Polygon 或 MultiPolygon
+     * @param widthM     总宽度（米），用于推导开运算半径
+     * @param originLon  原点经度，用于选取高斯-克吕格投影带（通常取轮廓中心经度）
+     * @return 开运算后的几何（WGS84）；输入为空时原样返回
+     * @throws Exception 投影转换或几何运算失败时抛出异常
+     */
+    private Geometry concaveSmoothPreserveHoles(Geometry outlineWgs, double widthM, double originLon) throws Exception {
+        if (outlineWgs == null || outlineWgs.isEmpty())
+            return outlineWgs;
+        long t0 = System.currentTimeMillis();
+        MathTransform txWgsToGk = getTxWgsToGaussByLon(originLon);
+        MathTransform txGkToWgs = getTxGaussToWgsByLon(originLon);
+
+        double r = Math.max(0.5, widthM * config.CONCAVE_SMOOTH_RADIUS_FACTOR);
+        BufferParameters bp = new BufferParameters();
+        bp.setQuadrantSegments(config.DEFAULT_BUFFER_QUADRANT);
+        bp.setEndCapStyle(config.BUFFER_END_CAP_STYLE);
+        bp.setJoinStyle(config.BUFFER_JOIN_STYLE);
+        bp.setMitreLimit(config.BUFFER_MITRE_LIMIT);
+
+        Geometry gk = JTS.transform(outlineWgs, txWgsToGk);
+        // 改为“开运算”：先负缓冲（收缩以消除窄桥/毛刺），再正缓冲（拉回），更好地保留缝隙与洞
+        Geometry opened1 = BufferOp.bufferOp(gk, -r, bp);
+        Geometry opened2 = BufferOp.bufferOp(opened1, r, bp);
+        Geometry wgs = JTS.transform(opened2, txGkToWgs);
+        long t1 = System.currentTimeMillis();
+        log.debug("[concaveSmooth:opening] 半径={}m 输入类型={} 输出类型={} 耗时={}ms", r, outlineWgs.getGeometryType(),
+                wgs.getGeometryType(), (t1 - t0));
+        return wgs;
+    }
+
+    /**
      * 检查几何坐标的基本有效性。
      * 判断规则：坐标不为 (0,0)，且不存在接近 0 的可疑值（|x|<1e-10 或 |y|<1e-10）；不负责空几何与 NaN/Inf
      * 检查（调用方需在前置流程处理）。
@@ -518,6 +690,180 @@ public class GisUtil implements AutoCloseable {
             }
         }
         return true;
+    }
+
+    /**
+     * 保留面积最大的前 N 个区块
+     * 适用于 `Polygon` 或 `MultiPolygon`：按 JTS 计算的平方米面积排序并截取前 `maxCount` 个。
+     *
+     * @param geometry 输入几何（`Polygon`/`MultiPolygon`），为空或非面类型时直接返回原值
+     * @param maxCount 保留的最大区块数量（<=0 时返回原值）
+     * @return 面积前 N 的几何；当 N 小于区块数时可能返回 `MultiPolygon`
+     */
+    private Geometry keepLargestPolygons(Geometry geometry, int maxCount) {
+        if (geometry == null)
+            return null;
+        if (maxCount <= 0)
+            return geometry;
+
+        GeometryFactory gf = geometry.getFactory();
+        List<Polygon> polys = new ArrayList<>();
+
+        // 展开并收集所有 Polygon
+        for (int i = 0; i < geometry.getNumGeometries(); i++) {
+            Geometry g = geometry.getGeometryN(i);
+            if (g instanceof Polygon) {
+                polys.add((Polygon) g);
+            } else if (g instanceof MultiPolygon) {
+                MultiPolygon mp = (MultiPolygon) g;
+                for (int j = 0; j < mp.getNumGeometries(); j++) {
+                    polys.add((Polygon) mp.getGeometryN(j));
+                }
+            }
+            // 其他类型忽略
+        }
+        if (polys.isEmpty())
+            return geometry;
+
+        // 按面积倒序
+        polys.sort(Comparator.comparingDouble(Polygon::getArea).reversed());
+
+        int limit = Math.min(maxCount, polys.size());
+        if (limit == 1) {
+            return polys.get(0);
+        }
+        Polygon[] top = polys.subList(0, limit).toArray(new Polygon[0]);
+        return gf.createMultiPolygon(top);
+    }
+
+    /**
+     * 按最小亩数过滤区块（仅对 MultiPolygon 生效）。
+     * 规则：
+     * - `Polygon`：不进行过滤，直接保留；
+     * - `MultiPolygon`：逐面计算亩数，保留面积 ≥ `minMu` 的面；
+     * 若全部移除则返回空 `MultiPolygon`；仅剩一个面时返回该 `Polygon`。
+     *
+     * @param geometry 输入几何（`Polygon`/`MultiPolygon`），可为空
+     * @param minMu    最小保留亩数阈值
+     * @return 过滤后的几何；类型可能为 `Polygon`、`MultiPolygon` 或原值（非面类型）
+     */
+    private Geometry removeSmallMuPolygons(Geometry geometry, double minMu) {
+        if (geometry == null)
+            return null;
+        GeometryFactory gf = geometry.getFactory();
+        if (geometry instanceof Polygon) {
+            Polygon poly = (Polygon) geometry;
+            // 单个 Polygon 不进行最小亩数过滤，直接保留
+            return poly;
+        } else if (geometry instanceof MultiPolygon) {
+            MultiPolygon mp = (MultiPolygon) geometry;
+            List<Polygon> kept = new ArrayList<>();
+            for (int i = 0; i < mp.getNumGeometries(); i++) {
+                Polygon p = (Polygon) mp.getGeometryN(i);
+                double mu = calcMu(p);
+                if (mu >= minMu) {
+                    kept.add(p);
+                }
+            }
+            if (kept.isEmpty()) {
+                return gf.createMultiPolygon(new Polygon[0]);
+            }
+            if (kept.size() == 1) {
+                return kept.get(0);
+            }
+            return gf.createMultiPolygon(kept.toArray(new Polygon[0]));
+        }
+        return geometry;
+    }
+
+    /**
+     * 外缘细长裁剪：仅基于外环进行轻微开运算以移除边缘细长条（在米制投影下执行）。
+     * 仅在 `splitRoad` 中启用该裁剪功能。
+     *
+     * @param g       输入几何（WGS84）
+     * @param radiusM 开运算半径（米）
+     * @return 裁剪后的几何（WGS84）
+     */
+    private Geometry trimOuterThinStrips(Geometry g, double radiusM) {
+        if (g == null || g.isEmpty())
+            return g;
+        try {
+            // 根据几何包络的中心经度选择高斯-克吕格分带
+            Envelope env = g.getEnvelopeInternal();
+            double cenLon = env.getMinX() + env.getWidth() / 2.0;
+            MathTransform txWgsToGk = getTxWgsToGaussByLon(cenLon);
+            MathTransform txGkToWgs = getTxGaussToWgsByLon(cenLon);
+
+            Geometry gk = JTS.transform(g, txWgsToGk);
+            GeometryFactory gf = gk.getFactory();
+
+            // 收集所有外环组成统一外壳几何，避免逐面两次缓冲的高成本
+            List<Polygon> shells = new ArrayList<>();
+            if (gk instanceof Polygon) {
+                Polygon p = (Polygon) gk;
+                shells.add(gf.createPolygon(p.getExteriorRing().getCoordinates()));
+            } else if (gk instanceof MultiPolygon) {
+                MultiPolygon mp = (MultiPolygon) gk;
+                for (int i = 0; i < mp.getNumGeometries(); i++) {
+                    Polygon p = (Polygon) mp.getGeometryN(i);
+                    shells.add(gf.createPolygon(p.getExteriorRing().getCoordinates()));
+                }
+            } else {
+                return g;
+            }
+            if (shells.isEmpty())
+                return g;
+            Geometry shellsGeomGk = shells.size() == 1
+                    ? shells.get(0)
+                    : gf.createMultiPolygon(shells.toArray(new Polygon[0]));
+
+            // 可选：对外环集合做拓扑保留简化以减小缓冲成本（容差不超过1.0m，随半径调整）
+            double tolThin = Math.min(1.0, radiusM * 0.5);
+            Geometry shellsSimplified = TopologyPreservingSimplifier.simplify(shellsGeomGk, tolThin);
+            if (shellsSimplified == null || shellsSimplified.isEmpty())
+                shellsSimplified = shellsGeomGk;
+
+            // 使用配置化缓冲参数，统一执行一次开运算（负缓冲再正缓冲）
+            BufferParameters params = new BufferParameters(
+                    config.DEFAULT_BUFFER_QUADRANT,
+                    config.BUFFER_END_CAP_STYLE,
+                    config.BUFFER_JOIN_STYLE,
+                    config.BUFFER_MITRE_LIMIT);
+            Geometry eroded = BufferOp.bufferOp(shellsSimplified, -radiusM, params);
+            if (eroded == null || eroded.isEmpty()) {
+                // 半径过大导致核心消失，保持原面
+                return g;
+            }
+            Geometry reopened = BufferOp.bufferOp(eroded, radiusM, params);
+
+            // 使用 PreparedGeometry，逐面裁剪以降低一次性大规模交集的开销
+            PreparedGeometry prepReopened = PreparedGeometryFactory.prepare(reopened);
+            java.util.List<Geometry> trimmedParts = new java.util.ArrayList<>();
+            if (gk instanceof Polygon) {
+                Polygon p = (Polygon) gk;
+                if (prepReopened.intersects(p)) {
+                    Geometry t = p.intersection(reopened);
+                    if (t != null && !t.isEmpty())
+                        trimmedParts.add(t);
+                }
+            } else if (gk instanceof MultiPolygon) {
+                MultiPolygon mp2 = (MultiPolygon) gk;
+                for (int i = 0; i < mp2.getNumGeometries(); i++) {
+                    Polygon p = (Polygon) mp2.getGeometryN(i);
+                    if (prepReopened.intersects(p)) {
+                        Geometry t = p.intersection(reopened);
+                        if (t != null && !t.isEmpty())
+                            trimmedParts.add(t);
+                    }
+                }
+            }
+            Geometry trimmedGk = trimmedParts.isEmpty() ? gk
+                    : UnaryUnionOp.union(trimmedParts);
+            return JTS.transform(trimmedGk, txGkToWgs);
+        } catch (Exception ex) {
+            log.warn("[trimOuterThin] 处理失败: {}", ex.getMessage());
+            return g;
+        }
     }
 
     /**
@@ -562,6 +908,115 @@ public class GisUtil implements AutoCloseable {
      */
     private static double toRad(double deg) {
         return deg * Math.PI / 180.0;
+    }
+
+    /**
+     * 构建平滑轮廓的线缓冲方法。
+     * <p>
+     * 该方法使用局部参数控制断段行为，不会修改共享配置，适用于生成平滑连续的轨迹轮廓。
+     * 通过禁用道路断裂控制并使用更大的断段阈值来减少轮廓中的断续问题。
+     * </p>
+     * 
+     * @param seg    轨迹点列表，用于构建轮廓的原始轨迹数据
+     * @param widthM 线缓冲宽度（米），控制生成轮廓的宽度
+     * @return 生成的平滑轮廓几何对象
+     * @throws Exception 当轨迹点处理、坐标转换或几何操作失败时抛出
+     */
+    private Geometry buildSmoothOutlineByLineBuffers(List<TrackPoint> seg, double widthM) throws Exception {
+        long startTime = System.currentTimeMillis();
+        log.trace("[buildSmoothOutlineByLineBuffers] 开始处理 {} 个轨迹点，线缓冲宽度: {} 米", seg.size(), widthM);
+
+        if (seg == null || seg.size() < 2) {
+            return config.geometryFactory.createGeometryCollection(null);
+        }
+
+        double originLon = seg.get(0).getLon();
+        MathTransform txWgsToGk = getTxWgsToGaussByLon(originLon);
+
+        // 将点转换到米制坐标并按距离切段，使用更大的断段阈值（widthM * 20.0）减少断段
+        double breakDist = Math.max(widthM, widthM * 20.0); // 增大断段阈值以提高轮廓连续性
+        List<List<Coordinate>> lines = new ArrayList<>();
+        List<Coordinate> current = new ArrayList<>();
+
+        long convertTime = 0;
+        for (int i = 0; i < seg.size(); i++) {
+            TrackPoint p = seg.get(i);
+            Coordinate src = new Coordinate(p.getLon(), p.getLat());
+            Coordinate c = new Coordinate();
+            long t = System.currentTimeMillis();
+            JTS.transform(src, c, txWgsToGk);
+            convertTime += System.currentTimeMillis() - t;
+
+            if (!current.isEmpty()) {
+                Coordinate prev = current.get(current.size() - 1);
+                double dx = c.x - prev.x;
+                double dy = c.y - prev.y;
+                double dist = Math.hypot(dx, dy);
+                if (dist > breakDist) {
+                    if (current.size() >= 2) {
+                        lines.add(current);
+                    }
+                    current = new ArrayList<>();
+                }
+                // 不进行道路断裂控制，确保轨迹连续性，避免轮廓断续问题
+            }
+            current.add(c);
+        }
+        if (current.size() >= 2) {
+            lines.add(current);
+        }
+
+        // 构造折线，简化，然后缓冲
+        long simplifyTime = 0;
+        long bufferTime = 0;
+        List<LineString> simplifiedLines = new ArrayList<>();
+        BufferParameters params = new BufferParameters();
+        params.setQuadrantSegments(config.DEFAULT_BUFFER_QUADRANT);
+        params.setEndCapStyle(config.BUFFER_END_CAP_STYLE);
+        params.setJoinStyle(config.BUFFER_JOIN_STYLE);
+        params.setMitreLimit(config.BUFFER_MITRE_LIMIT);
+
+        double tol = Math.max(0.01, widthM * config.LINE_SIMPLIFY_TOL_FACTOR);
+
+        for (List<Coordinate> coords : lines) {
+            if (coords.size() < 2)
+                continue;
+            Coordinate[] arr = coords.toArray(new Coordinate[0]);
+            LineString line = config.geometryFactory.createLineString(arr);
+            long ts = System.currentTimeMillis();
+            Geometry simplified = DouglasPeuckerSimplifier.simplify(line, tol);
+            simplifyTime += System.currentTimeMillis() - ts;
+
+            if (simplified instanceof LineString) {
+                LineString ls = (LineString) simplified;
+                simplifiedLines.add(ls);
+            } else if (simplified instanceof MultiLineString) {
+                MultiLineString mls = (MultiLineString) simplified;
+                for (int i = 0; i < mls.getNumGeometries(); i++) {
+                    LineString ls = (LineString) mls.getGeometryN(i);
+                    simplifiedLines.add(ls);
+                }
+            }
+        }
+
+        // 将所有简化线拼为一个 MultiLineString，一次性缓冲
+        LineString[] lsArr = simplifiedLines.toArray(new LineString[0]);
+        MultiLineString mlsAll = config.geometryFactory.createMultiLineString(lsArr);
+        long tb = System.currentTimeMillis();
+        Geometry union = BufferOp.bufferOp(mlsAll, widthM, params);
+        bufferTime += System.currentTimeMillis() - tb;
+
+        // 转回 WGS84
+        long backStart = System.currentTimeMillis();
+        MathTransform txGkToWgs = getTxGaussToWgsByLon(originLon);
+        Geometry result = JTS.transform(union, txGkToWgs);
+        long backTime = System.currentTimeMillis() - backStart;
+
+        long endTime = System.currentTimeMillis();
+        log.debug("[buildSmoothOutlineByLineBuffers] 完成，总计耗时: {}ms (转换:{}ms, 简化:{}ms, 缓冲:{}ms, 回转:{}ms)",
+                endTime - startTime, convertTime, simplifyTime, bufferTime, backTime);
+
+        return result;
     }
 
     /**
@@ -1228,114 +1683,6 @@ public class GisUtil implements AutoCloseable {
     }
 
     /**
-     * 构建线缓冲轮廓，当相邻点距离超过阈值时断开窗口形成独立多边形
-     * 
-     * @param points       轨迹点列表
-     * @param widthM       缓冲宽度（米）
-     * @param maxDistanceM 最大允许距离（米），超过此距离断开窗口
-     * @return 几何轮廓（Polygon或MultiPolygon）
-     * @throws Exception 坐标转换或几何运算异常
-     */
-    private Geometry buildOutlineByLineBuffersWithDistanceBreak(List<TrackPoint> points, double widthM,
-            double maxDistanceM) throws Exception {
-        if (points == null || points.size() < 2) {
-            return config.geometryFactory.createPolygon();
-        }
-
-        // 坐标转换到米制
-        List<TrackPoint> meterPoints = new ArrayList<>();
-        for (TrackPoint tp : points) {
-            double originLon = tp.getLon();
-            MathTransform txWgsToGk = getTxWgsToGaussByLon(originLon);
-            Coordinate src = new Coordinate(tp.getLon(), tp.getLat());
-            Coordinate c = new Coordinate();
-            JTS.transform(src, c, txWgsToGk);
-            meterPoints.add(new TrackPoint(tp.getTime(), c.x, c.y));
-        }
-
-        // 按距离断开窗口
-        List<List<TrackPoint>> segments = new ArrayList<>();
-        List<TrackPoint> currentSegment = new ArrayList<>();
-        currentSegment.add(meterPoints.get(0));
-
-        for (int i = 1; i < meterPoints.size(); i++) {
-            TrackPoint prev = meterPoints.get(i - 1);
-            TrackPoint curr = meterPoints.get(i);
-
-            // 使用米制坐标计算欧几里得距离
-            double distance = Math
-                    .sqrt(Math.pow(curr.getLon() - prev.getLon(), 2) + Math.pow(curr.getLat() - prev.getLat(), 2));
-
-            if (distance > maxDistanceM) {
-                // 距离超过阈值，结束当前段，开始新段
-                if (currentSegment.size() >= 2) {
-                    segments.add(new ArrayList<>(currentSegment));
-                }
-                currentSegment.clear();
-            }
-
-            currentSegment.add(curr);
-        }
-
-        // 添加最后一段
-        if (currentSegment.size() >= 2) {
-            segments.add(currentSegment);
-        }
-
-        if (segments.isEmpty()) {
-            return config.geometryFactory.createPolygon();
-        }
-
-        // 为每个段构建线缓冲
-        List<Geometry> segmentBuffers = new ArrayList<>();
-        for (List<TrackPoint> segment : segments) {
-            if (segment.size() >= 2) {
-                Geometry buffer = buildLineBufferForSegment(segment, widthM);
-                if (buffer != null && !buffer.isEmpty()) {
-                    segmentBuffers.add(buffer);
-                }
-            }
-        }
-
-        if (segmentBuffers.isEmpty()) {
-            return config.geometryFactory.createPolygon();
-        }
-
-        // 合并所有缓冲区
-        Geometry union = segmentBuffers.get(0);
-        for (int i = 1; i < segmentBuffers.size(); i++) {
-            union = union.union(segmentBuffers.get(i));
-        }
-
-        // 直接返回合并后的缓冲区，不进行凹包平滑
-        double originLon = points.get(0).getLon();
-
-        // 转回WGS84
-        MathTransform txGkToWgs = getTxGaussToWgsByLon(originLon);
-        return JTS.transform(union, txGkToWgs);
-    }
-
-    /**
-     * 为单个段构建线缓冲
-     */
-    private Geometry buildLineBufferForSegment(List<TrackPoint> meterSegment, double widthM) {
-        if (meterSegment.size() < 2) {
-            return null;
-        }
-
-        Coordinate[] coords = new Coordinate[meterSegment.size()];
-        for (int i = 0; i < meterSegment.size(); i++) {
-            TrackPoint tp = meterSegment.get(i);
-            coords[i] = new Coordinate(tp.getLon(), tp.getLat());
-        }
-
-        LineString line = config.geometryFactory.createLineString(coords);
-        Geometry buffer = line.buffer(widthM, config.DEFAULT_BUFFER_QUADRANT);
-
-        return buffer;
-    }
-
-    /**
      * 基于轨迹点与总宽度生成轮廓，并按面积保留不超过 maxSegments 的最大区块。
      * 
      * @param seg         轨迹点列表（WGS84），至少 3 个有效点
@@ -1345,10 +1692,11 @@ public class GisUtil implements AutoCloseable {
      * @throws Exception 坐标转换或几何运算异常
      */
     public SplitRoadResult splitRoad(List<TrackPoint> seg, double totalWidthM, Integer maxSegments) throws Exception {
+        long t0 = System.currentTimeMillis();
         double widthM = totalWidthM / 2.0;
-        int maxSegmentsToUse = (maxSegments == null || maxSegments <= 0) ? config.DEFAULT_MAX_OUTLINE_SEGMENTS
-                : Math.min(maxSegments.intValue(), config.DEFAULT_MAX_OUTLINE_SEGMENTS);
-        log.debug("[splitRoad] 开始 参数 原始点数={} 总宽度={}m 返回上限={}", seg.size(), totalWidthM, maxSegmentsToUse);
+        log.debug("[splitRoad] 开始 参数 原始点数={} 总宽度={}m 返回上限={}", seg.size(), totalWidthM,
+                (maxSegments == null || maxSegments <= 0) ? config.DEFAULT_MAX_OUTLINE_SEGMENTS
+                        : maxSegments.intValue());
 
         // 1) 过滤异常点（越界与(0,0)），按时间升序
         log.debug("[splitRoad] 异常点过滤 开始 参数 输入点数={}", seg.size());
@@ -1367,162 +1715,298 @@ public class GisUtil implements AutoCloseable {
         log.debug("[splitRoad] 速度过滤 结束 返回 移除点数={} 剩余点数={} 耗时={}ms",
                 removed, workSeg.size(), (tSpeedEnd - tSpeedStart));
 
-        // 3) 使用距离断开窗口的线缓冲构建轮廓
-        log.debug("[splitRoad] 构建线缓冲（距离断开窗口）开始 宽度={}m 输入点数={} 最大段数={}", widthM, workSeg.size(), maxSegmentsToUse);
+        // 3) 直接进行线缓冲构建轮廓（不使用点缓冲）
+        log.debug("[splitRoad] 构建线缓冲 开始 宽度={}m 输入点数={}", widthM, workSeg.size());
         long tBuildStart = System.currentTimeMillis();
-        double searchRadius = widthM * config.DISTANCE_BREAK_FACTOR;
-        if (searchRadius < 4) {
-            searchRadius = 4; // 确保搜索半径不小于4米
-        }
-        Geometry outline = buildOutlineByLineBuffersWithDistanceBreak(workSeg, widthM, searchRadius);
+        Geometry outline = buildOutlineByLineBuffers(workSeg, widthM);
         long tBuildEnd = System.currentTimeMillis();
-        log.debug("[splitRoad] 构建线缓冲（距离断开窗口）结束 返回 type={} parts={} 耗时={}ms", outline.getGeometryType(),
+        log.debug("[splitRoad] 构建线缓冲 结束 返回 type={} parts={} 耗时={}ms", outline.getGeometryType(),
                 (outline instanceof MultiPolygon) ? outline.getNumGeometries() : 1, (tBuildEnd - tBuildStart));
+        int partsOutline = (outline instanceof MultiPolygon) ? outline.getNumGeometries() : 1;
 
-        // 4) 根据maxSegments参数限制返回的多边形数量，并构建parts列表
-        log.debug("[splitRoad] 多边形数量限制 开始 最大数量={}", maxSegmentsToUse);
-        Geometry finalOutline = outline;
-        List<OutlinePart> finalParts = new ArrayList<>();
+        // 3.1) 凹包平滑（保留镂空/洞），轻微开运算以平滑外缘并扩大缝隙
+        if (config.ENABLE_CONCAVE_SMOOTHING && workSeg != null && !workSeg.isEmpty()) {
+            long tSmoothStart = System.currentTimeMillis();
+            log.debug("[splitRoad] 凹包平滑 开始 半径系数={} 宽度={}m 输入类型={}", config.CONCAVE_SMOOTH_RADIUS_FACTOR, widthM,
+                    outline.getGeometryType());
+            double originLon = workSeg.get(0).getLon();
+            outline = concaveSmoothPreserveHoles(outline, widthM, originLon);
+            long tSmoothEnd = System.currentTimeMillis();
+            log.debug("[splitRoad] 凹包平滑 结束 返回 输出类型={} 耗时={}ms", outline.getGeometryType(),
+                    (tSmoothEnd - tSmoothStart));
+        }
 
-        if (outline != null && !outline.isEmpty()) {
-            List<Geometry> polygons = new ArrayList<>();
+        // 3.2) 外缘细长条裁剪（避免道路窄条并入田块外缘）
+        if (config.ENABLE_OUTER_THIN_TRIM) {
+            long tThinStart = System.currentTimeMillis();
+            double radiusM = Math.max(0.5, widthM * config.THIN_TRIM_RADIUS_FACTOR);
+            int partsBeforeThin = (outline instanceof MultiPolygon) ? outline.getNumGeometries() : 1;
+            log.debug("[splitRoad] 外缘细长裁剪 开始 半径={}m 输入类型={} 输入部分数={}", radiusM, outline.getGeometryType(),
+                    partsBeforeThin);
+            Geometry outlineAfterThin = trimOuterThinStrips(outline, radiusM);
+            int partsAfterThin = (outlineAfterThin instanceof MultiPolygon) ? outlineAfterThin.getNumGeometries() : 1;
+            int removedThin = Math.max(0, partsBeforeThin - partsAfterThin);
+            outline = outlineAfterThin;
+            long tThinEnd = System.currentTimeMillis();
+            log.debug("[splitRoad] 外缘细长裁剪 结束 返回 输出类型={} 移除部分数={} 剩余部分数={} 耗时={}ms", outline.getGeometryType(),
+                    removedThin, partsAfterThin,
+                    (tThinEnd - tThinStart));
+        }
 
-            // 收集所有多边形
-            if (outline instanceof MultiPolygon) {
-                MultiPolygon multiPoly = (MultiPolygon) outline;
-                for (int i = 0; i < multiPoly.getNumGeometries(); i++) {
-                    polygons.add(multiPoly.getGeometryN(i));
+        // 3.3) 缝隙扩大轻微蚀刻（小幅整体收缩以凸显镂空与缝隙）
+        if (config.ENABLE_GAP_ENHANCE_ERODE && workSeg != null && !workSeg.isEmpty()) {
+            long tErodeStart = System.currentTimeMillis();
+            double originLon = workSeg.get(0).getLon();
+            double erodeR = Math.max(0.2, widthM * config.GAP_ENHANCE_ERODE_FACTOR);
+            log.debug("[splitRoad] 缝隙扩大蚀刻 开始 半径={}m 因子={} 输入类型={}", erodeR, config.GAP_ENHANCE_ERODE_FACTOR,
+                    outline.getGeometryType());
+            MathTransform txWgsToGk = getTxWgsToGaussByLon(originLon);
+            MathTransform txGkToWgs = getTxGaussToWgsByLon(originLon);
+            Geometry outlineGk = JTS.transform(outline, txWgsToGk);
+            BufferParameters eParams = new BufferParameters();
+            eParams.setQuadrantSegments(config.DEFAULT_BUFFER_QUADRANT);
+            eParams.setEndCapStyle(config.BUFFER_END_CAP_STYLE);
+            eParams.setJoinStyle(config.BUFFER_JOIN_STYLE);
+            eParams.setMitreLimit(config.BUFFER_MITRE_LIMIT);
+            Geometry erodedGk = BufferOp.bufferOp(outlineGk, -erodeR, eParams);
+            outline = JTS.transform(erodedGk, txGkToWgs);
+            long tErodeEnd = System.currentTimeMillis();
+            log.debug("[splitRoad] 缝隙扩大蚀刻 结束 返回 输出类型={} 耗时={}ms", outline.getGeometryType(),
+                    (tErodeEnd - tErodeStart));
+        }
+
+        // 4) 保留最大区块并按最小亩数过滤
+        int limit = (maxSegments == null || maxSegments <= 0) ? config.DEFAULT_MAX_OUTLINE_SEGMENTS
+                : maxSegments.intValue();
+        log.debug("[splitRoad] 输入参数 原始点数={} 过滤后点数={} 总宽度={}m 返回上限={}", seg.size(), workSeg.size(), totalWidthM, limit);
+        log.debug("[splitRoad] 保留最大区块 开始 上限={} 输入类型={} parts={}", limit, outline.getGeometryType(), partsOutline);
+        long tKeepStart = System.currentTimeMillis();
+        Geometry kept = keepLargestPolygons(outline, limit);
+        long tKeepEnd = System.currentTimeMillis();
+        int partsAfterKeep = (kept instanceof MultiPolygon) ? kept.getNumGeometries() : 1;
+        log.debug("[splitRoad] 保留最大区块 结束 返回 输出部分数={} 耗时={}ms", partsAfterKeep, (tKeepEnd - tKeepStart));
+
+        log.trace("[splitRoad] 动态最小亩数阈值 minMuDynamic={} (partsAfterKeep={})", config.MIN_MU_DYNAMIC_THRESHOLD_MU,
+                partsAfterKeep);
+        log.debug("[splitRoad] 小面积过滤 开始 阈值(亩)={} 输入部分数={}", config.MIN_MU_DYNAMIC_THRESHOLD_MU, partsAfterKeep);
+        long tAreaStart = System.currentTimeMillis();
+        Geometry trimmed = removeSmallMuPolygons(kept, config.MIN_MU_DYNAMIC_THRESHOLD_MU);
+        long tAreaEnd = System.currentTimeMillis();
+        int partsAfterAreaFilter = (trimmed instanceof MultiPolygon) ? trimmed.getNumGeometries() : 1;
+        int removedByArea = partsAfterKeep - partsAfterAreaFilter;
+        log.debug("[splitRoad] 小面积过滤 结束 返回 移除区块数={} 剩余部分数={} 耗时={}ms", removedByArea, partsAfterAreaFilter,
+                (tAreaEnd - tAreaStart));
+        log.trace("[splitRoad] 裁剪完成 type={} parts={} 移除面积={} 耗时={}ms",
+                trimmed.getGeometryType(), (trimmed instanceof MultiPolygon) ? trimmed.getNumGeometries() : 1,
+                removedByArea, ((tKeepEnd - tKeepStart) + (tAreaEnd - tAreaStart)));
+
+        // 5) 返回日志说明
+        if (((trimmed instanceof MultiPolygon) ? trimmed.getNumGeometries() : 1) < limit) {
+            String reason;
+            if (((trimmed instanceof MultiPolygon) ? trimmed.getNumGeometries() : 1) != partsAfterKeep) {
+                reason = "小面积过滤";
+            } else if (partsOutline < limit) {
+                reason = "原始区块数小于上限";
+            } else {
+                reason = "面积裁剪后区块数不超过上限";
+            }
+            log.debug("[splitRoad] 返回结果 结束 返回 type={} parts={} 原因={} 小面积移除={}", trimmed.getGeometryType(),
+                    (trimmed instanceof MultiPolygon) ? trimmed.getNumGeometries() : 1, reason, removedByArea);
+        } else {
+            log.debug("[splitRoad] 返回结果 结束 返回 type={} parts={}", trimmed.getGeometryType(),
+                    (trimmed instanceof MultiPolygon) ? trimmed.getNumGeometries() : 1);
+        }
+
+        // 6) 统计轮廓内点的会话段（与轮廓构建一致的过滤点集）
+        List<OutlinePart> parts = new ArrayList<>();
+        if (trimmed instanceof Polygon) {
+            log.trace("[splitRoad] 进入Polygon分支");
+            Polygon poly = (Polygon) trimmed;
+            PreparedGeometry preparedPoly = PreparedGeometryFactory.prepare(poly);
+            Envelope env = poly.getEnvelopeInternal();
+            long tWithinStart = System.currentTimeMillis();
+            List<List<TrackPoint>> sessions = new ArrayList<>();
+            List<TrackPoint> current = null;
+            for (TrackPoint p : workSeg) {
+                Coordinate c = new Coordinate(p.getLon(), p.getLat());
+                if (!env.contains(c)) {
+                    if (current != null) {
+                        sessions.add(current);
+                        current = null;
+                    }
+                    continue;
                 }
-            } else if (outline instanceof Polygon) {
-                polygons.add(outline);
+                Geometry point = config.geometryFactory.createPoint(c);
+                boolean inside = preparedPoly.contains(point);
+                if (inside) {
+                    if (current == null)
+                        current = new ArrayList<>();
+                    current.add(p);
+                } else {
+                    if (current != null) {
+                        sessions.add(current);
+                        current = null;
+                    }
+                }
             }
-
-            log.debug("[splitRoad] 原始多边形数量={}", polygons.size());
-
-            // 为每个多边形创建OutlinePart（按面积排序）
-            List<OutlinePart> allParts = new ArrayList<>();
-
-            // 预创建轨迹点几何对象，避免重复创建
-            List<Point> trackPointsGeo = new ArrayList<>(workSeg.size());
-            for (TrackPoint trackPoint : workSeg) {
-                trackPointsGeo.add(config.geometryFactory.createPoint(
-                        new Coordinate(trackPoint.getLon(), trackPoint.getLat())));
+            if (current != null) {
+                sessions.add(current);
             }
+            long tWithinEnd = System.currentTimeMillis();
+            log.trace("[splitRoad] Polygon 会话段统计完成 sessions={} 耗时={}ms", sessions.size(), (tWithinEnd - tWithinStart));
 
-            for (Geometry polygon : polygons) {
-                if (polygon instanceof Polygon) {
-                    // 使用正确的calcMu方法计算球面面积
-                    double areaMu = calcMu(polygon);
-                    String wkt = polygon.toText();
+            List<TrackPoint> inPoly = sessions.stream().flatMap(List::stream).collect(Collectors.toList());
+            LocalDateTime start = inPoly.isEmpty() ? null : inPoly.get(0).getTime();
+            LocalDateTime end = inPoly.isEmpty() ? null : inPoly.get(inPoly.size() - 1).getTime();
+            log.trace("[splitRoad] Polygon 跨度(按轮廓内点) 时间范围 start={} end={} inPoly={} sessions={}", start, end,
+                    inPoly.size(), sessions.size());
 
-                    // 使用PreparedGeometry优化包含判断性能
-                    PreparedGeometry prepPolygon = PreparedGeometryFactory.prepare(polygon);
+            long tMuStart = System.currentTimeMillis();
+            double mu = calcMu(poly);
+            long tMuEnd = System.currentTimeMillis();
+            log.trace("[splitRoad] Polygon mu计算完成 值={} 耗时={}ms", mu, (tMuEnd - tMuStart));
 
-                    // 找出属于这个多边形的轨迹点
-                    List<TrackPoint> partTrackPoints = new ArrayList<>();
-                    LocalDateTime partStartTime = null;
-                    LocalDateTime partEndTime = null;
+            long tWktStart = System.currentTimeMillis();
+            String wkt = toWkt(poly);
+            long tWktEnd = System.currentTimeMillis();
+            log.trace("[splitRoad] Polygon WKT生成完成 长度={} 耗时={}ms", wkt.length(), (tWktEnd - tWktStart));
 
-                    // 批量处理轨迹点
-                    for (int i = 0; i < workSeg.size(); i++) {
-                        TrackPoint trackPoint = workSeg.get(i);
-                        Point pointGeo = trackPointsGeo.get(i);
-
-                        if (prepPolygon.contains(pointGeo)) {
-                            partTrackPoints.add(trackPoint);
-
-                            // 更新起止时间
-                            if (partStartTime == null || trackPoint.getTime().isBefore(partStartTime)) {
-                                partStartTime = trackPoint.getTime();
-                            }
-                            if (partEndTime == null || trackPoint.getTime().isAfter(partEndTime)) {
-                                partEndTime = trackPoint.getTime();
-                            }
+            parts.add(new OutlinePart(poly, start, end, mu, wkt, inPoly).setTotalWidthM(totalWidthM));
+            log.trace("[splitRoad] parts构建完成 size={}", parts.size());
+        } else if (trimmed instanceof MultiPolygon) {
+            MultiPolygon mp = (MultiPolygon) trimmed;
+            log.trace("[splitRoad] 进入MultiPolygon分支 分区数={}", mp.getNumGeometries());
+            long partsBuildStart = System.currentTimeMillis();
+            for (int i = 0; i < mp.getNumGeometries(); i++) {
+                Polygon poly = (Polygon) mp.getGeometryN(i);
+                PreparedGeometry preparedPoly = PreparedGeometryFactory.prepare(poly);
+                Envelope env = poly.getEnvelopeInternal();
+                long tWithinStart = System.currentTimeMillis();
+                List<List<TrackPoint>> sessions = new ArrayList<>();
+                List<TrackPoint> current = null;
+                for (TrackPoint p : workSeg) {
+                    Coordinate c = new Coordinate(p.getLon(), p.getLat());
+                    if (!env.contains(c)) {
+                        if (current != null) {
+                            sessions.add(current);
+                            current = null;
+                        }
+                        continue;
+                    }
+                    Geometry point = config.geometryFactory.createPoint(c);
+                    boolean inside = preparedPoly.contains(point);
+                    if (inside) {
+                        if (current == null)
+                            current = new ArrayList<>();
+                        current.add(p);
+                    } else {
+                        if (current != null) {
+                            sessions.add(current);
+                            current = null;
                         }
                     }
+                }
+                if (current != null) {
+                    sessions.add(current);
+                }
+                long tWithinEnd = System.currentTimeMillis();
+                log.trace("[splitRoad] Part#{} 会话段统计完成 sessions={} 耗时={}ms", i, sessions.size(),
+                        (tWithinEnd - tWithinStart));
 
-                    // 创建OutlinePart，设置所有属性
-                    OutlinePart part = new OutlinePart(
-                            polygon,
-                            partStartTime,
-                            partEndTime,
-                            areaMu,
-                            wkt,
-                            partTrackPoints);
+                List<TrackPoint> inPoly = sessions.stream().flatMap(List::stream).collect(Collectors.toList());
+                LocalDateTime start = inPoly.isEmpty() ? null : inPoly.get(0).getTime();
+                LocalDateTime end = inPoly.isEmpty() ? null : inPoly.get(inPoly.size() - 1).getTime();
+                log.trace("[splitRoad] Part#{} 跨度(按轮廓内点) 时间范围 start={} end={} (sessions={})", i, start, end,
+                        sessions.size());
 
-                    // 设置总宽度
-                    part.setTotalWidthM(totalWidthM);
+                long tMuStart = System.currentTimeMillis();
+                double mu = calcMu(poly);
+                long tMuEnd = System.currentTimeMillis();
+                log.trace("[splitRoad] Part#{} mu计算完成 值={} 耗时={}ms", i, mu, (tMuEnd - tMuStart));
 
-                    allParts.add(part);
+                long tWktStart = System.currentTimeMillis();
+                String wkt = toWkt(poly);
+                long tWktEnd = System.currentTimeMillis();
+                log.trace("[splitRoad] Part#{} WKT生成完成 长度={} 耗时={}ms", i, wkt.length(), (tWktEnd - tWktStart));
+
+                parts.add(new OutlinePart(poly, start, end, mu, wkt, inPoly).setTotalWidthM(totalWidthM));
+                if ((i + 1) % 10 == 0 || i == mp.getNumGeometries() - 1) {
+                    log.trace("[splitRoad] MultiPolygon 进度 {}/{}", (i + 1), mp.getNumGeometries());
                 }
             }
+            long partsBuildEnd = System.currentTimeMillis();
+            log.trace("[splitRoad] MultiPolygon parts构建完成 size={} 总耗时={}ms", parts.size(),
+                    (partsBuildEnd - partsBuildStart));
+        }
 
-            // 按面积降序排序
-            allParts.sort((p1, p2) -> Double.compare(p2.getMu(), p1.getMu()));
+        // 为每个区块重新计算平滑轮廓，使用局部方法而非修改共享配置，确保线程安全
+        log.debug("[splitRoad] 开始为每个区块重新计算平滑轮廓");
+        long tSmoothStart = System.currentTimeMillis();
+        List<OutlinePart> smoothedParts = new ArrayList<>();
+        List<Geometry> allPolygons = new ArrayList<>();
 
-            // 选择前maxSegmentsToUse个最大的多边形
-            List<OutlinePart> selectedParts = allParts.size() > maxSegmentsToUse
-                    ? allParts.subList(0, maxSegmentsToUse)
-                    : allParts;
+        for (OutlinePart part : parts) {
+            if (part.getTrackPoints() != null && !part.getTrackPoints().isEmpty()) {
+                try {
+                    // 使用局部方法计算平滑轮廓，避免修改共享的config对象，确保并发安全
+                    Geometry smoothOutline = buildSmoothOutlineByLineBuffers(part.getTrackPoints(), widthM);
 
-            log.debug("[splitRoad] 保留多边形数量={}", selectedParts.size());
-
-            // 5) 根据最小亩数阈值过滤多边形
-            List<OutlinePart> filteredParts = new ArrayList<>();
-            if (config.ENABLE_AREA_FILTER) {
-                log.debug("[splitRoad] 亩数过滤 开始 最小亩数阈值={}", config.MIN_AREA_MU);
-                for (OutlinePart part : selectedParts) {
-                    if (part.getMu() >= config.MIN_AREA_MU) {
-                        filteredParts.add(part);
-                    } else {
-                        log.trace("[splitRoad] 过滤掉小面积多边形 面积={}亩 阈值={}亩", part.getMu(), config.MIN_AREA_MU);
+                    // 应用凹包平滑处理，保持与原始算法一致的平滑效果
+                    if (config.ENABLE_CONCAVE_SMOOTHING) {
+                        double originLon = part.getTrackPoints().get(0).getLon();
+                        smoothOutline = concaveSmoothPreserveHoles(smoothOutline, widthM, originLon);
                     }
+
+                    // 计算新的亩数和WKT
+                    double smoothMu = calcMu(smoothOutline);
+                    String smoothWkt = toWkt(smoothOutline);
+
+                    // 创建新的平滑轮廓部分，包含更新后的几何信息
+                    OutlinePart smoothedPart = new OutlinePart(
+                            smoothOutline,
+                            part.getStartTime(),
+                            part.getEndTime(),
+                            smoothMu,
+                            smoothWkt,
+                            part.getTrackPoints()).setTotalWidthM(totalWidthM);
+
+                    smoothedParts.add(smoothedPart);
+                    allPolygons.add(smoothOutline);
+                } catch (Exception e) {
+                    log.error("[splitRoad] 计算区块平滑轮廓失败，使用原始轮廓", e);
+                    smoothedParts.add(part);
+                    allPolygons.add(part.getOutline());
                 }
-                log.debug("[splitRoad] 亩数过滤 结束 过滤前数量={} 过滤后数量={}", selectedParts.size(), filteredParts.size());
             } else {
-                log.debug("[splitRoad] 亩数过滤 已禁用，跳过过滤逻辑");
-                filteredParts.addAll(selectedParts);
-            }
-
-            // 重新构建几何结果
-            if (filteredParts.size() == 1) {
-                finalOutline = filteredParts.get(0).getOutline();
-            } else if (filteredParts.size() > 1) {
-                GeometryFactory factory = config.geometryFactory;
-                Polygon[] selectedPolygons = filteredParts.stream()
-                        .map(part -> (Polygon) part.getOutline())
-                        .toArray(Polygon[]::new);
-                finalOutline = factory.createMultiPolygon(selectedPolygons);
-            } else {
-                // 如果没有多边形满足亩数要求，返回空多边形
-                finalOutline = config.geometryFactory.createPolygon();
-            }
-
-            finalParts = filteredParts;
-
-            log.debug("[splitRoad] 多边形数量限制 结束 原始数量={} 保留数量={} 过滤后数量={}",
-                    allParts.size(), selectedParts.size(), filteredParts.size());
-        }
-
-        // 生成WKT字符串用于输出
-        String wkt;
-        if (finalOutline != null && !finalOutline.isEmpty()) {
-            wkt = finalOutline.toText();
-        } else {
-            // 返回标准的空几何WKT格式
-            if (finalOutline instanceof MultiPolygon) {
-                wkt = "MULTIPOLYGON EMPTY";
-            } else {
-                wkt = "POLYGON EMPTY";
+                smoothedParts.add(part);
+                allPolygons.add(part.getOutline());
             }
         }
 
-        // 创建SplitRoadResult并计算整体时间范围
-        SplitRoadResult result = new SplitRoadResult(finalOutline, finalParts, wkt);
-        result.setTotalWidthM(totalWidthM);
-        result.calculateTimeRange(); // 计算整体起止时间
+        // 重新计算整体轮廓
+        Geometry newOverallOutline = null;
+        if (!allPolygons.isEmpty()) {
+            if (allPolygons.size() == 1) {
+                newOverallOutline = allPolygons.get(0);
+            } else {
+                newOverallOutline = UnaryUnionOp.union(allPolygons);
+            }
+        }
 
-        return result;
+        long tSmoothEnd = System.currentTimeMillis();
+        log.debug("[splitRoad] 区块平滑轮廓计算完成 耗时={}ms", (tSmoothEnd - tSmoothStart));
+
+        long tOutlineWktStart = System.currentTimeMillis();
+        String outlineWkt = newOverallOutline != null ? toWkt(newOverallOutline) : toWkt(trimmed);
+        long tOutlineWktEnd = System.currentTimeMillis();
+        log.trace("[splitRoad] Outline WKT生成完成 长度={} 耗时={}ms", outlineWkt.length(),
+                (tOutlineWktEnd - tOutlineWktStart));
+
+        long tTotalEnd = System.currentTimeMillis();
+        log.debug("[splitRoad] 结束 返回 parts={} 总耗时={}ms",
+                smoothedParts.size(), (tTotalEnd - t0));
+        return new SplitRoadResult(newOverallOutline != null ? newOverallOutline : trimmed, smoothedParts, outlineWkt)
+                .setTotalWidthM(totalWidthM);
     }
 
 }

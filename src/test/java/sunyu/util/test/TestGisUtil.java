@@ -146,20 +146,32 @@ public class TestGisUtil {
     }
 
     @Test
-    void 计算重复亩数018_335() throws Exception {
-        String wkt1 = FileUtil.readUtf8Lines(path + "/EC73BD2506050018_20251029161736_20251029162905_outline018.txt")
-                .get(0).replace("wkt: ", "");
-        String wkt2 = FileUtil.readUtf8Lines(path + "/EC73BD2509061335_20251029155746_20251029161032_outline335.txt")
-                .get(0).replace("wkt: ", "");
-        WktIntersectionResult r = gisUtil.intersection(wkt1, wkt2);
-        log.info("相交面积：{} 亩", r.getMu());
+    void 测试0018() throws Exception {
+        String did = "EC73BD2506050018";
+        String startTime = "20251104090717";
+        String endTime = "20251104092257";
+        double jobWidth = 2.8;
+        读取一段轨迹数据(did, startTime, endTime);
+        测试一段拆分数据(did, startTime, endTime, jobWidth);
+        输出一段HTML(did, startTime, endTime);
     }
 
     @Test
-    void 计算重复亩数001_335() throws Exception {
-        String wkt1 = FileUtil.readUtf8Lines(path + "/EC71BT2402000001_20251015141847_20251015142510_outline001.txt")
+    void 测试1335() throws Exception {
+        String did = "EC73BD2509061335";
+        String startTime = "20251104090717";
+        String endTime = "20251104092257";
+        double jobWidth = 2.8;
+        读取一段轨迹数据(did, startTime, endTime);
+        测试一段拆分数据(did, startTime, endTime, jobWidth);
+        输出一段HTML(did, startTime, endTime);
+    }
+
+    @Test
+    void 计算重复亩数0018_1335() throws Exception {
+        String wkt1 = FileUtil.readUtf8Lines(path + "/EC73BD2506050018_20251029161736_20251029162905_outline018.txt")
                 .get(0).replace("wkt: ", "");
-        String wkt2 = FileUtil.readUtf8Lines(path + "/EC73BD2509060335_20251015125319_20251015131516_outline335.txt")
+        String wkt2 = FileUtil.readUtf8Lines(path + "/EC73BD2509061335_20251029155746_20251029161032_outline335.txt")
                 .get(0).replace("wkt: ", "");
         WktIntersectionResult r = gisUtil.intersection(wkt1, wkt2);
         log.info("相交面积：{} 亩", r.getMu());
@@ -377,11 +389,11 @@ public class TestGisUtil {
             String partsFile = StrUtil.format(path + "/{}_{}_parts.txt", did, jobEndTime.toString("yyyyMMdd"));
 
             StringBuilder ob = new StringBuilder();
-            ob.append("Outline type: ").append(outline.getGeometryType()).append('\n')
+            ob.append("type: ").append(outline.getGeometryType()).append('\n')
                     .append("Parts: ")
                     .append(outline instanceof org.locationtech.jts.geom.MultiPolygon ? outline.getNumGeometries() : 1)
                     .append('\n')
-                    .append("mu: ").append(gisUtil.calcMu(outline)).append('\n')
+                    .append("mu: ").append(res.getMu()).append('\n')
                     .append("totalWidthM: ").append(res.getTotalWidthM()).append('\n')
                     .append("WKT: ").append(outlineWkt).append('\n');
             FileUtil.writeUtf8String(ob.toString(), outlineFile);
@@ -432,12 +444,14 @@ public class TestGisUtil {
             String partsFile = StrUtil.format(path + "/{}_{}_{}_parts.txt", did, startTime, endTime);
 
             StringBuilder ob = new StringBuilder();
-            ob.append("Outline type: ").append(outline.getGeometryType()).append('\n')
+            ob.append("type: ").append(outline.getGeometryType()).append('\n')
                     .append("Parts: ")
                     .append(outline instanceof org.locationtech.jts.geom.MultiPolygon ? outline.getNumGeometries() : 1)
                     .append('\n')
-                    .append("mu: ").append(gisUtil.calcMu(outline)).append('\n')
+                    .append("mu: ").append(res.getMu()).append('\n')
                     .append("totalWidthM: ").append(res.getTotalWidthM()).append('\n')
+                    .append("startTime: ").append(res.getStartTime()).append('\n')
+                    .append("endTime: ").append(res.getEndTime()).append('\n')
                     .append("WKT: ").append(outlineWkt).append('\n');
             FileUtil.writeUtf8String(ob.toString(), outlineFile);
 
@@ -475,7 +489,7 @@ public class TestGisUtil {
         String trace = FileUtil.readUtf8String(fileName);
         html = StrUtil.replace(html, "${trace}", trace);
 
-        String outline = FileUtil.readUtf8Lines(path + StrUtil.format("/{}_{}_outline.txt", did, yyyyMMdd)).get(4);
+        String outline = FileUtil.readUtf8Lines(path + StrUtil.format("/{}_{}_outline.txt", did, yyyyMMdd)).get(6);
         html = StrUtil.replace(html, "${outline}", outline.replace("WKT: ", ""));
 
         FileUtil.writeUtf8String(html, path + StrUtil.format("/{}_{}.html", did, yyyyMMdd));
@@ -493,7 +507,7 @@ public class TestGisUtil {
         html = StrUtil.replace(html, "${trace}", trace);
 
         String outline = FileUtil.readUtf8Lines(path + StrUtil.format("/{}_{}_{}_outline.txt", did, startTime, endTime))
-                .get(4);
+                .get(6);
         html = StrUtil.replace(html, "${outline}", outline.replace("WKT: ", ""));
 
         FileUtil.writeUtf8String(html, path + StrUtil.format("/{}_{}_{}.html", did, startTime, endTime));
