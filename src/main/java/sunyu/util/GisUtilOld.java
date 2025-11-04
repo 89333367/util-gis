@@ -911,115 +911,6 @@ public class GisUtilOld implements AutoCloseable {
     }
 
     /**
-     * 构建平滑轮廓的线缓冲方法。
-     * <p>
-     * 该方法使用局部参数控制断段行为，不会修改共享配置，适用于生成平滑连续的轨迹轮廓。
-     * 通过禁用道路断裂控制并使用更大的断段阈值来减少轮廓中的断续问题。
-     * </p>
-     * 
-     * @param seg    轨迹点列表，用于构建轮廓的原始轨迹数据
-     * @param widthM 线缓冲宽度（米），控制生成轮廓的宽度
-     * @return 生成的平滑轮廓几何对象
-     * @throws Exception 当轨迹点处理、坐标转换或几何操作失败时抛出
-     */
-    private Geometry buildSmoothOutlineByLineBuffers(List<TrackPoint> seg, double widthM) throws Exception {
-        long startTime = System.currentTimeMillis();
-        log.trace("[buildSmoothOutlineByLineBuffers] 开始处理 {} 个轨迹点，线缓冲宽度: {} 米", seg.size(), widthM);
-
-        if (seg == null || seg.size() < 2) {
-            return config.geometryFactory.createGeometryCollection(null);
-        }
-
-        double originLon = seg.get(0).getLon();
-        MathTransform txWgsToGk = getTxWgsToGaussByLon(originLon);
-
-        // 将点转换到米制坐标并按距离切段，使用更大的断段阈值（widthM * 20.0）减少断段
-        double breakDist = Math.max(widthM, widthM * 20.0); // 增大断段阈值以提高轮廓连续性
-        List<List<Coordinate>> lines = new ArrayList<>();
-        List<Coordinate> current = new ArrayList<>();
-
-        long convertTime = 0;
-        for (int i = 0; i < seg.size(); i++) {
-            TrackPoint p = seg.get(i);
-            Coordinate src = new Coordinate(p.getLon(), p.getLat());
-            Coordinate c = new Coordinate();
-            long t = System.currentTimeMillis();
-            JTS.transform(src, c, txWgsToGk);
-            convertTime += System.currentTimeMillis() - t;
-
-            if (!current.isEmpty()) {
-                Coordinate prev = current.get(current.size() - 1);
-                double dx = c.x - prev.x;
-                double dy = c.y - prev.y;
-                double dist = Math.hypot(dx, dy);
-                if (dist > breakDist) {
-                    if (current.size() >= 2) {
-                        lines.add(current);
-                    }
-                    current = new ArrayList<>();
-                }
-                // 不进行道路断裂控制，确保轨迹连续性，避免轮廓断续问题
-            }
-            current.add(c);
-        }
-        if (current.size() >= 2) {
-            lines.add(current);
-        }
-
-        // 构造折线，简化，然后缓冲
-        long simplifyTime = 0;
-        long bufferTime = 0;
-        List<LineString> simplifiedLines = new ArrayList<>();
-        BufferParameters params = new BufferParameters();
-        params.setQuadrantSegments(config.DEFAULT_BUFFER_QUADRANT);
-        params.setEndCapStyle(config.BUFFER_END_CAP_STYLE);
-        params.setJoinStyle(config.BUFFER_JOIN_STYLE);
-        params.setMitreLimit(config.BUFFER_MITRE_LIMIT);
-
-        double tol = Math.max(0.01, widthM * config.LINE_SIMPLIFY_TOL_FACTOR);
-
-        for (List<Coordinate> coords : lines) {
-            if (coords.size() < 2)
-                continue;
-            Coordinate[] arr = coords.toArray(new Coordinate[0]);
-            LineString line = config.geometryFactory.createLineString(arr);
-            long ts = System.currentTimeMillis();
-            Geometry simplified = DouglasPeuckerSimplifier.simplify(line, tol);
-            simplifyTime += System.currentTimeMillis() - ts;
-
-            if (simplified instanceof LineString) {
-                LineString ls = (LineString) simplified;
-                simplifiedLines.add(ls);
-            } else if (simplified instanceof MultiLineString) {
-                MultiLineString mls = (MultiLineString) simplified;
-                for (int i = 0; i < mls.getNumGeometries(); i++) {
-                    LineString ls = (LineString) mls.getGeometryN(i);
-                    simplifiedLines.add(ls);
-                }
-            }
-        }
-
-        // 将所有简化线拼为一个 MultiLineString，一次性缓冲
-        LineString[] lsArr = simplifiedLines.toArray(new LineString[0]);
-        MultiLineString mlsAll = config.geometryFactory.createMultiLineString(lsArr);
-        long tb = System.currentTimeMillis();
-        Geometry union = BufferOp.bufferOp(mlsAll, widthM, params);
-        bufferTime += System.currentTimeMillis() - tb;
-
-        // 转回 WGS84
-        long backStart = System.currentTimeMillis();
-        MathTransform txGkToWgs = getTxGaussToWgsByLon(originLon);
-        Geometry result = JTS.transform(union, txGkToWgs);
-        long backTime = System.currentTimeMillis() - backStart;
-
-        long endTime = System.currentTimeMillis();
-        log.debug("[buildSmoothOutlineByLineBuffers] 完成，总计耗时: {}ms (转换:{}ms, 简化:{}ms, 缓冲:{}ms, 回转:{}ms)",
-                endTime - startTime, convertTime, simplifyTime, bufferTime, backTime);
-
-        return result;
-    }
-
-    /**
      * 计算两点球面距离（哈弗辛公式，WGS84 平均地球半径）。
      * 输入为经纬度（度），返回沿地球表面的近似测地距离（米）。
      * 注意：这是球面近似的地理距离，不是投影平面直线距离；若需平面距离，请先做米制投影后再计算。
@@ -1778,7 +1669,6 @@ public class GisUtilOld implements AutoCloseable {
         // 4) 保留最大区块并按最小亩数过滤
         int limit = (maxSegments == null || maxSegments <= 0) ? config.DEFAULT_MAX_OUTLINE_SEGMENTS
                 : maxSegments.intValue();
-        log.debug("[splitRoad] 输入参数 原始点数={} 过滤后点数={} 总宽度={}m 返回上限={}", seg.size(), workSeg.size(), totalWidthM, limit);
         log.debug("[splitRoad] 保留最大区块 开始 上限={} 输入类型={} parts={}", limit, outline.getGeometryType(), partsOutline);
         long tKeepStart = System.currentTimeMillis();
         Geometry kept = keepLargestPolygons(outline, limit);
@@ -1939,74 +1829,16 @@ public class GisUtilOld implements AutoCloseable {
                     (partsBuildEnd - partsBuildStart));
         }
 
-        // 为每个区块重新计算平滑轮廓，使用局部方法而非修改共享配置，确保线程安全
-        log.debug("[splitRoad] 开始为每个区块重新计算平滑轮廓");
-        long tSmoothStart = System.currentTimeMillis();
-        List<OutlinePart> smoothedParts = new ArrayList<>();
-        List<Geometry> allPolygons = new ArrayList<>();
-
-        for (OutlinePart part : parts) {
-            if (part.getTrackPoints() != null && !part.getTrackPoints().isEmpty()) {
-                try {
-                    // 使用局部方法计算平滑轮廓，避免修改共享的config对象，确保并发安全
-                    Geometry smoothOutline = buildSmoothOutlineByLineBuffers(part.getTrackPoints(), widthM);
-
-                    // 应用凹包平滑处理，保持与原始算法一致的平滑效果
-                    if (config.ENABLE_CONCAVE_SMOOTHING) {
-                        double originLon = part.getTrackPoints().get(0).getLon();
-                        smoothOutline = concaveSmoothPreserveHoles(smoothOutline, widthM, originLon);
-                    }
-
-                    // 计算新的亩数和WKT
-                    double smoothMu = calcMu(smoothOutline);
-                    String smoothWkt = toWkt(smoothOutline);
-
-                    // 创建新的平滑轮廓部分，包含更新后的几何信息
-                    OutlinePart smoothedPart = new OutlinePart(
-                            smoothOutline,
-                            part.getStartTime(),
-                            part.getEndTime(),
-                            smoothMu,
-                            smoothWkt,
-                            part.getTrackPoints()).setTotalWidthM(totalWidthM);
-
-                    smoothedParts.add(smoothedPart);
-                    allPolygons.add(smoothOutline);
-                } catch (Exception e) {
-                    log.error("[splitRoad] 计算区块平滑轮廓失败，使用原始轮廓", e);
-                    smoothedParts.add(part);
-                    allPolygons.add(part.getOutline());
-                }
-            } else {
-                smoothedParts.add(part);
-                allPolygons.add(part.getOutline());
-            }
-        }
-
-        // 重新计算整体轮廓
-        Geometry newOverallOutline = null;
-        if (!allPolygons.isEmpty()) {
-            if (allPolygons.size() == 1) {
-                newOverallOutline = allPolygons.get(0);
-            } else {
-                newOverallOutline = UnaryUnionOp.union(allPolygons);
-            }
-        }
-
-        long tSmoothEnd = System.currentTimeMillis();
-        log.debug("[splitRoad] 区块平滑轮廓计算完成 耗时={}ms", (tSmoothEnd - tSmoothStart));
-
         long tOutlineWktStart = System.currentTimeMillis();
-        String outlineWkt = newOverallOutline != null ? toWkt(newOverallOutline) : toWkt(trimmed);
+        String outlineWkt = toWkt(trimmed);
         long tOutlineWktEnd = System.currentTimeMillis();
         log.trace("[splitRoad] Outline WKT生成完成 长度={} 耗时={}ms", outlineWkt.length(),
                 (tOutlineWktEnd - tOutlineWktStart));
 
         long tTotalEnd = System.currentTimeMillis();
         log.debug("[splitRoad] 结束 返回 parts={} 总耗时={}ms",
-                smoothedParts.size(), (tTotalEnd - t0));
-        SplitRoadResult result = new SplitRoadResult(newOverallOutline != null ? newOverallOutline : trimmed,
-                smoothedParts, outlineWkt)
+                parts.size(), (tTotalEnd - t0));
+        SplitRoadResult result = new SplitRoadResult(trimmed, parts, outlineWkt)
                 .setTotalWidthM(totalWidthM);
         // 计算整体时间范围
         result.calculateTimeRange();
