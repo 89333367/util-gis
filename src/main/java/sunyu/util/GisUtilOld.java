@@ -162,17 +162,16 @@ public class GisUtilOld implements AutoCloseable {
         // 外缘细长裁剪开关（仅 splitRoad 使用）
         private boolean ENABLE_OUTER_THIN_TRIM = true;
         // 外缘细长裁剪半径系数（相对单侧宽度）
-        private double THIN_TRIM_RADIUS_FACTOR = 0.9;
+        private double THIN_TRIM_RADIUS_FACTOR = 4;
 
+        // 线段断裂控制开关（buildOutlineByLineBuffers 使用）
+        private boolean ENABLE_LINE_BREAK = true;
         // 线段断裂距离系数（倍数*单侧宽度），超过则切分会话
-        private double LINE_BREAK_FACTOR = 5.0;
+        private double LINE_BREAK_FACTOR = 4;
+        // 线简化控制开关（buildOutlineByLineBuffers 使用）
+        private boolean ENABLE_LINE_SIMPLIFY = true;
         // 线简化公差系数（倍数*单侧宽度），用于Douglas-Peucker
-        private double LINE_SIMPLIFY_TOL_FACTOR = 0.1;
-
-        // 凹包开运算（保留缝隙/洞）：在米制下做轻微开运算
-        private boolean ENABLE_CONCAVE_SMOOTHING = false;
-        // 开运算半径系数（相对于单侧宽度widthM）；建议 0.3–0.8
-        private double CONCAVE_SMOOTH_RADIUS_FACTOR = 0.4;
+        private double LINE_SIMPLIFY_TOL_FACTOR = 2;
 
         // 线缓冲样式（更圆滑边界）：拐角样式、端头样式与mitre限制
         private int BUFFER_JOIN_STYLE = BufferParameters.JOIN_ROUND;
@@ -181,13 +180,18 @@ public class GisUtilOld implements AutoCloseable {
         // 线缓冲的mitre限制值，控制锐角的处理方式，值越大允许越尖的角
         private double BUFFER_MITRE_LIMIT = 5.0;
 
+        // 凹包开运算（保留缝隙/洞）：在米制下做轻微开运算
+        private boolean ENABLE_CONCAVE_SMOOTHING = false;
+        // 开运算半径系数（相对于单侧宽度widthM）；建议 0.3–0.8
+        private double CONCAVE_SMOOTH_RADIUS_FACTOR = 0.4;
+
         // 可选：轻微蚀刻扩大缝隙（在米制下对并集做负缓冲）
         private boolean ENABLE_GAP_ENHANCE_ERODE = false;
         // 缝隙增强蚀刻因子，用于控制负缓冲的程度，值越大蚀刻越明显
         private double GAP_ENHANCE_ERODE_FACTOR = 0.2;
 
         // 直线道路段断开控制（防止窄直线连接合并两块大轮廓）
-        private boolean ENABLE_ROAD_STRAIGHT_BREAK = true;
+        private boolean ENABLE_ROAD_STRAIGHT_BREAK = false;
         // 道路直线差异阈值（角度），用于识别道路方向变化
         private double ROAD_STRAIGHT_DIFF_THRESHOLD_DEG = 6.0;
         // 道路直线窗口点数量，用于计算滑动窗口内的方向一致性
@@ -219,6 +223,28 @@ public class GisUtilOld implements AutoCloseable {
             return new GisUtilOld(config);
         }
 
+        /**
+         * 设置线段断裂控制开关
+         * 
+         * @param enable 是否启用线段断裂控制
+         * @return Builder实例，支持链式调用
+         */
+        public Builder enableLineBreak(boolean enable) {
+            config.ENABLE_LINE_BREAK = enable;
+            return this;
+        }
+
+        /**
+         * 设置线简化控制开关
+         * 
+         * @param enable 是否启用线简化控制
+         * @return Builder实例，支持链式调用
+         */
+        public Builder enableLineSimplify(boolean enable) {
+            config.ENABLE_LINE_SIMPLIFY = enable;
+            return this;
+        }
+
     }
 
     /**
@@ -232,6 +258,24 @@ public class GisUtilOld implements AutoCloseable {
         config.crsCache.clear();
         // 回收各种资源（预留扩展点）
         log.info("[销毁{}] 结束", this.getClass().getSimpleName());
+    }
+
+    /**
+     * 获取线段断裂控制开关状态
+     * 
+     * @return 是否启用线段断裂控制
+     */
+    public boolean isEnableLineBreak() {
+        return config.ENABLE_LINE_BREAK;
+    }
+
+    /**
+     * 获取线简化控制开关状态
+     * 
+     * @return 是否启用线简化控制
+     */
+    public boolean isEnableLineSimplify() {
+        return config.ENABLE_LINE_SIMPLIFY;
     }
 
     /**
@@ -495,7 +539,7 @@ public class GisUtilOld implements AutoCloseable {
      * 进行道格拉斯-普克简化后按给定宽度缓冲并合并，最终回转为 WGS84。
      *
      * @param seg    轨迹点列表（WGS84，经纬度与时间有效，建议已按时间升序）
-     * @param widthM 总宽度（米），用于缓冲半径计算
+     * @param widthM 半宽度（米），用于缓冲半径计算
      * @return 轮廓几何（WGS84；可能为 MultiPolygon）；输入为空时返回空几何
      * @throws Exception 投影转换、缓冲或几何合并过程中可能抛出的异常
      */
@@ -511,7 +555,7 @@ public class GisUtilOld implements AutoCloseable {
         MathTransform txWgsToGk = getTxWgsToGaussByLon(originLon);
 
         // 将点转换到米制坐标并按距离切段
-        double breakDist = Math.max(widthM, widthM * config.LINE_BREAK_FACTOR);
+        double breakDist = config.ENABLE_LINE_BREAK ? Math.max(widthM, config.LINE_BREAK_FACTOR) : widthM;
         List<List<Coordinate>> lines = new ArrayList<>();
         List<Coordinate> current = new ArrayList<>();
         // 新增：跟踪连续航向变化与累计直线长度
@@ -589,7 +633,7 @@ public class GisUtilOld implements AutoCloseable {
         params.setJoinStyle(config.BUFFER_JOIN_STYLE);
         params.setMitreLimit(config.BUFFER_MITRE_LIMIT);
 
-        double tol = Math.max(0.01, widthM * config.LINE_SIMPLIFY_TOL_FACTOR);
+        double tol = config.ENABLE_LINE_SIMPLIFY ? Math.max(0.01, widthM * config.LINE_SIMPLIFY_TOL_FACTOR) : 0.0;
 
         for (List<Coordinate> coords : lines) {
             if (coords.size() < 2)
@@ -597,7 +641,7 @@ public class GisUtilOld implements AutoCloseable {
             Coordinate[] arr = coords.toArray(new Coordinate[0]);
             LineString line = config.geometryFactory.createLineString(arr);
             long ts = System.currentTimeMillis();
-            Geometry simplified = DouglasPeuckerSimplifier.simplify(line, tol);
+            Geometry simplified = config.ENABLE_LINE_SIMPLIFY ? DouglasPeuckerSimplifier.simplify(line, tol) : line;
             simplifyTime += System.currentTimeMillis() - ts;
 
             if (simplified instanceof LineString) {
@@ -1630,7 +1674,7 @@ public class GisUtilOld implements AutoCloseable {
         // 3.2) 外缘细长条裁剪（避免道路窄条并入田块外缘）
         if (config.ENABLE_OUTER_THIN_TRIM) {
             long tThinStart = System.currentTimeMillis();
-            double radiusM = Math.max(0.5, widthM * config.THIN_TRIM_RADIUS_FACTOR);
+            double radiusM = Math.max(0.5, config.THIN_TRIM_RADIUS_FACTOR);
             int partsBeforeThin = (outline instanceof MultiPolygon) ? outline.getNumGeometries() : 1;
             log.debug("[splitRoad] 外缘细长裁剪 开始 半径={}m 输入类型={} 输入部分数={}", radiusM, outline.getGeometryType(),
                     partsBeforeThin);
