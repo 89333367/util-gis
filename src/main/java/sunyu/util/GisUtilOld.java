@@ -5,6 +5,8 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
+import java.util.TreeMap;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
@@ -162,7 +164,19 @@ public class GisUtilOld implements AutoCloseable {
         // 外缘细长裁剪开关（仅 splitRoad 使用）
         private boolean ENABLE_OUTER_THIN_TRIM = true;
         // 外缘细长裁剪半径系数（相对单侧宽度）
-        private double THIN_TRIM_RADIUS_FACTOR = 4;
+        private double THIN_TRIM_RADIUS_FACTOR = 1.5;
+        // 宽幅到半径系数的映射表（使用TreeMap支持范围查找）
+        private final TreeMap<Double, Double> WIDTH_TO_RADIUS_FACTOR_MAP = new TreeMap<Double, Double>() {
+            {
+                // 初始化默认映射关系
+                put(0.0, 0.5);
+                put(2.5, 1.6);
+                put(2.6, 1.8);
+                put(2.7, 2.0);
+                put(2.8, 2.4);
+                put(3.0, 3.0);
+            }
+        };
 
         // 线段断裂控制开关（buildOutlineByLineBuffers 使用）
         private boolean ENABLE_LINE_BREAK = true;
@@ -245,6 +259,21 @@ public class GisUtilOld implements AutoCloseable {
             return this;
         }
 
+        /**
+         * 自定义宽幅到半径系数的映射关系
+         * 允许用户动态设置不同宽幅对应的半径系数
+         * 
+         * @param widthToRadiusMap 宽幅到半径系数的映射表，key为宽幅(米)，value为半径系数
+         * @return Builder实例，支持链式调用
+         */
+        public Builder widthToRadiusFactorMap(Map<Double, Double> widthToRadiusMap) {
+            if (widthToRadiusMap != null) {
+                config.WIDTH_TO_RADIUS_FACTOR_MAP.clear();
+                config.WIDTH_TO_RADIUS_FACTOR_MAP.putAll(widthToRadiusMap);
+            }
+            return this;
+        }
+
     }
 
     /**
@@ -293,6 +322,21 @@ public class GisUtilOld implements AutoCloseable {
                 throw new RuntimeException("解析CRS出错: " + key, e);
             }
         });
+    }
+
+    /**
+     * 根据宽幅获取对应的半径系数
+     * 
+     * @param width 宽幅（米）
+     * @return 对应的半径系数
+     */
+    private double getRadiusFactorByWidth(double width) {
+        Map.Entry<Double, Double> entry = config.WIDTH_TO_RADIUS_FACTOR_MAP.floorEntry(width);
+        if (entry != null) {
+            return entry.getValue();
+        }
+        // 如果没有找到匹配的，使用默认值
+        return config.THIN_TRIM_RADIUS_FACTOR;
     }
 
     /**
@@ -543,7 +587,8 @@ public class GisUtilOld implements AutoCloseable {
      * @return 轮廓几何（WGS84；可能为 MultiPolygon）；输入为空时返回空几何
      * @throws Exception 投影转换、缓冲或几何合并过程中可能抛出的异常
      */
-    private Geometry buildOutlineByLineBuffers(List<TrackPoint> seg, double widthM) throws Exception {
+    private Geometry buildOutlineByLineBuffers(List<TrackPoint> seg, double widthM, boolean enableLineBreak)
+            throws Exception {
         long startTime = System.currentTimeMillis();
         log.trace("[buildOutlineByLineBuffers] 开始处理 {} 个轨迹点，线缓冲宽度: {} 米", seg.size(), widthM);
 
@@ -555,7 +600,9 @@ public class GisUtilOld implements AutoCloseable {
         MathTransform txWgsToGk = getTxWgsToGaussByLon(originLon);
 
         // 将点转换到米制坐标并按距离切段
-        double breakDist = config.ENABLE_LINE_BREAK ? Math.max(widthM, config.LINE_BREAK_FACTOR) : widthM;
+        double breakDist = enableLineBreak ? Math.max(widthM, config.LINE_BREAK_FACTOR) : widthM;
+        log.debug("[buildOutlineByLineBuffers] 线段断裂控制: enable={}, breakDist={}m (widthM={}m, factor={})",
+                enableLineBreak, breakDist, widthM, config.LINE_BREAK_FACTOR);
         List<List<Coordinate>> lines = new ArrayList<>();
         List<Coordinate> current = new ArrayList<>();
         // 新增：跟踪连续航向变化与累计直线长度
@@ -577,6 +624,8 @@ public class GisUtilOld implements AutoCloseable {
                 double dy = c.y - prev.y;
                 double dist = Math.hypot(dx, dy);
                 if (dist > breakDist) {
+                    log.trace("[buildOutlineByLineBuffers] 线段断裂: dist={}m > breakDist={}m, 当前段点数={}, 创建新段",
+                            dist, breakDist, current.size());
                     if (current.size() >= 2) {
                         lines.add(current);
                     }
@@ -608,6 +657,10 @@ public class GisUtilOld implements AutoCloseable {
                     }
                     double straightLenThreshold = Math.max(widthM, Math.max(4, widthM * config.ROAD_BREAK_DIST_FACTOR));
                     if (maxAbsDiff < config.ROAD_STRAIGHT_DIFF_THRESHOLD_DEG && straightRunLen > straightLenThreshold) {
+                        log.debug(
+                                "[buildOutlineByLineBuffers] 长直线跑动断段: maxAbsDiff={}° < threshold={}°, straightRunLen={}m > threshold={}m, 当前段点数={}",
+                                maxAbsDiff, config.ROAD_STRAIGHT_DIFF_THRESHOLD_DEG, straightRunLen,
+                                straightLenThreshold, current.size());
                         if (current.size() >= 2) {
                             lines.add(current);
                         }
@@ -621,7 +674,9 @@ public class GisUtilOld implements AutoCloseable {
         }
         if (current.size() >= 2) {
             lines.add(current);
+            log.debug("[buildOutlineByLineBuffers] 添加最后一段: 点数={}", current.size());
         }
+        log.debug("[buildOutlineByLineBuffers] 线段分段完成: 共{}段", lines.size());
 
         // 构造折线，进行简化以提高性能，然后执行线缓冲操作
         long simplifyTime = 0;
@@ -1614,7 +1669,8 @@ public class GisUtilOld implements AutoCloseable {
      * @throws Exception 坐标转换或几何运算异常
      */
     public SplitRoadResult splitRoad(List<TrackPoint> seg, double totalWidthM) throws Exception {
-        return splitRoad(seg, totalWidthM, config.DEFAULT_MAX_OUTLINE_SEGMENTS);
+        return splitRoad(seg, totalWidthM, config.ENABLE_OUTER_THIN_TRIM, config.ENABLE_LINE_BREAK,
+                config.DEFAULT_MAX_OUTLINE_SEGMENTS);
     }
 
     /**
@@ -1626,7 +1682,8 @@ public class GisUtilOld implements AutoCloseable {
      * @return 轮廓几何，可能为 `Polygon` 或 `MultiPolygon`（最多保留 `maxSegments` 个）
      * @throws Exception 坐标转换或几何运算异常
      */
-    public SplitRoadResult splitRoad(List<TrackPoint> seg, double totalWidthM, Integer maxSegments) throws Exception {
+    public SplitRoadResult splitRoad(List<TrackPoint> seg, double totalWidthM, boolean enableOuterThinTrim,
+            boolean enableLineBreak, Integer maxSegments) throws Exception {
         long t0 = System.currentTimeMillis();
         double widthM = totalWidthM / 2.0;
         log.debug("[splitRoad] 开始 参数 原始点数={} 总宽度={}m 返回上限={}", seg.size(), totalWidthM,
@@ -1653,7 +1710,7 @@ public class GisUtilOld implements AutoCloseable {
         // 3) 直接进行线缓冲构建轮廓（不使用点缓冲）
         log.debug("[splitRoad] 构建线缓冲 开始 宽度={}m 输入点数={}", widthM, workSeg.size());
         long tBuildStart = System.currentTimeMillis();
-        Geometry outline = buildOutlineByLineBuffers(workSeg, widthM);
+        Geometry outline = buildOutlineByLineBuffers(workSeg, widthM, enableLineBreak);
         long tBuildEnd = System.currentTimeMillis();
         log.debug("[splitRoad] 构建线缓冲 结束 返回 type={} parts={} 耗时={}ms", outline.getGeometryType(),
                 (outline instanceof MultiPolygon) ? outline.getNumGeometries() : 1, (tBuildEnd - tBuildStart));
@@ -1672,12 +1729,14 @@ public class GisUtilOld implements AutoCloseable {
         }
 
         // 3.2) 外缘细长条裁剪（避免道路窄条并入田块外缘）
-        if (config.ENABLE_OUTER_THIN_TRIM) {
+        if (enableOuterThinTrim) {
             long tThinStart = System.currentTimeMillis();
-            double radiusM = Math.max(0.5, config.THIN_TRIM_RADIUS_FACTOR);
+            // 根据宽幅动态获取半径系数
+            double radiusFactor = getRadiusFactorByWidth(totalWidthM);
+            double radiusM = Math.max(0.1, radiusFactor);
             int partsBeforeThin = (outline instanceof MultiPolygon) ? outline.getNumGeometries() : 1;
-            log.debug("[splitRoad] 外缘细长裁剪 开始 半径={}m 输入类型={} 输入部分数={}", radiusM, outline.getGeometryType(),
-                    partsBeforeThin);
+            log.debug("[splitRoad] 外缘细长裁剪 开始 半径={}m (宽幅={}m 系数={}) 输入类型={} 输入部分数={}",
+                    radiusM, totalWidthM, radiusFactor, outline.getGeometryType(), partsBeforeThin);
             Geometry outlineAfterThin = trimOuterThinStrips(outline, radiusM);
             int partsAfterThin = (outlineAfterThin instanceof MultiPolygon) ? outlineAfterThin.getNumGeometries() : 1;
             int removedThin = Math.max(0, partsBeforeThin - partsAfterThin);
