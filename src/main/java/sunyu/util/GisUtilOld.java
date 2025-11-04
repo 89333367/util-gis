@@ -1029,13 +1029,9 @@ public class GisUtilOld implements AutoCloseable {
         double originLon = seg.get(0).getLon();
         MathTransform txWgsToGk = getTxWgsToGaussByLon(originLon);
 
-        // 将点转换到米制坐标并按距离切段
-        double breakDist = Math.max(widthM, widthM * config.LINE_BREAK_FACTOR);
+        // 将点转换到米制坐标
         List<List<Coordinate>> lines = new ArrayList<>();
         List<Coordinate> current = new ArrayList<>();
-        // 新增：跟踪连续航向变化与累计直线长度
-        List<Double> headingWindow = new ArrayList<>();
-        double straightRunLen = 0.0;
 
         long convertTime = 0;
         for (int i = 0; i < seg.size(); i++) {
@@ -1045,53 +1041,6 @@ public class GisUtilOld implements AutoCloseable {
             long t = System.currentTimeMillis();
             JTS.transform(src, c, txWgsToGk);
             convertTime += System.currentTimeMillis() - t;
-
-            if (!current.isEmpty()) {
-                Coordinate prev = current.get(current.size() - 1);
-                double dx = c.x - prev.x;
-                double dy = c.y - prev.y;
-                double dist = Math.hypot(dx, dy);
-                if (dist > breakDist) {
-                    if (current.size() >= 2) {
-                        lines.add(current);
-                    }
-                    current = new ArrayList<>();
-                    // 新增：断段后重置直线跑动状态
-                    headingWindow.clear();
-                    straightRunLen = 0.0;
-                }
-                // 新增：计算航向并进行“长直线跑动”断段判断
-                double hdeg = Math.toDegrees(Math.atan2(dy, dx));
-                if (hdeg < 0)
-                    hdeg += 360.0;
-                headingWindow.add(hdeg);
-                if (headingWindow.size() > config.ROAD_STRAIGHT_WINDOW_POINTS) {
-                    headingWindow.remove(0);
-                }
-                straightRunLen += dist;
-                if (config.ENABLE_ROAD_STRAIGHT_BREAK && headingWindow.size() >= config.ROAD_STRAIGHT_WINDOW_POINTS) {
-                    double maxAbsDiff = 0.0;
-                    for (int k = 1; k < headingWindow.size(); k++) {
-                        double d = headingWindow.get(k) - headingWindow.get(k - 1);
-                        while (d > 180)
-                            d -= 360;
-                        while (d < -180)
-                            d += 360;
-                        double ad = Math.abs(d);
-                        if (ad > maxAbsDiff)
-                            maxAbsDiff = ad;
-                    }
-                    double straightLenThreshold = Math.max(widthM, widthM * config.ROAD_BREAK_DIST_FACTOR);
-                    if (maxAbsDiff < config.ROAD_STRAIGHT_DIFF_THRESHOLD_DEG && straightRunLen > straightLenThreshold) {
-                        if (current.size() >= 2) {
-                            lines.add(current);
-                        }
-                        current = new ArrayList<>();
-                        headingWindow.clear();
-                        straightRunLen = 0.0;
-                    }
-                }
-            }
             current.add(c);
         }
         if (current.size() >= 2) {
