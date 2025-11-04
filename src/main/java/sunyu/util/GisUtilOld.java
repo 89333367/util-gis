@@ -1935,8 +1935,7 @@ public class GisUtilOld implements AutoCloseable {
      * @throws Exception 坐标转换或几何运算异常
      */
     public SplitRoadResult splitRoad(List<TrackPoint> seg, double totalWidthM) throws Exception {
-        return splitRoad(seg, totalWidthM, config.ENABLE_OUTER_THIN_TRIM, config.ENABLE_LINE_BREAK,
-                config.DEFAULT_MAX_OUTLINE_SEGMENTS);
+        return splitRoad(seg, totalWidthM, config.DEFAULT_MAX_OUTLINE_SEGMENTS);
     }
 
     /**
@@ -1948,8 +1947,7 @@ public class GisUtilOld implements AutoCloseable {
      * @return 轮廓几何，可能为 `Polygon` 或 `MultiPolygon`（最多保留 `maxSegments` 个）
      * @throws Exception 坐标转换或几何运算异常
      */
-    public SplitRoadResult splitRoad(List<TrackPoint> seg, double totalWidthM, boolean enableOuterThinTrim,
-            boolean enableLineBreak, Integer maxSegments) throws Exception {
+    public SplitRoadResult splitRoad(List<TrackPoint> seg, double totalWidthM, Integer maxSegments) throws Exception {
         long t0 = System.currentTimeMillis();
         double widthM = totalWidthM / 2.0;
         log.debug("[splitRoad] 开始 参数 原始点数={} 总宽度={}m 返回上限={}", seg.size(), totalWidthM,
@@ -1976,7 +1974,7 @@ public class GisUtilOld implements AutoCloseable {
         // 3) 直接进行线缓冲构建轮廓（不使用点缓冲）
         log.debug("[splitRoad] 构建线缓冲 开始 宽度={}m 输入点数={}", widthM, workSeg.size());
         long tBuildStart = System.currentTimeMillis();
-        Geometry outline = buildOutlineByLineBuffers(workSeg, widthM, enableLineBreak);
+        Geometry outline = buildOutlineByLineBuffers(workSeg, widthM, config.ENABLE_LINE_BREAK);
         long tBuildEnd = System.currentTimeMillis();
         log.debug("[splitRoad] 构建线缓冲 结束 返回 type={} parts={} 耗时={}ms", outline.getGeometryType(),
                 (outline instanceof MultiPolygon) ? outline.getNumGeometries() : 1, (tBuildEnd - tBuildStart));
@@ -1995,7 +1993,7 @@ public class GisUtilOld implements AutoCloseable {
         }
 
         // 3.2) 外缘细长条裁剪（避免道路窄条并入田块外缘）
-        if (enableOuterThinTrim) {
+        if (config.ENABLE_OUTER_THIN_TRIM) {
             long tThinStart = System.currentTimeMillis();
             // 根据宽幅动态获取半径系数
             double radiusFactor = getRadiusFactorByWidth(totalWidthM);
