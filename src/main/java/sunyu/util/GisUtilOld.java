@@ -2005,8 +2005,12 @@ public class GisUtilOld implements AutoCloseable {
         long tTotalEnd = System.currentTimeMillis();
         log.debug("[splitRoad] 结束 返回 parts={} 总耗时={}ms",
                 smoothedParts.size(), (tTotalEnd - t0));
-        return new SplitRoadResult(newOverallOutline != null ? newOverallOutline : trimmed, smoothedParts, outlineWkt)
+        SplitRoadResult result = new SplitRoadResult(newOverallOutline != null ? newOverallOutline : trimmed,
+                smoothedParts, outlineWkt)
                 .setTotalWidthM(totalWidthM);
+        // 计算整体时间范围
+        result.calculateTimeRange();
+        return result;
     }
 
 }
