@@ -28,7 +28,7 @@ import cn.hutool.db.Entity;
 import cn.hutool.log.Log;
 import cn.hutool.log.LogFactory;
 import cn.hutool.log.level.Level;
-import sunyu.util.GisUtilOld;
+import sunyu.util.GisUtil;
 import sunyu.util.TDengineUtil;
 import sunyu.util.pojo.CoordinatePoint;
 import sunyu.util.pojo.OutlinePart;
@@ -38,8 +38,7 @@ import sunyu.util.pojo.WktIntersectionResult;
 
 public class TestGisUtil {
     Log log = LogFactory.get();
-    // GisUtil gisUtil = GisUtil.builder().build();
-    GisUtilOld gisUtil = GisUtilOld.builder().build();
+    GisUtil gisUtil = GisUtil.builder().build();
     ProtocolSdk protocolSdk = new ProtocolSdk("http://192.168.11.8/config.xml");
     String path = "D:/tmp/java道路拆分算法测试";
 
@@ -179,59 +178,6 @@ public class TestGisUtil {
     }
 
     @Test
-    void 循环一天() throws SQLException {
-        Db db = getMysqlDb();
-        List<Entity> rows = db.query(
-                "select id,did,jobArea,jobStartTime,jobEndTime,jobWidth from farm_work where jobStartTime >= '2025-05-01' and jobStartTime < '2025-06-01' and (did like 'NJ%' or did like 'EC%') and jobArea > 0 and fixFlag = 1 and effectiveJobArea >0 order by insertTime desc limit 10");
-        for (Entity row : rows) {
-            String did = row.getStr("did");
-            Date jobStartTime = row.getDate("jobStartTime");
-            double jobWidth = row.getDouble("jobWidth");
-            String yyyyMMdd = DateUtil.format(jobStartTime, "yyyyMMdd");
-            读取一天轨迹数据(did, yyyyMMdd);
-            测试一天拆分数据(did, yyyyMMdd, jobWidth);
-            输出一天HTML(did, yyyyMMdd);
-        }
-    }
-
-    @Test
-    void 循环farm_work() throws SQLException {
-        Db db = getMysqlDb();
-        List<Entity> rows = db.query(
-                "select id,did,jobArea,jobStartTime,jobEndTime,jobWidth from farm_work where jobStartTime >= '2025-05-01' and jobStartTime < '2025-06-01' and (did like 'NJ%' or did like 'EC%') and jobArea > 0 and fixFlag = 1 and effectiveJobArea >0 order by insertTime desc limit 10");
-        for (Entity row : rows) {
-            String did = row.getStr("did");
-            Date jobStartTime = row.getDate("jobStartTime");
-            Date jobEndTime = row.getDate("jobEndTime");
-            double jobWidth = row.getDouble("jobWidth");
-            String startTime = DateUtil.format(jobStartTime, "yyyyMMddHHmmss");
-            String endTime = DateUtil.format(jobEndTime, "yyyyMMddHHmmss");
-            读取一段轨迹数据(did, startTime, endTime);
-            测试一段拆分数据(did, startTime, endTime, jobWidth);
-            输出一段HTML(did, startTime, endTime);
-        }
-    }
-
-    @Test
-    void wkt计算亩数() {
-        String wkt = FileUtil.readUtf8String(path + "/wkt118.txt");
-        double mu = gisUtil.calcMu(wkt);
-        log.info("{}", mu);
-
-        Geometry g = gisUtil.fromWkt(wkt);
-        mu = gisUtil.calcMu(g);
-        log.info("{}", mu);
-    }
-
-    @Test
-    void 测试相交() throws Exception {
-        String wktA = FileUtil.readUtf8String(path + "/wkt118.txt");
-        String wktB = FileUtil.readUtf8String(path + "/wkt335.txt");
-        WktIntersectionResult r = gisUtil.intersection(wktA, wktB);
-        FileUtil.writeUtf8String(StrUtil.format("wkt: {}\nmu: {}", r.getWkt(), r.getMu()), path + "/intersection.txt");
-    }
-
-    @Test
     void t001() {
         String did = "EC73BD2509060248";
         String yyyyMMdd = "20251023";
@@ -278,6 +224,40 @@ public class TestGisUtil {
         读取一段轨迹数据(did, startTime, endTime);
         测试一段拆分数据(did, startTime, endTime, widthM);
         输出一段HTML(did, startTime, endTime);
+    }
+
+    @Test
+    void 循环一天() throws SQLException {
+        Db db = getMysqlDb();
+        List<Entity> rows = db.query(
+                "select id,did,jobArea,jobStartTime,jobEndTime,jobWidth from farm_work where jobStartTime >= '2025-05-01' and jobStartTime < '2025-06-01' and (did like 'NJ%' or did like 'EC%') and jobArea > 0 and fixFlag = 1 and effectiveJobArea >0 order by insertTime desc limit 10");
+        for (Entity row : rows) {
+            String did = row.getStr("did");
+            Date jobStartTime = row.getDate("jobStartTime");
+            double jobWidth = row.getDouble("jobWidth");
+            String yyyyMMdd = DateUtil.format(jobStartTime, "yyyyMMdd");
+            读取一天轨迹数据(did, yyyyMMdd);
+            测试一天拆分数据(did, yyyyMMdd, jobWidth);
+            输出一天HTML(did, yyyyMMdd);
+        }
+    }
+
+    @Test
+    void 循环farm_work() throws SQLException {
+        Db db = getMysqlDb();
+        List<Entity> rows = db.query(
+                "select id,did,jobArea,jobStartTime,jobEndTime,jobWidth from farm_work where jobStartTime >= '2025-05-01' and jobStartTime < '2025-06-01' and (did like 'NJ%' or did like 'EC%') and jobArea > 0 and fixFlag = 1 and effectiveJobArea >0 order by insertTime desc limit 10");
+        for (Entity row : rows) {
+            String did = row.getStr("did");
+            Date jobStartTime = row.getDate("jobStartTime");
+            Date jobEndTime = row.getDate("jobEndTime");
+            double jobWidth = row.getDouble("jobWidth");
+            String startTime = DateUtil.format(jobStartTime, "yyyyMMddHHmmss");
+            String endTime = DateUtil.format(jobEndTime, "yyyyMMddHHmmss");
+            读取一段轨迹数据(did, startTime, endTime);
+            测试一段拆分数据(did, startTime, endTime, jobWidth);
+            输出一段HTML(did, startTime, endTime);
+        }
     }
 
     void 读取一段轨迹数据(String did, String startTime, String endTime) {
