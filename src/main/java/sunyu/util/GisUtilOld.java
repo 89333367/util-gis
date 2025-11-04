@@ -174,12 +174,12 @@ public class GisUtilOld implements AutoCloseable {
         // 开运算半径系数（相对于单侧宽度widthM）；建议 0.3–0.8
         private double CONCAVE_SMOOTH_RADIUS_FACTOR = 0.4;
 
-        // 线缓冲样式（更锐利边界）：拐角样式、端头样式与mitre限制
-        private int BUFFER_JOIN_STYLE = BufferParameters.JOIN_MITRE;
-        // 线缓冲的端头样式（平端），影响线段端点的缓冲形状
-        private int BUFFER_END_CAP_STYLE = BufferParameters.CAP_FLAT;
+        // 线缓冲样式（更圆滑边界）：拐角样式、端头样式与mitre限制
+        private int BUFFER_JOIN_STYLE = BufferParameters.JOIN_ROUND;
+        // 线缓冲的端头样式（圆端），影响线段端点的缓冲形状
+        private int BUFFER_END_CAP_STYLE = BufferParameters.CAP_ROUND;
         // 线缓冲的mitre限制值，控制锐角的处理方式，值越大允许越尖的角
-        private double BUFFER_MITRE_LIMIT = 2.0;
+        private double BUFFER_MITRE_LIMIT = 5.0;
 
         // 可选：轻微蚀刻扩大缝隙（在米制下对并集做负缓冲）
         private boolean ENABLE_GAP_ENHANCE_ERODE = false;
@@ -191,7 +191,7 @@ public class GisUtilOld implements AutoCloseable {
         // 道路直线差异阈值（角度），用于识别道路方向变化
         private double ROAD_STRAIGHT_DIFF_THRESHOLD_DEG = 6.0;
         // 道路直线窗口点数量，用于计算滑动窗口内的方向一致性
-        private int ROAD_STRAIGHT_WINDOW_POINTS = 8;
+        private int ROAD_STRAIGHT_WINDOW_POINTS = 80;
         // 道路断裂距离因子（倍数*单侧宽度），超过此距离的直线段将被断开
         private double ROAD_BREAK_DIST_FACTOR = 2.0;
 

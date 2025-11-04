@@ -28,7 +28,6 @@ import cn.hutool.db.Entity;
 import cn.hutool.log.Log;
 import cn.hutool.log.LogFactory;
 import cn.hutool.log.level.Level;
-import sunyu.util.GisUtil;
 import sunyu.util.GisUtilOld;
 import sunyu.util.TDengineUtil;
 import sunyu.util.pojo.CoordinatePoint;
@@ -39,7 +38,7 @@ import sunyu.util.pojo.WktIntersectionResult;
 
 public class TestGisUtil {
     Log log = LogFactory.get();
-    //GisUtil gisUtil = GisUtil.builder().build();
+    // GisUtil gisUtil = GisUtil.builder().build();
     GisUtilOld gisUtil = GisUtilOld.builder().build();
     ProtocolSdk protocolSdk = new ProtocolSdk("http://192.168.11.8/config.xml");
     String path = "D:/tmp/java道路拆分算法测试";
@@ -161,8 +160,8 @@ public class TestGisUtil {
     @Test
     void 测试1335() throws Exception {
         String did = "EC73BD2509061335";
-        String startTime = "20251104090717";
-        String endTime = "20251104092257";
+        String startTime = "20251104100606";
+        String endTime = "20251104101419";
         double jobWidth = 2.8;
         读取一段轨迹数据(did, startTime, endTime);
         测试一段拆分数据(did, startTime, endTime, jobWidth);
