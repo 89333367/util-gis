@@ -151,7 +151,7 @@ public class GisUtilOld implements AutoCloseable {
         // 默认轮廓返回的最多多边形数量（TopN）
         private final int DEFAULT_MAX_OUTLINE_SEGMENTS = 10;
 
-        // 圆近似细分：4，提升性能，误差满足道路宽度场景
+        // 圆近似细分：让小面积轨迹缓冲区更圆滑（半圆效果）
         private final int DEFAULT_BUFFER_QUADRANT = 2;
 
         // 作业最大速度阈值（km/h），用于前置速度过滤；可通过 Builder 配置
@@ -191,8 +191,8 @@ public class GisUtilOld implements AutoCloseable {
         private int BUFFER_JOIN_STYLE = BufferParameters.JOIN_ROUND;
         // 线缓冲的端头样式（圆端），影响线段端点的缓冲形状
         private int BUFFER_END_CAP_STYLE = BufferParameters.CAP_ROUND;
-        // 线缓冲的mitre限制值，控制锐角的处理方式，值越大允许越尖的角
-        private double BUFFER_MITRE_LIMIT = 5.0;
+        // 线缓冲的mitre限制值，控制锐角的处理方式，值越小角越圆滑，值越大允许越尖的角
+        private double BUFFER_MITRE_LIMIT = 2.0;
 
         // 凹包开运算（保留缝隙/洞）：在米制下做轻微开运算
         private boolean ENABLE_CONCAVE_SMOOTHING = false;
@@ -1010,93 +1010,62 @@ public class GisUtilOld implements AutoCloseable {
     }
 
     /**
-     * 线缓冲构建轮廓：在高斯-克吕格米制投影下将轨迹组装为折线，
-     * 进行道格拉斯-普克简化后按给定宽度缓冲并合并，最终回转为 WGS84。
-     *
-     * @param seg    轨迹点列表（WGS84，经纬度与时间有效，建议已按时间升序）
-     * @param widthM 总宽度（米），用于缓冲半径计算
-     * @return 轮廓几何（WGS84；可能为 MultiPolygon）；输入为空时返回空几何
-     * @throws Exception 投影转换、缓冲或几何合并过程中可能抛出的异常
+     * 根据轨迹点列表构建线缓冲区几何图形。
+     * 
+     * <p>
+     * 该方法将WGS84坐标系的轨迹点转换为高斯-克吕格投影坐标系，
+     * 构建线几何，进行道格拉斯-普克简化，然后创建指定宽度的缓冲区，
+     * 最后将结果转换回WGS84坐标系。
+     * </p>
+     * 
+     * @param seg    轨迹点列表，每个点包含经纬度坐标
+     * @param widthM 缓冲区宽度，单位为米
+     * @return 缓冲区几何图形（WGS84坐标系）
+     * @throws Exception 当坐标转换或几何处理失败时抛出
      */
     private Geometry buildOutlineByLineBuffers(List<TrackPoint> seg, double widthM) throws Exception {
-        long startTime = System.currentTimeMillis();
-        log.trace("[buildOutlineByLineBuffers] 开始处理 {} 个轨迹点，线缓冲宽度: {} 米", seg.size(), widthM);
-
+        // 参数校验
         if (seg == null || seg.size() < 2) {
             return config.geometryFactory.createGeometryCollection(null);
         }
 
+        long startTime = System.currentTimeMillis();
+        log.trace("[buildOutlineByLineBuffers] 开始处理 {} 个轨迹点，线缓冲宽度: {} 米", seg.size(), widthM);
+
+        // 获取原点经度并创建坐标转换
         double originLon = seg.get(0).getLon();
         MathTransform txWgsToGk = getTxWgsToGaussByLon(originLon);
 
-        // 将点转换到米制坐标
-        List<List<Coordinate>> lines = new ArrayList<>();
-        List<Coordinate> current = new ArrayList<>();
-
-        long convertTime = 0;
-        for (int i = 0; i < seg.size(); i++) {
-            TrackPoint p = seg.get(i);
-            Coordinate src = new Coordinate(p.getLon(), p.getLat());
-            Coordinate c = new Coordinate();
-            long t = System.currentTimeMillis();
-            JTS.transform(src, c, txWgsToGk);
-            convertTime += System.currentTimeMillis() - t;
-            current.add(c);
-        }
-        if (current.size() >= 2) {
-            lines.add(current);
+        // 将轨迹点转换为高斯投影坐标
+        List<Coordinate> coordinates = new ArrayList<>(seg.size());
+        for (TrackPoint point : seg) {
+            Coordinate src = new Coordinate(point.getLon(), point.getLat());
+            Coordinate target = new Coordinate();
+            JTS.transform(src, target, txWgsToGk);
+            coordinates.add(target);
         }
 
-        // 构造折线，简化，然后缓冲
-        long simplifyTime = 0;
-        long bufferTime = 0;
-        List<LineString> simplifiedLines = new ArrayList<>();
+        // 创建线几何（保留所有轨迹点，不做简化）
+        Coordinate[] coordArray = coordinates.toArray(new Coordinate[0]);
+        LineString line = config.geometryFactory.createLineString(coordArray);
+
+        // 设置缓冲区参数
         BufferParameters params = new BufferParameters();
         params.setQuadrantSegments(config.DEFAULT_BUFFER_QUADRANT);
         params.setEndCapStyle(config.BUFFER_END_CAP_STYLE);
         params.setJoinStyle(config.BUFFER_JOIN_STYLE);
         params.setMitreLimit(config.BUFFER_MITRE_LIMIT);
 
-        double tol = Math.max(0.01, widthM * config.LINE_SIMPLIFY_TOL_FACTOR);
+        // 创建缓冲区（使用原始轨迹点，保证精度）
+        Geometry buffered = BufferOp.bufferOp(line, widthM, params);
 
-        for (List<Coordinate> coords : lines) {
-            if (coords.size() < 2)
-                continue;
-            Coordinate[] arr = coords.toArray(new Coordinate[0]);
-            LineString line = config.geometryFactory.createLineString(arr);
-            long ts = System.currentTimeMillis();
-            Geometry simplified = DouglasPeuckerSimplifier.simplify(line, tol);
-            simplifyTime += System.currentTimeMillis() - ts;
-
-            if (simplified instanceof LineString) {
-                LineString ls = (LineString) simplified;
-                simplifiedLines.add(ls);
-            } else if (simplified instanceof MultiLineString) {
-                MultiLineString mls = (MultiLineString) simplified;
-                for (int i = 0; i < mls.getNumGeometries(); i++) {
-                    LineString ls = (LineString) mls.getGeometryN(i);
-                    simplifiedLines.add(ls);
-                }
-            }
-        }
-
-        // 将所有简化线拼为一个 MultiLineString，一次性缓冲
-        LineString[] lsArr = simplifiedLines.toArray(new LineString[0]);
-        MultiLineString mlsAll = config.geometryFactory.createMultiLineString(lsArr);
-        long tb = System.currentTimeMillis();
-        Geometry union = BufferOp.bufferOp(mlsAll, widthM, params);
-        bufferTime += System.currentTimeMillis() - tb;
-        long unionTime = 0;
-
-        // 转回 WGS84
-        long backStart = System.currentTimeMillis();
+        // 转换回WGS84坐标系
         MathTransform txGkToWgs = getTxGaussToWgsByLon(originLon);
-        Geometry result = JTS.transform(union, txGkToWgs);
-        long backTime = System.currentTimeMillis() - backStart;
+        Geometry result = JTS.transform(buffered, txGkToWgs);
 
+        // 记录处理时间
         long endTime = System.currentTimeMillis();
-        log.debug("[buildOutlineByLineBuffers] 完成，总计耗时: {}ms (转换:{}ms, 简化:{}ms, 缓冲:{}ms, 合并:{}ms, 回转:{}ms)",
-                endTime - startTime, convertTime, simplifyTime, bufferTime, unionTime, backTime);
+        log.debug("[buildOutlineByLineBuffers] 完成，总计耗时: {}ms", endTime - startTime);
 
         return result;
     }
