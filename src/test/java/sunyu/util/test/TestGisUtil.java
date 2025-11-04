@@ -29,6 +29,7 @@ import cn.hutool.log.Log;
 import cn.hutool.log.LogFactory;
 import cn.hutool.log.level.Level;
 import sunyu.util.GisUtil;
+import sunyu.util.GisUtilOld;
 import sunyu.util.TDengineUtil;
 import sunyu.util.pojo.CoordinatePoint;
 import sunyu.util.pojo.OutlinePart;
@@ -38,7 +39,8 @@ import sunyu.util.pojo.WktIntersectionResult;
 
 public class TestGisUtil {
     Log log = LogFactory.get();
-    GisUtil gisUtil = GisUtil.builder().build();
+    //GisUtil gisUtil = GisUtil.builder().build();
+    GisUtilOld gisUtil = GisUtilOld.builder().build();
     ProtocolSdk protocolSdk = new ProtocolSdk("http://192.168.11.8/config.xml");
     String path = "D:/tmp/java道路拆分算法测试";
 

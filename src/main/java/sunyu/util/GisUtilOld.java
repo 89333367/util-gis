@@ -153,24 +153,24 @@ public class GisUtilOld implements AutoCloseable {
         private final int DEFAULT_BUFFER_QUADRANT = 2;
 
         // 作业最大速度阈值（km/h），用于前置速度过滤；可通过 Builder 配置
-        private double WORK_MAX_SPEED_KMH = 20.0;
+        private double WORK_MAX_SPEED_KMH = 15.0;
         // 作业最小速度阈值（km/h），用于前置速度过滤；可通过 Builder 配置
         private double MIN_WORK_SPEED_KMH = 1.0;
         // 最小亩数动态阈值（亩），用于 splitRoad 动态过滤小块
-        private double MIN_MU_DYNAMIC_THRESHOLD_MU = 0.5;
+        private double MIN_MU_DYNAMIC_THRESHOLD_MU = 0.1;
 
         // 外缘细长裁剪开关（仅 splitRoad 使用）
         private boolean ENABLE_OUTER_THIN_TRIM = true;
         // 外缘细长裁剪半径系数（相对单侧宽度）
-        private double THIN_TRIM_RADIUS_FACTOR = 1.6;
+        private double THIN_TRIM_RADIUS_FACTOR = 0.9;
 
         // 线段断裂距离系数（倍数*单侧宽度），超过则切分会话
-        private double LINE_BREAK_FACTOR = 4.0;
+        private double LINE_BREAK_FACTOR = 5.0;
         // 线简化公差系数（倍数*单侧宽度），用于Douglas-Peucker
         private double LINE_SIMPLIFY_TOL_FACTOR = 0.1;
 
         // 凹包开运算（保留缝隙/洞）：在米制下做轻微开运算
-        private boolean ENABLE_CONCAVE_SMOOTHING = true;
+        private boolean ENABLE_CONCAVE_SMOOTHING = false;
         // 开运算半径系数（相对于单侧宽度widthM）；建议 0.3–0.8
         private double CONCAVE_SMOOTH_RADIUS_FACTOR = 0.4;
 
@@ -182,7 +182,7 @@ public class GisUtilOld implements AutoCloseable {
         private double BUFFER_MITRE_LIMIT = 2.0;
 
         // 可选：轻微蚀刻扩大缝隙（在米制下对并集做负缓冲）
-        private boolean ENABLE_GAP_ENHANCE_ERODE = true;
+        private boolean ENABLE_GAP_ENHANCE_ERODE = false;
         // 缝隙增强蚀刻因子，用于控制负缓冲的程度，值越大蚀刻越明显
         private double GAP_ENHANCE_ERODE_FACTOR = 0.2;
 
@@ -562,7 +562,7 @@ public class GisUtilOld implements AutoCloseable {
                         if (ad > maxAbsDiff)
                             maxAbsDiff = ad;
                     }
-                    double straightLenThreshold = Math.max(widthM, widthM * config.ROAD_BREAK_DIST_FACTOR);
+                    double straightLenThreshold = Math.max(widthM, Math.max(4, widthM * config.ROAD_BREAK_DIST_FACTOR));
                     if (maxAbsDiff < config.ROAD_STRAIGHT_DIFF_THRESHOLD_DEG && straightRunLen > straightLenThreshold) {
                         if (current.size() >= 2) {
                             lines.add(current);
