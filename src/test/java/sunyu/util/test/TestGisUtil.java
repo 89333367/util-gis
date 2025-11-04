@@ -28,6 +28,7 @@ import cn.hutool.db.Entity;
 import cn.hutool.log.Log;
 import cn.hutool.log.LogFactory;
 import cn.hutool.log.level.Level;
+import sunyu.util.GisUtil;
 import sunyu.util.GisUtilOld;
 import sunyu.util.TDengineUtil;
 import sunyu.util.pojo.CoordinatePoint;
@@ -38,7 +39,7 @@ import sunyu.util.pojo.WktIntersectionResult;
 
 public class TestGisUtil {
     Log log = LogFactory.get();
-    // GisUtil gisUtil = GisUtil.builder().build();
+    //GisUtil gisUtil = GisUtil.builder().build();
     GisUtilOld gisUtil = GisUtilOld.builder().build();
     ProtocolSdk protocolSdk = new ProtocolSdk("http://192.168.11.8/config.xml");
     String path = "D:/tmp/java道路拆分算法测试";
@@ -170,10 +171,10 @@ public class TestGisUtil {
 
     @Test
     void 计算重复亩数0018_1335() throws Exception {
-        String wkt1 = FileUtil.readUtf8Lines(path + "/EC73BD2506050018_20251029161736_20251029162905_outline018.txt")
-                .get(0).replace("wkt: ", "");
-        String wkt2 = FileUtil.readUtf8Lines(path + "/EC73BD2509061335_20251029155746_20251029161032_outline335.txt")
-                .get(0).replace("wkt: ", "");
+        String wkt1 = FileUtil.readUtf8Lines(path + "/EC73BD2506050018_20251104090717_20251104092257_outline.txt")
+                .get(6).replace("WKT: ", "");
+        String wkt2 = FileUtil.readUtf8Lines(path + "/EC73BD2509061335_20251104100606_20251104101419_outline.txt")
+                .get(6).replace("WKT: ", "");
         WktIntersectionResult r = gisUtil.intersection(wkt1, wkt2);
         log.info("相交面积：{} 亩", r.getMu());
     }
