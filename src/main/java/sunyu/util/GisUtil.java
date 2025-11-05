@@ -31,6 +31,9 @@ import org.locationtech.jts.operation.buffer.BufferParameters;
 import org.locationtech.jts.operation.union.UnaryUnionOp;
 import org.locationtech.jts.simplify.DouglasPeuckerSimplifier;
 import org.locationtech.jts.simplify.TopologyPreservingSimplifier;
+import org.locationtech.jts.operation.overlay.snap.SnapIfNeededOverlayOp;
+import org.locationtech.jts.operation.overlay.OverlayOp;
+import org.locationtech.jts.geom.TopologyException;
 import org.opengis.referencing.crs.CoordinateReferenceSystem;
 import org.opengis.referencing.operation.MathTransform;
 
@@ -1708,7 +1711,40 @@ public class GisUtil implements AutoCloseable {
     public WktIntersectionResult intersection(String wktA, String wktB) throws Exception {
         Geometry g1 = fromWkt(wktA);
         Geometry g2 = fromWkt(wktB);
-        Geometry inter = g1.intersection(g2);
+        
+        // 坐标/几何修复（自相交等）
+        if (!hasValidCoordinates(g1)) {
+            g1 = g1.buffer(0);
+            if (g1.isEmpty()) {
+                return new WktIntersectionResult(null, 0.0);
+            }
+        }
+        if (!hasValidCoordinates(g2)) {
+            g2 = g2.buffer(0);
+            if (g2.isEmpty()) {
+                return new WktIntersectionResult(null, 0.0);
+            }
+        }
+        
+        // 几何简化以减少精度问题
+        double tolerance = 1e-8; // WGS84坐标系下的简化容差
+        g1 = DouglasPeuckerSimplifier.simplify(g1, tolerance);
+        g2 = DouglasPeuckerSimplifier.simplify(g2, tolerance);
+        
+        Geometry inter;
+        try {
+            // 使用SnapIfNeededOverlayOp处理拓扑异常
+            SnapIfNeededOverlayOp snapOp = new SnapIfNeededOverlayOp(g1, g2);
+            inter = snapOp.getResultGeometry(OverlayOp.INTERSECTION);
+        } catch (TopologyException e) {
+            log.warn("SnapIfNeededOverlayOp失败，尝试使用缓冲交集: {}", e.getMessage());
+            // 如果SnapIfNeededOverlayOp失败，使用缓冲交集作为备选方案
+            double bufferDistance = 1e-10; // 极小的缓冲距离
+            Geometry g1Buffer = g1.buffer(bufferDistance);
+            Geometry g2Buffer = g2.buffer(bufferDistance);
+            inter = g1Buffer.intersection(g2Buffer);
+        }
+        
         if (inter == null || inter.isEmpty()) {
             return new WktIntersectionResult(null, 0.0);
         }
