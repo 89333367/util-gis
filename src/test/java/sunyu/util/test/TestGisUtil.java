@@ -16,6 +16,7 @@ import com.zaxxer.hikari.HikariDataSource;
 
 import cn.hutool.core.collection.CollUtil;
 import cn.hutool.core.convert.Convert;
+import cn.hutool.core.date.DateField;
 import cn.hutool.core.date.DateTime;
 import cn.hutool.core.date.DateUtil;
 import cn.hutool.core.date.LocalDateTimeUtil;
@@ -249,6 +250,23 @@ public class TestGisUtil {
     }
 
     @Test
+    void 循环金大丰() {
+        String did = "EM9101B8F5AZT0041";
+        String startTime = "20250903000000";
+        String endTime = "20251105000000";
+        List<DateTime> dates = DateUtil.rangeToList(DateUtil.parse(startTime, "yyyyMMddHHmmss"),
+                DateUtil.parse(endTime, "yyyyMMddHHmmss"), DateField.DAY_OF_YEAR);
+        for (DateTime date : dates) {
+            String yyyyMMdd = DateUtil.format(date, "yyyyMMdd");
+            log.info("{}", yyyyMMdd);
+            读取一天轨迹数据(did, yyyyMMdd);
+            测试一天拆分数据(did, yyyyMMdd, 2.5);
+            输出一天HTML(did, yyyyMMdd);
+            break;
+        }
+    }
+
+    @Test
     void 循环一天() throws SQLException {
         Db db = getMysqlDb();
         List<Entity> rows = db.query(
@@ -334,6 +352,7 @@ public class TestGisUtil {
                     did, jobStartTime, jobEndTime);
             log.debug("{}", tdSql);
             List<Map<String, Object>> rows = tDengineUtil.executeQuery(tdSql);
+            log.info("读取到 {} 条记录", rows.size());
             List<String> l = new ArrayList<>();
             for (Map<String, Object> row : rows) {
                 Map<String, String> protocol = protocolSdk.parseProtocolString(row.get("protocol").toString());
