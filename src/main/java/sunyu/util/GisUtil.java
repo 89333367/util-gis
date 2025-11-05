@@ -155,9 +155,9 @@ public class GisUtil implements AutoCloseable {
         private final int DEFAULT_BUFFER_QUADRANT = 2;
 
         // 作业最大速度阈值（km/h），用于前置速度过滤；可通过 Builder 配置
-        private double WORK_MAX_SPEED_KMH = 15.0;
+        private double WORK_MAX_SPEED_KMH = 18.0;
         // 作业最小速度阈值（km/h），用于前置速度过滤；可通过 Builder 配置
-        private double MIN_WORK_SPEED_KMH = 1.0;
+        private double MIN_WORK_SPEED_KMH = 0.2;
         // 最小亩数动态阈值（亩），用于 splitRoad 动态过滤小块
         private double MIN_MU_DYNAMIC_THRESHOLD_MU = 0.23;
 
