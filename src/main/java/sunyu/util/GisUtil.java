@@ -169,7 +169,6 @@ public class GisUtil implements AutoCloseable {
         private final TreeMap<Double, Double> WIDTH_TO_RADIUS_FACTOR_MAP = new TreeMap<Double, Double>() {
             {
                 // 初始化默认映射关系
-                put(0.0, 0.2);
                 put(1.0, 0.45);
                 put(1.75, 1.4);
                 put(2.5, 1.6);
@@ -205,6 +204,11 @@ public class GisUtil implements AutoCloseable {
         private boolean ENABLE_GAP_ENHANCE_ERODE = false;
         // 缝隙增强蚀刻因子，用于控制负缓冲的程度，值越大蚀刻越明显
         private double GAP_ENHANCE_ERODE_FACTOR = 0.2;
+
+        // 兜底方案控制：当splitRoad结果为空或面积过小时启用getOutline重算
+        private boolean ENABLE_FALLBACK_TO_OUTLINE = true;
+        // 兜底面积阈值（亩）：小于该值时触发兜底方案，使用getOutline重算
+        private double FALLBACK_MU_THRESHOLD = 1.5;
     }
 
     /**
@@ -2141,13 +2145,15 @@ public class GisUtil implements AutoCloseable {
         // 计算整体时间范围
         result.calculateTimeRange();
 
-        // 兜底操作：判断结果是否为空多边形或总亩数小于5亩
+        // 兜底操作：当启用兜底且结果为空多边形或总亩数小于阈值时，使用getOutline重算
         double totalMu = result.getMu();
-        if (trimmed == null || trimmed.isEmpty() ||
+        boolean isEmptyResult = trimmed == null || trimmed.isEmpty() ||
                 (trimmed instanceof Polygon && ((Polygon) trimmed).isEmpty()) ||
-                (trimmed instanceof MultiPolygon && ((MultiPolygon) trimmed).isEmpty()) ||
-                totalMu < 5.0) {
-            log.warn("[splitRoad] 检测到需要兜底方案：空多边形结果或总亩数小于5亩（当前亩数={}），使用getOutline方法作为兜底方案", totalMu);
+                (trimmed instanceof MultiPolygon && ((MultiPolygon) trimmed).isEmpty());
+
+        if (config.ENABLE_FALLBACK_TO_OUTLINE && (isEmptyResult || totalMu < config.FALLBACK_MU_THRESHOLD)) {
+            log.warn("[splitRoad] 检测到需要兜底方案：{}（当前亩数={}亩，阈值={}亩），使用getOutline方法作为兜底方案",
+                    isEmptyResult ? "空多边形结果" : "总亩数小于阈值", totalMu, config.FALLBACK_MU_THRESHOLD);
             try {
                 OutlinePart outlinePart = getOutline(seg, totalWidthM);
                 if (outlinePart != null && outlinePart.getOutline() != null && !outlinePart.getOutline().isEmpty()) {

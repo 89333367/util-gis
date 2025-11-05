@@ -227,6 +227,28 @@ public class TestGisUtil {
     }
 
     @Test
+    void t006() {
+        String did = "NJ4GNBSAX0000693";
+        String startTime = "20250507073041";
+        String endTime = "20250507162457";
+        double widthM = 2.5;
+        读取一段轨迹数据(did, startTime, endTime);
+        测试一段拆分数据(did, startTime, endTime, widthM);
+        输出一段HTML(did, startTime, endTime);
+    }
+
+    @Test
+    void t007() {
+        String did = "NJ4GNBSAX0000693";
+        String startTime = "20250509092721";
+        String endTime = "20250509111620";
+        double widthM = 2.5;
+        读取一段轨迹数据(did, startTime, endTime);
+        测试一段拆分数据(did, startTime, endTime, widthM);
+        输出一段HTML(did, startTime, endTime);
+    }
+
+    @Test
     void 循环一天() throws SQLException {
         Db db = getMysqlDb();
         List<Entity> rows = db.query(
