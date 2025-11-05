@@ -159,7 +159,7 @@ public class GisUtil implements AutoCloseable {
         // 作业最小速度阈值（km/h），用于前置速度过滤；可通过 Builder 配置
         private double MIN_WORK_SPEED_KMH = 0.2;
         // 最小亩数动态阈值（亩），用于 splitRoad 动态过滤小块
-        private double MIN_MU_DYNAMIC_THRESHOLD_MU = 0.23;
+        private double MIN_MU_DYNAMIC_THRESHOLD_MU = 0.32;
 
         // 外缘细长裁剪开关（仅 splitRoad 使用）
         private boolean ENABLE_OUTER_THIN_TRIM = true;
@@ -177,9 +177,9 @@ public class GisUtil implements AutoCloseable {
                 put(1.75, 1.4);
                 put(2.5, 1.6);
                 put(2.6, 1.8);
-                put(2.7, 2.0);
+                put(2.7, 2.2);
                 put(2.8, 2.4);
-                put(3.0, 3.0);
+                put(3.0, 2.6);
             }
         };
 
@@ -1203,13 +1203,13 @@ public class GisUtil implements AutoCloseable {
                     .setTotalWidthM(totalWidthM);
             result.calculateTimeRange();
 
-            log.info("[splitRoad] 兜底方案执行成功: 区块数={}, 总亩数={}",
+            log.info("[splitRoad] 兜底方案2执行成功: 区块数={}, 总亩数={}",
                     result.getParts().size(), result.getMu());
 
             return result;
 
         } catch (Exception e) {
-            log.trace("[splitRoad] 兜底方案执行失败", e);
+            log.trace("[splitRoad] 兜底方案2执行失败", e);
 
             // 兜底方案失败时，返回包含空几何的SplitRoadResult，避免调用者报错
             Geometry emptyGeometry = config.geometryFactory.createGeometryCollection(null);
@@ -1220,7 +1220,7 @@ public class GisUtil implements AutoCloseable {
                     .setTotalWidthM(totalWidthM);
             emptyResult.calculateTimeRange();
 
-            log.warn("[splitRoad] 兜底方案失败，返回空结果: 错误={}", e.getMessage());
+            log.warn("[splitRoad] 兜底方案2失败，返回空结果: 错误={}", e.getMessage());
             return emptyResult;
         }
     }
@@ -1965,29 +1965,24 @@ public class GisUtil implements AutoCloseable {
     }
 
     /**
-     * 基于轨迹点与总宽度生成轮廓，并按面积保留不超过 maxSegments 的最大区块。
+     * 内部方法：执行splitRoad的核心逻辑
      * 
-     * 处理流程：
-     * 1. 异常点过滤与排序
-     * 2. 速度范围过滤
-     * 3. 线缓冲构建轮廓
-     * 4. 外缘细长条裁剪（可选）
-     * 5. 保留最大区块并过滤小面积
-     * 6. 生成区块结果
-     * 
-     * @param seg         轨迹点列表（WGS84），至少3个有效点
-     * @param totalWidthM 作业总宽度（米），左右合计，必须非负
-     * @param maxSegments 返回的区块数量上限；为null或<=0时取默认值
-     * @return 拆分结果，包含几何体和区块信息
-     * @throws Exception 坐标转换或几何运算异常
+     * @param seg             轨迹点列表
+     * @param totalWidthM     总宽度
+     * @param maxSegments     最大区块数
+     * @param enableLineBreak 是否启用线分割（多线程安全，使用临时参数）
+     * @return 拆分结果
+     * @throws Exception 处理异常
      */
-    public SplitRoadResult splitRoad(List<TrackPoint> seg, double totalWidthM, Integer maxSegments) throws Exception {
+    private SplitRoadResult doSplitRoad(List<TrackPoint> seg, double totalWidthM, Integer maxSegments,
+            boolean enableLineBreak) throws Exception {
         long startTime = System.currentTimeMillis();
         double halfWidth = totalWidthM / 2.0;
         int segmentLimit = (maxSegments == null || maxSegments <= 0) ? config.DEFAULT_MAX_OUTLINE_SEGMENTS
                 : maxSegments;
 
-        log.debug("[splitRoad] 开始处理: 点数={}, 宽度={}m, 上限={}", seg.size(), totalWidthM, segmentLimit);
+        log.debug("[splitRoad] 开始处理: 点数={}, 宽度={}m, 上限={}, enableLineBreak={}", seg.size(), totalWidthM, segmentLimit,
+                enableLineBreak);
 
         // 1) 过滤异常点（越界与坐标为0的点），按时间升序
         long filterStart = System.currentTimeMillis();
@@ -2006,7 +2001,7 @@ public class GisUtil implements AutoCloseable {
 
         // 3) 构建线缓冲轮廓
         long buildStart = System.currentTimeMillis();
-        Geometry outline = buildSmartLineBuffer(validPoints, halfWidth, config.ENABLE_LINE_BREAK);
+        Geometry outline = buildSmartLineBuffer(validPoints, halfWidth, enableLineBreak);
         long buildEnd = System.currentTimeMillis();
         int outlineParts = (outline instanceof MultiPolygon) ? outline.getNumGeometries() : 1;
         log.debug("[splitRoad] 线缓冲构建完成: 类型={}, 区块数={}, 耗时={}ms",
@@ -2062,11 +2057,43 @@ public class GisUtil implements AutoCloseable {
         SplitRoadResult result = new SplitRoadResult(trimmed, parts, outlineWkt).setTotalWidthM(totalWidthM);
         result.calculateTimeRange();
 
-        // 兜底方案：结果为空或亩数过小时使用getOutline重算
+        return result;
+    }
+
+    /**
+     * 基于轨迹点与总宽度生成轮廓，并按面积保留不超过 maxSegments 的最大区块。
+     * 
+     * 处理流程：
+     * 1. 异常点过滤与排序
+     * 2. 速度范围过滤
+     * 3. 线缓冲构建轮廓
+     * 4. 外缘细长条裁剪（可选）
+     * 5. 保留最大区块并过滤小面积
+     * 6. 生成区块结果
+     * 
+     * @param seg         轨迹点列表（WGS84），至少3个有效点
+     * @param totalWidthM 作业总宽度（米），左右合计，必须非负
+     * @param maxSegments 返回的区块数量上限；为null或<=0时取默认值
+     * @return 拆分结果，包含几何体和区块信息
+     * @throws Exception 坐标转换或几何运算异常
+     */
+    public SplitRoadResult splitRoad(List<TrackPoint> seg, double totalWidthM, Integer maxSegments) throws Exception {
+        // 使用默认配置执行
+        SplitRoadResult result = doSplitRoad(seg, totalWidthM, maxSegments, config.ENABLE_LINE_BREAK);
+
+        // 兜底方案1：如果结果为空多边形，临时禁用LINE_BREAK重新执行
         if (shouldUseFallback(result)) {
-            log.warn("[splitRoad] 触发兜底方案: 区块数={}, 总亩数={}",
-                    result.getParts().size(), result.getMu());
-            return applyFallback(validPoints, totalWidthM);
+            log.warn("[splitRoad] 结果为空多边形，执行兜底方案1：临时禁用LINE_BREAK重新计算");
+            SplitRoadResult fallbackResult = doSplitRoad(seg, totalWidthM, maxSegments, false);
+
+            // 如果兜底方案1仍为空，则进入兜底方案2
+            if (shouldUseFallback(fallbackResult)) {
+                log.warn("[splitRoad] 兜底方案1仍为空多边形，进入兜底方案2");
+                return applyFallback(seg, totalWidthM);
+            } else {
+                log.info("[splitRoad] 兜底方案1成功，使用禁用LINE_BREAK的结果");
+                result = fallbackResult;
+            }
         }
 
         return result;
