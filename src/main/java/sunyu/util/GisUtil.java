@@ -1209,8 +1209,19 @@ public class GisUtil implements AutoCloseable {
             return result;
 
         } catch (Exception e) {
-            log.error("[splitRoad] 兜底方案执行失败", e);
-            throw e;
+            log.trace("[splitRoad] 兜底方案执行失败", e);
+
+            // 兜底方案失败时，返回包含空几何的SplitRoadResult，避免调用者报错
+            Geometry emptyGeometry = config.geometryFactory.createGeometryCollection(null);
+            String emptyWkt = "GEOMETRYCOLLECTION EMPTY";
+            List<OutlinePart> emptyParts = new ArrayList<>();
+
+            SplitRoadResult emptyResult = new SplitRoadResult(emptyGeometry, emptyParts, emptyWkt)
+                    .setTotalWidthM(totalWidthM);
+            emptyResult.calculateTimeRange();
+
+            log.warn("[splitRoad] 兜底方案失败，返回空结果: 错误={}", e.getMessage());
+            return emptyResult;
         }
     }
 

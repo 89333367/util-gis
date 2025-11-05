@@ -262,7 +262,6 @@ public class TestGisUtil {
             读取一天轨迹数据(did, yyyyMMdd);
             测试一天拆分数据(did, yyyyMMdd, 2.5);
             输出一天HTML(did, yyyyMMdd);
-            break;
         }
     }
 
