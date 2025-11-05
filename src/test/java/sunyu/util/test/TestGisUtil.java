@@ -250,6 +250,15 @@ public class TestGisUtil {
     }
 
     @Test
+    void t008() {
+        String did = "EM9101B8F5AZT0041";
+        String yyyyMMdd = "20251027";
+        读取一天轨迹数据(did, yyyyMMdd);
+        测试一天拆分数据(did, yyyyMMdd, 2.5);
+        输出一天HTML(did, yyyyMMdd);
+    }
+
+    @Test
     void 循环金大丰() {
         String did = "EM9101B8F5AZT0041";
         String startTime = "20250903000000";
