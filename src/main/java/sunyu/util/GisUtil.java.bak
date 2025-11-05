@@ -13,7 +13,6 @@ import java.util.stream.Collectors;
 import org.geotools.geometry.jts.JTS;
 import org.geotools.referencing.CRS;
 import org.locationtech.jts.geom.Coordinate;
-import org.locationtech.jts.geom.CoordinateSequence;
 import org.locationtech.jts.geom.Envelope;
 import org.locationtech.jts.geom.Geometry;
 import org.locationtech.jts.geom.GeometryFactory;
@@ -21,7 +20,6 @@ import org.locationtech.jts.geom.LineString;
 import org.locationtech.jts.geom.MultiLineString;
 import org.locationtech.jts.geom.MultiPolygon;
 import org.locationtech.jts.geom.Polygon;
-import org.locationtech.jts.geom.impl.CoordinateArraySequence;
 import org.locationtech.jts.geom.prep.PreparedGeometry;
 import org.locationtech.jts.geom.prep.PreparedGeometryFactory;
 import org.locationtech.jts.io.ParseException;
@@ -110,220 +108,6 @@ public class GisUtil implements AutoCloseable {
      */
     public static Builder builder() {
         return new Builder();
-    }
-
-    /**
-     * 计算两点间的球面距离（米）
-     */
-    private double haversine(double lat1, double lon1, double lat2, double lon2) {
-        final double R = 6371000; // 地球半径（米）
-        double latDistance = Math.toRadians(lat2 - lat1);
-        double lonDistance = Math.toRadians(lon2 - lon1);
-        double a = Math.sin(latDistance / 2) * Math.sin(latDistance / 2)
-                + Math.cos(Math.toRadians(lat1)) * Math.cos(Math.toRadians(lat2))
-                        * Math.sin(lonDistance / 2) * Math.sin(lonDistance / 2);
-        double c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-        return R * c;
-    }
-
-    /**
-     * 使用指定的breakDist构建线缓冲，支持自定义分段距离阈值
-     */
-    private Geometry buildSmartLineBufferWithBreakDist(List<TrackPoint> seg, double widthM, boolean enableLineBreak,
-            double breakDist) throws Exception {
-        if (seg == null || seg.size() < 3) {
-            throw new IllegalArgumentException("轨迹段至少需要3个点");
-        }
-
-        // 坐标转换
-        List<Coordinate> coords = new ArrayList<>();
-        for (TrackPoint tp : seg) {
-            coords.add(new Coordinate(tp.getLon(), tp.getLat()));
-        }
-
-        GeometryFactory gf = new GeometryFactory();
-        CoordinateSequence coordSeq = new CoordinateArraySequence(coords.toArray(new Coordinate[0]));
-        LineString line = new LineString(coordSeq, gf);
-
-        // 使用指定的breakDist进行轨迹分段
-        if (enableLineBreak && breakDist > 0) {
-            double actualThreshold = breakDist * 2; // 提取阈值到变量，避免上下不一致
-            log.debug("[buildSmartLineBufferWithBreakDist] 使用自定义breakDist={}m进行轨迹分段, 实际阈值={}m", breakDist,
-                    actualThreshold);
-
-            List<LineString> segments = new ArrayList<>();
-            List<Coordinate> currentSegment = new ArrayList<>();
-            currentSegment.add(coords.get(0));
-
-            for (int i = 1; i < coords.size(); i++) {
-                Coordinate prevCoord = coords.get(i - 1);
-                Coordinate currCoord = coords.get(i);
-
-                double distance = haversine(prevCoord.y, prevCoord.x, currCoord.y, currCoord.x);
-
-                // 打印所有相邻点之间的距离用于调试
-                log.trace("[buildSmartLineBufferWithBreakDist] 点{}到点{}距离={}m, 阈值={}m",
-                        i - 1, i, distance, actualThreshold);
-
-                // 如果当前点到下一点的距离超过阈值，则分段
-                if (distance > actualThreshold) {
-                    // 结束当前分段
-                    if (currentSegment.size() >= 2) {
-                        CoordinateSequence segmentSeq = new CoordinateArraySequence(
-                                currentSegment.toArray(new Coordinate[0]));
-                        segments.add(new LineString(segmentSeq, gf));
-                        log.trace("[buildSmartLineBufferWithBreakDist] 创建分段: 点数={}, 距离超限={}m",
-                                currentSegment.size(), distance);
-                    }
-                    // 开始新分段
-                    currentSegment.clear();
-                    currentSegment.add(prevCoord); // 包含前一个点
-                    currentSegment.add(currCoord); // 包含当前点
-                } else {
-                    // 距离未超限，继续当前分段
-                    if (currentSegment.isEmpty()) {
-                        currentSegment.add(prevCoord);
-                    }
-                    currentSegment.add(currCoord);
-                }
-            }
-
-            // 添加最后一个分段
-            if (currentSegment.size() >= 2) {
-                CoordinateSequence segmentSeq = new CoordinateArraySequence(currentSegment.toArray(new Coordinate[0]));
-                segments.add(new LineString(segmentSeq, gf));
-            }
-
-            log.debug("[buildSmartLineBufferWithBreakDist] 轨迹分段完成: 分段数={}", segments.size());
-
-            // 为每个分段构建缓冲
-            log.debug("[buildSmartLineBufferWithBreakDist] 开始构建缓冲区: 分段数={}, 缓冲宽度={}m", segments.size(), widthM);
-            long bufferStartTime = System.currentTimeMillis();
-            List<Geometry> buffers = new ArrayList<>();
-            for (int i = 0; i < segments.size(); i++) {
-                LineString segment = segments.get(i);
-                Geometry buffer = segment.buffer(widthM / 111000.0); // 转换为度
-                buffers.add(buffer);
-                log.trace("[buildSmartLineBufferWithBreakDist] 分段{}缓冲构建完成", i + 1);
-            }
-            long bufferEndTime = System.currentTimeMillis();
-            log.debug("[buildSmartLineBufferWithBreakDist] 缓冲区构建完成: 耗时={}ms", bufferEndTime - bufferStartTime);
-
-            // 合并所有缓冲
-            log.debug("[buildSmartLineBufferWithBreakDist] 开始合并缓冲区: 缓冲区数量={}", buffers.size());
-            long unionStartTime = System.currentTimeMillis();
-            if (buffers.size() == 1) {
-                long unionEndTime = System.currentTimeMillis();
-                log.debug("[buildSmartLineBufferWithBreakDist] 缓冲区合并完成: 单个缓冲区无需合并, 耗时={}ms",
-                        unionEndTime - unionStartTime);
-                return buffers.get(0);
-            } else {
-                Geometry union = buffers.get(0);
-                for (int i = 1; i < buffers.size(); i++) {
-                    union = union.union(buffers.get(i));
-                }
-                long unionEndTime = System.currentTimeMillis();
-                log.debug("[buildSmartLineBufferWithBreakDist] 缓冲区合并完成: 合并了{}个缓冲区, 耗时={}ms", buffers.size(),
-                        unionEndTime - unionStartTime);
-                return union;
-            }
-        } else {
-            // 不分段，直接构建缓冲
-            log.debug("[buildSmartLineBufferWithBreakDist] 不分段，直接构建缓冲");
-            return line.buffer(widthM / 111000.0); // 转换为度
-        }
-    }
-
-    /**
-     * 从几何体中提取所有多边形，支持MULTIPOLYGON和POLYGON类型
-     */
-    private List<Polygon> extractPolygons(Geometry geometry) {
-        List<Polygon> polygons = new ArrayList<>();
-
-        if (geometry instanceof Polygon) {
-            polygons.add((Polygon) geometry);
-        } else if (geometry instanceof MultiPolygon) {
-            MultiPolygon multiPolygon = (MultiPolygon) geometry;
-            for (int i = 0; i < multiPolygon.getNumGeometries(); i++) {
-                Geometry subGeom = multiPolygon.getGeometryN(i);
-                if (subGeom instanceof Polygon) {
-                    polygons.add((Polygon) subGeom);
-                }
-            }
-        }
-
-        return polygons;
-    }
-
-    /**
-     * 计算轨迹点列表中相邻点距离的中位数
-     */
-    private double calculateMedianAdjacentDistance(List<TrackPoint> points) {
-        if (points.size() < 2) {
-            return 0.0;
-        }
-
-        List<Double> distances = new ArrayList<>();
-        for (int i = 1; i < points.size(); i++) {
-            TrackPoint prev = points.get(i - 1);
-            TrackPoint curr = points.get(i);
-            double distance = haversine(prev.getLat(), prev.getLon(), curr.getLat(), curr.getLon());
-            distances.add(distance);
-        }
-
-        Collections.sort(distances);
-
-        int size = distances.size();
-        if (size % 2 == 0) {
-            return (distances.get(size / 2 - 1) + distances.get(size / 2)) / 2.0;
-        } else {
-            return distances.get(size / 2);
-        }
-    }
-
-    /**
-     * 智能窗口切分：基于时间和距离双重判断
-     * 当相邻两点时间间隔>1分钟且距离>totalWidthM时切分窗口
-     */
-    private List<List<TrackPoint>> splitToTimeWindowsSmart(List<TrackPoint> points, double totalWidthM) {
-        List<List<TrackPoint>> windows = new ArrayList<>();
-        List<TrackPoint> currentWindow = new ArrayList<>();
-        final long ONE_MINUTE_MS = 60 * 1000; // 1分钟
-
-        log.debug("[splitToTimeWindowsSmart] 开始智能窗口切分: 总点数={}, 时间阈值={}分钟, 距离阈值={}m", points.size(),
-                ONE_MINUTE_MS / 60000.0, totalWidthM);
-
-        for (int i = 0; i < points.size(); i++) {
-            TrackPoint point = points.get(i);
-
-            if (currentWindow.isEmpty()) {
-                currentWindow.add(point);
-            } else {
-                TrackPoint lastPoint = currentWindow.get(currentWindow.size() - 1);
-                long timeDiff = point.getTimeMillis() - lastPoint.getTimeMillis();
-                double distance = haversine(lastPoint.getLat(), lastPoint.getLon(), point.getLat(), point.getLon());
-
-                // 双重判断：时间>1分钟且距离>totalWidthM
-                if (timeDiff > ONE_MINUTE_MS && distance > totalWidthM) {
-                    log.debug("[splitToTimeWindowsSmart] 切分窗口: 时间间隔={}分钟, 距离={}m",
-                            timeDiff / 60000.0, distance);
-
-                    // 保存当前窗口
-                    if (currentWindow.size() >= 3) {
-                        windows.add(new ArrayList<>(currentWindow));
-                    }
-                    currentWindow.clear();
-                }
-                currentWindow.add(point);
-            }
-        }
-
-        // 添加最后一个窗口
-        if (currentWindow.size() >= 3) {
-            windows.add(currentWindow);
-        }
-
-        return windows;
     }
 
     /**
@@ -1419,13 +1203,13 @@ public class GisUtil implements AutoCloseable {
                     .setTotalWidthM(totalWidthM);
             result.calculateTimeRange();
 
-            log.info("[splitRoad] 兜底方案执行成功: 区块数={}, 总亩数={}",
+            log.info("[splitRoad] 兜底方案2执行成功: 区块数={}, 总亩数={}",
                     result.getParts().size(), result.getMu());
 
             return result;
 
         } catch (Exception e) {
-            log.trace("[splitRoad] 兜底方案执行失败", e);
+            log.trace("[splitRoad] 兜底方案2执行失败", e);
 
             // 兜底方案失败时，返回包含空几何的SplitRoadResult，避免调用者报错
             Geometry emptyGeometry = config.geometryFactory.createGeometryCollection(null);
@@ -1436,7 +1220,7 @@ public class GisUtil implements AutoCloseable {
                     .setTotalWidthM(totalWidthM);
             emptyResult.calculateTimeRange();
 
-            log.warn("[splitRoad] 兜底方案失败，返回空结果: 错误={}", e.getMessage());
+            log.warn("[splitRoad] 兜底方案2失败，返回空结果: 错误={}", e.getMessage());
             return emptyResult;
         }
     }
@@ -2279,17 +2063,13 @@ public class GisUtil implements AutoCloseable {
     /**
      * 基于轨迹点与总宽度生成轮廓，并按面积保留不超过 maxSegments 的最大区块。
      * 
-     * 新算法流程：
+     * 处理流程：
      * 1. 异常点过滤与排序
      * 2. 速度范围过滤
-     * 3. 智能窗口切分（时间>1分钟且距离>totalWidthM）
-     * 4. 逐窗口处理：
-     * - 计算窗口内相邻点距离中位数作为breakDist
-     * - 构建线缓冲轮廓（enableLineBreak=true）
-     * - 外缘细长条裁剪
-     * 5. 合并所有窗口结果，按亩数排序
-     * 6. 保留最大的maxSegments个区块
-     * 7. 兜底方案2（如果结果为空）
+     * 3. 线缓冲构建轮廓
+     * 4. 外缘细长条裁剪（可选）
+     * 5. 保留最大区块并过滤小面积
+     * 6. 生成区块结果
      * 
      * @param seg         轨迹点列表（WGS84），至少3个有效点
      * @param totalWidthM 作业总宽度（米），左右合计，必须非负
@@ -2298,142 +2078,23 @@ public class GisUtil implements AutoCloseable {
      * @throws Exception 坐标转换或几何运算异常
      */
     public SplitRoadResult splitRoad(List<TrackPoint> seg, double totalWidthM, Integer maxSegments) throws Exception {
-        long startTime = System.currentTimeMillis();
-        double halfWidth = totalWidthM / 2.0;
-        int segmentLimit = (maxSegments == null || maxSegments <= 0) ? config.DEFAULT_MAX_OUTLINE_SEGMENTS
-                : maxSegments;
+        // 使用默认配置执行
+        SplitRoadResult result = doSplitRoad(seg, totalWidthM, maxSegments, config.ENABLE_LINE_BREAK);
 
-        log.debug("[splitRoad] 点数={}, 总宽度={}m, 上限={}", seg.size(), totalWidthM, segmentLimit);
+        // 兜底方案1：如果结果为空多边形，临时禁用LINE_BREAK重新执行
+        if (shouldUseFallback(result)) {
+            log.warn("[splitRoad] 结果为空多边形，执行兜底方案1：临时禁用LINE_BREAK重新计算");
+            SplitRoadResult fallbackResult = doSplitRoad(seg, totalWidthM, maxSegments, false);
 
-        // 1) 过滤异常点（越界与坐标为0的点），按时间升序
-        log.debug("异常点过滤 开始，输入点数={}", seg.size());
-        long filterStart = System.currentTimeMillis();
-        List<TrackPoint> sortedPoints = filterAndSortTrackPoints(seg);
-        long filterEnd = System.currentTimeMillis();
-        log.debug("异常点过滤 完成: 有效点数={}, 耗时={}ms", sortedPoints.size(), (filterEnd - filterStart));
-
-        if (sortedPoints.size() < 3) {
-            throw new IllegalArgumentException("异常点过滤后点数不足3个，无法继续处理");
-        }
-
-        // 2) 速度过滤：删除小于等于1km/h或大于等于15km/h的点
-        log.debug("速度过滤 开始，输入点数={}", sortedPoints.size());
-        long speedStart = System.currentTimeMillis();
-        List<TrackPoint> validPoints = filterBySpeedRange(sortedPoints, config.MIN_WORK_SPEED_KMH,
-                config.WORK_MAX_SPEED_KMH);
-        long speedEnd = System.currentTimeMillis();
-        log.debug("速度过滤 完成:  有效点数={}, 耗时={}ms", validPoints.size(), (speedEnd - speedStart));
-
-        if (validPoints.size() < 3) {
-            throw new IllegalArgumentException("速度过滤后点数不足3个，无法继续处理");
-        }
-
-        // 3) 智能窗口切分：按时间>1分钟且距离>totalWidthM切分
-        log.debug("窗口切分 开始，输入点数={}", validPoints.size());
-        long windowStart = System.currentTimeMillis();
-        List<List<TrackPoint>> windows = splitToTimeWindowsSmart(validPoints, totalWidthM);
-        long windowEnd = System.currentTimeMillis();
-        log.debug("窗口切分 完成: 窗口数={}, 耗时={}ms", windows.size(), (windowEnd - windowStart));
-
-        if (windows.isEmpty()) {
-            log.warn("[splitRoad] 窗口切分后无有效窗口，进入兜底方案");
-            return applyFallback(validPoints, totalWidthM);
-        }
-
-        // 4) 逐窗口处理
-        List<OutlinePart> allParts = new ArrayList<>();
-        for (int i = 0; i < windows.size(); i++) {
-            List<TrackPoint> windowPoints = windows.get(i);
-            log.debug("[splitRoad] 处理窗口 {}/{}: 点数={}", i + 1, windows.size(), windowPoints.size());
-
-            if (windowPoints.size() < 3) {
-                log.warn("[splitRoad] 窗口{}点数不足，跳过处理", i + 1);
-                continue;
-            }
-
-            // 计算窗口内相邻点距离中位数作为breakDist
-            double medianDistance = calculateMedianAdjacentDistance(windowPoints);
-            log.debug("[splitRoad] 窗口{}: 相邻点距离中位数={}m", i + 1, medianDistance);
-
-            try {
-                // 构建线缓冲轮廓
-                Geometry windowOutline = buildSmartLineBufferWithBreakDist(windowPoints, halfWidth, true,
-                        medianDistance);
-
-                // 外缘细长条裁剪
-                if (config.ENABLE_OUTER_THIN_TRIM) {
-                    double radiusFactor = getRadiusFactorByWidth(totalWidthM);
-                    double radiusM = Math.max(0.1, radiusFactor);
-                    windowOutline = trimOuterThinStrips(windowOutline, radiusM);
-                    log.debug("[splitRoad] 窗口{}: 外缘裁剪完成", i + 1);
-                }
-
-                // 将MULTIPOLYGON拆分成多个POLYGON
-                List<Polygon> polygons = extractPolygons(windowOutline);
-                log.debug("[splitRoad] 窗口{}: 拆分成{}个多边形", i + 1, polygons.size());
-
-                // 为每个多边形创建OutlinePart
-                for (int j = 0; j < polygons.size(); j++) {
-                    Polygon poly = polygons.get(j);
-                    double mu = calcMu(poly);
-                    String wkt = toWkt(poly);
-
-                    OutlinePart part = new OutlinePart(poly, windowPoints.get(0).getTime(),
-                            windowPoints.get(windowPoints.size() - 1).getTime(), mu, wkt, windowPoints)
-                            .setTotalWidthM(totalWidthM);
-                    allParts.add(part);
-                    log.trace("[splitRoad] 窗口{}-多边形{}: 面积={}亩", i + 1, j + 1, mu);
-                }
-
-            } catch (Exception e) {
-                log.warn("[splitRoad] 窗口{}处理失败: {}", i + 1, e.getMessage());
-                // 单个窗口失败不影响其他窗口
+            // 如果兜底方案1仍为空，则进入兜底方案2
+            if (shouldUseFallback(fallbackResult)) {
+                log.warn("[splitRoad] 兜底方案1仍为空多边形，进入兜底方案2");
+                return applyFallback(seg, totalWidthM);
+            } else {
+                log.info("[splitRoad] 兜底方案1成功，使用禁用LINE_BREAK的结果");
+                result = fallbackResult;
             }
         }
-
-        if (allParts.isEmpty()) {
-            log.warn("[splitRoad] 所有窗口处理失败，进入兜底方案2");
-            return applyFallback(validPoints, totalWidthM);
-        }
-
-        // 5) 按亩数倒序排序
-        allParts.sort((a, b) -> Double.compare(b.getMu(), a.getMu()));
-        log.debug("[splitRoad] 按亩数排序完成: 总区块数={}", allParts.size());
-
-        // 6) 保留最大的maxSegments个
-        List<OutlinePart> finalParts = allParts.subList(0, Math.min(segmentLimit, allParts.size()));
-        log.debug("[splitRoad] 保留前{}个最大区块", finalParts.size());
-
-        // 7) 构建最终结果：合并所有几何图形
-        long totalEnd = System.currentTimeMillis();
-        log.debug("[splitRoad] 新算法处理完成: 最终区块数={}, 总耗时={}ms", finalParts.size(), (totalEnd - startTime));
-
-        // 收集所有几何图形并合并
-        List<Geometry> allGeometries = new ArrayList<>();
-        for (OutlinePart part : finalParts) {
-            if (part.getOutline() != null) {
-                allGeometries.add(part.getOutline());
-            }
-        }
-
-        // 创建合并后的几何图形
-        Geometry mergedOutline;
-        if (allGeometries.isEmpty()) {
-            GeometryFactory gf = new GeometryFactory();
-            mergedOutline = gf.createPolygon(); // 空多边形作为兜底
-        } else if (allGeometries.size() == 1) {
-            mergedOutline = allGeometries.get(0);
-        } else {
-            // 多个几何图形合并成MultiPolygon
-            GeometryFactory gf = new GeometryFactory();
-            mergedOutline = gf.createMultiPolygon(allGeometries.toArray(new org.locationtech.jts.geom.Polygon[0]));
-        }
-
-        // 生成合并后的WKT
-        String mergedWkt = toWkt(mergedOutline);
-
-        SplitRoadResult result = new SplitRoadResult(mergedOutline, finalParts, mergedWkt).setTotalWidthM(totalWidthM);
-        result.calculateTimeRange();
 
         return result;
     }

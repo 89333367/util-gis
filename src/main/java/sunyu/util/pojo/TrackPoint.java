@@ -29,6 +29,10 @@ public class TrackPoint extends CoordinatePoint {
     public LocalDateTime getTime() {
         return time;
     }
+    
+    public long getTimeMillis() {
+        return time.atZone(java.time.ZoneOffset.UTC).toInstant().toEpochMilli();
+    }
 
     public void setTime(LocalDateTime time) {
         this.time = time;
