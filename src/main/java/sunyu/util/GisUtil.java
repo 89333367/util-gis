@@ -2362,6 +2362,7 @@ public class GisUtil implements AutoCloseable {
 
                 // 外缘细长条裁剪
                 if (config.ENABLE_OUTER_THIN_TRIM) {
+                    log.debug("[splitRoad] 窗口{}: 开始外缘裁剪", i + 1);
                     double radiusFactor = getRadiusFactorByWidth(totalWidthM);
                     double radiusM = Math.max(0.1, radiusFactor);
                     windowOutline = trimOuterThinStrips(windowOutline, radiusM);
@@ -2406,7 +2407,7 @@ public class GisUtil implements AutoCloseable {
 
         // 7) 构建最终结果：合并所有几何图形
         long totalEnd = System.currentTimeMillis();
-        log.debug("[splitRoad] 新算法处理完成: 最终区块数={}, 总耗时={}ms", finalParts.size(), (totalEnd - startTime));
+        log.debug("[splitRoad] 最终区块数={}, 总耗时={}ms", finalParts.size(), (totalEnd - startTime));
 
         // 收集所有几何图形并合并
         List<Geometry> allGeometries = new ArrayList<>();
