@@ -2682,58 +2682,112 @@ public class GisUtil implements AutoCloseable {
         // 通过高斯投影坐标构建线缓冲
         List<OutlinePart> parts = new ArrayList<>();
         try {
-            // 构建线几何（使用高斯投影坐标，单位：米）
-            Coordinate[] coords = new Coordinate[gaussPoints.size()];
-            for (int i = 0; i < gaussPoints.size(); i++) {
-                TrackPoint pt = gaussPoints.get(i);
-                coords[i] = new Coordinate(pt.getLon(), pt.getLat());
-            }
-
-            // 创建线几何（使用高斯投影坐标，单位：米）
-            LineString trackLine = config.geometryFactory.createLineString(coords);
-
+            // 先按4米距离阈值进行轨迹分段
+            double segmentDistanceThreshold = 4.0;
             // 计算单侧缓冲宽度（totalWidthM是总宽度，需要除以2）
             double halfWidth = totalWidthM / 2.0;
+            List<List<TrackPoint>> segments = new ArrayList<>();
+            List<TrackPoint> currentSegment = new ArrayList<>();
 
-            // 构建线缓冲（在高斯投影坐标系下计算，单位：米）
-            Geometry buffer = trackLine.buffer(halfWidth);
+            log.debug("开始按{}米距离阈值进行轨迹分段", segmentDistanceThreshold);
 
-            // 判断是空多边形还是多多边形还是单多边形
-            if (buffer.isEmpty()) {
-                log.warn("线缓冲为空，可能是轨迹点不足以构建缓冲");
-            } else if (buffer instanceof Polygon) {
-                // 单多边形
-                OutlinePart op = new OutlinePart();
-                op.setTotalWidthM(totalWidthM);
-                op.setOutline(buffer);
-                op.setWkt(gaussGeometryToWgs84Wkt(buffer, wgs84Points.get(0).getLon()));
-                List<TrackPoint> geometryGaussPoints = filterGaussPointsByGeometry(gaussPoints, buffer);
-                op.setTrackPoints(gaussPointsToWgs84(geometryGaussPoints, wgs84Points.get(0).getLon()));
-                op.setStartTime(geometryGaussPoints.get(0).getTime());
-                op.setEndTime(geometryGaussPoints.get(geometryGaussPoints.size() - 1).getTime());
-                op.setMu(calcMuByWgs84Wkt(op.getWkt()));
-                parts.add(op);
-            } else if (buffer instanceof MultiPolygon) {
-                // 多多边形
-                MultiPolygon multiPoly = (MultiPolygon) buffer;
-                for (int i = 0; i < multiPoly.getNumGeometries(); i++) {
+            for (int i = 0; i < gaussPoints.size(); i++) {
+                TrackPoint currentPoint = gaussPoints.get(i);
+
+                if (currentSegment.isEmpty()) {
+                    // 第一段或新段开始的第一个点
+                    currentSegment.add(currentPoint);
+                    continue;
+                }
+
+                // 计算当前点与段内最后一个点的距离
+                TrackPoint lastPoint = currentSegment.get(currentSegment.size() - 1);
+                double distance = Math.hypot(
+                        currentPoint.getLon() - lastPoint.getLon(),
+                        currentPoint.getLat() - lastPoint.getLat());
+
+                if (distance > segmentDistanceThreshold) {
+                    // 距离超过4米，结束当前段，开始新段
+                    if (currentSegment.size() >= 2) {
+                        segments.add(new ArrayList<>(currentSegment));
+                        log.debug("分段完成: 段内点数={}, 最后距离={}m", currentSegment.size(), distance);
+                    }
+                    currentSegment.clear();
+                }
+
+                currentSegment.add(currentPoint);
+            }
+
+            // 处理最后一段
+            if (currentSegment.size() >= 2) {
+                segments.add(currentSegment);
+                log.debug("最后一段: 段内点数={}", currentSegment.size());
+            }
+
+            log.debug("轨迹分段完成: 共{}段", segments.size());
+
+            // 对每一段分别构建线缓冲
+            for (int segIndex = 0; segIndex < segments.size(); segIndex++) {
+                List<TrackPoint> segmentPoints = segments.get(segIndex);
+
+                if (segmentPoints.size() < 2) {
+                    log.warn("第{}段点数不足2个，跳过", segIndex);
+                    continue;
+                }
+
+                // 构建当前段的线几何
+                Coordinate[] coords = new Coordinate[segmentPoints.size()];
+                for (int i = 0; i < segmentPoints.size(); i++) {
+                    TrackPoint pt = segmentPoints.get(i);
+                    coords[i] = new Coordinate(pt.getLon(), pt.getLat());
+                }
+
+                LineString trackLine = config.geometryFactory.createLineString(coords);
+
+                // 构建线缓冲（在高斯投影坐标系下计算，单位：米）
+                Geometry buffer = trackLine.buffer(halfWidth);
+
+                log.debug("第{}段线缓冲构建完成: 原始点数={}, 缓冲类型={}, 顶点数={}",
+                        segIndex, segmentPoints.size(), buffer.getGeometryType(), buffer.getNumPoints());
+
+                // 处理缓冲结果
+                if (buffer.isEmpty()) {
+                    log.warn("第{}段线缓冲为空", segIndex);
+                } else if (buffer instanceof Polygon) {
+                    // 单多边形
                     OutlinePart op = new OutlinePart();
-                    Geometry subGeom = multiPoly.getGeometryN(i);
-                    op.setOutline(subGeom);
-                    op.setWkt(gaussGeometryToWgs84Wkt(subGeom, wgs84Points.get(0).getLon()));
-                    List<TrackPoint> geometryGaussPoints = filterGaussPointsByGeometry(gaussPoints, subGeom);
+                    op.setTotalWidthM(totalWidthM);
+                    op.setOutline(buffer);
+                    op.setWkt(gaussGeometryToWgs84Wkt(buffer, wgs84Points.get(0).getLon()));
+                    List<TrackPoint> geometryGaussPoints = filterGaussPointsByGeometry(gaussPoints, buffer);
                     op.setTrackPoints(gaussPointsToWgs84(geometryGaussPoints, wgs84Points.get(0).getLon()));
                     op.setStartTime(geometryGaussPoints.get(0).getTime());
                     op.setEndTime(geometryGaussPoints.get(geometryGaussPoints.size() - 1).getTime());
                     op.setMu(calcMuByWgs84Wkt(op.getWkt()));
                     parts.add(op);
+                    log.debug("第{}段添加单多边形: 亩数={}", segIndex, op.getMu());
+                } else if (buffer instanceof MultiPolygon) {
+                    // 多多边形
+                    MultiPolygon multiPoly = (MultiPolygon) buffer;
+                    for (int i = 0; i < multiPoly.getNumGeometries(); i++) {
+                        OutlinePart op = new OutlinePart();
+                        Geometry subGeom = multiPoly.getGeometryN(i);
+                        op.setOutline(subGeom);
+                        op.setWkt(gaussGeometryToWgs84Wkt(subGeom, wgs84Points.get(0).getLon()));
+                        List<TrackPoint> geometryGaussPoints = filterGaussPointsByGeometry(gaussPoints, subGeom);
+                        op.setTrackPoints(gaussPointsToWgs84(geometryGaussPoints, wgs84Points.get(0).getLon()));
+                        op.setStartTime(geometryGaussPoints.get(0).getTime());
+                        op.setEndTime(geometryGaussPoints.get(geometryGaussPoints.size() - 1).getTime());
+                        op.setMu(calcMuByWgs84Wkt(op.getWkt()));
+                        parts.add(op);
+                    }
+                    log.debug("第{}段添加多多边形: 子多边形数量={}", segIndex, multiPoly.getNumGeometries());
+                } else {
+                    log.warn("第{}段未知的缓冲几何类型: {}", segIndex, buffer.getGeometryType());
                 }
-            } else {
-                log.warn("未知的缓冲几何类型: {}", buffer.getGeometryType());
             }
 
-            log.debug("线缓冲构建完成: 高斯投影缓冲结果类型={}, 顶点数={}, 缓冲宽度={}m",
-                    buffer.getGeometryType(), buffer.getNumPoints(), halfWidth);
+            log.debug("所有段处理完成: 总段数={}, 生成parts数量={}", segments.size(), parts.size());
         } catch (Exception e) {
             log.warn("线缓冲构建失败: {}", e.getMessage());
         }
