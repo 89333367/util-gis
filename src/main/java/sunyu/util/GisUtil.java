@@ -2691,11 +2691,14 @@ public class GisUtil implements AutoCloseable {
         }
 
         // 过滤速度范围的点（高斯投影坐标系，米单位）
-        gaussPoints = filterBySpeedRangeMeter(gaussPoints, config.MIN_WORK_SPEED_KMH, config.WORK_MAX_SPEED_KMH);
-        if (CollUtil.isEmpty(gaussPoints) || gaussPoints.size() < 3) {
-            log.warn("速度过滤后轨迹点列表不足3个有效点");
-            return result;
-        }
+        /*
+         * gaussPoints = filterBySpeedRangeMeter(gaussPoints, config.MIN_WORK_SPEED_KMH,
+         * config.WORK_MAX_SPEED_KMH);
+         * if (CollUtil.isEmpty(gaussPoints) || gaussPoints.size() < 3) {
+         * log.warn("速度过滤后轨迹点列表不足3个有效点");
+         * return result;
+         * }
+         */
 
         // 计算单侧缓冲宽度（totalWidthM是总宽度，需要除以2）
         double halfWidth = totalWidthM / 2.0;
@@ -2744,7 +2747,7 @@ public class GisUtil implements AutoCloseable {
         for (int freq : sortedFrequencies) {
             int count = timeIntervalStats.get(freq);
             double percentage = (count * 100.0) / totalIntervals;
-            log.info("频率{}秒: 出现{}次 ({:.1f}%)", freq, count, percentage);
+            log.info("频率{}秒: 出现{}次 ({}%)", freq, count, percentage);
         }
 
         // 第二步：根据发现的频率模式进行分组
@@ -2816,10 +2819,6 @@ public class GisUtil implements AutoCloseable {
                     .add(new ArrayList<>(currentGroup));
         }
 
-        // 打印分组结果
-        log.info("\n频率分组完成:");
-        log.info("共发现{}种标准频率模式", frequencyGroups.size());
-
         int totalGroups = 0;
         int totalGroupPoints = 0;
 
@@ -2861,6 +2860,41 @@ public class GisUtil implements AutoCloseable {
             int minFreqGroupCount = minFreqGroups.size();
             int minFreqPointCount = minFreqGroups.stream().mapToInt(List::size).sum();
             log.info("最小间隔{}秒: {}个组, {}个点", minFrequency, minFreqGroupCount, minFreqPointCount);
+
+            for (int i = 0; i < minFreqGroups.size(); i++) {
+                List<TrackPoint> group = minFreqGroups.get(i);
+                // 计算每一组的距离中位数
+                if (group.size() >= 2) {
+                    List<Double> distances = new ArrayList<>();
+                    for (int j = 1; j < group.size(); j++) {
+                        TrackPoint prev = group.get(j - 1);
+                        TrackPoint curr = group.get(j);
+                        double distance = Math.hypot(
+                                curr.getLon() - prev.getLon(),
+                                curr.getLat() - prev.getLat());
+                        distances.add(distance);
+                    }
+
+                    if (!distances.isEmpty()) {
+                        distances.sort(Double::compareTo);
+                        double medianDistance;
+                        if (distances.size() % 2 == 0) {
+                            medianDistance = (distances.get(distances.size() / 2 - 1) +
+                                    distances.get(distances.size() / 2)) / 2.0;
+                        } else {
+                            medianDistance = distances.get(distances.size() / 2);
+                        }
+
+                        // 计算平均数、最大距离、最小距离
+                        double sumDistance = distances.stream().mapToDouble(Double::doubleValue).sum();
+                        double avgDistance = sumDistance / distances.size();
+                        double maxDistance = distances.get(distances.size() - 1);
+
+                        log.info("  组{}: {}个点, 距离统计: 中位数={}米, 平均数={}米, 最大={}米",
+                                i + 1, group.size(), medianDistance, avgDistance, maxDistance);
+                    }
+                }
+            }
         }
 
         try {
