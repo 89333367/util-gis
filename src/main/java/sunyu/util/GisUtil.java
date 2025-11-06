@@ -1,10 +1,12 @@
 package sunyu.util;
 
 import java.time.LocalDateTime;
+import java.util.Arrays;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
@@ -123,6 +125,22 @@ public class GisUtil implements AutoCloseable {
      */
     public static Builder builder() {
         return new Builder();
+    }
+
+    /**
+     * 将实际时间间隔映射到标准频率（正负2秒容错）
+     * 
+     * @param actualInterval      实际间隔秒数
+     * @param standardFrequencies 标准频率数组
+     * @return 对应的标准频率，如果无法匹配返回-1
+     */
+    private static int mapToStandardFrequency(int actualInterval, int[] standardFrequencies) {
+        for (int freq : standardFrequencies) {
+            if (Math.abs(actualInterval - freq) <= 2) {
+                return freq;
+            }
+        }
+        return -1;
     }
 
     /**
@@ -2679,13 +2697,176 @@ public class GisUtil implements AutoCloseable {
             return result;
         }
 
+        // 计算单侧缓冲宽度（totalWidthM是总宽度，需要除以2）
+        double halfWidth = totalWidthM / 2.0;
+
         // 通过高斯投影坐标构建线缓冲
         List<OutlinePart> parts = new ArrayList<>();
+
+        // 实现按上报频率分组：统计速度过滤后的轨迹点能分出多少频率相同的组
+        // gaussPoints已经在前面按时间排序（第2658行），无需再次排序
+        if (gaussPoints.size() < 2) {
+            log.warn("速度过滤后轨迹点数不足2个，无法进行频率分组");
+            return result;
+        }
+
+        log.info("速度过滤后轨迹点数: {}", gaussPoints.size());
+
+        // 第一步：定义标准频率模式（1秒、5秒、10秒、15秒）
+        int[] standardFrequencies = { 1, 5, 10, 15 };
+        Map<Integer, Integer> timeIntervalStats = new LinkedHashMap<>(); // 标准频率 -> 出现次数
+
+        for (int i = 1; i < gaussPoints.size(); i++) {
+            long timeDiff = java.time.Duration.between(gaussPoints.get(i - 1).getTime(), gaussPoints.get(i).getTime())
+                    .getSeconds();
+
+            // 只处理1-17秒的间隔（15秒+2秒容错）
+            if (timeDiff >= 1 && timeDiff <= 17) {
+                int standardFreq = mapToStandardFrequency((int) timeDiff, standardFrequencies);
+                if (standardFreq != -1) {
+                    timeIntervalStats.merge(standardFreq, 1, Integer::sum);
+                }
+            }
+        }
+
+        if (timeIntervalStats.isEmpty()) {
+            log.warn("未找到符合标准频率的时间间隔");
+            return result;
+        }
+
+        // 按标准频率排序输出
+        List<Integer> sortedFrequencies = new ArrayList<>(timeIntervalStats.keySet());
+        Collections.sort(sortedFrequencies);
+
+        log.info("发现的标准频率模式（共{}种）:", sortedFrequencies.size());
+        int totalIntervals = timeIntervalStats.values().stream().mapToInt(Integer::intValue).sum();
+
+        for (int freq : sortedFrequencies) {
+            int count = timeIntervalStats.get(freq);
+            double percentage = (count * 100.0) / totalIntervals;
+            log.info("频率{}秒: 出现{}次 ({:.1f}%)", freq, count, percentage);
+        }
+
+        // 第二步：根据发现的频率模式进行分组
+        Map<Integer, List<List<TrackPoint>>> frequencyGroups = new LinkedHashMap<>();
+        List<TrackPoint> currentGroup = new ArrayList<>();
+        int currentFrequency = -1;
+
+        for (int i = 0; i < gaussPoints.size(); i++) {
+            TrackPoint currentPoint = gaussPoints.get(i);
+
+            if (i == 0) {
+                currentGroup.add(currentPoint);
+                continue;
+            }
+
+            // 计算与前一个点的时间间隔（秒）
+            long timeDiff = Duration.between(gaussPoints.get(i - 1).getTime(), currentPoint.getTime())
+                    .getSeconds();
+
+            // 如果时间间隔超过15秒，作为异常间隔处理（结束当前组）
+            if (timeDiff > 15) {
+                log.warn("发现时间间隔{}秒超过15秒，作为异常间隔处理", timeDiff);
+                // 异常间隔，结束当前组
+                if (currentGroup.size() >= 2) {
+                    frequencyGroups.computeIfAbsent(currentFrequency, k -> new ArrayList<>())
+                            .add(new ArrayList<>(currentGroup));
+                }
+                currentGroup.clear();
+                currentGroup.add(currentPoint);
+                currentFrequency = -1;
+                continue;
+            }
+
+            // 将实际间隔映射到标准频率（正负2秒容错）
+            int standardFreq = mapToStandardFrequency((int) timeDiff, standardFrequencies);
+
+            if (standardFreq != -1) {
+                if (currentFrequency == -1) {
+                    currentFrequency = standardFreq;
+                }
+
+                if (standardFreq == currentFrequency) {
+                    currentGroup.add(currentPoint);
+                } else {
+                    // 频率变化，结束当前组
+                    if (currentGroup.size() >= 2) {
+                        frequencyGroups.computeIfAbsent(currentFrequency, k -> new ArrayList<>())
+                                .add(new ArrayList<>(currentGroup));
+                    }
+                    currentGroup.clear();
+                    currentGroup.add(currentPoint);
+                    currentFrequency = standardFreq;
+                }
+            } else {
+                // 未识别的间隔（超过15秒或不在标准频率范围内），结束当前组并丢弃这组数据
+                if (currentGroup.size() >= 2) {
+                    frequencyGroups.computeIfAbsent(currentFrequency, k -> new ArrayList<>())
+                            .add(new ArrayList<>(currentGroup));
+                }
+                currentGroup.clear();
+                currentGroup.add(currentPoint);
+                currentFrequency = -1;
+            }
+        }
+
+        // 处理最后一组
+        if (currentGroup.size() >= 2 && currentFrequency != -1) {
+            frequencyGroups.computeIfAbsent(currentFrequency, k -> new ArrayList<>())
+                    .add(new ArrayList<>(currentGroup));
+        }
+
+        // 打印分组结果
+        log.info("\n频率分组完成:");
+        log.info("共发现{}种标准频率模式", frequencyGroups.size());
+
+        int totalGroups = 0;
+        int totalGroupPoints = 0;
+
+        // 按标准频率顺序输出
+        for (int freq : standardFrequencies) {
+            if (!frequencyGroups.containsKey(freq)) {
+                continue; // 跳过没有数据的频率
+            }
+
+            List<List<TrackPoint>> groups = frequencyGroups.get(freq);
+            int groupCount = groups.size();
+            int pointCount = groups.stream().mapToInt(List::size).sum();
+
+            totalGroups += groupCount;
+            totalGroupPoints += pointCount;
+
+            log.info("频率{}秒: {}个组, {}个点", freq, groupCount, pointCount);
+
+            // 打印每个组的详细信息
+            for (int i = 0; i < groups.size(); i++) {
+                List<TrackPoint> group = groups.get(i);
+                if (!group.isEmpty()) {
+                    log.debug("  组{}: {}个点, 时间:{} ~ {}",
+                            i + 1,
+                            group.size(),
+                            group.get(0).getTime(),
+                            group.get(group.size() - 1).getTime());
+                }
+            }
+        }
+
+        log.info("总频率模式数: {}", frequencyGroups.size());
+        log.info("总组数: {}", totalGroups);
+
+        // 获取最小间隔的分组
+        if (!frequencyGroups.isEmpty()) {
+            int minFrequency = frequencyGroups.keySet().stream().min(Integer::compareTo).orElse(0);
+            List<List<TrackPoint>> minFreqGroups = frequencyGroups.get(minFrequency);
+            int minFreqGroupCount = minFreqGroups.size();
+            int minFreqPointCount = minFreqGroups.stream().mapToInt(List::size).sum();
+            log.info("最小间隔{}秒: {}个组, {}个点", minFrequency, minFreqGroupCount, minFreqPointCount);
+        }
+
         try {
             // 先按4米距离阈值进行轨迹分段
             double segmentDistanceThreshold = 4.0;
-            // 计算单侧缓冲宽度（totalWidthM是总宽度，需要除以2）
-            double halfWidth = totalWidthM / 2.0;
+
             List<List<TrackPoint>> segments = new ArrayList<>();
             List<TrackPoint> currentSegment = new ArrayList<>();
 
