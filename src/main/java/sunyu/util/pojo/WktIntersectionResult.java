@@ -1,12 +1,15 @@
 package sunyu.util.pojo;
 
+/**
+ * 相交轮廓结果类
+ */
 public class WktIntersectionResult {
     /**
-     * 相交轮廓wkt，WGS84坐标系
+     * 相交轮廓WKT(WGS84坐标系)
      */
     private String wkt;
     /**
-     * 相交面积亩数
+     * 相交的面积（亩）
      */
     private double mu;
 
@@ -22,25 +25,16 @@ public class WktIntersectionResult {
         return wkt;
     }
 
-    public WktIntersectionResult setWkt(String wkt) {
+    public void setWkt(String wkt) {
         this.wkt = wkt;
-        return this;
     }
 
     public double getMu() {
         return mu;
     }
 
-    public WktIntersectionResult setMu(double mu) {
+    public void setMu(double mu) {
         this.mu = mu;
-        return this;
     }
 
-    @Override
-    public String toString() {
-        return "WktIntersectionResult{" +
-                "wkt='" + wkt + '\'' +
-                ", mu=" + mu +
-                '}';
-    }
 }

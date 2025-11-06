@@ -16,6 +16,9 @@ public class CoordinatePoint {
      */
     private double lat;
 
+    public CoordinatePoint() {
+    }
+
     /**
      * 构造函数
      *
