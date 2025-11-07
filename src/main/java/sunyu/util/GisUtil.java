@@ -1663,8 +1663,15 @@ public class GisUtil implements AutoCloseable {
             LocalDateTime startTime = null;
             LocalDateTime endTime = null;
             if (!pointsInPolygon.isEmpty()) {
-                startTime = pointsInPolygon.get(0).getTime();
-                endTime = pointsInPolygon.get(pointsInPolygon.size() - 1).getTime();
+                // 找出最早和最晚的时间，而不是使用首尾点的时间
+                startTime = pointsInPolygon.stream()
+                        .map(TrackPoint::getTime)
+                        .min(LocalDateTime::compareTo)
+                        .orElse(null);
+                endTime = pointsInPolygon.stream()
+                        .map(TrackPoint::getTime)
+                        .max(LocalDateTime::compareTo)
+                        .orElse(null);
             }
 
             // 构建并返回结果对象
@@ -3134,9 +3141,12 @@ public class GisUtil implements AutoCloseable {
                     part.setTrackPoints(
                             gaussPointsToWgs84(geometryGaussPoints, wgs84Points.get(0).getLon()));
                     if (!geometryGaussPoints.isEmpty()) {
-                        part.setStartTime(geometryGaussPoints.get(0).getTime());
+                        part.setStartTime(
+                                geometryGaussPoints.stream().map(TrackPoint::getTime).min(LocalDateTime::compareTo)
+                                        .orElse(null));
                         part.setEndTime(
-                                geometryGaussPoints.get(geometryGaussPoints.size() - 1).getTime());
+                                geometryGaussPoints.stream().map(TrackPoint::getTime).max(LocalDateTime::compareTo)
+                                        .orElse(null));
                     }
                     part.setMu(calcMuByWgs84Wkt(part.getWkt()));
                     parts.add(part);
@@ -3158,9 +3168,12 @@ public class GisUtil implements AutoCloseable {
                     part.setTrackPoints(
                             gaussPointsToWgs84(geometryGaussPoints, wgs84Points.get(0).getLon()));
                     if (!geometryGaussPoints.isEmpty()) {
-                        part.setStartTime(geometryGaussPoints.get(0).getTime());
+                        part.setStartTime(
+                                geometryGaussPoints.stream().map(TrackPoint::getTime).min(LocalDateTime::compareTo)
+                                        .orElse(null));
                         part.setEndTime(
-                                geometryGaussPoints.get(geometryGaussPoints.size() - 1).getTime());
+                                geometryGaussPoints.stream().map(TrackPoint::getTime).max(LocalDateTime::compareTo)
+                                        .orElse(null));
                     }
                     part.setMu(calcMuByWgs84Wkt(part.getWkt()));
                     parts.add(part);
