@@ -1752,8 +1752,8 @@ public class GisUtil implements AutoCloseable {
 
         // 实现按上报频率分组：统计速度过滤后的轨迹点能分出多少频率相同的组
         // gaussPoints已经在前面按时间排序（第2658行），无需再次排序
-        if (gaussPoints.size() < 2) {
-            log.warn("速度过滤后轨迹点数不足2个，无法进行频率分组");
+        if (gaussPoints.size() < 3) {
+            log.warn("速度过滤后轨迹点数不足3个，无法进行频率分组");
             return result;
         }
 
@@ -1764,7 +1764,7 @@ public class GisUtil implements AutoCloseable {
         Map<Integer, Integer> timeIntervalStats = new LinkedHashMap<>(); // 标准频率 -> 出现次数
 
         for (int i = 1; i < gaussPoints.size(); i++) {
-            long timeDiff = java.time.Duration.between(gaussPoints.get(i - 1).getTime(), gaussPoints.get(i).getTime())
+            long timeDiff = Duration.between(gaussPoints.get(i - 1).getTime(), gaussPoints.get(i).getTime())
                     .getSeconds();
 
             // 只处理1-17秒的间隔（15秒+2秒容错）
@@ -2160,15 +2160,15 @@ public class GisUtil implements AutoCloseable {
                     part.setWkt(gaussGeometryToWgs84Wkt(geom, wgs84Points.get(0).getLon()));
                     // 用当前段的所有轨迹点过滤
                     List<TrackPoint> geometryGaussPoints = filterGaussPointsByGeometry(gaussPoints, geom);
+                    // 按时间正序排序
+                    geometryGaussPoints.sort(
+                            Comparator.comparing(TrackPoint::getTime, Comparator.nullsLast(LocalDateTime::compareTo)));
                     part.setTrackPoints(
                             gaussPointsToWgs84(geometryGaussPoints, wgs84Points.get(0).getLon()));
                     if (!geometryGaussPoints.isEmpty()) {
-                        part.setStartTime(
-                                geometryGaussPoints.stream().map(TrackPoint::getTime).min(LocalDateTime::compareTo)
-                                        .orElse(null));
-                        part.setEndTime(
-                                geometryGaussPoints.stream().map(TrackPoint::getTime).max(LocalDateTime::compareTo)
-                                        .orElse(null));
+                        // 由于已按时间正序排序，直接使用首尾元素的时间
+                        part.setStartTime(geometryGaussPoints.get(0).getTime());
+                        part.setEndTime(geometryGaussPoints.get(geometryGaussPoints.size() - 1).getTime());
                     }
                     part.setMu(calcMuByWgs84Wkt(part.getWkt()));
                     parts.add(part);
@@ -2187,15 +2187,15 @@ public class GisUtil implements AutoCloseable {
                     part.setWkt(gaussGeometryToWgs84Wkt(geom, wgs84Points.get(0).getLon()));
                     // 用当前段的所有轨迹点过滤
                     List<TrackPoint> geometryGaussPoints = filterGaussPointsByGeometry(gaussPoints, geom);
+                    // 按时间正序排序
+                    geometryGaussPoints.sort(
+                            Comparator.comparing(TrackPoint::getTime, Comparator.nullsLast(LocalDateTime::compareTo)));
                     part.setTrackPoints(
                             gaussPointsToWgs84(geometryGaussPoints, wgs84Points.get(0).getLon()));
                     if (!geometryGaussPoints.isEmpty()) {
-                        part.setStartTime(
-                                geometryGaussPoints.stream().map(TrackPoint::getTime).min(LocalDateTime::compareTo)
-                                        .orElse(null));
-                        part.setEndTime(
-                                geometryGaussPoints.stream().map(TrackPoint::getTime).max(LocalDateTime::compareTo)
-                                        .orElse(null));
+                        // 由于已按时间正序排序，直接使用首尾元素的时间
+                        part.setStartTime(geometryGaussPoints.get(0).getTime());
+                        part.setEndTime(geometryGaussPoints.get(geometryGaussPoints.size() - 1).getTime());
                     }
                     part.setMu(calcMuByWgs84Wkt(part.getWkt()));
                     parts.add(part);
