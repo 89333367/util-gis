@@ -120,20 +120,15 @@ public class GisUtil implements AutoCloseable {
         // 默认轮廓返回的最多多边形数量（TopN）
         private final int DEFAULT_MAX_OUTLINE_SEGMENTS = 10;
 
-        // 控制是否启用膨胀收缩操作的开关
-        private boolean enableBufferOperation = true;
-
-        // 线缓冲的端头样式（平端），确保只膨胀宽度不膨胀两端
-        private final int BUFFER_END_CAP_STYLE = BufferParameters.CAP_FLAT;
-
-        // 线缓冲的拐角样式
-        private final int BUFFER_JOIN_STYLE = BufferParameters.JOIN_ROUND;
-
-        // 线缓冲的mitre限制值
-        private final double BUFFER_MITRE_LIMIT = 2.0;
-
-        // 默认缓冲段数，控制圆弧平滑度
+        // 圆近似细分：让小面积轨迹缓冲区更圆滑（半圆效果）
         private final int DEFAULT_BUFFER_QUADRANT = 2;
+
+        // 线缓冲样式（更圆滑边界）：拐角样式、端头样式与mitre限制
+        private final int BUFFER_JOIN_STYLE = BufferParameters.JOIN_ROUND;
+        // 线缓冲的端头样式（圆端），影响线段端点的缓冲形状
+        private final int BUFFER_END_CAP_STYLE = BufferParameters.CAP_ROUND;
+        // 线缓冲的mitre限制值，控制锐角的处理方式，值越小角越圆滑，值越大允许越尖的角
+        private final double BUFFER_MITRE_LIMIT = 2.0;
 
         // 轨迹分段最小切割距离（米），用于splitRoad方法中的轨迹点分组
         private final TreeMap<Double, Double> MIN_SEGMENT_DISTANCE_THRESHOLD_MAP = new TreeMap<Double, Double>() {
@@ -184,16 +179,6 @@ public class GisUtil implements AutoCloseable {
         log.info("[销毁{}] 结束", this.getClass().getSimpleName());
     }
 
-    // 创建带有配置参数的BufferParameters实例
-    private BufferParameters createBufferParameters() {
-        BufferParameters params = new BufferParameters();
-        params.setEndCapStyle(config.BUFFER_END_CAP_STYLE);
-        params.setJoinStyle(config.BUFFER_JOIN_STYLE);
-        params.setMitreLimit(config.BUFFER_MITRE_LIMIT);
-        params.setQuadrantSegments(config.DEFAULT_BUFFER_QUADRANT);
-        return params;
-    }
-
     /**
      * 将实际时间间隔映射到标准频率（正负2秒容错）
      * 
@@ -201,7 +186,7 @@ public class GisUtil implements AutoCloseable {
      * @param standardFrequencies 标准频率数组
      * @return 对应的标准频率，如果无法匹配返回-1
      */
-    private int mapToStandardFrequency(int actualInterval, int[] standardFrequencies) {
+    private static int mapToStandardFrequency(int actualInterval, int[] standardFrequencies) {
         for (int freq : standardFrequencies) {
             if (Math.abs(actualInterval - freq) <= 2) {
                 return freq;
@@ -424,6 +409,26 @@ public class GisUtil implements AutoCloseable {
     }
 
     /**
+     * 过滤异常点并按时间升序排序。
+     * 条件：时间非空；经纬度在有效范围；排除(0,0)；保留 `isValidWgs84Geometry` 检查通过的点。
+     *
+     * @param seg 原始轨迹点列表
+     * @return 过滤并按时间排序后的轨迹点列表
+     */
+    private List<TrackPoint> filterAndSortTrackPoints(List<TrackPoint> seg) {
+        if (seg == null)
+            return Collections.emptyList();
+        Comparator<LocalDateTime> cmp = Comparator
+                .nullsLast(Comparator.naturalOrder());
+        return seg.stream()
+                .filter(p -> p.getTime() != null)
+                .filter(p -> Math.abs(p.getLon()) <= 180 && Math.abs(p.getLat()) <= 90)
+                .filter(p -> !(p.getLon() == 0 && p.getLat() == 0))
+                .sorted(Comparator.comparing(TrackPoint::getTime, cmp))
+                .collect(Collectors.toList());
+    }
+
+    /**
      * 检查几何坐标的基本有效性。
      * 判断规则：坐标不为 (0,0)，且不存在接近 0 的可疑值（|x|<1e-10 或 |y|<1e-10）；不负责空几何与 NaN/Inf
      * 检查（调用方需在前置流程处理）。
@@ -489,6 +494,78 @@ public class GisUtil implements AutoCloseable {
      */
     private static double toRad(double deg) {
         return deg * Math.PI / 180.0;
+    }
+
+    /**
+     * 简化版线缓冲区构建方法（无分段逻辑）。
+     * 
+     * <p>
+     * 与 {@link #buildSmartLineBuffer} 方法相比，此方法功能简化：
+     * - 不做轨迹分段判断，直接处理全部轨迹点
+     * - 不做道格拉斯-普克简化，保留原始轨迹精度
+     * - 适用于轨迹较短或无需分段处理的场景
+     * </p>
+     * 
+     * <p>
+     * 处理流程：
+     * 1. WGS84坐标转高斯-克吕格投影
+     * 2. 构建线几何（保留所有点）
+     * 3. 创建指定宽度的缓冲区
+     * 4. 转换回WGS84坐标系
+     * </p>
+     * 
+     * @param seg    轨迹点列表，每个点包含经纬度坐标
+     * @param widthM 缓冲区宽度，单位为米
+     * @return 缓冲区几何图形（WGS84坐标系）
+     * @throws Exception 当坐标转换或几何处理失败时抛出
+     * 
+     * @see #buildSmartLineBuffer(List, double, boolean) 智能版缓冲区构建方法（支持分段）
+     */
+    private Geometry buildSimpleLineBuffer(List<TrackPoint> seg, double widthM) throws Exception {
+        // 参数校验
+        if (seg == null || seg.size() < 2) {
+            return config.geometryFactory.createGeometryCollection(null);
+        }
+
+        long startTime = System.currentTimeMillis();
+        log.trace("[buildSmartLineBuffer] 开始处理 {} 个轨迹点，线缓冲宽度: {} 米", seg.size(), widthM);
+
+        // 获取原点经度并创建坐标转换
+        double originLon = seg.get(0).getLon();
+        MathTransform txWgsToGk = getTxWgsToGaussByLon(originLon);
+
+        // 将轨迹点转换为高斯投影坐标
+        List<Coordinate> coordinates = new ArrayList<>(seg.size());
+        for (TrackPoint point : seg) {
+            Coordinate src = new Coordinate(point.getLon(), point.getLat());
+            Coordinate target = new Coordinate();
+            JTS.transform(src, target, txWgsToGk);
+            coordinates.add(target);
+        }
+
+        // 创建线几何（保留所有轨迹点，不做简化）
+        Coordinate[] coordArray = coordinates.toArray(new Coordinate[0]);
+        LineString line = config.geometryFactory.createLineString(coordArray);
+
+        // 设置缓冲区参数
+        BufferParameters params = new BufferParameters();
+        params.setQuadrantSegments(config.DEFAULT_BUFFER_QUADRANT);
+        params.setEndCapStyle(config.BUFFER_END_CAP_STYLE);
+        params.setJoinStyle(config.BUFFER_JOIN_STYLE);
+        params.setMitreLimit(config.BUFFER_MITRE_LIMIT);
+
+        // 创建缓冲区（使用原始轨迹点，保证精度）
+        Geometry buffered = BufferOp.bufferOp(line, widthM, params);
+
+        // 转换回WGS84坐标系
+        MathTransform txGkToWgs = getTxGaussToWgsByLon(originLon);
+        Geometry result = JTS.transform(buffered, txGkToWgs);
+
+        // 记录处理时间
+        long endTime = System.currentTimeMillis();
+        log.debug("[buildSimpleLineBuffer] 完成，总计耗时: {}ms", endTime - startTime);
+
+        return result;
     }
 
     /**
@@ -1534,6 +1611,81 @@ public class GisUtil implements AutoCloseable {
         }
     }
 
+    /**
+     * 生成轨迹轮廓（不拆分、不裁剪、不平滑）
+     * 根据轨迹点与总宽度，使用线缓冲构建单个轮廓（Polygon），并返回包含亩数、WKT、时间范围与点集的 `OutlinePart`。
+     * 步骤：过滤/排序轨迹点 → 在米制投影下线简化+线缓冲 → 若为MultiPolygon仅做轻微开运算保留缝隙并选面积最大面 → 计算亩数与 WKT。
+     *
+     * @param seg         轨迹点列表（WGS84），至少 3 个有效点
+     * @param totalWidthM 总宽度（米，左右合计），必须非负
+     * @return `OutlinePart`：结果几何为 `Polygon`，包含 `mu`、`wkt`、起止时间与有效点集
+     * @throws IllegalArgumentException 如果参数无效或轨迹点不足
+     * @throws Exception                如果几何运算或坐标转换失败
+     */
+    public OutlinePart getOutline(List<TrackPoint> seg, double totalWidthM) throws Exception {
+        long t0 = System.currentTimeMillis();
+
+        // 参数校验
+        if (seg == null) {
+            throw new IllegalArgumentException("轨迹点列表不能为空");
+        }
+        if (totalWidthM < 0) {
+            throw new IllegalArgumentException("总宽度必须为非负数");
+        }
+
+        // 计算半宽用于缓冲
+        double widthM = totalWidthM / 2.0;
+
+        // 步骤1: 过滤异常点（越界与(0,0)），按时间升序排序
+        List<TrackPoint> points = filterAndSortTrackPoints(seg);
+        log.trace("[getOutline] 轨迹点过滤完成，原始点数: {}, 过滤后点数: {}", seg.size(), points.size());
+
+        // 校验有效点数
+        if (points.size() < 3) {
+            throw new IllegalArgumentException("轨迹段至少需要3个有效点");
+        }
+
+        // 步骤2: 提取时间范围（忽略空时间）
+        LocalDateTime startTime = null;
+        LocalDateTime endTime = null;
+        for (TrackPoint p : points) {
+            if (p.getTime() != null) {
+                if (startTime == null) {
+                    startTime = p.getTime();
+                }
+                endTime = p.getTime(); // 总是更新为最后一个有效时间
+            }
+        }
+
+        // 步骤3: 构建线缓冲轮廓（WGS84坐标系）
+        long tBuildStart = System.currentTimeMillis();
+        Geometry outline = buildSimpleLineBuffer(points, widthM);
+        long tBuildEnd = System.currentTimeMillis();
+        log.trace("[getOutline] 轮廓构建完成（线缓冲），耗时: {}ms", (tBuildEnd - tBuildStart));
+
+        // 步骤4: 计算几何属性
+        double mu = calcMu(outline); // 计算面积（亩）
+        String wkt = toWkt(outline); // 转换为WKT格式
+
+        // 记录最终结果信息
+        log.debug("[getOutline] 返回结果 type={} 面积={}亩 点数={}",
+                outline.getGeometryType(), mu, points.size());
+
+        long t1 = System.currentTimeMillis();
+        log.debug("[getOutline] 总耗时={}ms", (t1 - t0));
+
+        // 构建并返回结果对象
+        OutlinePart op = new OutlinePart();
+        op.setOutline(outline);
+        op.setStartTime(startTime);
+        op.setEndTime(endTime);
+        op.setMu(mu);
+        op.setWkt(wkt);
+        op.setTrackPoints(points);
+        op.setTotalWidthM(totalWidthM);
+        return op;
+    }
+
     public SplitRoadResult splitRoad(List<TrackPoint> wgs84Points, double totalWidthM) {
         return splitRoad(wgs84Points, totalWidthM, config.DEFAULT_MAX_OUTLINE_SEGMENTS);
     }
@@ -1596,7 +1748,7 @@ public class GisUtil implements AutoCloseable {
 
         // 计算单侧缓冲宽度（totalWidthM是总宽度，需要除以2）
         double halfWidth = totalWidthM / 2.0;
-        double halfHalfWidth = 0.1;
+        double halfHalfWidth = halfWidth / 2.0;
 
         // 实现按上报频率分组：统计速度过滤后的轨迹点能分出多少频率相同的组
         // gaussPoints已经在前面按时间排序（第2658行），无需再次排序
@@ -1786,7 +1938,9 @@ public class GisUtil implements AutoCloseable {
 
                         if (0 < medianDistance && medianDistance <= 20) {
                             try {
-                                double segmentDistanceThreshold = 4;
+                                double segmentDistanceThreshold = Math.max(
+                                        config.MIN_SEGMENT_DISTANCE_THRESHOLD_MAP.floorEntry(totalWidthM).getValue(),
+                                        minFrequency * totalWidthM);
 
                                 List<List<TrackPoint>> segments = new ArrayList<>();
                                 List<TrackPoint> currentSegment = new ArrayList<>();
@@ -1900,14 +2054,7 @@ public class GisUtil implements AutoCloseable {
                                                 List<Geometry> bufferedPolygons = batchBuffers.parallelStream() // 并行处理膨胀操作
                                                         .map(polygon -> {
                                                             try {
-                                                                // 根据配置决定是否执行膨胀操作
-                                                                if (config.enableBufferOperation) {
-                                                                    BufferParameters params = createBufferParameters();
-                                                                    return BufferOp.bufferOp(polygon, halfHalfWidth,
-                                                                            params);
-                                                                } else {
-                                                                    return polygon;
-                                                                }
+                                                                return polygon.buffer(halfHalfWidth);
                                                             } catch (Exception e) {
                                                                 log.warn("多边形膨胀处理失败: {}", e.getMessage());
                                                                 return polygon; // 失败时返回原始多边形
@@ -1921,11 +2068,7 @@ public class GisUtil implements AutoCloseable {
 
                                                 // 合并后再收缩回原始大小（减去缓冲距离）
                                                 if (!buffer.isEmpty()) {
-                                                    // 根据配置决定是否执行收缩操作
-                                                    if (config.enableBufferOperation) {
-                                                        BufferParameters params = createBufferParameters();
-                                                        buffer = BufferOp.bufferOp(buffer, -halfHalfWidth, params);
-                                                    }
+                                                    buffer = buffer.buffer(-halfHalfWidth);
                                                 }
                                             } catch (Exception e) {
                                                 log.warn("批次缓冲合并失败: {}", e.getMessage());
@@ -1984,14 +2127,7 @@ public class GisUtil implements AutoCloseable {
                 List<Geometry> bufferedPolygons = new ArrayList<>();
                 for (Geometry polygon : allPolygons) {
                     // 使用配置中的合并缓冲距离扩展多边形边界
-                    // 根据配置决定是否执行膨胀操作
-                    Geometry bufferedPolygon;
-                    if (config.enableBufferOperation) {
-                        BufferParameters params = createBufferParameters();
-                        bufferedPolygon = BufferOp.bufferOp(polygon, halfHalfWidth, params);
-                    } else {
-                        bufferedPolygon = polygon;
-                    }
+                    Geometry bufferedPolygon = polygon.buffer(halfHalfWidth);
                     bufferedPolygons.add(bufferedPolygon);
                 }
 
@@ -2000,11 +2136,7 @@ public class GisUtil implements AutoCloseable {
 
                 // 合并后再收缩回原始大小（减去缓冲距离）
                 if (!mergedGeometry.isEmpty()) {
-                    // 根据配置决定是否执行收缩操作
-                    if (config.enableBufferOperation) {
-                        BufferParameters params = createBufferParameters();
-                        mergedGeometry = BufferOp.bufferOp(mergedGeometry, -halfHalfWidth, params);
-                    }
+                    mergedGeometry = mergedGeometry.buffer(-halfHalfWidth);
                 }
 
                 // 将合并后的几何转换为几何列表（避免类型强转）

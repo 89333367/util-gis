@@ -1376,11 +1376,11 @@
         console.log(`准备显示${points.length}个轨迹点`);
         
         // 使用批量处理和更小的图标来提高性能
-        // 创建一个极小的红点SVG图标
+        // 创建一个更小的红点SVG图标
         const smallRedDotIcon = new T.Icon({
-            iconUrl: 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="2" height="2"><circle cx="1" cy="1" r="0.75" fill="%23FF0000"/></svg>',
-            iconSize: new T.Point(2, 2),
-            iconAnchor: new T.Point(1, 1)
+            iconUrl: 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="1" height="1"><circle cx="0.5" cy="0.5" r="0.3" fill="%23FF0000"/></svg>',
+            iconSize: new T.Point(1, 1),
+            iconAnchor: new T.Point(0.5, 0.5)
         });
         
         // 优化批量添加点的速度
