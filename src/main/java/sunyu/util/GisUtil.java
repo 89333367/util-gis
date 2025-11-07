@@ -746,7 +746,7 @@ public class GisUtil implements AutoCloseable {
         // 轨迹分段最小切割距离（米），用于splitRoad方法中的轨迹点分组
         private final TreeMap<Double, Double> MIN_SEGMENT_DISTANCE_THRESHOLD_MAP = new TreeMap<Double, Double>() {
             {
-                put(1.0, 3.5);
+                put(1.0, 3.3);
                 put(1.75, 2.7);
                 put(2.8, 2.8);
                 put(Double.MAX_VALUE, 4.0);
