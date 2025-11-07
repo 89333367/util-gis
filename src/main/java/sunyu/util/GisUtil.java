@@ -743,6 +743,20 @@ public class GisUtil implements AutoCloseable {
         // 线缓冲的mitre限制值，控制锐角的处理方式，值越小角越圆滑，值越大允许越尖的角
         private final double BUFFER_MITRE_LIMIT = 2.0;
 
+        // 轨迹分段最小切割距离（米），用于splitRoad方法中的轨迹点分组
+        private final TreeMap<Double, Double> MIN_SEGMENT_DISTANCE_THRESHOLD_MAP = new TreeMap<Double, Double>() {
+            {
+                put(1.0, 3.5);
+                put(1.75, 2.7);
+                put(2.8, 2.8);
+                put(Double.MAX_VALUE, 4.0);
+            }
+        };
+
+        // 多边形合并缓冲距离（米），用于调整空间合并的敏感度
+        // 值越大，相邻多边形越容易合并；值越小，合并条件越严格
+        private final double POLYGON_MERGE_BUFFER_DISTANCE_M = 0.5;
+
         // 兜底方案控制：当splitRoad结果为空或面积过小时启用getOutline重算
         private final boolean ENABLE_FALLBACK_TO_OUTLINE = true;
         // 兜底面积阈值（亩）：小于该值时触发兜底方案，使用getOutline重算
@@ -2891,7 +2905,9 @@ public class GisUtil implements AutoCloseable {
 
                         if (0 < medianDistance && medianDistance <= 20) {
                             try {
-                                double segmentDistanceThreshold = Math.max(2.2, minFrequency * totalWidthM);
+                                double segmentDistanceThreshold = Math.max(
+                                        config.MIN_SEGMENT_DISTANCE_THRESHOLD_MAP.floorEntry(totalWidthM).getValue(),
+                                        minFrequency * totalWidthM);
 
                                 List<List<TrackPoint>> segments = new ArrayList<>();
                                 List<TrackPoint> currentSegment = new ArrayList<>();
@@ -2997,8 +3013,21 @@ public class GisUtil implements AutoCloseable {
         if (CollUtil.isNotEmpty(allPolygons)) {
             try {
                 // 使用UnaryUnionOp合并相邻或相交的多边形
-                UnaryUnionOp unionOp = new UnaryUnionOp(allPolygons);
+                // 先对每个多边形应用缓冲扩展，增加合并的敏感度
+                List<Geometry> bufferedPolygons = new ArrayList<>();
+                for (Geometry polygon : allPolygons) {
+                    // 使用配置中的合并缓冲距离扩展多边形边界
+                    Geometry bufferedPolygon = polygon.buffer(halfWidth / 2);
+                    bufferedPolygons.add(bufferedPolygon);
+                }
+
+                UnaryUnionOp unionOp = new UnaryUnionOp(bufferedPolygons);
                 Geometry mergedGeometry = unionOp.union();
+
+                // 合并后再收缩回原始大小（减去缓冲距离）
+                if (!mergedGeometry.isEmpty()) {
+                    mergedGeometry = mergedGeometry.buffer(-halfWidth / 2);
+                }
 
                 // 将合并后的几何转换为几何列表（避免类型强转）
                 List<Geometry> mergedGeometries = new ArrayList<>();
