@@ -2891,7 +2891,7 @@ public class GisUtil implements AutoCloseable {
 
                         if (0 < medianDistance && medianDistance <= 20) {
                             try {
-                                double segmentDistanceThreshold = 20;
+                                double segmentDistanceThreshold = Math.max(2.2, minFrequency * totalWidthM);
 
                                 List<List<TrackPoint>> segments = new ArrayList<>();
                                 List<TrackPoint> currentSegment = new ArrayList<>();
