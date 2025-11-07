@@ -691,6 +691,9 @@ public class GisUtil implements AutoCloseable {
         // 空几何体的WKT表示，用于初始化空结果
         private final String EMPTY_WKT = "GEOMETRYCOLLECTION EMPTY";
 
+        // 分批处理时的批次大小（点数量）
+        private final int BATCH_SIZE = 500;
+
         // 默认轮廓返回的最多多边形数量（TopN）
         private final int DEFAULT_MAX_OUTLINE_SEGMENTS = 10;
 
@@ -2968,10 +2971,64 @@ public class GisUtil implements AutoCloseable {
                                         coords[i] = new Coordinate(pt.getLon(), pt.getLat());
                                     }
 
-                                    LineString trackLine = config.geometryFactory.createLineString(coords);
+                                    log.debug("有 {} 个点需要构建线缓冲", coords.length);
 
-                                    // 构建线缓冲（在高斯投影坐标系下计算，单位：米）
-                                    Geometry buffer = trackLine.buffer(halfWidth);
+                                    // 对大型轨迹段进行分组处理（每500个点一组）
+                                    Geometry buffer;
+                                    if (coords.length > config.BATCH_SIZE) {
+                                        log.debug("组{}第{}段点数过多，进行分组处理", k + 1, segIndex);
+
+                                        // 分批处理大型轨迹段
+                                        List<Geometry> batchBuffers = new ArrayList<>();
+
+                                        for (int i = 0; i < coords.length; i += config.BATCH_SIZE - 1) { // 相邻批次重叠1个点
+                                            int endIndex = Math.min(i + config.BATCH_SIZE, coords.length);
+                                            Coordinate[] batchCoords = new Coordinate[endIndex - i];
+                                            System.arraycopy(coords, i, batchCoords, 0, endIndex - i);
+
+                                            LineString batchLine = config.geometryFactory.createLineString(batchCoords);
+                                            Geometry batchBuffer = batchLine.buffer(halfWidth);
+
+                                            if (!batchBuffer.isEmpty()) {
+                                                batchBuffers.add(batchBuffer);
+                                            }
+
+                                            log.debug("组{}第{}段批次{}处理完成: 点数={}, 缓冲类型={}",
+                                                    k + 1, segIndex, i / (config.BATCH_SIZE - 1) + 1,
+                                                    batchCoords.length, batchBuffer.getGeometryType());
+                                        }
+
+                                        // 在缓冲结果处理前进行合并操作，模仿后续的合并逻辑
+                                        if (batchBuffers.isEmpty()) {
+                                            buffer = config.EMPTY_GEOMETRY;
+                                        } else {
+                                            try {
+                                                // 先对每个多边形应用缓冲扩展，增加合并的敏感度
+                                                List<Geometry> bufferedPolygons = new ArrayList<>();
+                                                for (Geometry polygon : batchBuffers) {
+                                                    // 使用配置中的合并缓冲距离扩展多边形边界
+                                                    Geometry bufferedPolygon = polygon.buffer(halfHalfWidth);
+                                                    bufferedPolygons.add(bufferedPolygon);
+                                                }
+
+                                                UnaryUnionOp unionOp = new UnaryUnionOp(bufferedPolygons);
+                                                buffer = unionOp.union();
+
+                                                // 合并后再收缩回原始大小（减去缓冲距离）
+                                                if (!buffer.isEmpty()) {
+                                                    buffer = buffer.buffer(-halfHalfWidth);
+                                                }
+                                            } catch (Exception e) {
+                                                log.warn("批次缓冲合并失败: {}", e.getMessage());
+                                                // 如果合并失败，尝试返回第一个有效几何
+                                                buffer = batchBuffers.get(0);
+                                            }
+                                        }
+                                    } else {
+                                        // 点数较少时直接处理
+                                        LineString trackLine = config.geometryFactory.createLineString(coords);
+                                        buffer = trackLine.buffer(halfWidth);
+                                    }
 
                                     log.debug("组{}第{}段线缓冲构建完成: 原始点数={}, 缓冲类型={}, 顶点数={}",
                                             k + 1, segIndex, segmentPoints.size(), buffer.getGeometryType(),
