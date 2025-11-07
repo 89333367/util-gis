@@ -2714,6 +2714,7 @@ public class GisUtil implements AutoCloseable {
 
         // 计算单侧缓冲宽度（totalWidthM是总宽度，需要除以2）
         double halfWidth = totalWidthM / 2.0;
+        double halfHalfWidth = halfWidth / 2.0;
 
         // 实现按上报频率分组：统计速度过滤后的轨迹点能分出多少频率相同的组
         // gaussPoints已经在前面按时间排序（第2658行），无需再次排序
@@ -3017,7 +3018,7 @@ public class GisUtil implements AutoCloseable {
                 List<Geometry> bufferedPolygons = new ArrayList<>();
                 for (Geometry polygon : allPolygons) {
                     // 使用配置中的合并缓冲距离扩展多边形边界
-                    Geometry bufferedPolygon = polygon.buffer(halfWidth / 2);
+                    Geometry bufferedPolygon = polygon.buffer(halfHalfWidth);
                     bufferedPolygons.add(bufferedPolygon);
                 }
 
@@ -3026,7 +3027,7 @@ public class GisUtil implements AutoCloseable {
 
                 // 合并后再收缩回原始大小（减去缓冲距离）
                 if (!mergedGeometry.isEmpty()) {
-                    mergedGeometry = mergedGeometry.buffer(-halfWidth / 2);
+                    mergedGeometry = mergedGeometry.buffer(-halfHalfWidth);
                 }
 
                 // 将合并后的几何转换为几何列表（避免类型强转）

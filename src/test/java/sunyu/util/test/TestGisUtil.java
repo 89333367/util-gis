@@ -147,6 +147,17 @@ public class TestGisUtil {
     }
 
     @Test
+    void 测试镂空作业轮廓4() throws Exception {
+        String did = "EC71BT2406060220";
+        String startTime = "20251103102528";
+        String endTime = "20251103150242";
+        double jobWidth = 1.75;
+        读取一段轨迹数据(did, startTime, endTime);
+        测试一段拆分数据(did, startTime, endTime, jobWidth);
+        输出一段HTML(did, startTime, endTime);
+    }
+
+    @Test
     void 测试0018() throws Exception {
         String did = "EC73BD2506050018";
         String startTime = "20251104090717";
@@ -261,6 +272,15 @@ public class TestGisUtil {
     @Test
     void t009() {
         String did = "EM9101B8F5AZT0041";
+        String yyyyMMdd = "20251024";
+        读取一天轨迹数据(did, yyyyMMdd);
+        测试一天拆分数据(did, yyyyMMdd, 2.5);
+        输出一天HTML(did, yyyyMMdd);
+    }
+
+    @Test
+    void t010() {
+        String did = "EC71BT2406060220";
         String yyyyMMdd = "20251024";
         读取一天轨迹数据(did, yyyyMMdd);
         测试一天拆分数据(did, yyyyMMdd, 2.5);
