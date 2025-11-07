@@ -186,6 +186,7 @@ public class TestGisUtil {
         String wkt2 = FileUtil.readUtf8Lines(path + "/EC73BD2509061335_20251104100606_20251104101419_outline.txt")
                 .get(6).replace("WKT: ", "");
         WktIntersectionResult r = gisUtil.intersection(wkt1, wkt2);
+        FileUtil.writeUtf8String(r.getWkt(), path + "/EC73BD2509061335_20251104100606_20251104101419_intersection.txt");
         log.info("相交面积：{} 亩", r.getMu());
     }
 
