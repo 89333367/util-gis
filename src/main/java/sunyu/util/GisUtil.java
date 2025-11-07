@@ -2978,25 +2978,43 @@ public class GisUtil implements AutoCloseable {
                                     if (coords.length > config.BATCH_SIZE) {
                                         log.debug("组{}第{}段点数过多，进行分组处理", k + 1, segIndex);
 
-                                        // 分批处理大型轨迹段
-                                        List<Geometry> batchBuffers = new ArrayList<>();
+                                        // 计算需要多少个批次
+                                        final int totalCoords = coords.length;
+                                        final int overlapSize = 1;
+                                        final int batchSize = config.BATCH_SIZE;
+                                        final GeometryFactory geometryFactory = config.geometryFactory;
+                                        final double hw = halfWidth;
+                                        final int segmentIndex = segIndex;
+                                        final int groupIndex = k + 1;
 
-                                        for (int i = 0; i < coords.length; i += config.BATCH_SIZE - 1) { // 相邻批次重叠1个点
-                                            int endIndex = Math.min(i + config.BATCH_SIZE, coords.length);
-                                            Coordinate[] batchCoords = new Coordinate[endIndex - i];
-                                            System.arraycopy(coords, i, batchCoords, 0, endIndex - i);
+                                        // 使用Java 8 Stream API并行处理批次
+                                        List<Geometry> batchBuffers = IntStream.range(0, totalCoords)
+                                                .filter(i -> i % (batchSize - overlapSize) == 0)
+                                                .parallel() // 并行执行以充分利用CPU核心
+                                                .mapToObj(i -> {
+                                                    int endIndex = Math.min(i + batchSize, totalCoords);
+                                                    Coordinate[] batchCoords = new Coordinate[endIndex - i];
+                                                    System.arraycopy(coords, i, batchCoords, 0, endIndex - i);
 
-                                            LineString batchLine = config.geometryFactory.createLineString(batchCoords);
-                                            Geometry batchBuffer = batchLine.buffer(halfWidth);
+                                                    try {
+                                                        LineString batchLine = geometryFactory
+                                                                .createLineString(batchCoords);
+                                                        Geometry batchBuffer = batchLine.buffer(hw);
 
-                                            if (!batchBuffer.isEmpty()) {
-                                                batchBuffers.add(batchBuffer);
-                                            }
+                                                        log.debug("组{}第{}段批次{}处理完成: 点数={}, 缓冲类型={}",
+                                                                groupIndex, segmentIndex,
+                                                                i / (batchSize - overlapSize) + 1,
+                                                                batchCoords.length, batchBuffer.getGeometryType());
 
-                                            log.debug("组{}第{}段批次{}处理完成: 点数={}, 缓冲类型={}",
-                                                    k + 1, segIndex, i / (config.BATCH_SIZE - 1) + 1,
-                                                    batchCoords.length, batchBuffer.getGeometryType());
-                                        }
+                                                        return !batchBuffer.isEmpty() ? batchBuffer : null;
+                                                    } catch (Exception e) {
+                                                        log.warn("批次处理失败 (i={}, endIndex={}): {}", i, endIndex,
+                                                                e.getMessage());
+                                                        return null;
+                                                    }
+                                                })
+                                                .filter(geo -> geo != null)
+                                                .collect(Collectors.toList());
 
                                         // 在缓冲结果处理前进行合并操作，模仿后续的合并逻辑
                                         if (batchBuffers.isEmpty()) {
@@ -3004,12 +3022,17 @@ public class GisUtil implements AutoCloseable {
                                         } else {
                                             try {
                                                 // 先对每个多边形应用缓冲扩展，增加合并的敏感度
-                                                List<Geometry> bufferedPolygons = new ArrayList<>();
-                                                for (Geometry polygon : batchBuffers) {
-                                                    // 使用配置中的合并缓冲距离扩展多边形边界
-                                                    Geometry bufferedPolygon = polygon.buffer(halfHalfWidth);
-                                                    bufferedPolygons.add(bufferedPolygon);
-                                                }
+                                                List<Geometry> bufferedPolygons = batchBuffers.parallelStream() // 并行处理膨胀操作
+                                                        .map(polygon -> {
+                                                            try {
+                                                                return polygon.buffer(halfHalfWidth);
+                                                            } catch (Exception e) {
+                                                                log.warn("多边形膨胀处理失败: {}", e.getMessage());
+                                                                return polygon; // 失败时返回原始多边形
+                                                            }
+                                                        })
+                                                        .filter(geo -> geo != null)
+                                                        .collect(Collectors.toList());
 
                                                 UnaryUnionOp unionOp = new UnaryUnionOp(bufferedPolygons);
                                                 buffer = unionOp.union();

@@ -1,146 +1,458 @@
-[2025-11-07 10:36:25] [DEBUG] cn.hutool.log.LogFactory: Use [Hutool Console Logging] Logger As Default.
-[2025-11-07 10:36:25] [INFO] sunyu.util.GisUtil: [构建GisUtil] 开始
-[2025-11-07 10:36:25] [INFO] sunyu.util.GisUtil: [构建GisUtil] 结束
-[2025-11-07 10:36:25] [INFO] sunyu.util.test.ProtocolSdk: 初始化内部协议工具 http://192.168.11.8/config.xml
-[2025-11-07 10:36:26] [INFO] sunyu.util.test.ProtocolSdk: 配置信息加载完毕
-[2025-11-07 10:36:27] [INFO] sunyu.util.TDengineUtil: [构建 TDengineUtil] 开始
-[2025-11-07 10:36:27] [INFO] sunyu.util.AsyncTaskUtil: [构建 AsyncTaskUtil] 开始
-[2025-11-07 10:36:27] [INFO] sunyu.util.AsyncTaskUtil: [构建 AsyncTaskUtil] 结束
-[2025-11-07 10:36:27] [INFO] sunyu.util.TDengineUtil: [构建 TDengineUtil] 结束
-[2025-11-07 10:36:27] [DEBUG] sunyu.util.test.TestGisUtil: select protocol from frequent.d_p where did='EC71BT2406060220' and _rowts>='2025-11-03 10:25:28' and _rowts<='2025-11-03 15:02:42'
-[2025-11-07 10:36:28] [DEBUG] sunyu.util.GisUtil: 参数 wgs84Points.size=16352, totalWidthM=1.75, maxSegments=10
-[2025-11-07 10:36:28] [DEBUG] sunyu.util.GisUtil: 过滤后 wgs84Points.size=16352
-[2025-11-07 10:36:28] [DEBUG] sunyu.util.GisUtil: WGS84转高斯投影完成: 原始点数=16352, 转换成功点数=16352
-[2025-11-07 10:36:28] [INFO] sunyu.util.GisUtil: 速度过滤后轨迹点数: 16352
-[2025-11-07 10:36:28] [INFO] sunyu.util.GisUtil: 发现的标准频率模式（共2种）:
-[2025-11-07 10:36:28] [INFO] sunyu.util.GisUtil: 频率1秒: 出现16349次 (99.9877683322121%)
-[2025-11-07 10:36:28] [INFO] sunyu.util.GisUtil: 频率5秒: 出现2次 (0.01223166778790288%)
-[2025-11-07 10:36:28] [INFO] sunyu.util.GisUtil: 频率1秒: 3个组, 16350个点
-[2025-11-07 10:36:28] [DEBUG] sunyu.util.GisUtil:   组1: 13950个点, 时间:2025-11-03T10:25:29 ~ 2025-11-03T14:20:28
-[2025-11-07 10:36:28] [DEBUG] sunyu.util.GisUtil:   组2: 193个点, 时间:2025-11-03T14:20:36 ~ 2025-11-03T14:24:05
-[2025-11-07 10:36:28] [DEBUG] sunyu.util.GisUtil:   组3: 2207个点, 时间:2025-11-03T14:24:11 ~ 2025-11-03T15:02:31
-[2025-11-07 10:36:28] [INFO] sunyu.util.GisUtil: 总频率模式数: 1
-[2025-11-07 10:36:28] [INFO] sunyu.util.GisUtil: 总组数: 3
-[2025-11-07 10:36:28] [INFO] sunyu.util.GisUtil: 最小间隔1秒: 3个组, 16350个点
-[2025-11-07 10:36:28] [INFO] sunyu.util.GisUtil:   组1: 13950个点, 距离统计: 中位数=0.44756475669350776米, 平均数=0.6791494404600746米, 最大=5.09671014444837米
-[2025-11-07 10:36:28] [DEBUG] sunyu.util.GisUtil: 开始按2.7米距离阈值对组1进行轨迹分段
-[2025-11-07 10:36:28] [DEBUG] sunyu.util.GisUtil: 组1分段完成: 段内点数=153, 最后距离=3.105633876130647m
-[2025-11-07 10:36:28] [DEBUG] sunyu.util.GisUtil: 组1分段完成: 段内点数=124, 最后距离=2.979632512346463m
-[2025-11-07 10:36:28] [DEBUG] sunyu.util.GisUtil: 组1分段完成: 段内点数=224, 最后距离=2.746967295029007m
-[2025-11-07 10:36:28] [DEBUG] sunyu.util.GisUtil: 组1分段完成: 段内点数=510, 最后距离=2.7431067448184967m
-[2025-11-07 10:36:28] [DEBUG] sunyu.util.GisUtil: 组1分段完成: 段内点数=105, 最后距离=2.8119386345596062m
-[2025-11-07 10:36:28] [DEBUG] sunyu.util.GisUtil: 组1分段完成: 段内点数=420, 最后距离=2.7187485101040485m
-[2025-11-07 10:36:28] [DEBUG] sunyu.util.GisUtil: 组1分段完成: 段内点数=839, 最后距离=2.7178031195988295m
-[2025-11-07 10:36:28] [DEBUG] sunyu.util.GisUtil: 组1分段完成: 段内点数=209, 最后距离=3.0424739259115023m
-[2025-11-07 10:36:28] [DEBUG] sunyu.util.GisUtil: 组1分段完成: 段内点数=97, 最后距离=3.102305563076957m
-[2025-11-07 10:36:28] [DEBUG] sunyu.util.GisUtil: 组1分段完成: 段内点数=582, 最后距离=2.993357239976178m
-[2025-11-07 10:36:28] [DEBUG] sunyu.util.GisUtil: 组1分段完成: 段内点数=94, 最后距离=2.962205207780002m
-[2025-11-07 10:36:28] [DEBUG] sunyu.util.GisUtil: 组1分段完成: 段内点数=98, 最后距离=2.86800170650883m
-[2025-11-07 10:36:28] [DEBUG] sunyu.util.GisUtil: 组1分段完成: 段内点数=240, 最后距离=3.055346402272678m
-[2025-11-07 10:36:28] [DEBUG] sunyu.util.GisUtil: 组1分段完成: 段内点数=103, 最后距离=3.180248015851155m
-[2025-11-07 10:36:28] [DEBUG] sunyu.util.GisUtil: 组1分段完成: 段内点数=92, 最后距离=3.13510431115812m
-[2025-11-07 10:36:28] [DEBUG] sunyu.util.GisUtil: 组1分段完成: 段内点数=99, 最后距离=3.0455821475312828m
-[2025-11-07 10:36:28] [DEBUG] sunyu.util.GisUtil: 组1分段完成: 段内点数=201, 最后距离=3.0592529449776604m
-[2025-11-07 10:36:28] [DEBUG] sunyu.util.GisUtil: 组1分段完成: 段内点数=6356, 最后距离=2.8863257157664486m
-[2025-11-07 10:36:28] [DEBUG] sunyu.util.GisUtil: 组1分段完成: 段内点数=352, 最后距离=3.0947278286270157m
-[2025-11-07 10:36:28] [DEBUG] sunyu.util.GisUtil: 组1分段完成: 段内点数=201, 最后距离=2.8360976852238142m
-[2025-11-07 10:36:28] [DEBUG] sunyu.util.GisUtil: 组1分段完成: 段内点数=305, 最后距离=3.196291858984992m
-[2025-11-07 10:36:28] [DEBUG] sunyu.util.GisUtil: 组1分段完成: 段内点数=95, 最后距离=2.8802208742175166m
-[2025-11-07 10:36:28] [DEBUG] sunyu.util.GisUtil: 组1分段完成: 段内点数=94, 最后距离=3.1500002585486975m
-[2025-11-07 10:36:28] [DEBUG] sunyu.util.GisUtil: 组1分段完成: 段内点数=92, 最后距离=2.923651219856088m
-[2025-11-07 10:36:28] [DEBUG] sunyu.util.GisUtil: 组1分段完成: 段内点数=97, 最后距离=3.1865301124754235m
-[2025-11-07 10:36:28] [DEBUG] sunyu.util.GisUtil: 组1分段完成: 段内点数=94, 最后距离=3.238598274250342m
-[2025-11-07 10:36:28] [DEBUG] sunyu.util.GisUtil: 组1分段完成: 段内点数=80, 最后距离=3.3057443644905025m
-[2025-11-07 10:36:28] [DEBUG] sunyu.util.GisUtil: 组1分段完成: 段内点数=86, 最后距离=3.023484781622333m
-[2025-11-07 10:36:28] [DEBUG] sunyu.util.GisUtil: 组1分段完成: 段内点数=89, 最后距离=2.718950040194263m
-[2025-11-07 10:36:28] [DEBUG] sunyu.util.GisUtil: 组1分段完成: 段内点数=254, 最后距离=2.716042804864332m
-[2025-11-07 10:36:28] [DEBUG] sunyu.util.GisUtil: 组1分段完成: 段内点数=167, 最后距离=3.0360368382365603m
-[2025-11-07 10:36:28] [DEBUG] sunyu.util.GisUtil: 组1分段完成: 段内点数=78, 最后距离=2.9771285835160795m
-[2025-11-07 10:36:28] [DEBUG] sunyu.util.GisUtil: 组1分段完成: 段内点数=81, 最后距离=2.810304391976887m
-[2025-11-07 10:36:28] [DEBUG] sunyu.util.GisUtil: 组1分段完成: 段内点数=2, 最后距离=2.990683652692908m
-[2025-11-07 10:36:28] [DEBUG] sunyu.util.GisUtil: 组1分段完成: 段内点数=167, 最后距离=3.0811589389768663m
-[2025-11-07 10:36:28] [DEBUG] sunyu.util.GisUtil: 组1分段完成: 段内点数=166, 最后距离=3.2212404620919393m
-[2025-11-07 10:36:28] [DEBUG] sunyu.util.GisUtil: 组1分段完成: 段内点数=308, 最后距离=2.804442876212486m
-[2025-11-07 10:36:28] [DEBUG] sunyu.util.GisUtil: 组1分段完成: 段内点数=291, 最后距离=3.1241042135247397m
-[2025-11-07 10:36:28] [DEBUG] sunyu.util.GisUtil: 组1分段完成: 段内点数=91, 最后距离=2.8725423023829717m
-[2025-11-07 10:36:28] [DEBUG] sunyu.util.GisUtil: 组1分段完成: 段内点数=42, 最后距离=3.1627001305740268m
-[2025-11-07 10:36:28] [DEBUG] sunyu.util.GisUtil: 组1分段完成: 段内点数=14, 最后距离=3.982057369707813m
-[2025-11-07 10:36:28] [DEBUG] sunyu.util.GisUtil: 组1分段完成: 段内点数=6, 最后距离=4.588770610888531m
-[2025-11-07 10:36:28] [DEBUG] sunyu.util.GisUtil: 组1分段完成: 段内点数=2, 最后距离=4.608341016039587m
-[2025-11-07 10:36:28] [DEBUG] sunyu.util.GisUtil: 组1分段完成: 段内点数=2, 最后距离=4.693921379698102m
-[2025-11-07 10:36:28] [DEBUG] sunyu.util.GisUtil: 组1分段完成: 段内点数=3, 最后距离=4.631521406599942m
-[2025-11-07 10:36:28] [DEBUG] sunyu.util.GisUtil: 组1分段完成: 段内点数=9, 最后距离=3.1943324444992762m
-[2025-11-07 10:36:28] [DEBUG] sunyu.util.GisUtil: 组1分段完成: 段内点数=7, 最后距离=4.9815306837423385m
-[2025-11-07 10:36:28] [DEBUG] sunyu.util.GisUtil: 组1分段完成: 段内点数=8, 最后距离=5.09671014444837m
-[2025-11-07 10:36:28] [DEBUG] sunyu.util.GisUtil: 组1分段完成: 段内点数=5, 最后距离=3.84080170200279m
-[2025-11-07 10:36:28] [DEBUG] sunyu.util.GisUtil: 组1分段完成: 段内点数=11, 最后距离=3.076577854028941m
-[2025-11-07 10:36:28] [DEBUG] sunyu.util.GisUtil: 组1分段完成: 段内点数=52, 最后距离=3.247996103965678m
-[2025-11-07 10:36:28] [DEBUG] sunyu.util.GisUtil: 组1最后一段: 段内点数=38
-[2025-11-07 10:36:28] [DEBUG] sunyu.util.GisUtil: 组1轨迹分段完成: 共52段
-[2025-11-07 10:36:28] [DEBUG] sunyu.util.GisUtil: 组1第0段线缓冲构建完成: 原始点数=153, 缓冲类型=Polygon, 顶点数=371
-[2025-11-07 10:36:28] [DEBUG] sunyu.util.GisUtil: 组1第0段添加单多边形
-[2025-11-07 10:36:28] [DEBUG] sunyu.util.GisUtil: 组1第1段线缓冲构建完成: 原始点数=124, 缓冲类型=Polygon, 顶点数=282
-[2025-11-07 10:36:28] [DEBUG] sunyu.util.GisUtil: 组1第1段添加单多边形
-[2025-11-07 10:36:28] [DEBUG] sunyu.util.GisUtil: 组1第2段线缓冲构建完成: 原始点数=224, 缓冲类型=Polygon, 顶点数=459
-[2025-11-07 10:36:28] [DEBUG] sunyu.util.GisUtil: 组1第2段添加单多边形
-[2025-11-07 10:36:28] [DEBUG] sunyu.util.GisUtil: 组1第3段线缓冲构建完成: 原始点数=510, 缓冲类型=Polygon, 顶点数=544
-[2025-11-07 10:36:28] [DEBUG] sunyu.util.GisUtil: 组1第3段添加单多边形
-[2025-11-07 10:36:28] [DEBUG] sunyu.util.GisUtil: 组1第4段线缓冲构建完成: 原始点数=105, 缓冲类型=Polygon, 顶点数=264
-[2025-11-07 10:36:28] [DEBUG] sunyu.util.GisUtil: 组1第4段添加单多边形
-[2025-11-07 10:36:28] [DEBUG] sunyu.util.GisUtil: 组1第5段线缓冲构建完成: 原始点数=420, 缓冲类型=Polygon, 顶点数=677
-[2025-11-07 10:36:28] [DEBUG] sunyu.util.GisUtil: 组1第5段添加单多边形
-[2025-11-07 10:36:28] [DEBUG] sunyu.util.GisUtil: 组1第6段线缓冲构建完成: 原始点数=839, 缓冲类型=Polygon, 顶点数=1039
-[2025-11-07 10:36:28] [DEBUG] sunyu.util.GisUtil: 组1第6段添加单多边形
-[2025-11-07 10:36:28] [DEBUG] sunyu.util.GisUtil: 组1第7段线缓冲构建完成: 原始点数=209, 缓冲类型=Polygon, 顶点数=448
-[2025-11-07 10:36:28] [DEBUG] sunyu.util.GisUtil: 组1第7段添加单多边形
-[2025-11-07 10:36:28] [DEBUG] sunyu.util.GisUtil: 组1第8段线缓冲构建完成: 原始点数=97, 缓冲类型=Polygon, 顶点数=239
-[2025-11-07 10:36:28] [DEBUG] sunyu.util.GisUtil: 组1第8段添加单多边形
-[2025-11-07 10:36:28] [DEBUG] sunyu.util.GisUtil: 组1第9段线缓冲构建完成: 原始点数=582, 缓冲类型=Polygon, 顶点数=632
-[2025-11-07 10:36:28] [DEBUG] sunyu.util.GisUtil: 组1第9段添加单多边形
-[2025-11-07 10:36:28] [DEBUG] sunyu.util.GisUtil: 组1第10段线缓冲构建完成: 原始点数=94, 缓冲类型=Polygon, 顶点数=250
-[2025-11-07 10:36:28] [DEBUG] sunyu.util.GisUtil: 组1第10段添加单多边形
-[2025-11-07 10:36:28] [DEBUG] sunyu.util.GisUtil: 组1第11段线缓冲构建完成: 原始点数=98, 缓冲类型=Polygon, 顶点数=247
-[2025-11-07 10:36:28] [DEBUG] sunyu.util.GisUtil: 组1第11段添加单多边形
-[2025-11-07 10:36:28] [DEBUG] sunyu.util.GisUtil: 组1第12段线缓冲构建完成: 原始点数=240, 缓冲类型=Polygon, 顶点数=599
-[2025-11-07 10:36:28] [DEBUG] sunyu.util.GisUtil: 组1第12段添加单多边形
-[2025-11-07 10:36:28] [DEBUG] sunyu.util.GisUtil: 组1第13段线缓冲构建完成: 原始点数=103, 缓冲类型=Polygon, 顶点数=260
-[2025-11-07 10:36:28] [DEBUG] sunyu.util.GisUtil: 组1第13段添加单多边形
-[2025-11-07 10:36:28] [DEBUG] sunyu.util.GisUtil: 组1第14段线缓冲构建完成: 原始点数=92, 缓冲类型=Polygon, 顶点数=239
-[2025-11-07 10:36:28] [DEBUG] sunyu.util.GisUtil: 组1第14段添加单多边形
-[2025-11-07 10:36:28] [DEBUG] sunyu.util.GisUtil: 组1第15段线缓冲构建完成: 原始点数=99, 缓冲类型=Polygon, 顶点数=256
-[2025-11-07 10:36:28] [DEBUG] sunyu.util.GisUtil: 组1第15段添加单多边形
-[2025-11-07 10:36:28] [DEBUG] sunyu.util.GisUtil: 组1第16段线缓冲构建完成: 原始点数=201, 缓冲类型=Polygon, 顶点数=393
-[2025-11-07 10:36:28] [DEBUG] sunyu.util.GisUtil: 组1第16段添加单多边形
-java.lang.OutOfMemoryError: Java heap space
-	at java.util.Arrays.copyOf(Arrays.java:3181)
-	at java.util.ArrayList.grow(ArrayList.java:267)
-	at java.util.ArrayList.ensureExplicitCapacity(ArrayList.java:241)
-	at java.util.ArrayList.ensureCapacityInternal(ArrayList.java:233)
-	at java.util.ArrayList.add(ArrayList.java:464)
-	at org.locationtech.jts.geomgraph.PlanarGraph.add(PlanarGraph.java:95)
-	at org.locationtech.jts.geomgraph.PlanarGraph.addEdges(PlanarGraph.java:129)
-	at org.locationtech.jts.operation.buffer.BufferBuilder.buffer(BufferBuilder.java:171)
-	at org.locationtech.jts.operation.buffer.BufferOp.bufferOriginalPrecision(BufferOp.java:415)
-	at org.locationtech.jts.operation.buffer.BufferOp.computeGeometry(BufferOp.java:372)
-	at org.locationtech.jts.operation.buffer.BufferOp.getResultGeometry(BufferOp.java:366)
-	at org.locationtech.jts.operation.buffer.BufferOp.bufferOp(BufferOp.java:182)
-	at org.locationtech.jts.geom.Geometry.buffer(Geometry.java:1149)
-	at sunyu.util.GisUtil.splitRoad(GisUtil.java:2974)
-	at sunyu.util.GisUtil.splitRoad(GisUtil.java:2656)
-	at sunyu.util.test.TestGisUtil.测试一段拆分数据(TestGisUtil.java:499)
-	at sunyu.util.test.TestGisUtil.测试镂空作业轮廓4(TestGisUtil.java:156)
-	at sun.reflect.NativeMethodAccessorImpl.invoke0(Native Method)
-	at sun.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:62)
-	at sun.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)
-	at java.lang.reflect.Method.invoke(Method.java:498)
-	at org.junit.platform.commons.util.ReflectionUtils.invokeMethod(ReflectionUtils.java:786)
-	at org.junit.platform.commons.support.ReflectionSupport.invokeMethod(ReflectionSupport.java:514)
-	at org.junit.jupiter.engine.execution.MethodInvocation.proceed(MethodInvocation.java:60)
-	at org.junit.jupiter.engine.execution.InvocationInterceptorChain$ValidatingInvocation.proceed(InvocationInterceptorChain.java:131)
-	at org.junit.jupiter.engine.extension.TimeoutExtension.intercept(TimeoutExtension.java:161)
-	at org.junit.jupiter.engine.extension.TimeoutExtension.interceptTestableMethod(TimeoutExtension.java:152)
-	at org.junit.jupiter.engine.extension.TimeoutExtension.interceptTestMethod(TimeoutExtension.java:91)
-	at org.junit.jupiter.engine.descriptor.TestMethodTestDescriptor$$Lambda$218/1908143486.apply(Unknown Source)
-	at org.junit.jupiter.engine.execution.InterceptingExecutableInvoker$ReflectiveInterceptorCall.lambda$ofVoidMethod$0(InterceptingExecutableInvoker.java:112)
-	at org.junit.jupiter.engine.execution.InterceptingExecutableInvoker$ReflectiveInterceptorCall$$Lambda$219/762227630.apply(Unknown Source)
-	at org.junit.jupiter.engine.execution.InterceptingExecutableInvoker.lambda$invoke$0(InterceptingExecutableInvoker.java:94)
+[2025-11-07 13:46:13] [DEBUG] cn.hutool.log.LogFactory: Use [Hutool Console Logging] Logger As Default.
+[2025-11-07 13:46:13] [INFO] sunyu.util.GisUtil: [构建GisUtil] 开始
+[2025-11-07 13:46:13] [INFO] sunyu.util.GisUtil: [构建GisUtil] 结束
+[2025-11-07 13:46:13] [INFO] sunyu.util.test.ProtocolSdk: 初始化内部协议工具 http://192.168.11.8/config.xml
+[2025-11-07 13:46:13] [INFO] sunyu.util.test.ProtocolSdk: 配置信息加载完毕
+[2025-11-07 13:46:13] [DEBUG] sunyu.util.GisUtil: 参数 wgs84Points.size=16352, totalWidthM=1.75, maxSegments=10
+[2025-11-07 13:46:13] [DEBUG] sunyu.util.GisUtil: 过滤后 wgs84Points.size=16352
+[2025-11-07 13:46:14] [DEBUG] sunyu.util.GisUtil: WGS84转高斯投影完成: 原始点数=16352, 转换成功点数=16352
+[2025-11-07 13:46:14] [INFO] sunyu.util.GisUtil: 速度过滤后轨迹点数: 16352
+[2025-11-07 13:46:14] [INFO] sunyu.util.GisUtil: 发现的标准频率模式（共2种）:
+[2025-11-07 13:46:14] [INFO] sunyu.util.GisUtil: 频率1秒: 出现16349次 (99.9877683322121%)
+[2025-11-07 13:46:14] [INFO] sunyu.util.GisUtil: 频率5秒: 出现2次 (0.01223166778790288%)
+[2025-11-07 13:46:14] [INFO] sunyu.util.GisUtil: 频率1秒: 3个组, 16350个点
+[2025-11-07 13:46:14] [DEBUG] sunyu.util.GisUtil:   组1: 13950个点, 时间:2025-11-03T10:25:29 ~ 2025-11-03T14:20:28
+[2025-11-07 13:46:14] [DEBUG] sunyu.util.GisUtil:   组2: 193个点, 时间:2025-11-03T14:20:36 ~ 2025-11-03T14:24:05
+[2025-11-07 13:46:14] [DEBUG] sunyu.util.GisUtil:   组3: 2207个点, 时间:2025-11-03T14:24:11 ~ 2025-11-03T15:02:31
+[2025-11-07 13:46:14] [INFO] sunyu.util.GisUtil: 总频率模式数: 1
+[2025-11-07 13:46:14] [INFO] sunyu.util.GisUtil: 总组数: 3
+[2025-11-07 13:46:14] [INFO] sunyu.util.GisUtil: 最小间隔1秒: 3个组, 16350个点
+[2025-11-07 13:46:14] [INFO] sunyu.util.GisUtil:   组1: 13950个点, 距离统计: 中位数=0.44756475669350776米, 平均数=0.6791494404600746米, 最大=5.09671014444837米
+[2025-11-07 13:46:14] [DEBUG] sunyu.util.GisUtil: 开始按2.7米距离阈值对组1进行轨迹分段
+[2025-11-07 13:46:14] [DEBUG] sunyu.util.GisUtil: 组1分段完成: 段内点数=153, 最后距离=3.105633876130647m
+[2025-11-07 13:46:14] [DEBUG] sunyu.util.GisUtil: 组1分段完成: 段内点数=124, 最后距离=2.979632512346463m
+[2025-11-07 13:46:14] [DEBUG] sunyu.util.GisUtil: 组1分段完成: 段内点数=224, 最后距离=2.746967295029007m
+[2025-11-07 13:46:14] [DEBUG] sunyu.util.GisUtil: 组1分段完成: 段内点数=510, 最后距离=2.7431067448184967m
+[2025-11-07 13:46:14] [DEBUG] sunyu.util.GisUtil: 组1分段完成: 段内点数=105, 最后距离=2.8119386345596062m
+[2025-11-07 13:46:14] [DEBUG] sunyu.util.GisUtil: 组1分段完成: 段内点数=420, 最后距离=2.7187485101040485m
+[2025-11-07 13:46:14] [DEBUG] sunyu.util.GisUtil: 组1分段完成: 段内点数=839, 最后距离=2.7178031195988295m
+[2025-11-07 13:46:14] [DEBUG] sunyu.util.GisUtil: 组1分段完成: 段内点数=209, 最后距离=3.0424739259115023m
+[2025-11-07 13:46:14] [DEBUG] sunyu.util.GisUtil: 组1分段完成: 段内点数=97, 最后距离=3.102305563076957m
+[2025-11-07 13:46:14] [DEBUG] sunyu.util.GisUtil: 组1分段完成: 段内点数=582, 最后距离=2.993357239976178m
+[2025-11-07 13:46:14] [DEBUG] sunyu.util.GisUtil: 组1分段完成: 段内点数=94, 最后距离=2.962205207780002m
+[2025-11-07 13:46:14] [DEBUG] sunyu.util.GisUtil: 组1分段完成: 段内点数=98, 最后距离=2.86800170650883m
+[2025-11-07 13:46:14] [DEBUG] sunyu.util.GisUtil: 组1分段完成: 段内点数=240, 最后距离=3.055346402272678m
+[2025-11-07 13:46:14] [DEBUG] sunyu.util.GisUtil: 组1分段完成: 段内点数=103, 最后距离=3.180248015851155m
+[2025-11-07 13:46:14] [DEBUG] sunyu.util.GisUtil: 组1分段完成: 段内点数=92, 最后距离=3.13510431115812m
+[2025-11-07 13:46:14] [DEBUG] sunyu.util.GisUtil: 组1分段完成: 段内点数=99, 最后距离=3.0455821475312828m
+[2025-11-07 13:46:14] [DEBUG] sunyu.util.GisUtil: 组1分段完成: 段内点数=201, 最后距离=3.0592529449776604m
+[2025-11-07 13:46:14] [DEBUG] sunyu.util.GisUtil: 组1分段完成: 段内点数=6356, 最后距离=2.8863257157664486m
+[2025-11-07 13:46:14] [DEBUG] sunyu.util.GisUtil: 组1分段完成: 段内点数=352, 最后距离=3.0947278286270157m
+[2025-11-07 13:46:14] [DEBUG] sunyu.util.GisUtil: 组1分段完成: 段内点数=201, 最后距离=2.8360976852238142m
+[2025-11-07 13:46:14] [DEBUG] sunyu.util.GisUtil: 组1分段完成: 段内点数=305, 最后距离=3.196291858984992m
+[2025-11-07 13:46:14] [DEBUG] sunyu.util.GisUtil: 组1分段完成: 段内点数=95, 最后距离=2.8802208742175166m
+[2025-11-07 13:46:14] [DEBUG] sunyu.util.GisUtil: 组1分段完成: 段内点数=94, 最后距离=3.1500002585486975m
+[2025-11-07 13:46:14] [DEBUG] sunyu.util.GisUtil: 组1分段完成: 段内点数=92, 最后距离=2.923651219856088m
+[2025-11-07 13:46:14] [DEBUG] sunyu.util.GisUtil: 组1分段完成: 段内点数=97, 最后距离=3.1865301124754235m
+[2025-11-07 13:46:14] [DEBUG] sunyu.util.GisUtil: 组1分段完成: 段内点数=94, 最后距离=3.238598274250342m
+[2025-11-07 13:46:14] [DEBUG] sunyu.util.GisUtil: 组1分段完成: 段内点数=80, 最后距离=3.3057443644905025m
+[2025-11-07 13:46:14] [DEBUG] sunyu.util.GisUtil: 组1分段完成: 段内点数=86, 最后距离=3.023484781622333m
+[2025-11-07 13:46:14] [DEBUG] sunyu.util.GisUtil: 组1分段完成: 段内点数=89, 最后距离=2.718950040194263m
+[2025-11-07 13:46:14] [DEBUG] sunyu.util.GisUtil: 组1分段完成: 段内点数=254, 最后距离=2.716042804864332m
+[2025-11-07 13:46:14] [DEBUG] sunyu.util.GisUtil: 组1分段完成: 段内点数=167, 最后距离=3.0360368382365603m
+[2025-11-07 13:46:14] [DEBUG] sunyu.util.GisUtil: 组1分段完成: 段内点数=78, 最后距离=2.9771285835160795m
+[2025-11-07 13:46:14] [DEBUG] sunyu.util.GisUtil: 组1分段完成: 段内点数=81, 最后距离=2.810304391976887m
+[2025-11-07 13:46:14] [DEBUG] sunyu.util.GisUtil: 组1分段完成: 段内点数=2, 最后距离=2.990683652692908m
+[2025-11-07 13:46:14] [DEBUG] sunyu.util.GisUtil: 组1分段完成: 段内点数=167, 最后距离=3.0811589389768663m
+[2025-11-07 13:46:14] [DEBUG] sunyu.util.GisUtil: 组1分段完成: 段内点数=166, 最后距离=3.2212404620919393m
+[2025-11-07 13:46:14] [DEBUG] sunyu.util.GisUtil: 组1分段完成: 段内点数=308, 最后距离=2.804442876212486m
+[2025-11-07 13:46:14] [DEBUG] sunyu.util.GisUtil: 组1分段完成: 段内点数=291, 最后距离=3.1241042135247397m
+[2025-11-07 13:46:14] [DEBUG] sunyu.util.GisUtil: 组1分段完成: 段内点数=91, 最后距离=2.8725423023829717m
+[2025-11-07 13:46:14] [DEBUG] sunyu.util.GisUtil: 组1分段完成: 段内点数=42, 最后距离=3.1627001305740268m
+[2025-11-07 13:46:14] [DEBUG] sunyu.util.GisUtil: 组1分段完成: 段内点数=14, 最后距离=3.982057369707813m
+[2025-11-07 13:46:14] [DEBUG] sunyu.util.GisUtil: 组1分段完成: 段内点数=6, 最后距离=4.588770610888531m
+[2025-11-07 13:46:14] [DEBUG] sunyu.util.GisUtil: 组1分段完成: 段内点数=2, 最后距离=4.608341016039587m
+[2025-11-07 13:46:14] [DEBUG] sunyu.util.GisUtil: 组1分段完成: 段内点数=2, 最后距离=4.693921379698102m
+[2025-11-07 13:46:14] [DEBUG] sunyu.util.GisUtil: 组1分段完成: 段内点数=3, 最后距离=4.631521406599942m
+[2025-11-07 13:46:14] [DEBUG] sunyu.util.GisUtil: 组1分段完成: 段内点数=9, 最后距离=3.1943324444992762m
+[2025-11-07 13:46:14] [DEBUG] sunyu.util.GisUtil: 组1分段完成: 段内点数=7, 最后距离=4.9815306837423385m
+[2025-11-07 13:46:14] [DEBUG] sunyu.util.GisUtil: 组1分段完成: 段内点数=8, 最后距离=5.09671014444837m
+[2025-11-07 13:46:14] [DEBUG] sunyu.util.GisUtil: 组1分段完成: 段内点数=5, 最后距离=3.84080170200279m
+[2025-11-07 13:46:14] [DEBUG] sunyu.util.GisUtil: 组1分段完成: 段内点数=11, 最后距离=3.076577854028941m
+[2025-11-07 13:46:14] [DEBUG] sunyu.util.GisUtil: 组1分段完成: 段内点数=52, 最后距离=3.247996103965678m
+[2025-11-07 13:46:14] [DEBUG] sunyu.util.GisUtil: 组1最后一段: 段内点数=38
+[2025-11-07 13:46:14] [DEBUG] sunyu.util.GisUtil: 组1轨迹分段完成: 共52段
+[2025-11-07 13:46:14] [DEBUG] sunyu.util.GisUtil: 有 153 个点需要构建线缓冲
+[2025-11-07 13:46:14] [DEBUG] sunyu.util.GisUtil: 组1第0段线缓冲构建完成: 原始点数=153, 缓冲类型=Polygon, 顶点数=371
+[2025-11-07 13:46:14] [DEBUG] sunyu.util.GisUtil: 组1第0段添加单多边形
+[2025-11-07 13:46:14] [DEBUG] sunyu.util.GisUtil: 有 124 个点需要构建线缓冲
+[2025-11-07 13:46:14] [DEBUG] sunyu.util.GisUtil: 组1第1段线缓冲构建完成: 原始点数=124, 缓冲类型=Polygon, 顶点数=282
+[2025-11-07 13:46:14] [DEBUG] sunyu.util.GisUtil: 组1第1段添加单多边形
+[2025-11-07 13:46:14] [DEBUG] sunyu.util.GisUtil: 有 224 个点需要构建线缓冲
+[2025-11-07 13:46:14] [DEBUG] sunyu.util.GisUtil: 组1第2段线缓冲构建完成: 原始点数=224, 缓冲类型=Polygon, 顶点数=459
+[2025-11-07 13:46:14] [DEBUG] sunyu.util.GisUtil: 组1第2段添加单多边形
+[2025-11-07 13:46:14] [DEBUG] sunyu.util.GisUtil: 有 510 个点需要构建线缓冲
+[2025-11-07 13:46:14] [DEBUG] sunyu.util.GisUtil: 组1第3段点数过多，进行分组处理
+[2025-11-07 13:46:14] [DEBUG] sunyu.util.GisUtil: 组1第3段批次1处理完成: 点数=500, 缓冲类型=Polygon
+[2025-11-07 13:46:14] [DEBUG] sunyu.util.GisUtil: 组1第3段批次2处理完成: 点数=11, 缓冲类型=Polygon
+[2025-11-07 13:46:14] [DEBUG] sunyu.util.GisUtil: 组1第3段线缓冲构建完成: 原始点数=510, 缓冲类型=Polygon, 顶点数=698
+[2025-11-07 13:46:14] [DEBUG] sunyu.util.GisUtil: 组1第3段添加单多边形
+[2025-11-07 13:46:14] [DEBUG] sunyu.util.GisUtil: 有 105 个点需要构建线缓冲
+[2025-11-07 13:46:14] [DEBUG] sunyu.util.GisUtil: 组1第4段线缓冲构建完成: 原始点数=105, 缓冲类型=Polygon, 顶点数=264
+[2025-11-07 13:46:14] [DEBUG] sunyu.util.GisUtil: 组1第4段添加单多边形
+[2025-11-07 13:46:14] [DEBUG] sunyu.util.GisUtil: 有 420 个点需要构建线缓冲
+[2025-11-07 13:46:14] [DEBUG] sunyu.util.GisUtil: 组1第5段线缓冲构建完成: 原始点数=420, 缓冲类型=Polygon, 顶点数=677
+[2025-11-07 13:46:14] [DEBUG] sunyu.util.GisUtil: 组1第5段添加单多边形
+[2025-11-07 13:46:14] [DEBUG] sunyu.util.GisUtil: 有 839 个点需要构建线缓冲
+[2025-11-07 13:46:14] [DEBUG] sunyu.util.GisUtil: 组1第6段点数过多，进行分组处理
+[2025-11-07 13:46:14] [DEBUG] sunyu.util.GisUtil: 组1第6段批次1处理完成: 点数=500, 缓冲类型=Polygon
+[2025-11-07 13:46:14] [DEBUG] sunyu.util.GisUtil: 组1第6段批次2处理完成: 点数=340, 缓冲类型=Polygon
+[2025-11-07 13:46:14] [DEBUG] sunyu.util.GisUtil: 组1第6段线缓冲构建完成: 原始点数=839, 缓冲类型=Polygon, 顶点数=1278
+[2025-11-07 13:46:14] [DEBUG] sunyu.util.GisUtil: 组1第6段添加单多边形
+[2025-11-07 13:46:14] [DEBUG] sunyu.util.GisUtil: 有 209 个点需要构建线缓冲
+[2025-11-07 13:46:14] [DEBUG] sunyu.util.GisUtil: 组1第7段线缓冲构建完成: 原始点数=209, 缓冲类型=Polygon, 顶点数=448
+[2025-11-07 13:46:14] [DEBUG] sunyu.util.GisUtil: 组1第7段添加单多边形
+[2025-11-07 13:46:14] [DEBUG] sunyu.util.GisUtil: 有 97 个点需要构建线缓冲
+[2025-11-07 13:46:14] [DEBUG] sunyu.util.GisUtil: 组1第8段线缓冲构建完成: 原始点数=97, 缓冲类型=Polygon, 顶点数=239
+[2025-11-07 13:46:14] [DEBUG] sunyu.util.GisUtil: 组1第8段添加单多边形
+[2025-11-07 13:46:14] [DEBUG] sunyu.util.GisUtil: 有 582 个点需要构建线缓冲
+[2025-11-07 13:46:14] [DEBUG] sunyu.util.GisUtil: 组1第9段点数过多，进行分组处理
+[2025-11-07 13:46:14] [DEBUG] sunyu.util.GisUtil: 组1第9段批次1处理完成: 点数=500, 缓冲类型=Polygon
+[2025-11-07 13:46:14] [DEBUG] sunyu.util.GisUtil: 组1第9段批次2处理完成: 点数=83, 缓冲类型=Polygon
+[2025-11-07 13:46:14] [DEBUG] sunyu.util.GisUtil: 组1第9段线缓冲构建完成: 原始点数=582, 缓冲类型=Polygon, 顶点数=726
+[2025-11-07 13:46:14] [DEBUG] sunyu.util.GisUtil: 组1第9段添加单多边形
+[2025-11-07 13:46:14] [DEBUG] sunyu.util.GisUtil: 有 94 个点需要构建线缓冲
+[2025-11-07 13:46:14] [DEBUG] sunyu.util.GisUtil: 组1第10段线缓冲构建完成: 原始点数=94, 缓冲类型=Polygon, 顶点数=250
+[2025-11-07 13:46:14] [DEBUG] sunyu.util.GisUtil: 组1第10段添加单多边形
+[2025-11-07 13:46:14] [DEBUG] sunyu.util.GisUtil: 有 98 个点需要构建线缓冲
+[2025-11-07 13:46:14] [DEBUG] sunyu.util.GisUtil: 组1第11段线缓冲构建完成: 原始点数=98, 缓冲类型=Polygon, 顶点数=247
+[2025-11-07 13:46:14] [DEBUG] sunyu.util.GisUtil: 组1第11段添加单多边形
+[2025-11-07 13:46:14] [DEBUG] sunyu.util.GisUtil: 有 240 个点需要构建线缓冲
+[2025-11-07 13:46:14] [DEBUG] sunyu.util.GisUtil: 组1第12段线缓冲构建完成: 原始点数=240, 缓冲类型=Polygon, 顶点数=599
+[2025-11-07 13:46:14] [DEBUG] sunyu.util.GisUtil: 组1第12段添加单多边形
+[2025-11-07 13:46:14] [DEBUG] sunyu.util.GisUtil: 有 103 个点需要构建线缓冲
+[2025-11-07 13:46:14] [DEBUG] sunyu.util.GisUtil: 组1第13段线缓冲构建完成: 原始点数=103, 缓冲类型=Polygon, 顶点数=260
+[2025-11-07 13:46:14] [DEBUG] sunyu.util.GisUtil: 组1第13段添加单多边形
+[2025-11-07 13:46:14] [DEBUG] sunyu.util.GisUtil: 有 92 个点需要构建线缓冲
+[2025-11-07 13:46:14] [DEBUG] sunyu.util.GisUtil: 组1第14段线缓冲构建完成: 原始点数=92, 缓冲类型=Polygon, 顶点数=239
+[2025-11-07 13:46:14] [DEBUG] sunyu.util.GisUtil: 组1第14段添加单多边形
+[2025-11-07 13:46:14] [DEBUG] sunyu.util.GisUtil: 有 99 个点需要构建线缓冲
+[2025-11-07 13:46:14] [DEBUG] sunyu.util.GisUtil: 组1第15段线缓冲构建完成: 原始点数=99, 缓冲类型=Polygon, 顶点数=256
+[2025-11-07 13:46:14] [DEBUG] sunyu.util.GisUtil: 组1第15段添加单多边形
+[2025-11-07 13:46:14] [DEBUG] sunyu.util.GisUtil: 有 201 个点需要构建线缓冲
+[2025-11-07 13:46:14] [DEBUG] sunyu.util.GisUtil: 组1第16段线缓冲构建完成: 原始点数=201, 缓冲类型=Polygon, 顶点数=393
+[2025-11-07 13:46:14] [DEBUG] sunyu.util.GisUtil: 组1第16段添加单多边形
+[2025-11-07 13:46:14] [DEBUG] sunyu.util.GisUtil: 有 6356 个点需要构建线缓冲
+[2025-11-07 13:46:14] [DEBUG] sunyu.util.GisUtil: 组1第17段点数过多，进行分组处理
+[2025-11-07 13:46:15] [DEBUG] sunyu.util.GisUtil: 组1第17段批次1处理完成: 点数=500, 缓冲类型=Polygon
+[2025-11-07 13:46:16] [DEBUG] sunyu.util.GisUtil: 组1第17段批次2处理完成: 点数=500, 缓冲类型=Polygon
+[2025-11-07 13:46:17] [DEBUG] sunyu.util.GisUtil: 组1第17段批次3处理完成: 点数=500, 缓冲类型=Polygon
+[2025-11-07 13:46:18] [DEBUG] sunyu.util.GisUtil: 组1第17段批次4处理完成: 点数=500, 缓冲类型=Polygon
+[2025-11-07 13:46:18] [DEBUG] sunyu.util.GisUtil: 组1第17段批次5处理完成: 点数=500, 缓冲类型=Polygon
+[2025-11-07 13:46:20] [DEBUG] sunyu.util.GisUtil: 组1第17段批次6处理完成: 点数=500, 缓冲类型=Polygon
+[2025-11-07 13:46:20] [DEBUG] sunyu.util.GisUtil: 组1第17段批次7处理完成: 点数=500, 缓冲类型=Polygon
+[2025-11-07 13:46:21] [DEBUG] sunyu.util.GisUtil: 组1第17段批次8处理完成: 点数=500, 缓冲类型=Polygon
+[2025-11-07 13:46:23] [DEBUG] sunyu.util.GisUtil: 组1第17段批次9处理完成: 点数=500, 缓冲类型=Polygon
+[2025-11-07 13:46:24] [DEBUG] sunyu.util.GisUtil: 组1第17段批次10处理完成: 点数=500, 缓冲类型=Polygon
+[2025-11-07 13:46:26] [DEBUG] sunyu.util.GisUtil: 组1第17段批次11处理完成: 点数=500, 缓冲类型=Polygon
+[2025-11-07 13:46:27] [DEBUG] sunyu.util.GisUtil: 组1第17段批次12处理完成: 点数=500, 缓冲类型=Polygon
+[2025-11-07 13:46:27] [DEBUG] sunyu.util.GisUtil: 组1第17段批次13处理完成: 点数=368, 缓冲类型=Polygon
+[2025-11-07 13:46:27] [DEBUG] sunyu.util.GisUtil: 组1第17段线缓冲构建完成: 原始点数=6356, 缓冲类型=Polygon, 顶点数=752
+[2025-11-07 13:46:27] [DEBUG] sunyu.util.GisUtil: 组1第17段添加单多边形
+[2025-11-07 13:46:27] [DEBUG] sunyu.util.GisUtil: 有 352 个点需要构建线缓冲
+[2025-11-07 13:46:27] [DEBUG] sunyu.util.GisUtil: 组1第18段线缓冲构建完成: 原始点数=352, 缓冲类型=Polygon, 顶点数=508
+[2025-11-07 13:46:27] [DEBUG] sunyu.util.GisUtil: 组1第18段添加单多边形
+[2025-11-07 13:46:27] [DEBUG] sunyu.util.GisUtil: 有 201 个点需要构建线缓冲
+[2025-11-07 13:46:27] [DEBUG] sunyu.util.GisUtil: 组1第19段线缓冲构建完成: 原始点数=201, 缓冲类型=Polygon, 顶点数=449
+[2025-11-07 13:46:27] [DEBUG] sunyu.util.GisUtil: 组1第19段添加单多边形
+[2025-11-07 13:46:27] [DEBUG] sunyu.util.GisUtil: 有 305 个点需要构建线缓冲
+[2025-11-07 13:46:27] [DEBUG] sunyu.util.GisUtil: 组1第20段线缓冲构建完成: 原始点数=305, 缓冲类型=Polygon, 顶点数=511
+[2025-11-07 13:46:27] [DEBUG] sunyu.util.GisUtil: 组1第20段添加单多边形
+[2025-11-07 13:46:27] [DEBUG] sunyu.util.GisUtil: 有 95 个点需要构建线缓冲
+[2025-11-07 13:46:27] [DEBUG] sunyu.util.GisUtil: 组1第21段线缓冲构建完成: 原始点数=95, 缓冲类型=Polygon, 顶点数=231
+[2025-11-07 13:46:27] [DEBUG] sunyu.util.GisUtil: 组1第21段添加单多边形
+[2025-11-07 13:46:27] [DEBUG] sunyu.util.GisUtil: 有 94 个点需要构建线缓冲
+[2025-11-07 13:46:27] [DEBUG] sunyu.util.GisUtil: 组1第22段线缓冲构建完成: 原始点数=94, 缓冲类型=Polygon, 顶点数=231
+[2025-11-07 13:46:27] [DEBUG] sunyu.util.GisUtil: 组1第22段添加单多边形
+[2025-11-07 13:46:27] [DEBUG] sunyu.util.GisUtil: 有 92 个点需要构建线缓冲
+[2025-11-07 13:46:27] [DEBUG] sunyu.util.GisUtil: 组1第23段线缓冲构建完成: 原始点数=92, 缓冲类型=Polygon, 顶点数=248
+[2025-11-07 13:46:27] [DEBUG] sunyu.util.GisUtil: 组1第23段添加单多边形
+[2025-11-07 13:46:27] [DEBUG] sunyu.util.GisUtil: 有 97 个点需要构建线缓冲
+[2025-11-07 13:46:27] [DEBUG] sunyu.util.GisUtil: 组1第24段线缓冲构建完成: 原始点数=97, 缓冲类型=Polygon, 顶点数=251
+[2025-11-07 13:46:27] [DEBUG] sunyu.util.GisUtil: 组1第24段添加单多边形
+[2025-11-07 13:46:27] [DEBUG] sunyu.util.GisUtil: 有 94 个点需要构建线缓冲
+[2025-11-07 13:46:27] [DEBUG] sunyu.util.GisUtil: 组1第25段线缓冲构建完成: 原始点数=94, 缓冲类型=Polygon, 顶点数=250
+[2025-11-07 13:46:27] [DEBUG] sunyu.util.GisUtil: 组1第25段添加单多边形
+[2025-11-07 13:46:27] [DEBUG] sunyu.util.GisUtil: 有 80 个点需要构建线缓冲
+[2025-11-07 13:46:27] [DEBUG] sunyu.util.GisUtil: 组1第26段线缓冲构建完成: 原始点数=80, 缓冲类型=Polygon, 顶点数=209
+[2025-11-07 13:46:27] [DEBUG] sunyu.util.GisUtil: 组1第26段添加单多边形
+[2025-11-07 13:46:27] [DEBUG] sunyu.util.GisUtil: 有 86 个点需要构建线缓冲
+[2025-11-07 13:46:27] [DEBUG] sunyu.util.GisUtil: 组1第27段线缓冲构建完成: 原始点数=86, 缓冲类型=Polygon, 顶点数=241
+[2025-11-07 13:46:27] [DEBUG] sunyu.util.GisUtil: 组1第27段添加单多边形
+[2025-11-07 13:46:27] [DEBUG] sunyu.util.GisUtil: 有 89 个点需要构建线缓冲
+[2025-11-07 13:46:27] [DEBUG] sunyu.util.GisUtil: 组1第28段线缓冲构建完成: 原始点数=89, 缓冲类型=Polygon, 顶点数=230
+[2025-11-07 13:46:27] [DEBUG] sunyu.util.GisUtil: 组1第28段添加单多边形
+[2025-11-07 13:46:27] [DEBUG] sunyu.util.GisUtil: 有 254 个点需要构建线缓冲
+[2025-11-07 13:46:27] [DEBUG] sunyu.util.GisUtil: 组1第29段线缓冲构建完成: 原始点数=254, 缓冲类型=Polygon, 顶点数=515
+[2025-11-07 13:46:27] [DEBUG] sunyu.util.GisUtil: 组1第29段添加单多边形
+[2025-11-07 13:46:27] [DEBUG] sunyu.util.GisUtil: 有 167 个点需要构建线缓冲
+[2025-11-07 13:46:27] [DEBUG] sunyu.util.GisUtil: 组1第30段线缓冲构建完成: 原始点数=167, 缓冲类型=Polygon, 顶点数=425
+[2025-11-07 13:46:27] [DEBUG] sunyu.util.GisUtil: 组1第30段添加单多边形
+[2025-11-07 13:46:27] [DEBUG] sunyu.util.GisUtil: 有 78 个点需要构建线缓冲
+[2025-11-07 13:46:27] [DEBUG] sunyu.util.GisUtil: 组1第31段线缓冲构建完成: 原始点数=78, 缓冲类型=Polygon, 顶点数=215
+[2025-11-07 13:46:27] [DEBUG] sunyu.util.GisUtil: 组1第31段添加单多边形
+[2025-11-07 13:46:27] [DEBUG] sunyu.util.GisUtil: 有 81 个点需要构建线缓冲
+[2025-11-07 13:46:27] [DEBUG] sunyu.util.GisUtil: 组1第32段线缓冲构建完成: 原始点数=81, 缓冲类型=Polygon, 顶点数=209
+[2025-11-07 13:46:27] [DEBUG] sunyu.util.GisUtil: 组1第32段添加单多边形
+[2025-11-07 13:46:27] [DEBUG] sunyu.util.GisUtil: 有 2 个点需要构建线缓冲
+[2025-11-07 13:46:27] [DEBUG] sunyu.util.GisUtil: 组1第33段线缓冲构建完成: 原始点数=2, 缓冲类型=Polygon, 顶点数=35
+[2025-11-07 13:46:27] [DEBUG] sunyu.util.GisUtil: 组1第33段添加单多边形
+[2025-11-07 13:46:27] [DEBUG] sunyu.util.GisUtil: 有 167 个点需要构建线缓冲
+[2025-11-07 13:46:27] [DEBUG] sunyu.util.GisUtil: 组1第34段线缓冲构建完成: 原始点数=167, 缓冲类型=Polygon, 顶点数=356
+[2025-11-07 13:46:27] [DEBUG] sunyu.util.GisUtil: 组1第34段添加单多边形
+[2025-11-07 13:46:27] [DEBUG] sunyu.util.GisUtil: 有 166 个点需要构建线缓冲
+[2025-11-07 13:46:27] [DEBUG] sunyu.util.GisUtil: 组1第35段线缓冲构建完成: 原始点数=166, 缓冲类型=Polygon, 顶点数=316
+[2025-11-07 13:46:27] [DEBUG] sunyu.util.GisUtil: 组1第35段添加单多边形
+[2025-11-07 13:46:27] [DEBUG] sunyu.util.GisUtil: 有 308 个点需要构建线缓冲
+[2025-11-07 13:46:27] [DEBUG] sunyu.util.GisUtil: 组1第36段线缓冲构建完成: 原始点数=308, 缓冲类型=Polygon, 顶点数=696
+[2025-11-07 13:46:27] [DEBUG] sunyu.util.GisUtil: 组1第36段添加单多边形
+[2025-11-07 13:46:27] [DEBUG] sunyu.util.GisUtil: 有 291 个点需要构建线缓冲
+[2025-11-07 13:46:27] [DEBUG] sunyu.util.GisUtil: 组1第37段线缓冲构建完成: 原始点数=291, 缓冲类型=Polygon, 顶点数=667
+[2025-11-07 13:46:27] [DEBUG] sunyu.util.GisUtil: 组1第37段添加单多边形
+[2025-11-07 13:46:27] [DEBUG] sunyu.util.GisUtil: 有 91 个点需要构建线缓冲
+[2025-11-07 13:46:27] [DEBUG] sunyu.util.GisUtil: 组1第38段线缓冲构建完成: 原始点数=91, 缓冲类型=Polygon, 顶点数=228
+[2025-11-07 13:46:27] [DEBUG] sunyu.util.GisUtil: 组1第38段添加单多边形
+[2025-11-07 13:46:27] [DEBUG] sunyu.util.GisUtil: 有 42 个点需要构建线缓冲
+[2025-11-07 13:46:27] [DEBUG] sunyu.util.GisUtil: 组1第39段线缓冲构建完成: 原始点数=42, 缓冲类型=Polygon, 顶点数=120
+[2025-11-07 13:46:27] [DEBUG] sunyu.util.GisUtil: 组1第39段添加单多边形
+[2025-11-07 13:46:27] [DEBUG] sunyu.util.GisUtil: 有 14 个点需要构建线缓冲
+[2025-11-07 13:46:27] [DEBUG] sunyu.util.GisUtil: 组1第40段线缓冲构建完成: 原始点数=14, 缓冲类型=Polygon, 顶点数=74
+[2025-11-07 13:46:27] [DEBUG] sunyu.util.GisUtil: 组1第40段添加单多边形
+[2025-11-07 13:46:27] [DEBUG] sunyu.util.GisUtil: 有 6 个点需要构建线缓冲
+[2025-11-07 13:46:27] [DEBUG] sunyu.util.GisUtil: 组1第41段线缓冲构建完成: 原始点数=6, 缓冲类型=Polygon, 顶点数=42
+[2025-11-07 13:46:27] [DEBUG] sunyu.util.GisUtil: 组1第41段添加单多边形
+[2025-11-07 13:46:27] [DEBUG] sunyu.util.GisUtil: 有 2 个点需要构建线缓冲
+[2025-11-07 13:46:27] [DEBUG] sunyu.util.GisUtil: 组1第42段线缓冲构建完成: 原始点数=2, 缓冲类型=Polygon, 顶点数=35
+[2025-11-07 13:46:27] [DEBUG] sunyu.util.GisUtil: 组1第42段添加单多边形
+[2025-11-07 13:46:27] [DEBUG] sunyu.util.GisUtil: 有 2 个点需要构建线缓冲
+[2025-11-07 13:46:27] [DEBUG] sunyu.util.GisUtil: 组1第43段线缓冲构建完成: 原始点数=2, 缓冲类型=Polygon, 顶点数=35
+[2025-11-07 13:46:27] [DEBUG] sunyu.util.GisUtil: 组1第43段添加单多边形
+[2025-11-07 13:46:27] [DEBUG] sunyu.util.GisUtil: 有 3 个点需要构建线缓冲
+[2025-11-07 13:46:27] [DEBUG] sunyu.util.GisUtil: 组1第44段线缓冲构建完成: 原始点数=3, 缓冲类型=Polygon, 顶点数=37
+[2025-11-07 13:46:27] [DEBUG] sunyu.util.GisUtil: 组1第44段添加单多边形
+[2025-11-07 13:46:27] [DEBUG] sunyu.util.GisUtil: 有 9 个点需要构建线缓冲
+[2025-11-07 13:46:27] [DEBUG] sunyu.util.GisUtil: 组1第45段线缓冲构建完成: 原始点数=9, 缓冲类型=Polygon, 顶点数=49
+[2025-11-07 13:46:27] [DEBUG] sunyu.util.GisUtil: 组1第45段添加单多边形
+[2025-11-07 13:46:27] [DEBUG] sunyu.util.GisUtil: 有 7 个点需要构建线缓冲
+[2025-11-07 13:46:27] [DEBUG] sunyu.util.GisUtil: 组1第46段线缓冲构建完成: 原始点数=7, 缓冲类型=Polygon, 顶点数=45
+[2025-11-07 13:46:27] [DEBUG] sunyu.util.GisUtil: 组1第46段添加单多边形
+[2025-11-07 13:46:27] [DEBUG] sunyu.util.GisUtil: 有 8 个点需要构建线缓冲
+[2025-11-07 13:46:27] [DEBUG] sunyu.util.GisUtil: 组1第47段线缓冲构建完成: 原始点数=8, 缓冲类型=Polygon, 顶点数=47
+[2025-11-07 13:46:27] [DEBUG] sunyu.util.GisUtil: 组1第47段添加单多边形
+[2025-11-07 13:46:27] [DEBUG] sunyu.util.GisUtil: 有 5 个点需要构建线缓冲
+[2025-11-07 13:46:27] [DEBUG] sunyu.util.GisUtil: 组1第48段线缓冲构建完成: 原始点数=5, 缓冲类型=Polygon, 顶点数=40
+[2025-11-07 13:46:27] [DEBUG] sunyu.util.GisUtil: 组1第48段添加单多边形
+[2025-11-07 13:46:27] [DEBUG] sunyu.util.GisUtil: 有 11 个点需要构建线缓冲
+[2025-11-07 13:46:27] [DEBUG] sunyu.util.GisUtil: 组1第49段线缓冲构建完成: 原始点数=11, 缓冲类型=Polygon, 顶点数=63
+[2025-11-07 13:46:27] [DEBUG] sunyu.util.GisUtil: 组1第49段添加单多边形
+[2025-11-07 13:46:27] [DEBUG] sunyu.util.GisUtil: 有 52 个点需要构建线缓冲
+[2025-11-07 13:46:27] [DEBUG] sunyu.util.GisUtil: 组1第50段线缓冲构建完成: 原始点数=52, 缓冲类型=Polygon, 顶点数=115
+[2025-11-07 13:46:27] [DEBUG] sunyu.util.GisUtil: 组1第50段添加单多边形
+[2025-11-07 13:46:27] [DEBUG] sunyu.util.GisUtil: 有 38 个点需要构建线缓冲
+[2025-11-07 13:46:27] [DEBUG] sunyu.util.GisUtil: 组1第51段线缓冲构建完成: 原始点数=38, 缓冲类型=Polygon, 顶点数=114
+[2025-11-07 13:46:27] [DEBUG] sunyu.util.GisUtil: 组1第51段添加单多边形
+[2025-11-07 13:46:27] [DEBUG] sunyu.util.GisUtil: 组1所有段处理完成: 总段数=52, 生成子多边形数量=52
+[2025-11-07 13:46:28] [INFO] sunyu.util.GisUtil:   组2: 193个点, 距离统计: 中位数=1.2073451061429683米, 平均数=1.2071341131075652米, 最大=4.178202129928879米
+[2025-11-07 13:46:28] [DEBUG] sunyu.util.GisUtil: 开始按2.7米距离阈值对组2进行轨迹分段
+[2025-11-07 13:46:28] [DEBUG] sunyu.util.GisUtil: 组2分段完成: 段内点数=24, 最后距离=4.178202129928879m
+[2025-11-07 13:46:28] [DEBUG] sunyu.util.GisUtil: 组2分段完成: 段内点数=16, 最后距离=2.8729935764200003m
+[2025-11-07 13:46:28] [DEBUG] sunyu.util.GisUtil: 组2分段完成: 段内点数=73, 最后距离=2.7434661322414735m
+[2025-11-07 13:46:28] [DEBUG] sunyu.util.GisUtil: 组2分段完成: 段内点数=12, 最后距离=2.7959733002705396m
+[2025-11-07 13:46:28] [DEBUG] sunyu.util.GisUtil: 组2分段完成: 段内点数=20, 最后距离=2.8621169754270133m
+[2025-11-07 13:46:28] [DEBUG] sunyu.util.GisUtil: 组2分段完成: 段内点数=26, 最后距离=3.196416616803964m
+[2025-11-07 13:46:28] [DEBUG] sunyu.util.GisUtil: 组2分段完成: 段内点数=6, 最后距离=2.7029897609202695m
+[2025-11-07 13:46:28] [DEBUG] sunyu.util.GisUtil: 组2最后一段: 段内点数=15
+[2025-11-07 13:46:28] [DEBUG] sunyu.util.GisUtil: 组2轨迹分段完成: 共8段
+[2025-11-07 13:46:28] [DEBUG] sunyu.util.GisUtil: 有 24 个点需要构建线缓冲
+[2025-11-07 13:46:28] [DEBUG] sunyu.util.GisUtil: 组2第0段线缓冲构建完成: 原始点数=24, 缓冲类型=Polygon, 顶点数=67
+[2025-11-07 13:46:28] [DEBUG] sunyu.util.GisUtil: 组2第0段添加单多边形
+[2025-11-07 13:46:28] [DEBUG] sunyu.util.GisUtil: 有 16 个点需要构建线缓冲
+[2025-11-07 13:46:28] [DEBUG] sunyu.util.GisUtil: 组2第1段线缓冲构建完成: 原始点数=16, 缓冲类型=Polygon, 顶点数=62
+[2025-11-07 13:46:28] [DEBUG] sunyu.util.GisUtil: 组2第1段添加单多边形
+[2025-11-07 13:46:28] [DEBUG] sunyu.util.GisUtil: 有 73 个点需要构建线缓冲
+[2025-11-07 13:46:28] [DEBUG] sunyu.util.GisUtil: 组2第2段线缓冲构建完成: 原始点数=73, 缓冲类型=Polygon, 顶点数=201
+[2025-11-07 13:46:28] [DEBUG] sunyu.util.GisUtil: 组2第2段添加单多边形
+[2025-11-07 13:46:28] [DEBUG] sunyu.util.GisUtil: 有 12 个点需要构建线缓冲
+[2025-11-07 13:46:28] [DEBUG] sunyu.util.GisUtil: 组2第3段线缓冲构建完成: 原始点数=12, 缓冲类型=Polygon, 顶点数=60
+[2025-11-07 13:46:28] [DEBUG] sunyu.util.GisUtil: 组2第3段添加单多边形
+[2025-11-07 13:46:28] [DEBUG] sunyu.util.GisUtil: 有 20 个点需要构建线缓冲
+[2025-11-07 13:46:28] [DEBUG] sunyu.util.GisUtil: 组2第4段线缓冲构建完成: 原始点数=20, 缓冲类型=Polygon, 顶点数=71
+[2025-11-07 13:46:28] [DEBUG] sunyu.util.GisUtil: 组2第4段添加单多边形
+[2025-11-07 13:46:28] [DEBUG] sunyu.util.GisUtil: 有 26 个点需要构建线缓冲
+[2025-11-07 13:46:28] [DEBUG] sunyu.util.GisUtil: 组2第5段线缓冲构建完成: 原始点数=26, 缓冲类型=Polygon, 顶点数=88
+[2025-11-07 13:46:28] [DEBUG] sunyu.util.GisUtil: 组2第5段添加单多边形
+[2025-11-07 13:46:28] [DEBUG] sunyu.util.GisUtil: 有 6 个点需要构建线缓冲
+[2025-11-07 13:46:28] [DEBUG] sunyu.util.GisUtil: 组2第6段线缓冲构建完成: 原始点数=6, 缓冲类型=Polygon, 顶点数=47
+[2025-11-07 13:46:28] [DEBUG] sunyu.util.GisUtil: 组2第6段添加单多边形
+[2025-11-07 13:46:28] [DEBUG] sunyu.util.GisUtil: 有 15 个点需要构建线缓冲
+[2025-11-07 13:46:28] [DEBUG] sunyu.util.GisUtil: 组2第7段线缓冲构建完成: 原始点数=15, 缓冲类型=Polygon, 顶点数=60
+[2025-11-07 13:46:28] [DEBUG] sunyu.util.GisUtil: 组2第7段添加单多边形
+[2025-11-07 13:46:28] [DEBUG] sunyu.util.GisUtil: 组2所有段处理完成: 总段数=8, 生成子多边形数量=60
+[2025-11-07 13:46:28] [INFO] sunyu.util.GisUtil:   组3: 2207个点, 距离统计: 中位数=1.344240240077517米, 平均数=1.2633171781819676米, 最大=5.654777904009185米
+[2025-11-07 13:46:28] [DEBUG] sunyu.util.GisUtil: 开始按2.7米距离阈值对组3进行轨迹分段
+[2025-11-07 13:46:28] [DEBUG] sunyu.util.GisUtil: 组3分段完成: 段内点数=43, 最后距离=3.1056328251103236m
+[2025-11-07 13:46:28] [DEBUG] sunyu.util.GisUtil: 组3分段完成: 段内点数=23, 最后距离=5.654777904009185m
+[2025-11-07 13:46:28] [DEBUG] sunyu.util.GisUtil: 组3分段完成: 段内点数=9, 最后距离=3.4881107002931406m
+[2025-11-07 13:46:28] [DEBUG] sunyu.util.GisUtil: 组3分段完成: 段内点数=92, 最后距离=3.0822329898944947m
+[2025-11-07 13:46:28] [DEBUG] sunyu.util.GisUtil: 组3分段完成: 段内点数=51, 最后距离=3.174871979893894m
+[2025-11-07 13:46:28] [DEBUG] sunyu.util.GisUtil: 组3分段完成: 段内点数=13, 最后距离=3.8788612801469355m
+[2025-11-07 13:46:28] [DEBUG] sunyu.util.GisUtil: 组3分段完成: 段内点数=15, 最后距离=3.9350664847303807m
+[2025-11-07 13:46:28] [DEBUG] sunyu.util.GisUtil: 组3分段完成: 段内点数=17, 最后距离=3.5620669190442706m
+[2025-11-07 13:46:28] [DEBUG] sunyu.util.GisUtil: 组3分段完成: 段内点数=43, 最后距离=2.7859611262603536m
+[2025-11-07 13:46:28] [DEBUG] sunyu.util.GisUtil: 组3分段完成: 段内点数=6, 最后距离=2.847000308533987m
+[2025-11-07 13:46:28] [DEBUG] sunyu.util.GisUtil: 组3分段完成: 段内点数=112, 最后距离=2.727018859890048m
+[2025-11-07 13:46:28] [DEBUG] sunyu.util.GisUtil: 组3分段完成: 段内点数=26, 最后距离=3.139405995940538m
+[2025-11-07 13:46:28] [DEBUG] sunyu.util.GisUtil: 组3分段完成: 段内点数=57, 最后距离=3.4500513542072313m
+[2025-11-07 13:46:28] [DEBUG] sunyu.util.GisUtil: 组3分段完成: 段内点数=21, 最后距离=3.177063174979494m
+[2025-11-07 13:46:28] [DEBUG] sunyu.util.GisUtil: 组3分段完成: 段内点数=7, 最后距离=3.342842148721337m
+[2025-11-07 13:46:28] [DEBUG] sunyu.util.GisUtil: 组3分段完成: 段内点数=166, 最后距离=2.713083700426198m
+[2025-11-07 13:46:28] [DEBUG] sunyu.util.GisUtil: 组3分段完成: 段内点数=266, 最后距离=3.019027439167602m
+[2025-11-07 13:46:28] [DEBUG] sunyu.util.GisUtil: 组3分段完成: 段内点数=263, 最后距离=2.9221607979734947m
+[2025-11-07 13:46:28] [DEBUG] sunyu.util.GisUtil: 组3分段完成: 段内点数=232, 最后距离=3.748675172430036m
+[2025-11-07 13:46:28] [DEBUG] sunyu.util.GisUtil: 组3分段完成: 段内点数=33, 最后距离=3.0645893679987073m
+[2025-11-07 13:46:28] [DEBUG] sunyu.util.GisUtil: 组3分段完成: 段内点数=10, 最后距离=3.058596186460427m
+[2025-11-07 13:46:28] [DEBUG] sunyu.util.GisUtil: 组3分段完成: 段内点数=10, 最后距离=3.7535495460396713m
+[2025-11-07 13:46:28] [DEBUG] sunyu.util.GisUtil: 组3分段完成: 段内点数=20, 最后距离=3.9216142999763246m
+[2025-11-07 13:46:28] [DEBUG] sunyu.util.GisUtil: 组3分段完成: 段内点数=39, 最后距离=2.948077222691489m
+[2025-11-07 13:46:28] [DEBUG] sunyu.util.GisUtil: 组3分段完成: 段内点数=29, 最后距离=3.845668002939373m
+[2025-11-07 13:46:28] [DEBUG] sunyu.util.GisUtil: 组3分段完成: 段内点数=4, 最后距离=2.785960719728506m
+[2025-11-07 13:46:28] [DEBUG] sunyu.util.GisUtil: 组3分段完成: 段内点数=42, 最后距离=3.356120359201603m
+[2025-11-07 13:46:28] [DEBUG] sunyu.util.GisUtil: 组3分段完成: 段内点数=36, 最后距离=3.2582584313374747m
+[2025-11-07 13:46:28] [DEBUG] sunyu.util.GisUtil: 组3分段完成: 段内点数=119, 最后距离=2.9765138236648525m
+[2025-11-07 13:46:28] [DEBUG] sunyu.util.GisUtil: 组3分段完成: 段内点数=10, 最后距离=3.1478311471758755m
+[2025-11-07 13:46:28] [DEBUG] sunyu.util.GisUtil: 组3分段完成: 段内点数=15, 最后距离=4.484477795927848m
+[2025-11-07 13:46:28] [DEBUG] sunyu.util.GisUtil: 组3分段完成: 段内点数=3, 最后距离=3.054785688460928m
+[2025-11-07 13:46:28] [DEBUG] sunyu.util.GisUtil: 组3分段完成: 段内点数=9, 最后距离=3.901233014367009m
+[2025-11-07 13:46:28] [DEBUG] sunyu.util.GisUtil: 组3分段完成: 段内点数=3, 最后距离=3.6164999364941366m
+[2025-11-07 13:46:28] [DEBUG] sunyu.util.GisUtil: 组3分段完成: 段内点数=48, 最后距离=2.7013071013210137m
+[2025-11-07 13:46:28] [DEBUG] sunyu.util.GisUtil: 组3分段完成: 段内点数=97, 最后距离=3.104641789557612m
+[2025-11-07 13:46:28] [DEBUG] sunyu.util.GisUtil: 组3分段完成: 段内点数=77, 最后距离=2.710490862982576m
+[2025-11-07 13:46:28] [DEBUG] sunyu.util.GisUtil: 组3分段完成: 段内点数=79, 最后距离=3.1564830588868196m
+[2025-11-07 13:46:28] [DEBUG] sunyu.util.GisUtil: 组3最后一段: 段内点数=60
+[2025-11-07 13:46:28] [DEBUG] sunyu.util.GisUtil: 组3轨迹分段完成: 共39段
+[2025-11-07 13:46:28] [DEBUG] sunyu.util.GisUtil: 有 43 个点需要构建线缓冲
+[2025-11-07 13:46:28] [DEBUG] sunyu.util.GisUtil: 组3第0段线缓冲构建完成: 原始点数=43, 缓冲类型=Polygon, 顶点数=106
+[2025-11-07 13:46:28] [DEBUG] sunyu.util.GisUtil: 组3第0段添加单多边形
+[2025-11-07 13:46:28] [DEBUG] sunyu.util.GisUtil: 有 23 个点需要构建线缓冲
+[2025-11-07 13:46:28] [DEBUG] sunyu.util.GisUtil: 组3第1段线缓冲构建完成: 原始点数=23, 缓冲类型=Polygon, 顶点数=84
+[2025-11-07 13:46:28] [DEBUG] sunyu.util.GisUtil: 组3第1段添加单多边形
+[2025-11-07 13:46:28] [DEBUG] sunyu.util.GisUtil: 有 9 个点需要构建线缓冲
+[2025-11-07 13:46:28] [DEBUG] sunyu.util.GisUtil: 组3第2段线缓冲构建完成: 原始点数=9, 缓冲类型=Polygon, 顶点数=48
+[2025-11-07 13:46:28] [DEBUG] sunyu.util.GisUtil: 组3第2段添加单多边形
+[2025-11-07 13:46:28] [DEBUG] sunyu.util.GisUtil: 有 92 个点需要构建线缓冲
+[2025-11-07 13:46:28] [DEBUG] sunyu.util.GisUtil: 组3第3段线缓冲构建完成: 原始点数=92, 缓冲类型=Polygon, 顶点数=169
+[2025-11-07 13:46:28] [DEBUG] sunyu.util.GisUtil: 组3第3段添加单多边形
+[2025-11-07 13:46:28] [DEBUG] sunyu.util.GisUtil: 有 51 个点需要构建线缓冲
+[2025-11-07 13:46:28] [DEBUG] sunyu.util.GisUtil: 组3第4段线缓冲构建完成: 原始点数=51, 缓冲类型=Polygon, 顶点数=107
+[2025-11-07 13:46:28] [DEBUG] sunyu.util.GisUtil: 组3第4段添加单多边形
+[2025-11-07 13:46:28] [DEBUG] sunyu.util.GisUtil: 有 13 个点需要构建线缓冲
+[2025-11-07 13:46:28] [DEBUG] sunyu.util.GisUtil: 组3第5段线缓冲构建完成: 原始点数=13, 缓冲类型=Polygon, 顶点数=63
+[2025-11-07 13:46:28] [DEBUG] sunyu.util.GisUtil: 组3第5段添加单多边形
+[2025-11-07 13:46:28] [DEBUG] sunyu.util.GisUtil: 有 15 个点需要构建线缓冲
+[2025-11-07 13:46:28] [DEBUG] sunyu.util.GisUtil: 组3第6段线缓冲构建完成: 原始点数=15, 缓冲类型=Polygon, 顶点数=60
+[2025-11-07 13:46:28] [DEBUG] sunyu.util.GisUtil: 组3第6段添加单多边形
+[2025-11-07 13:46:28] [DEBUG] sunyu.util.GisUtil: 有 17 个点需要构建线缓冲
+[2025-11-07 13:46:28] [DEBUG] sunyu.util.GisUtil: 组3第7段线缓冲构建完成: 原始点数=17, 缓冲类型=Polygon, 顶点数=62
+[2025-11-07 13:46:28] [DEBUG] sunyu.util.GisUtil: 组3第7段添加单多边形
+[2025-11-07 13:46:28] [DEBUG] sunyu.util.GisUtil: 有 43 个点需要构建线缓冲
+[2025-11-07 13:46:28] [DEBUG] sunyu.util.GisUtil: 组3第8段线缓冲构建完成: 原始点数=43, 缓冲类型=Polygon, 顶点数=110
+[2025-11-07 13:46:28] [DEBUG] sunyu.util.GisUtil: 组3第8段添加单多边形
+[2025-11-07 13:46:28] [DEBUG] sunyu.util.GisUtil: 有 6 个点需要构建线缓冲
+[2025-11-07 13:46:28] [DEBUG] sunyu.util.GisUtil: 组3第9段线缓冲构建完成: 原始点数=6, 缓冲类型=Polygon, 顶点数=41
+[2025-11-07 13:46:28] [DEBUG] sunyu.util.GisUtil: 组3第9段添加单多边形
+[2025-11-07 13:46:28] [DEBUG] sunyu.util.GisUtil: 有 112 个点需要构建线缓冲
+[2025-11-07 13:46:28] [DEBUG] sunyu.util.GisUtil: 组3第10段线缓冲构建完成: 原始点数=112, 缓冲类型=Polygon, 顶点数=208
+[2025-11-07 13:46:28] [DEBUG] sunyu.util.GisUtil: 组3第10段添加单多边形
+[2025-11-07 13:46:28] [DEBUG] sunyu.util.GisUtil: 有 26 个点需要构建线缓冲
+[2025-11-07 13:46:28] [DEBUG] sunyu.util.GisUtil: 组3第11段线缓冲构建完成: 原始点数=26, 缓冲类型=Polygon, 顶点数=92
+[2025-11-07 13:46:28] [DEBUG] sunyu.util.GisUtil: 组3第11段添加单多边形
+[2025-11-07 13:46:28] [DEBUG] sunyu.util.GisUtil: 有 57 个点需要构建线缓冲
+[2025-11-07 13:46:28] [DEBUG] sunyu.util.GisUtil: 组3第12段线缓冲构建完成: 原始点数=57, 缓冲类型=Polygon, 顶点数=131
+[2025-11-07 13:46:28] [DEBUG] sunyu.util.GisUtil: 组3第12段添加单多边形
+[2025-11-07 13:46:28] [DEBUG] sunyu.util.GisUtil: 有 21 个点需要构建线缓冲
+[2025-11-07 13:46:28] [DEBUG] sunyu.util.GisUtil: 组3第13段线缓冲构建完成: 原始点数=21, 缓冲类型=Polygon, 顶点数=79
+[2025-11-07 13:46:28] [DEBUG] sunyu.util.GisUtil: 组3第13段添加单多边形
+[2025-11-07 13:46:28] [DEBUG] sunyu.util.GisUtil: 有 7 个点需要构建线缓冲
+[2025-11-07 13:46:28] [DEBUG] sunyu.util.GisUtil: 组3第14段线缓冲构建完成: 原始点数=7, 缓冲类型=Polygon, 顶点数=44
+[2025-11-07 13:46:28] [DEBUG] sunyu.util.GisUtil: 组3第14段添加单多边形
+[2025-11-07 13:46:28] [DEBUG] sunyu.util.GisUtil: 有 166 个点需要构建线缓冲
+[2025-11-07 13:46:28] [DEBUG] sunyu.util.GisUtil: 组3第15段线缓冲构建完成: 原始点数=166, 缓冲类型=Polygon, 顶点数=333
+[2025-11-07 13:46:28] [DEBUG] sunyu.util.GisUtil: 组3第15段添加单多边形
+[2025-11-07 13:46:28] [DEBUG] sunyu.util.GisUtil: 有 266 个点需要构建线缓冲
+[2025-11-07 13:46:28] [DEBUG] sunyu.util.GisUtil: 组3第16段线缓冲构建完成: 原始点数=266, 缓冲类型=Polygon, 顶点数=407
+[2025-11-07 13:46:28] [DEBUG] sunyu.util.GisUtil: 组3第16段添加单多边形
+[2025-11-07 13:46:28] [DEBUG] sunyu.util.GisUtil: 有 263 个点需要构建线缓冲
+[2025-11-07 13:46:28] [DEBUG] sunyu.util.GisUtil: 组3第17段线缓冲构建完成: 原始点数=263, 缓冲类型=Polygon, 顶点数=410
+[2025-11-07 13:46:28] [DEBUG] sunyu.util.GisUtil: 组3第17段添加单多边形
+[2025-11-07 13:46:28] [DEBUG] sunyu.util.GisUtil: 有 232 个点需要构建线缓冲
+[2025-11-07 13:46:28] [DEBUG] sunyu.util.GisUtil: 组3第18段线缓冲构建完成: 原始点数=232, 缓冲类型=Polygon, 顶点数=385
+[2025-11-07 13:46:28] [DEBUG] sunyu.util.GisUtil: 组3第18段添加单多边形
+[2025-11-07 13:46:28] [DEBUG] sunyu.util.GisUtil: 有 33 个点需要构建线缓冲
+[2025-11-07 13:46:28] [DEBUG] sunyu.util.GisUtil: 组3第19段线缓冲构建完成: 原始点数=33, 缓冲类型=Polygon, 顶点数=97
+[2025-11-07 13:46:28] [DEBUG] sunyu.util.GisUtil: 组3第19段添加单多边形
+[2025-11-07 13:46:28] [DEBUG] sunyu.util.GisUtil: 有 10 个点需要构建线缓冲
+[2025-11-07 13:46:28] [DEBUG] sunyu.util.GisUtil: 组3第20段线缓冲构建完成: 原始点数=10, 缓冲类型=Polygon, 顶点数=51
+[2025-11-07 13:46:28] [DEBUG] sunyu.util.GisUtil: 组3第20段添加单多边形
+[2025-11-07 13:46:28] [DEBUG] sunyu.util.GisUtil: 有 10 个点需要构建线缓冲
+[2025-11-07 13:46:28] [DEBUG] sunyu.util.GisUtil: 组3第21段线缓冲构建完成: 原始点数=10, 缓冲类型=Polygon, 顶点数=52
+[2025-11-07 13:46:28] [DEBUG] sunyu.util.GisUtil: 组3第21段添加单多边形
+[2025-11-07 13:46:28] [DEBUG] sunyu.util.GisUtil: 有 20 个点需要构建线缓冲
+[2025-11-07 13:46:28] [DEBUG] sunyu.util.GisUtil: 组3第22段线缓冲构建完成: 原始点数=20, 缓冲类型=Polygon, 顶点数=71
+[2025-11-07 13:46:28] [DEBUG] sunyu.util.GisUtil: 组3第22段添加单多边形
+[2025-11-07 13:46:28] [DEBUG] sunyu.util.GisUtil: 有 39 个点需要构建线缓冲
+[2025-11-07 13:46:28] [DEBUG] sunyu.util.GisUtil: 组3第23段线缓冲构建完成: 原始点数=39, 缓冲类型=Polygon, 顶点数=122
+[2025-11-07 13:46:28] [DEBUG] sunyu.util.GisUtil: 组3第23段添加单多边形
+[2025-11-07 13:46:28] [DEBUG] sunyu.util.GisUtil: 有 29 个点需要构建线缓冲
+[2025-11-07 13:46:28] [DEBUG] sunyu.util.GisUtil: 组3第24段线缓冲构建完成: 原始点数=29, 缓冲类型=Polygon, 顶点数=91
+[2025-11-07 13:46:28] [DEBUG] sunyu.util.GisUtil: 组3第24段添加单多边形
+[2025-11-07 13:46:28] [DEBUG] sunyu.util.GisUtil: 有 4 个点需要构建线缓冲
+[2025-11-07 13:46:28] [DEBUG] sunyu.util.GisUtil: 组3第25段线缓冲构建完成: 原始点数=4, 缓冲类型=Polygon, 顶点数=41
+[2025-11-07 13:46:28] [DEBUG] sunyu.util.GisUtil: 组3第25段添加单多边形
+[2025-11-07 13:46:28] [DEBUG] sunyu.util.GisUtil: 有 42 个点需要构建线缓冲
+[2025-11-07 13:46:28] [DEBUG] sunyu.util.GisUtil: 组3第26段线缓冲构建完成: 原始点数=42, 缓冲类型=Polygon, 顶点数=121
+[2025-11-07 13:46:28] [DEBUG] sunyu.util.GisUtil: 组3第26段添加单多边形
+[2025-11-07 13:46:28] [DEBUG] sunyu.util.GisUtil: 有 36 个点需要构建线缓冲
+[2025-11-07 13:46:28] [DEBUG] sunyu.util.GisUtil: 组3第27段线缓冲构建完成: 原始点数=36, 缓冲类型=Polygon, 顶点数=99
+[2025-11-07 13:46:28] [DEBUG] sunyu.util.GisUtil: 组3第27段添加单多边形
+[2025-11-07 13:46:28] [DEBUG] sunyu.util.GisUtil: 有 119 个点需要构建线缓冲
+[2025-11-07 13:46:28] [DEBUG] sunyu.util.GisUtil: 组3第28段线缓冲构建完成: 原始点数=119, 缓冲类型=Polygon, 顶点数=319
+[2025-11-07 13:46:28] [DEBUG] sunyu.util.GisUtil: 组3第28段添加单多边形
+[2025-11-07 13:46:28] [DEBUG] sunyu.util.GisUtil: 有 10 个点需要构建线缓冲
+[2025-11-07 13:46:28] [DEBUG] sunyu.util.GisUtil: 组3第29段线缓冲构建完成: 原始点数=10, 缓冲类型=Polygon, 顶点数=47
+[2025-11-07 13:46:28] [DEBUG] sunyu.util.GisUtil: 组3第29段添加单多边形
+[2025-11-07 13:46:28] [DEBUG] sunyu.util.GisUtil: 有 15 个点需要构建线缓冲
+[2025-11-07 13:46:28] [DEBUG] sunyu.util.GisUtil: 组3第30段线缓冲构建完成: 原始点数=15, 缓冲类型=Polygon, 顶点数=54
+[2025-11-07 13:46:28] [DEBUG] sunyu.util.GisUtil: 组3第30段添加单多边形
+[2025-11-07 13:46:28] [DEBUG] sunyu.util.GisUtil: 有 3 个点需要构建线缓冲
+[2025-11-07 13:46:28] [DEBUG] sunyu.util.GisUtil: 组3第31段线缓冲构建完成: 原始点数=3, 缓冲类型=Polygon, 顶点数=37
+[2025-11-07 13:46:28] [DEBUG] sunyu.util.GisUtil: 组3第31段添加单多边形
+[2025-11-07 13:46:28] [DEBUG] sunyu.util.GisUtil: 有 9 个点需要构建线缓冲
+[2025-11-07 13:46:28] [DEBUG] sunyu.util.GisUtil: 组3第32段线缓冲构建完成: 原始点数=9, 缓冲类型=Polygon, 顶点数=53
+[2025-11-07 13:46:28] [DEBUG] sunyu.util.GisUtil: 组3第32段添加单多边形
+[2025-11-07 13:46:28] [DEBUG] sunyu.util.GisUtil: 有 3 个点需要构建线缓冲
+[2025-11-07 13:46:28] [DEBUG] sunyu.util.GisUtil: 组3第33段线缓冲构建完成: 原始点数=3, 缓冲类型=Polygon, 顶点数=38
+[2025-11-07 13:46:28] [DEBUG] sunyu.util.GisUtil: 组3第33段添加单多边形
+[2025-11-07 13:46:28] [DEBUG] sunyu.util.GisUtil: 有 48 个点需要构建线缓冲
+[2025-11-07 13:46:28] [DEBUG] sunyu.util.GisUtil: 组3第34段线缓冲构建完成: 原始点数=48, 缓冲类型=Polygon, 顶点数=124
+[2025-11-07 13:46:28] [DEBUG] sunyu.util.GisUtil: 组3第34段添加单多边形
+[2025-11-07 13:46:28] [DEBUG] sunyu.util.GisUtil: 有 97 个点需要构建线缓冲
+[2025-11-07 13:46:28] [DEBUG] sunyu.util.GisUtil: 组3第35段线缓冲构建完成: 原始点数=97, 缓冲类型=Polygon, 顶点数=189
+[2025-11-07 13:46:28] [DEBUG] sunyu.util.GisUtil: 组3第35段添加单多边形
+[2025-11-07 13:46:28] [DEBUG] sunyu.util.GisUtil: 有 77 个点需要构建线缓冲
+[2025-11-07 13:46:28] [DEBUG] sunyu.util.GisUtil: 组3第36段线缓冲构建完成: 原始点数=77, 缓冲类型=Polygon, 顶点数=178
+[2025-11-07 13:46:28] [DEBUG] sunyu.util.GisUtil: 组3第36段添加单多边形
+[2025-11-07 13:46:28] [DEBUG] sunyu.util.GisUtil: 有 79 个点需要构建线缓冲
+[2025-11-07 13:46:28] [DEBUG] sunyu.util.GisUtil: 组3第37段线缓冲构建完成: 原始点数=79, 缓冲类型=Polygon, 顶点数=222
+[2025-11-07 13:46:28] [DEBUG] sunyu.util.GisUtil: 组3第37段添加单多边形
+[2025-11-07 13:46:28] [DEBUG] sunyu.util.GisUtil: 有 60 个点需要构建线缓冲
+[2025-11-07 13:46:28] [DEBUG] sunyu.util.GisUtil: 组3第38段线缓冲构建完成: 原始点数=60, 缓冲类型=Polygon, 顶点数=124
+[2025-11-07 13:46:28] [DEBUG] sunyu.util.GisUtil: 组3第38段添加单多边形
+[2025-11-07 13:46:28] [DEBUG] sunyu.util.GisUtil: 组3所有段处理完成: 总段数=39, 生成子多边形数量=99
+[2025-11-07 13:46:28] [DEBUG] sunyu.util.GisUtil: 边界框预过滤: 原始点数=16352, 边界框内点数=6203, 过滤几何类型=Polygon
+[2025-11-07 13:46:28] [DEBUG] sunyu.util.GisUtil: 多线程精确过滤完成: 输入点数=6203, 结果点数=5791, 批次大小=100, 处理器数=16
+[2025-11-07 13:46:28] [DEBUG] sunyu.util.GisUtil: 高斯投影转WGS84完成: 原始点数=5791, 转换成功点数=5791
+[2025-11-07 13:46:28] [DEBUG] sunyu.util.GisUtil: 边界框预过滤: 原始点数=16352, 边界框内点数=11484, 过滤几何类型=Polygon
+[2025-11-07 13:46:29] [DEBUG] sunyu.util.GisUtil: 多线程精确过滤完成: 输入点数=11484, 结果点数=10546, 批次大小=179, 处理器数=16
+[2025-11-07 13:46:29] [DEBUG] sunyu.util.GisUtil: 高斯投影转WGS84完成: 原始点数=10546, 转换成功点数=10546
+[2025-11-07 13:46:29] [INFO] sunyu.util.GisUtil: 多边形合并完成: 原始多边形数量=99, 合并后几何数量=2
+[2025-11-07 13:46:29] [INFO] sunyu.util.test.TestGisUtil: 结果文件已生成：outline=D:/tmp/java道路拆分算法测试/EC71BT2406060220_20251103102528_20251103150242_outline.txt, parts=D:/tmp/java道路拆分算法测试/EC71BT2406060220_20251103102528_20251103150242_parts.txt
