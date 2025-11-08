@@ -2,6 +2,7 @@ package sunyu.util;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.ConcurrentHashMap;
 
 import org.geotools.geometry.jts.JTS;
 import org.geotools.referencing.CRS;
@@ -65,6 +66,15 @@ public class GisUtil implements AutoCloseable {
         // 空WKT字符串
         public final String EMPTY_WKT = EMPTYGEOM.toText();
 
+        // WGS84坐标参考系统（全局常量，避免重复创建）
+        public final CoordinateReferenceSystem WGS84_CRS = DefaultGeographicCRS.WGS84;
+
+        // 高斯投影CRS缓存（线程安全），key格式："zone_falseEasting_centralMeridian"
+        public final ConcurrentHashMap<String, CoordinateReferenceSystem> gaussCRSCache = new ConcurrentHashMap<>();
+
+        // 坐标转换缓存（线程安全），key格式："zone_falseEasting_centralMeridian"
+        public final ConcurrentHashMap<String, MathTransform> transformCache = new ConcurrentHashMap<>();
+
         // 最大速度（单位：米/秒），我们认为农机在田间作业，最大速度不会超过20米/秒
         public final double MAX_SPEED = 20.0;
     }
@@ -116,52 +126,70 @@ public class GisUtil implements AutoCloseable {
             double longitude = point.getLon();
             double latitude = point.getLat();
 
-            log.debug("开始坐标转换：原始经度={}, 纬度={}", longitude, latitude);
+            log.trace("开始坐标转换：原始经度={}, 纬度={}", longitude, latitude);
 
             // 计算高斯投影带号 (6度分带)
             // 全球范围: 经度-180到180，对应带号1-60
             int zone = (int) Math.floor((longitude + 180) / 6) + 1;
-            log.debug("计算投影带号：zone={}", zone);
+            log.trace("计算投影带号：zone={}", zone);
 
             // 计算中央经线
             double centralMeridian = (zone - 1) * 6 - 180 + 3;
-            log.debug("计算中央经线：centralMeridian={}", centralMeridian);
+            log.trace("计算中央经线：centralMeridian={}", centralMeridian);
 
             // 验证投影带号的合理性
             if (zone < 1 || zone > 60) {
                 log.warn("投影带号超出合理范围：zone={}，经度={}", zone, longitude);
+                return null;
             }
 
-            // 创建WGS84坐标参考系统
-            CoordinateReferenceSystem wgs84CRS = DefaultGeographicCRS.WGS84;
-
-            // 创建高斯投影坐标参考系统
+            // 创建高斯投影坐标参考系统（使用缓存避免重复解析WKT）
             // 全球支持模式：假东距包含带号信息，便于识别投影带
             // 格式：zone × 1000000 + 500000（如49带 = 49500000米）
             double falseEasting = zone * 1000000.0 + 500000.0;
-            log.debug("计算假东距：falseEasting={}", falseEasting);
-            String wkt = String.format(
-                    "PROJCS[\"WGS_1984_Gauss_Kruger_Zone_%d\", " +
-                            "GEOGCS[\"GCS_WGS_1984\", " +
-                            "DATUM[\"D_WGS_1984\", " +
-                            "SPHEROID[\"WGS_1984\",6378137.0,298.257223563]], " +
-                            "PRIMEM[\"Greenwich\",0.0], " +
-                            "UNIT[\"Degree\",0.0174532925199433]], " +
-                            "PROJECTION[\"Transverse_Mercator\"], " +
-                            "PARAMETER[\"False_Easting\",%.1f], " +
-                            "PARAMETER[\"False_Northing\",0.0], " +
-                            "PARAMETER[\"Central_Meridian\",%.1f], " +
-                            "PARAMETER[\"Scale_Factor\",1.0], " +
-                            "PARAMETER[\"Latitude_Of_Origin\",0.0], " +
-                            "UNIT[\"Meter\",1.0]]",
-                    zone, falseEasting, centralMeridian);
+            log.trace("计算假东距：falseEasting={}", falseEasting);
 
-            log.debug("WKT定义：{}", wkt);
+            // 构建缓存key：zone_falseEasting_centralMeridian
+            String cacheKey = String.format("%d_%.1f_%.1f", zone, falseEasting, centralMeridian);
 
-            CoordinateReferenceSystem gaussCRS = CRS.parseWKT(wkt);
+            // 从缓存获取或创建高斯投影CRS
+            CoordinateReferenceSystem gaussCRS = config.gaussCRSCache.computeIfAbsent(cacheKey, key -> {
+                try {
+                    String wkt = String.format(
+                            "PROJCS[\"WGS_1984_Gauss_Kruger_Zone_%d\", " +
+                                    "GEOGCS[\"GCS_WGS_1984\", " +
+                                    "DATUM[\"D_WGS_1984\", " +
+                                    "SPHEROID[\"WGS_1984\",6378137.0,298.257223563]], " +
+                                    "PRIMEM[\"Greenwich\",0.0], " +
+                                    "UNIT[\"Degree\",0.0174532925199433]], " +
+                                    "PROJECTION[\"Transverse_Mercator\"], " +
+                                    "PARAMETER[\"False_Easting\",%.1f], " +
+                                    "PARAMETER[\"False_Northing\",0.0], " +
+                                    "PARAMETER[\"Central_Meridian\",%.1f], " +
+                                    "PARAMETER[\"Scale_Factor\",1.0], " +
+                                    "PARAMETER[\"Latitude_Of_Origin\",0.0], " +
+                                    "UNIT[\"Meter\",1.0]]",
+                            zone, falseEasting, centralMeridian);
 
-            // 创建坐标转换
-            MathTransform transform = CRS.findMathTransform(wgs84CRS, gaussCRS, true);
+                    log.debug("WKT定义：{}", wkt);
+                    return CRS.parseWKT(wkt);
+                } catch (Exception e) {
+                    log.warn("解析WKT失败：zone={}, falseEasting={}, centralMeridian={}, 错误={}",
+                            zone, falseEasting, centralMeridian, e.getMessage());
+                    return null;
+                }
+            });
+
+            // 创建坐标转换（使用缓存避免重复创建）
+            MathTransform transform = config.transformCache.computeIfAbsent(cacheKey, key -> {
+                try {
+                    return CRS.findMathTransform(config.WGS84_CRS, gaussCRS, true);
+                } catch (Exception e) {
+                    log.warn("创建坐标转换失败：zone={}, falseEasting={}, centralMeridian={}, 错误={}",
+                            zone, falseEasting, centralMeridian, e.getMessage());
+                    return null;
+                }
+            });
 
             // 执行坐标转换
             Coordinate sourceCoord = new Coordinate(longitude, latitude);
@@ -169,7 +197,7 @@ public class GisUtil implements AutoCloseable {
 
             JTS.transform(sourceCoord, targetCoord, transform);
 
-            log.debug("转换结果：X={}, Y={}", targetCoord.x, targetCoord.y);
+            log.trace("转换结果：X={}, Y={}", targetCoord.x, targetCoord.y);
 
             // 验证转换结果的合理性（全球范围）
             // X坐标：最小1带=150万米，最大60带=6050万米，加上实际坐标范围±350万米
@@ -178,6 +206,7 @@ public class GisUtil implements AutoCloseable {
             if (targetCoord.x < 1000000 || targetCoord.x > 64000000 || targetCoord.y < -10000000
                     || targetCoord.y > 10000000) {
                 log.warn("转换结果超出全球合理范围：X={}, Y={}, zone={}", targetCoord.x, targetCoord.y, zone);
+                return null;
             }
 
             // 创建新的轨迹点，保持原有属性，只更新坐标
@@ -188,11 +217,10 @@ public class GisUtil implements AutoCloseable {
             result.setSpeed(point.getSpeed());
             result.setDirection(point.getDirection());
 
-            log.debug("坐标转换成功完成");
+            log.trace("坐标转换成功完成");
             return result;
-
         } catch (Exception e) {
-            log.error("坐标转换失败：经度={}, 纬度={}, 错误={}", point.getLon(), point.getLat(), e.getMessage());
+            log.warn("坐标转换失败：经度={}, 纬度={}, 错误={}", point.getLon(), point.getLat(), e.getMessage());
             return null;
         }
     }
@@ -214,7 +242,7 @@ public class GisUtil implements AutoCloseable {
                     && point.getDirection() >= 0 && point.getDirection() <= 360) {// 方向角必须在[0,360]之间
                 filteredWgs84Points.add(point);
             } else {
-                log.warn("被过滤点位信息，时间：{} 经度：{} 纬度：{} 速度：{} 方向角：{}", point.getTime(), point.getLon(), point.getLat(),
+                log.trace("被过滤点位信息，时间：{} 经度：{} 纬度：{} 速度：{} 方向角：{}", point.getTime(), point.getLon(), point.getLat(),
                         point.getSpeed(), point.getDirection());
             }
         }
