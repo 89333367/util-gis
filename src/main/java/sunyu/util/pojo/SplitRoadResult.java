@@ -5,6 +5,8 @@ import java.util.List;
 
 import org.locationtech.jts.geom.Geometry;
 
+import cn.hutool.core.collection.CollUtil;
+
 /**
  * 分割道路的结果，包含整体轮廓以及每个区块的详情
  * 
@@ -53,6 +55,9 @@ public class SplitRoadResult {
     }
 
     public LocalDateTime getStartTime() {
+        if (CollUtil.isNotEmpty(parts)) {
+            startTime = parts.get(0).getStartTime();
+        }
         return startTime;
     }
 
@@ -61,6 +66,9 @@ public class SplitRoadResult {
     }
 
     public LocalDateTime getEndTime() {
+        if (CollUtil.isNotEmpty(parts)) {
+            endTime = parts.get(parts.size() - 1).getEndTime();
+        }
         return endTime;
     }
 
@@ -73,6 +81,10 @@ public class SplitRoadResult {
     }
 
     public void setParts(List<OutlinePart> parts) {
+        if (CollUtil.isNotEmpty(parts)) {
+            // 按开始时间升序排序
+            parts.sort((p1, p2) -> p1.getStartTime().compareTo(p2.getStartTime()));
+        }
         this.parts = parts;
     }
 

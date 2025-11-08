@@ -17,6 +17,7 @@ import org.opengis.referencing.operation.MathTransform;
 
 import cn.hutool.log.Log;
 import cn.hutool.log.LogFactory;
+import sunyu.util.pojo.OutlinePart;
 import sunyu.util.pojo.SplitRoadResult;
 import sunyu.util.pojo.TrackPoint;
 
@@ -119,17 +120,58 @@ public class GisUtil implements AutoCloseable {
     }
 
     /**
+     * 从缓存获取或创建高斯投影CRS
+     * 
+     * @param zone            投影带号
+     * @param falseEasting    假东距
+     * @param centralMeridian 中央经线
+     * @return 高斯投影CRS对象，如果创建失败返回null
+     */
+    private CoordinateReferenceSystem getOrCreateGaussCRS(int zone, double falseEasting, double centralMeridian) {
+        // 构建缓存key：zone_falseEasting_centralMeridian
+        String cacheKey = String.format("%d_%.1f_%.1f", zone, falseEasting, centralMeridian);
+
+        // 从缓存获取或创建高斯投影CRS
+        return config.gaussCRSCache.computeIfAbsent(cacheKey, key -> {
+            try {
+                String wkt = String.format(
+                        "PROJCS[\"WGS_1984_Gauss_Kruger_Zone_%d\", " +
+                                "GEOGCS[\"GCS_WGS_1984\", " +
+                                "DATUM[\"D_WGS_1984\", " +
+                                "SPHEROID[\"WGS_1984\",6378137.0,298.257223563]], " +
+                                "PRIMEM[\"Greenwich\",0.0], " +
+                                "UNIT[\"Degree\",0.0174532925199433]], " +
+                                "PROJECTION[\"Transverse_Mercator\"], " +
+                                "PARAMETER[\"False_Easting\",%.1f], " +
+                                "PARAMETER[\"False_Northing\",0.0], " +
+                                "PARAMETER[\"Central_Meridian\",%.1f], " +
+                                "PARAMETER[\"Scale_Factor\",1.0], " +
+                                "PARAMETER[\"Latitude_Of_Origin\",0.0], " +
+                                "UNIT[\"Meter\",1.0]]",
+                        zone, falseEasting, centralMeridian);
+
+                log.debug("高斯投影CRS WKT定义：{}", wkt);
+                return CRS.parseWKT(wkt);
+            } catch (Exception e) {
+                log.warn("解析WKT失败：zone={}, falseEasting={}, centralMeridian={}, 错误={}",
+                        zone, falseEasting, centralMeridian, e.getMessage());
+                return null;
+            }
+        });
+    }
+
+    /**
      * 将WGS84坐标点转换为高斯投影坐标点
      * 支持全球范围，根据经度自动选择合适的高斯投影带
      * 
-     * @param point WGS84坐标系下的轨迹点
+     * @param wgs84Point WGS84坐标系下的轨迹点
      * @return 高斯投影坐标系下的轨迹点
      */
-    private TrackPoint wgs84PointTransformToGaussPoint(TrackPoint point) {
+    private TrackPoint wgs84PointTransformToGaussPoint(TrackPoint wgs84Point) {
         try {
             // 获取经度和纬度
-            double longitude = point.getLon();
-            double latitude = point.getLat();
+            double longitude = wgs84Point.getLon();
+            double latitude = wgs84Point.getLat();
 
             log.trace("开始坐标转换：原始经度={}, 纬度={}", longitude, latitude);
 
@@ -154,36 +196,11 @@ public class GisUtil implements AutoCloseable {
             double falseEasting = zone * 1000000.0 + 500000.0;
             log.trace("计算假东距：falseEasting={}", falseEasting);
 
-            // 构建缓存key：zone_falseEasting_centralMeridian
-            String cacheKey = String.format("%d_%.1f_%.1f", zone, falseEasting, centralMeridian);
-
             // 从缓存获取或创建高斯投影CRS
-            CoordinateReferenceSystem gaussCRS = config.gaussCRSCache.computeIfAbsent(cacheKey, key -> {
-                try {
-                    String wkt = String.format(
-                            "PROJCS[\"WGS_1984_Gauss_Kruger_Zone_%d\", " +
-                                    "GEOGCS[\"GCS_WGS_1984\", " +
-                                    "DATUM[\"D_WGS_1984\", " +
-                                    "SPHEROID[\"WGS_1984\",6378137.0,298.257223563]], " +
-                                    "PRIMEM[\"Greenwich\",0.0], " +
-                                    "UNIT[\"Degree\",0.0174532925199433]], " +
-                                    "PROJECTION[\"Transverse_Mercator\"], " +
-                                    "PARAMETER[\"False_Easting\",%.1f], " +
-                                    "PARAMETER[\"False_Northing\",0.0], " +
-                                    "PARAMETER[\"Central_Meridian\",%.1f], " +
-                                    "PARAMETER[\"Scale_Factor\",1.0], " +
-                                    "PARAMETER[\"Latitude_Of_Origin\",0.0], " +
-                                    "UNIT[\"Meter\",1.0]]",
-                            zone, falseEasting, centralMeridian);
+            CoordinateReferenceSystem gaussCRS = getOrCreateGaussCRS(zone, falseEasting, centralMeridian);
 
-                    log.debug("高斯投影CRS WKT定义：{}", wkt);
-                    return CRS.parseWKT(wkt);
-                } catch (Exception e) {
-                    log.warn("解析WKT失败：zone={}, falseEasting={}, centralMeridian={}, 错误={}",
-                            zone, falseEasting, centralMeridian, e.getMessage());
-                    return null;
-                }
-            });
+            // 构建缓存key（用于transform缓存）
+            String cacheKey = String.format("%d_%.1f_%.1f", zone, falseEasting, centralMeridian);
 
             // 从缓存获取或创建WGS84到高斯投影的坐标转换
             MathTransform transform = config.wgs84ToGaussTransformCache.computeIfAbsent(cacheKey, key -> {
@@ -216,16 +233,16 @@ public class GisUtil implements AutoCloseable {
 
             // 创建新的轨迹点，保持原有属性，只更新坐标
             TrackPoint result = new TrackPoint();
-            result.setTime(point.getTime());
+            result.setTime(wgs84Point.getTime());
             result.setLon(targetCoord.x); // X坐标（东向）
             result.setLat(targetCoord.y); // Y坐标（北向）
-            result.setSpeed(point.getSpeed());
-            result.setDirection(point.getDirection());
+            result.setSpeed(wgs84Point.getSpeed());
+            result.setDirection(wgs84Point.getDirection());
 
             log.trace("坐标转换成功完成");
             return result;
         } catch (Exception e) {
-            log.warn("坐标转换失败：经度={}, 纬度={}, 错误={}", point.getLon(), point.getLat(), e.getMessage());
+            log.warn("坐标转换失败：经度={}, 纬度={}, 错误={}", wgs84Point.getLon(), wgs84Point.getLat(), e.getMessage());
             return null;
         }
     }
@@ -274,41 +291,16 @@ public class GisUtil implements AutoCloseable {
             double centralMeridian = (zone - 1) * 6 - 180 + 3;
             double falseEasting = zone * 1000000.0 + 500000.0;
 
-            // 构建缓存key
-            String cacheKey = String.format("%d_%.1f_%.1f", zone, falseEasting, centralMeridian);
-
             // 从缓存获取或创建高斯投影CRS
-            CoordinateReferenceSystem gaussCRS = config.gaussCRSCache.computeIfAbsent(cacheKey, key -> {
-                try {
-                    String wkt = String.format(
-                            "PROJCS[\"WGS_1984_Gauss_Kruger_Zone_%d\", " +
-                                    "GEOGCS[\"GCS_WGS_1984\", " +
-                                    "DATUM[\"D_WGS_1984\", " +
-                                    "SPHEROID[\"WGS_1984\",6378137.0,298.257223563]], " +
-                                    "PRIMEM[\"Greenwich\",0.0], " +
-                                    "UNIT[\"Degree\",0.0174532925199433]], " +
-                                    "PROJECTION[\"Transverse_Mercator\"], " +
-                                    "PARAMETER[\"False_Easting\",%.1f], " +
-                                    "PARAMETER[\"False_Northing\",0.0], " +
-                                    "PARAMETER[\"Central_Meridian\",%.1f], " +
-                                    "PARAMETER[\"Scale_Factor\",1.0], " +
-                                    "PARAMETER[\"Latitude_Of_Origin\",0.0], " +
-                                    "UNIT[\"Meter\",1.0]]",
-                            zone, falseEasting, centralMeridian);
-
-                    log.debug("高斯投影CRS WKT定义：{}", wkt);
-                    return CRS.parseWKT(wkt);
-                } catch (Exception e) {
-                    log.warn("解析WKT失败：zone={}, falseEasting={}, centralMeridian={}, 错误={}",
-                            zone, falseEasting, centralMeridian, e.getMessage());
-                    return null;
-                }
-            });
+            CoordinateReferenceSystem gaussCRS = getOrCreateGaussCRS(zone, falseEasting, centralMeridian);
 
             if (gaussCRS == null) {
                 log.warn("无法获取高斯投影CRS：zone={}", zone);
                 return config.EMPTY_WKT;
             }
+
+            // 构建缓存key（用于transform缓存）
+            String cacheKey = String.format("%d_%.1f_%.1f", zone, falseEasting, centralMeridian);
 
             // 从缓存获取或创建高斯投影到WGS84的坐标转换
             MathTransform transform = config.gaussToWgs84TransformCache.computeIfAbsent(cacheKey, key -> {
@@ -395,6 +387,7 @@ public class GisUtil implements AutoCloseable {
         wgs84PointsSegments.removeIf(segment -> segment.size() < 6);
         log.debug("过滤后的轨迹段数量：{}", wgs84PointsSegments.size());
 
+        List<OutlinePart> outlineParts = new ArrayList<>();
         for (List<TrackPoint> wgs84PointsSegment : wgs84PointsSegments) {
             log.debug("将轨迹段中的WGS84坐标转换为高斯投影坐标 轨迹段点数量：{}", wgs84PointsSegment.size());
             List<TrackPoint> gaussPoints = new ArrayList<>();
@@ -423,15 +416,29 @@ public class GisUtil implements AutoCloseable {
                 double bufferDistance = totalWidthM / 2.0;
                 Geometry bufferedGeometry = lineString.buffer(bufferDistance);
                 log.debug("线缓冲成功，缓冲距离：{}米，结果几何类型：{}", bufferDistance, bufferedGeometry.getGeometryType());
-
-                // 4. 设置结果
-                result.setOutline(bufferedGeometry);
-                result.setWkt(gaussGeometryToWgs84WKT(bufferedGeometry));
-                log.info("线缓冲完成");
+                OutlinePart outlinePart = new OutlinePart();
+                outlinePart.setOutline(bufferedGeometry);
+                outlinePart.setWkt(gaussGeometryToWgs84WKT(bufferedGeometry));
+                outlinePart.setTrackPoints(wgs84PointsSegment);
+                outlinePart.setStartTime(wgs84PointsSegment.get(0).getTime());
+                outlinePart.setEndTime(wgs84PointsSegment.get(wgs84PointsSegment.size() - 1).getTime());
+                outlineParts.add(outlinePart);
             } catch (Exception e) {
                 log.warn("线缓冲失败：总宽度={}米，错误={}", totalWidthM, e.getMessage());
             }
         }
+
+        log.debug("合并所有高斯投影缓冲几何");
+        Geometry unionGeometry = config.geometryFactory
+                .createGeometryCollection(outlineParts.stream().map(OutlinePart::getOutline).toArray(Geometry[]::new))
+                .union();
+        log.debug("合并后的几何类型：{}", unionGeometry.getGeometryType());
+
+        // 4. 设置结果
+        result.setOutline(unionGeometry);
+        result.setWkt(gaussGeometryToWgs84WKT(unionGeometry));
+        result.setParts(outlineParts);
+
         return result;
     }
 
