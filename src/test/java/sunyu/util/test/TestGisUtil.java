@@ -15,6 +15,7 @@ import com.zaxxer.hikari.HikariConfig;
 import com.zaxxer.hikari.HikariDataSource;
 
 import cn.hutool.core.collection.CollUtil;
+import cn.hutool.core.convert.Convert;
 import cn.hutool.core.date.DateField;
 import cn.hutool.core.date.DateTime;
 import cn.hutool.core.date.DateUtil;
@@ -365,6 +366,16 @@ public class TestGisUtil {
                 if (!protocol.get("2601").equals("0")) {// 定位状态,0已定位，1未定位
                     continue;
                 }
+                if (protocol.containsKey("3020")) {// 终端ACC状态,0关闭，1开启
+                    if (!Convert.toStr(protocol.get("3020"), "0").equals("1")) {
+                        continue;
+                    }
+                }
+                if (protocol.containsKey("4031")) {// 作业标识,1作业,0非作业,2暂停
+                    if (!Convert.toStr(protocol.get("4031"), "0").equals("1")) {
+                        continue;
+                    }
+                }
                 // {定位时间yyyyMMddHHmmss},{经度},{纬度},{速度km/h},{方向角度0-360}
                 l.add(StrUtil.format("{},{},{},{},{}", protocol.get("3014"), protocol.get("2602"), protocol.get("2603"),
                         protocol.get("2204"), protocol.get("3012")));
@@ -394,6 +405,16 @@ public class TestGisUtil {
                 }
                 if (!protocol.get("2601").equals("0")) {// 定位状态,0已定位，1未定位
                     continue;
+                }
+                if (protocol.containsKey("3020")) {// 终端ACC状态,0关闭，1开启
+                    if (!Convert.toStr(protocol.get("3020"), "0").equals("1")) {
+                        continue;
+                    }
+                }
+                if (protocol.containsKey("4031")) {// 作业标识,1作业,0非作业,2暂停
+                    if (!Convert.toStr(protocol.get("4031"), "0").equals("1")) {
+                        continue;
+                    }
                 }
                 // {定位时间yyyyMMddHHmmss},{经度},{纬度},{速度km/h},{方向角度0-360}
                 l.add(StrUtil.format("{},{},{},{},{}", protocol.get("3014"), protocol.get("2602"), protocol.get("2603"),

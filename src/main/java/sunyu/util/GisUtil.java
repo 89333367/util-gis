@@ -8,8 +8,10 @@ import org.geotools.geometry.jts.JTS;
 import org.geotools.referencing.CRS;
 import org.geotools.referencing.crs.DefaultGeographicCRS;
 import org.locationtech.jts.geom.Coordinate;
+import org.locationtech.jts.geom.Envelope;
 import org.locationtech.jts.geom.Geometry;
 import org.locationtech.jts.geom.GeometryFactory;
+import org.locationtech.jts.geom.LineString;
 import org.opengis.referencing.crs.CoordinateReferenceSystem;
 import org.opengis.referencing.operation.MathTransform;
 
@@ -72,8 +74,11 @@ public class GisUtil implements AutoCloseable {
         // 高斯投影CRS缓存（线程安全），key格式："zone_falseEasting_centralMeridian"
         public final ConcurrentHashMap<String, CoordinateReferenceSystem> gaussCRSCache = new ConcurrentHashMap<>();
 
-        // 坐标转换缓存（线程安全），key格式："zone_falseEasting_centralMeridian"
-        public final ConcurrentHashMap<String, MathTransform> transformCache = new ConcurrentHashMap<>();
+        // WGS84到高斯投影的坐标转换缓存（线程安全），key格式："zone_falseEasting_centralMeridian"
+        public final ConcurrentHashMap<String, MathTransform> wgs84ToGaussTransformCache = new ConcurrentHashMap<>();
+
+        // 高斯投影到WGS84的坐标转换缓存（线程安全），key格式："zone_falseEasting_centralMeridian"
+        public final ConcurrentHashMap<String, MathTransform> gaussToWgs84TransformCache = new ConcurrentHashMap<>();
 
         // 最大速度（单位：米/秒），我们认为农机在田间作业，最大速度不会超过20米/秒
         public final double MAX_SPEED = 20.0;
@@ -171,7 +176,7 @@ public class GisUtil implements AutoCloseable {
                                     "UNIT[\"Meter\",1.0]]",
                             zone, falseEasting, centralMeridian);
 
-                    log.debug("WKT定义：{}", wkt);
+                    log.debug("高斯投影CRS WKT定义：{}", wkt);
                     return CRS.parseWKT(wkt);
                 } catch (Exception e) {
                     log.warn("解析WKT失败：zone={}, falseEasting={}, centralMeridian={}, 错误={}",
@@ -180,8 +185,8 @@ public class GisUtil implements AutoCloseable {
                 }
             });
 
-            // 创建坐标转换（使用缓存避免重复创建）
-            MathTransform transform = config.transformCache.computeIfAbsent(cacheKey, key -> {
+            // 从缓存获取或创建WGS84到高斯投影的坐标转换
+            MathTransform transform = config.wgs84ToGaussTransformCache.computeIfAbsent(cacheKey, key -> {
                 try {
                     return CRS.findMathTransform(config.WGS84_CRS, gaussCRS, true);
                 } catch (Exception e) {
@@ -201,9 +206,9 @@ public class GisUtil implements AutoCloseable {
 
             // 验证转换结果的合理性（全球范围）
             // X坐标：最小1带=150万米，最大60带=6050万米，加上实际坐标范围±350万米
-            // 合理范围：100万-6400万米
+            // 合理范围：50万-6400万米（更宽松的范围，允许边界情况）
             // Y坐标：全球纬度范围对应约±1000万米
-            if (targetCoord.x < 1000000 || targetCoord.x > 64000000 || targetCoord.y < -10000000
+            if (targetCoord.x < 500000 || targetCoord.x > 64000000 || targetCoord.y < -10000000
                     || targetCoord.y > 10000000) {
                 log.warn("转换结果超出全球合理范围：X={}, Y={}, zone={}", targetCoord.x, targetCoord.y, zone);
                 return null;
@@ -222,6 +227,124 @@ public class GisUtil implements AutoCloseable {
         } catch (Exception e) {
             log.warn("坐标转换失败：经度={}, 纬度={}, 错误={}", point.getLon(), point.getLat(), e.getMessage());
             return null;
+        }
+    }
+
+    /**
+     * 将高斯投影的几何图形转换为WGS84坐标系的WKT字符串
+     * 
+     * @param gaussGeometry 高斯投影坐标系下的几何图形
+     * @return WGS84坐标系下的WKT字符串
+     */
+    private String gaussGeometryToWgs84WKT(Geometry gaussGeometry) {
+        try {
+            // 获取几何图形的边界信息来反推高斯投影参数
+            Envelope env = gaussGeometry.getEnvelopeInternal();
+            double centerX = (env.getMinX() + env.getMaxX()) / 2.0;
+
+            // 验证高斯投影坐标的合理性
+            // 高斯投影X坐标合理范围：50万-6400万米（对应全球1-60带，更宽松的范围）
+            // 高斯投影Y坐标合理范围：±1000万米（对应全球纬度范围）
+            if (env.getMinX() < 500000 || env.getMaxX() > 64000000 ||
+                    env.getMinY() < -10000000 || env.getMaxY() > 10000000) {
+                log.warn("高斯投影坐标超出合理范围：MinX={}, MaxX={}, MinY={}, MaxY={}",
+                        env.getMinX(), env.getMaxX(), env.getMinY(), env.getMaxY());
+                return config.EMPTY_WKT;
+            }
+
+            // 智能确定投影带号策略
+            // 1. 首先尝试根据几何中心反推带号
+            int zone = (int) Math.floor((centerX - 500000.0) / 1000000.0);
+
+            // 2. 如果几何范围跨越多个投影带（宽度超过100万米），使用更保守的策略
+            double geometryWidth = env.getMaxX() - env.getMinX();
+            if (geometryWidth > 1000000) {
+                log.warn("几何图形宽度{}米，可能跨越多个投影带，使用保守策略", geometryWidth);
+                // 对于宽几何，优先使用中间带号，并验证整个几何范围
+                if (zone < 1 || zone > 60) {
+                    log.warn("无法确定合适的投影带号：centerX={}", centerX);
+                    return config.EMPTY_WKT;
+                }
+            } else if (zone < 1 || zone > 60) {
+                log.warn("反推的投影带号不合理：zone={}, centerX={}", zone, centerX);
+                return config.EMPTY_WKT;
+            }
+
+            // 计算中央经线（与wgs84PointTransformToGaussPoint方法保持一致）
+            double centralMeridian = (zone - 1) * 6 - 180 + 3;
+            double falseEasting = zone * 1000000.0 + 500000.0;
+
+            // 构建缓存key
+            String cacheKey = String.format("%d_%.1f_%.1f", zone, falseEasting, centralMeridian);
+
+            // 从缓存获取或创建高斯投影CRS
+            CoordinateReferenceSystem gaussCRS = config.gaussCRSCache.computeIfAbsent(cacheKey, key -> {
+                try {
+                    String wkt = String.format(
+                            "PROJCS[\"WGS_1984_Gauss_Kruger_Zone_%d\", " +
+                                    "GEOGCS[\"GCS_WGS_1984\", " +
+                                    "DATUM[\"D_WGS_1984\", " +
+                                    "SPHEROID[\"WGS_1984\",6378137.0,298.257223563]], " +
+                                    "PRIMEM[\"Greenwich\",0.0], " +
+                                    "UNIT[\"Degree\",0.0174532925199433]], " +
+                                    "PROJECTION[\"Transverse_Mercator\"], " +
+                                    "PARAMETER[\"False_Easting\",%.1f], " +
+                                    "PARAMETER[\"False_Northing\",0.0], " +
+                                    "PARAMETER[\"Central_Meridian\",%.1f], " +
+                                    "PARAMETER[\"Scale_Factor\",1.0], " +
+                                    "PARAMETER[\"Latitude_Of_Origin\",0.0], " +
+                                    "UNIT[\"Meter\",1.0]]",
+                            zone, falseEasting, centralMeridian);
+
+                    log.debug("高斯投影CRS WKT定义：{}", wkt);
+                    return CRS.parseWKT(wkt);
+                } catch (Exception e) {
+                    log.warn("解析WKT失败：zone={}, falseEasting={}, centralMeridian={}, 错误={}",
+                            zone, falseEasting, centralMeridian, e.getMessage());
+                    return null;
+                }
+            });
+
+            if (gaussCRS == null) {
+                log.warn("无法获取高斯投影CRS：zone={}", zone);
+                return config.EMPTY_WKT;
+            }
+
+            // 从缓存获取或创建高斯投影到WGS84的坐标转换
+            MathTransform transform = config.gaussToWgs84TransformCache.computeIfAbsent(cacheKey, key -> {
+                try {
+                    return CRS.findMathTransform(gaussCRS, config.WGS84_CRS, true);
+                } catch (Exception e) {
+                    log.warn("创建坐标转换失败：zone={}, falseEasting={}, centralMeridian={}, 错误={}",
+                            zone, falseEasting, centralMeridian, e.getMessage());
+                    return null;
+                }
+            });
+
+            if (transform == null) {
+                log.warn("无法获取坐标转换：zone={}", zone);
+                return config.EMPTY_WKT;
+            }
+
+            // 执行坐标转换（逆向：高斯投影 -> WGS84）
+            log.debug("开始转换高斯投影几何到WGS84：zone={}", zone);
+            Geometry wgs84Geometry = JTS.transform(gaussGeometry, transform);
+            log.debug("转换完成，WGS84几何范围：{}", wgs84Geometry.getEnvelopeInternal());
+
+            // 验证转换后的WGS84坐标合理性
+            Envelope wgs84Env = wgs84Geometry.getEnvelopeInternal();
+            if (wgs84Env.getMinX() < -180 || wgs84Env.getMaxX() > 180 ||
+                    wgs84Env.getMinY() < -90 || wgs84Env.getMaxY() > 90) {
+                log.warn("转换后的WGS84坐标超出合理范围：MinLon={}, MaxLon={}, MinLat={}, MaxLat={}",
+                        wgs84Env.getMinX(), wgs84Env.getMaxX(), wgs84Env.getMinY(), wgs84Env.getMaxY());
+                return config.EMPTY_WKT;
+            }
+
+            // 返回WKT字符串
+            return wgs84Geometry.toText();
+        } catch (Exception e) {
+            log.warn("高斯投影几何转换到WGS84失败：错误={}", e.getMessage());
+            return config.EMPTY_WKT;
         }
     }
 
@@ -282,8 +405,33 @@ public class GisUtil implements AutoCloseable {
                 }
             }
             log.debug("转换后的轨迹段点数量：{}", gaussPoints.size());
-        }
 
+            log.debug("使用高斯投影的轨迹点进行线缓冲，左右缓冲总宽度：{}米", totalWidthM);
+            try {
+                // 1. 创建线几何：将高斯投影点转换为Coordinate数组
+                Coordinate[] gaussCoordinates = new Coordinate[gaussPoints.size()];
+                for (int i = 0; i < gaussPoints.size(); i++) {
+                    TrackPoint point = gaussPoints.get(i);
+                    gaussCoordinates[i] = new Coordinate(point.getLon(), point.getLat());
+                }
+
+                // 2. 创建LineString
+                LineString lineString = config.geometryFactory.createLineString(gaussCoordinates);
+                log.debug("创建线几何成功，点数：{}", gaussCoordinates.length);
+
+                // 3. 执行缓冲操作：总宽度的一半作为缓冲距离
+                double bufferDistance = totalWidthM / 2.0;
+                Geometry bufferedGeometry = lineString.buffer(bufferDistance);
+                log.debug("线缓冲成功，缓冲距离：{}米，结果几何类型：{}", bufferDistance, bufferedGeometry.getGeometryType());
+
+                // 4. 设置结果
+                result.setOutline(bufferedGeometry);
+                result.setWkt(gaussGeometryToWgs84WKT(bufferedGeometry));
+                log.info("线缓冲完成");
+            } catch (Exception e) {
+                log.warn("线缓冲失败：总宽度={}米，错误={}", totalWidthM, e.getMessage());
+            }
+        }
         return result;
     }
 
