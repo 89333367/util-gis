@@ -41,6 +41,9 @@ public class SplitRoadResult {
      */
     private double mu;
 
+    public SplitRoadResult() {
+    }
+
     public Geometry getOutline() {
         return outline;
     }

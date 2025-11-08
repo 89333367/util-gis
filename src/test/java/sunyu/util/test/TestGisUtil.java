@@ -15,7 +15,6 @@ import com.zaxxer.hikari.HikariConfig;
 import com.zaxxer.hikari.HikariDataSource;
 
 import cn.hutool.core.collection.CollUtil;
-import cn.hutool.core.convert.Convert;
 import cn.hutool.core.date.DateField;
 import cn.hutool.core.date.DateTime;
 import cn.hutool.core.date.DateUtil;
@@ -31,16 +30,14 @@ import cn.hutool.log.LogFactory;
 import cn.hutool.log.level.Level;
 import sunyu.util.GisUtil;
 import sunyu.util.TDengineUtil;
-import sunyu.util.pojo.CoordinatePoint;
 import sunyu.util.pojo.OutlinePart;
 import sunyu.util.pojo.SplitRoadResult;
 import sunyu.util.pojo.TrackPoint;
-import sunyu.util.pojo.WktIntersectionResult;
 
 public class TestGisUtil {
     Log log = LogFactory.get();
     GisUtil gisUtil = GisUtil.builder().build();
-    ProtocolSdk protocolSdk = new ProtocolSdk("http://192.168.11.8/config.xml");
+    ProtocolSdk protocolSdk = new ProtocolSdk(FileUtil.getInputStream(FileUtil.file("d:/tmp/config.xml")));
     String path = "D:/tmp/java道路拆分算法测试";
 
     private DataSource getMySqlDatasource() {
@@ -78,40 +75,44 @@ public class TestGisUtil {
         return TDengineUtil.builder().dataSource(getTdengineDatasource()).build();
     }
 
-    @Test
-    void 测试两点距离() {
-        CoordinatePoint p1 = new CoordinatePoint(116.55470301, 40.21296700);
-        CoordinatePoint p2 = new CoordinatePoint(116.55473883, 40.21364248);
-        double distance = gisUtil.haversine(p1, p2);
-        log.info("{} 米", distance);
-    }
-
-    @Test
-    void 测试轨迹段距离() {
-        String did = "EC73BD2506050018";
-        String startTime = "20251029161721";
-        String endTime = "20251029161856";
-        读取一段轨迹数据(did, startTime, endTime);
-        List<String> lines = FileUtil
-                .readUtf8Lines(path + StrUtil.format("/{}_{}_{}_trace.txt", did, startTime, endTime));
-        double total = 0.0;
-        CoordinatePoint prev = null;
-        for (String line : lines) {
-            if (StrUtil.isBlank(line)) {
-                continue;
-            }
-            String[] ss = line.split(",");
-            if (ss.length < 2) {
-                continue;
-            }
-            CoordinatePoint p = new CoordinatePoint(Convert.toDouble(ss[1]), Convert.toDouble(ss[2]));
-            if (prev != null) {
-                total += gisUtil.haversine(prev, p);
-            }
-            prev = p;
-        }
-        log.info("轨迹点数={} 总距离={} 米", lines.size(), total);
-    }
+    /*
+     * @Test
+     * void 测试两点距离() {
+     * CoordinatePoint p1 = new CoordinatePoint(116.55470301, 40.21296700);
+     * CoordinatePoint p2 = new CoordinatePoint(116.55473883, 40.21364248);
+     * double distance = gisUtil.haversine(p1, p2);
+     * log.info("{} 米", distance);
+     * }
+     * 
+     * @Test
+     * void 测试轨迹段距离() {
+     * String did = "EC73BD2506050018";
+     * String startTime = "20251029161721";
+     * String endTime = "20251029161856";
+     * 读取一段轨迹数据(did, startTime, endTime);
+     * List<String> lines = FileUtil
+     * .readUtf8Lines(path + StrUtil.format("/{}_{}_{}_trace.txt", did, startTime,
+     * endTime));
+     * double total = 0.0;
+     * CoordinatePoint prev = null;
+     * for (String line : lines) {
+     * if (StrUtil.isBlank(line)) {
+     * continue;
+     * }
+     * String[] ss = line.split(",");
+     * if (ss.length < 2) {
+     * continue;
+     * }
+     * CoordinatePoint p = new CoordinatePoint(Convert.toDouble(ss[1]),
+     * Convert.toDouble(ss[2]));
+     * if (prev != null) {
+     * total += gisUtil.haversine(prev, p);
+     * }
+     * prev = p;
+     * }
+     * log.info("轨迹点数={} 总距离={} 米", lines.size(), total);
+     * }
+     */
 
     @Test
     void 测试镂空作业轮廓1() throws Exception {
@@ -179,16 +180,21 @@ public class TestGisUtil {
         输出一段HTML(did, startTime, endTime);
     }
 
-    @Test
-    void 计算重复亩数0018_1335() throws Exception {
-        String wkt1 = FileUtil.readUtf8Lines(path + "/EC73BD2506050018_20251104090717_20251104092257_outline.txt")
-                .get(6).replace("WKT: ", "");
-        String wkt2 = FileUtil.readUtf8Lines(path + "/EC73BD2509061335_20251104100606_20251104101419_outline.txt")
-                .get(6).replace("WKT: ", "");
-        WktIntersectionResult r = gisUtil.intersection(wkt1, wkt2);
-        FileUtil.writeUtf8String(r.getWkt(), path + "/EC73BD2509061335_20251104100606_20251104101419_intersection.txt");
-        log.info("相交面积：{} 亩", r.getMu());
-    }
+    /*
+     * @Test
+     * void 计算重复亩数0018_1335() throws Exception {
+     * String wkt1 = FileUtil.readUtf8Lines(path +
+     * "/EC73BD2506050018_20251104090717_20251104092257_outline.txt")
+     * .get(6).replace("WKT: ", "");
+     * String wkt2 = FileUtil.readUtf8Lines(path +
+     * "/EC73BD2509061335_20251104100606_20251104101419_outline.txt")
+     * .get(6).replace("WKT: ", "");
+     * WktIntersectionResult r = gisUtil.intersection(wkt1, wkt2);
+     * FileUtil.writeUtf8String(r.getWkt(), path +
+     * "/EC73BD2509061335_20251104100606_20251104101419_intersection.txt");
+     * log.info("相交面积：{} 亩", r.getMu());
+     * }
+     */
 
     @Test
     void t001() {
@@ -351,30 +357,17 @@ public class TestGisUtil {
             List<String> l = new ArrayList<>();
             for (Map<String, Object> row : rows) {
                 Map<String, String> protocol = protocolSdk.parseProtocolString(row.get("protocol").toString());
-                if (protocol.containsKey("2601")) {// 定位状态,0已定位，1未定位
-                    if (!Convert.toStr(protocol.get("2601"), "1").equals("0")) {
-                        continue;
-                    }
-                }
-                double lon = Convert.toDouble(protocol.get("2602"), 0.0);// 经度
-                double lat = Convert.toDouble(protocol.get("2603"), 0.0);// 纬度
-                if (lon == 0 || lat == 0) {// 0也算异常的点
+                if (!protocol.containsKey("2601") || !protocol.containsKey("2602") || !protocol.containsKey("2603")
+                        || !protocol.containsKey("2204") || !protocol.containsKey("3012")
+                        || !protocol.containsKey("3014")) {
                     continue;
                 }
-                if (Math.abs(lon) > 180 || Math.abs(lat) > 90) {// 经度范围不在[-180,180],纬度范围不在[-90,90]，就是异常点
+                if (!protocol.get("2601").equals("0")) {// 定位状态,0已定位，1未定位
                     continue;
                 }
-                if (protocol.containsKey("3020")) {// 终端ACC状态,0关闭，1开启
-                    if (!Convert.toStr(protocol.get("3020"), "0").equals("1")) {
-                        continue;
-                    }
-                }
-                if (protocol.containsKey("4031")) {// 作业标识,1作业,0非作业,2暂停
-                    if (!Convert.toStr(protocol.get("4031"), "0").equals("1")) {
-                        continue;
-                    }
-                }
-                l.add(StrUtil.format("{},{},{}", protocol.get("3014"), protocol.get("2602"), protocol.get("2603")));
+                // {定位时间yyyyMMddHHmmss},{经度},{纬度},{速度km/h},{方向角度0-360}
+                l.add(StrUtil.format("{},{},{},{},{}", protocol.get("3014"), protocol.get("2602"), protocol.get("2603"),
+                        protocol.get("2204"), protocol.get("3012")));
             }
             FileUtil.writeUtf8Lines(l, path + StrUtil.format("/{}_{}_{}_trace.txt", did, startTime, endTime));
         }
@@ -394,30 +387,17 @@ public class TestGisUtil {
             List<String> l = new ArrayList<>();
             for (Map<String, Object> row : rows) {
                 Map<String, String> protocol = protocolSdk.parseProtocolString(row.get("protocol").toString());
-                if (protocol.containsKey("2601")) {// 定位状态,0已定位，1未定位
-                    if (!Convert.toStr(protocol.get("2601"), "1").equals("0")) {
-                        continue;
-                    }
-                }
-                double lon = Convert.toDouble(protocol.get("2602"), 0.0);// 经度
-                double lat = Convert.toDouble(protocol.get("2603"), 0.0);// 纬度
-                if (lon == 0 || lat == 0) {// 0也算异常的点
+                if (!protocol.containsKey("2601") || !protocol.containsKey("2602") || !protocol.containsKey("2603")
+                        || !protocol.containsKey("2204") || !protocol.containsKey("3012")
+                        || !protocol.containsKey("3014")) {
                     continue;
                 }
-                if (Math.abs(lon) > 180 || Math.abs(lat) > 90) {// 经度范围不在[-180,180],纬度范围不在[-90,90]，就是异常点
+                if (!protocol.get("2601").equals("0")) {// 定位状态,0已定位，1未定位
                     continue;
                 }
-                if (protocol.containsKey("3020")) {// 终端ACC状态,0关闭，1开启
-                    if (!Convert.toStr(protocol.get("3020"), "0").equals("1")) {
-                        continue;
-                    }
-                }
-                if (protocol.containsKey("4031")) {// 作业标识,1作业,0非作业,2暂停
-                    if (!Convert.toStr(protocol.get("4031"), "0").equals("1")) {
-                        continue;
-                    }
-                }
-                l.add(StrUtil.format("{},{},{}", protocol.get("3014"), protocol.get("2602"), protocol.get("2603")));
+                // {定位时间yyyyMMddHHmmss},{经度},{纬度},{速度km/h},{方向角度0-360}
+                l.add(StrUtil.format("{},{},{},{},{}", protocol.get("3014"), protocol.get("2602"), protocol.get("2603"),
+                        protocol.get("2204"), protocol.get("3012")));
             }
             if (CollUtil.isNotEmpty(l)) {
                 FileUtil.writeUtf8Lines(l, path + StrUtil.format("/{}_{}_trace.txt", did, yyyyMMdd));
@@ -433,10 +413,13 @@ public class TestGisUtil {
         List<TrackPoint> l = new ArrayList<>();
         DateTime jobEndTime = DateUtil.parse(yyyyMMdd + "235959", "yyyyMMddHHmmss");
         for (String line : FileUtil.readUtf8Lines(fileName)) {
-            // 20251013120625,113.33316443,28.08500825
             String[] split = line.split(",");
-            TrackPoint trackPoint = new TrackPoint(LocalDateTimeUtil.parse(split[0], "yyyyMMddHHmmss"),
-                    Double.parseDouble(split[1]), Double.parseDouble(split[2]));
+            TrackPoint trackPoint = new TrackPoint();
+            trackPoint.setTime(LocalDateTimeUtil.parse(split[0], "yyyyMMddHHmmss"));
+            trackPoint.setLon(Double.parseDouble(split[1]));
+            trackPoint.setLat(Double.parseDouble(split[2]));
+            trackPoint.setSpeed(Double.parseDouble(split[3]));
+            trackPoint.setDirection(Double.parseDouble(split[4]));
             l.add(trackPoint);
         }
         try {
@@ -492,8 +475,12 @@ public class TestGisUtil {
         for (String line : FileUtil.readUtf8Lines(fileName)) {
             // 20251013120625,113.33316443,28.08500825
             String[] split = line.split(",");
-            TrackPoint trackPoint = new TrackPoint(LocalDateTimeUtil.parse(split[0], "yyyyMMddHHmmss"),
-                    Double.parseDouble(split[1]), Double.parseDouble(split[2]));
+            TrackPoint trackPoint = new TrackPoint();
+            trackPoint.setTime(LocalDateTimeUtil.parse(split[0], "yyyyMMddHHmmss"));
+            trackPoint.setLon(Double.parseDouble(split[1]));
+            trackPoint.setLat(Double.parseDouble(split[2]));
+            trackPoint.setSpeed(Double.parseDouble(split[3]));
+            trackPoint.setDirection(Double.parseDouble(split[4]));
             l.add(trackPoint);
         }
         try {
