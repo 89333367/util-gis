@@ -800,8 +800,7 @@ public class GisUtil implements AutoCloseable {
                 outlinePart.setTotalWidthM(totalWidthM);
                 outlinePart.setOutline(gaussBufferedGeometry);
                 outlinePart.setWkt(wgs84Geometry.toText());
-                // outlinePart.setMu(calcMuByWgs84Geometry(wgs84Geometry));
-                outlinePart.setMu(calcMuByWgs84WKT(outlinePart.getWkt()));
+                outlinePart.setMu(calcMuByWgs84Geometry(wgs84Geometry));
                 outlinePart.setTrackPoints(wgs84PointsSegment);
                 outlinePart.setStartTime(wgs84PointsSegment.get(0).getTime());
                 outlinePart.setEndTime(wgs84PointsSegment.get(wgs84PointsSegment.size() - 1).getTime());
