@@ -407,18 +407,18 @@ public class GisUtil implements AutoCloseable {
     private double calculatePolygonSphericalArea(Polygon polygon) {
         // 外环面积
         double exteriorArea = calculateRingSphericalArea(polygon.getExteriorRing());
-        log.debug("外环面积: {}平方米", exteriorArea);
+        log.trace("外环面积: {}平方米", exteriorArea);
 
         // 减去内环（孔洞）面积
         double holesArea = 0.0;
         for (int i = 0; i < polygon.getNumInteriorRing(); i++) {
             double holeArea = calculateRingSphericalArea(polygon.getInteriorRingN(i));
             holesArea += holeArea;
-            log.debug("内环{}面积: {}平方米", i, holeArea);
+            log.trace("内环{}面积: {}平方米", i, holeArea);
         }
 
         double totalArea = exteriorArea - holesArea;
-        log.debug("多边形总面积: {}平方米", totalArea);
+        log.trace("多边形总面积: {}平方米", totalArea);
         return totalArea;
     }
 
@@ -829,6 +829,8 @@ public class GisUtil implements AutoCloseable {
                 .filter(Objects::nonNull)
                 .mapToDouble(OutlinePart::getMu)
                 .sum() : 0.0);
+
+        log.debug("最终生成区块数量：{}块，总亩数：{}亩", outlineParts.size(), result.getMu());
 
         return result;
     }
