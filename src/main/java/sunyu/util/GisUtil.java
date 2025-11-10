@@ -1,7 +1,10 @@
 package sunyu.util;
 
+import java.time.Duration;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -734,6 +737,38 @@ public class GisUtil implements AutoCloseable {
 
         log.debug("按定位时间升序排序");
         filteredWgs84Points.sort((p1, p2) -> p1.getTime().compareTo(p2.getTime()));
+
+        // 获取上报时间间隔分布
+        Map<Integer, Integer> intervalDistribution = new HashMap<>();
+        log.info("统计轨迹点时间间隔分布，总点数：{}", filteredWgs84Points.size());
+        for (int i = 1; i < filteredWgs84Points.size(); i++) {
+            TrackPoint prevPoint = filteredWgs84Points.get(i - 1);
+            TrackPoint currPoint = filteredWgs84Points.get(i);
+
+            // 计算时间间隔（秒）- LocalDateTime使用Duration
+            Duration duration = Duration.between(prevPoint.getTime(), currPoint.getTime());
+            int timeDiffSeconds = (int) duration.getSeconds();
+            if (timeDiffSeconds < 12) {
+                // 统计每个间隔的出现次数
+                intervalDistribution.put(timeDiffSeconds, intervalDistribution.getOrDefault(timeDiffSeconds, 0) + 1);
+            }
+        }
+        // 获取最小有效时间间隔
+        int minEffectiveInterval = 1; // 默认值
+        if (!intervalDistribution.isEmpty()) {
+            // 找到点数最多的时间间隔，如果点数相同则选择时间间隔更小的
+            minEffectiveInterval = intervalDistribution.entrySet().stream()
+                    .max((e1, e2) -> {
+                        int countCompare = Integer.compare(e1.getValue(), e2.getValue());
+                        if (countCompare != 0) {
+                            return countCompare; // 点数多的优先
+                        }
+                        return Integer.compare(e2.getKey(), e1.getKey()); // 点数相同时，时间间隔小的优先（降序比较）
+                    })
+                    .map(Map.Entry::getKey)
+                    .orElse(1);
+        }
+        log.info("最小有效时间间隔：{}秒（点数最多的时间间隔）", minEffectiveInterval);
 
         log.debug("按照速度切分成多段轨迹，只要速度超过{}米/秒，就拆分轨迹段", config.MAX_SPEED);
         List<List<TrackPoint>> wgs84PointsSegments = new ArrayList<>();
