@@ -866,33 +866,67 @@ public class GisUtil implements AutoCloseable {
         Geometry gaussUnionGeometry = config.geometryFactory
                 .createGeometryCollection(gaussBufferedGeometries.toArray(new Geometry[0]))
                 .union();
-        log.debug("合并后的几何类型：{}", gaussUnionGeometry.getGeometryType());
+        log.debug("合并后的几何类型：{}，几何数量：{}", gaussUnionGeometry.getGeometryType(), gaussUnionGeometry.getNumGeometries());
 
         List<OutlinePart> outlineParts = new ArrayList<>();
         if (gaussUnionGeometry instanceof Polygon) {
             Geometry wgs84Geometry = gaussGeometryToWgs84Geometry(gaussUnionGeometry);
+
+            // 筛选在合并几何图形内的WGS84点位
+            List<TrackPoint> wgs84PointsSegment = new ArrayList<>();
+            for (TrackPoint point : filteredWgs84Points) {
+                try {
+                    // 创建点几何用于空间判断
+                    Geometry pointGeometry = config.geometryFactory.createPoint(
+                            new Coordinate(point.getLon(), point.getLat()));
+                    if (wgs84Geometry.contains(pointGeometry)) {
+                        wgs84PointsSegment.add(point);
+                    }
+                } catch (Exception e) {
+                    log.trace("点位空间判断失败：经度{} 纬度{} 错误：{}",
+                            point.getLon(), point.getLat(), e.getMessage());
+                }
+            }
+
             OutlinePart outlinePart = new OutlinePart();
             outlinePart.setTotalWidthM(totalWidthM);
             outlinePart.setOutline(gaussUnionGeometry);
             outlinePart.setWkt(wgs84Geometry.toText());
             outlinePart.setMu(calcMuByWgs84Geometry(wgs84Geometry));
-            // outlinePart.setTrackPoints(wgs84PointsSegment);
-            // outlinePart.setStartTime(wgs84PointsSegment.get(0).getTime());
-            // outlinePart.setEndTime(wgs84PointsSegment.get(wgs84PointsSegment.size() - 1).getTime());
+            outlinePart.setTrackPoints(wgs84PointsSegment);
+            outlinePart.setStartTime(wgs84PointsSegment.get(0).getTime());
+            outlinePart.setEndTime(wgs84PointsSegment.get(wgs84PointsSegment.size() - 1).getTime());
             outlineParts.add(outlinePart);
         } else if (gaussUnionGeometry instanceof MultiPolygon) {
             MultiPolygon multiPolygon = (MultiPolygon) gaussUnionGeometry;
             for (int i = 0; i < multiPolygon.getNumGeometries(); i++) {
                 Polygon gaussGeometry = (Polygon) multiPolygon.getGeometryN(i);
                 Geometry wgs84Geometry = gaussGeometryToWgs84Geometry(gaussGeometry);
+
+                // 筛选在合并几何图形内的WGS84点位
+                List<TrackPoint> wgs84PointsSegment = new ArrayList<>();
+                for (TrackPoint point : filteredWgs84Points) {
+                    try {
+                        // 创建点几何用于空间判断
+                        Geometry pointGeometry = config.geometryFactory.createPoint(
+                                new Coordinate(point.getLon(), point.getLat()));
+                        if (wgs84Geometry.contains(pointGeometry)) {
+                            wgs84PointsSegment.add(point);
+                        }
+                    } catch (Exception e) {
+                        log.trace("点位空间判断失败：经度{} 纬度{} 错误：{}",
+                                point.getLon(), point.getLat(), e.getMessage());
+                    }
+                }
+
                 OutlinePart outlinePart = new OutlinePart();
                 outlinePart.setTotalWidthM(totalWidthM);
                 outlinePart.setOutline(gaussGeometry);
                 outlinePart.setWkt(wgs84Geometry.toText());
                 outlinePart.setMu(calcMuByWgs84Geometry(wgs84Geometry));
-                // outlinePart.setTrackPoints(wgs84PointsSegment);
-                // outlinePart.setStartTime(wgs84PointsSegment.get(0).getTime());
-                // outlinePart.setEndTime(wgs84PointsSegment.get(wgs84PointsSegment.size() - 1).getTime());
+                outlinePart.setTrackPoints(wgs84PointsSegment);
+                outlinePart.setStartTime(wgs84PointsSegment.get(0).getTime());
+                outlinePart.setEndTime(wgs84PointsSegment.get(wgs84PointsSegment.size() - 1).getTime());
                 outlineParts.add(outlinePart);
             }
         }

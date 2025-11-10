@@ -98,6 +98,9 @@ public class OutlinePart {
     }
 
     public void setTrackPoints(List<TrackPoint> trackPoints) {
+        if (CollUtil.isNotEmpty(trackPoints)) {
+            trackPoints.sort((a, b) -> a.getTime().compareTo(b.getTime()));
+        }
         this.trackPoints = trackPoints;
     }
 
