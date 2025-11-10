@@ -21,14 +21,18 @@ import org.locationtech.jts.geom.MultiPolygon;
 import org.locationtech.jts.geom.Polygon;
 import org.locationtech.jts.geom.prep.PreparedGeometry;
 import org.locationtech.jts.geom.prep.PreparedGeometryFactory;
+import org.locationtech.jts.io.ParseException;
+import org.locationtech.jts.io.WKTReader;
 import org.opengis.referencing.crs.CoordinateReferenceSystem;
 import org.opengis.referencing.operation.MathTransform;
 
 import cn.hutool.log.Log;
 import cn.hutool.log.LogFactory;
+import sunyu.util.pojo.CoordinatePoint;
 import sunyu.util.pojo.OutlinePart;
 import sunyu.util.pojo.SplitRoadResult;
 import sunyu.util.pojo.TrackPoint;
+import sunyu.util.pojo.WktIntersectionResult;
 
 /**
  * GIS工具类，封装轨迹轮廓构建、道路分段、坐标转换、拓扑判断与面积计算。
@@ -93,6 +97,9 @@ public class GisUtil implements AutoCloseable {
 
         // 最大速度（单位：米/秒），我们认为农机在田间作业，最大速度不会超过20米/秒
         private final double MAX_SPEED = 20.0;
+
+        // 几何合并后的膨胀收缩距离（米），用于消除细小缝隙
+        private final double MORPHOLOGY_DISTANCE = 0.1;
     }
 
     /**
@@ -370,6 +377,85 @@ public class GisUtil implements AutoCloseable {
         Geometry wgs84Geometry = gaussGeometryToWgs84Geometry(gaussGeometry);
         log.debug("高斯投影几何转换为WGS84投影WKT字符串完成");
         return wgs84Geometry.toText();
+    }
+
+    /**
+     * 将WGS84坐标系的几何图形转换为高斯投影坐标系
+     * 支持全球范围，根据几何中心经度自动选择合适的高斯投影带
+     * 
+     * @param wgs84Geometry WGS84坐标系下的几何图形
+     * @return 高斯投影坐标系下的几何图形
+     */
+    private Geometry wgs84GeometryToGaussGeometry(Geometry wgs84Geometry) {
+        try {
+            if (wgs84Geometry == null || wgs84Geometry.isEmpty()) {
+                return config.EMPTYGEOM;
+            }
+
+            // 获取几何图形的边界信息来确定高斯投影参数
+            Envelope env = wgs84Geometry.getEnvelopeInternal();
+            double centerLon = (env.getMinX() + env.getMaxX()) / 2.0;
+            double centerLat = (env.getMinY() + env.getMaxY()) / 2.0;
+
+            log.debug("WGS84几何到高斯投影几何转换开始");
+            log.trace("WGS84几何边界：MinLon={}, MaxLon={}, MinLat={}, MaxLat={}",
+                    env.getMinX(), env.getMaxX(), env.getMinY(), env.getMaxY());
+            log.trace("几何中心坐标：centerLon={}, centerLat={}", centerLon, centerLat);
+
+            // 验证WGS84坐标的合理性
+            if (env.getMinX() < -180 || env.getMaxX() > 180 ||
+                    env.getMinY() < -90 || env.getMaxY() > 90) {
+                log.warn("WGS84坐标超出合理范围：MinLon={}, MaxLon={}, MinLat={}, MaxLat={}",
+                        env.getMinX(), env.getMaxX(), env.getMinY(), env.getMaxY());
+                return config.EMPTYGEOM;
+            }
+
+            // 计算高斯投影带号 (6度分带)
+            int zone = (int) Math.floor((centerLon + 180) / 6) + 1;
+            double centralMeridian = (zone - 1) * 6 - 180 + 3;
+            double falseEasting = zone * 1000000.0 + 500000.0;
+
+            // 验证投影带号的合理性
+            if (zone < 1 || zone > 60) {
+                log.warn("投影带号超出合理范围：zone={}，经度={}", zone, centerLon);
+                return config.EMPTYGEOM;
+            }
+
+            // 从缓存获取或创建高斯投影CRS
+            CoordinateReferenceSystem gaussCRS = getOrCreateGaussCRS(zone, falseEasting, centralMeridian);
+
+            // 构建缓存key（用于transform缓存）
+            String cacheKey = String.format("%d_%.1f_%.1f", zone, falseEasting, centralMeridian);
+
+            // 从缓存获取或创建WGS84到高斯投影的坐标转换
+            MathTransform transform = config.wgs84ToGaussTransformCache.computeIfAbsent(cacheKey, key -> {
+                try {
+                    return CRS.findMathTransform(config.WGS84_CRS, gaussCRS, true);
+                } catch (Exception e) {
+                    log.warn("创建坐标转换失败：zone={}, falseEasting={}, centralMeridian={}, 错误={}",
+                            zone, falseEasting, centralMeridian, e.getMessage());
+                    return null;
+                }
+            });
+
+            // 执行坐标转换（正向：WGS84 -> 高斯投影）
+            log.trace("zone={}, 几何点数={}", (int) Math.floor((centerLon + 180) / 6) + 1, wgs84Geometry.getNumPoints());
+            Geometry gaussGeometry = JTS.transform(wgs84Geometry, transform);
+
+            // 验证转换后的高斯投影坐标合理性
+            Envelope gaussEnv = gaussGeometry.getEnvelopeInternal();
+            if (gaussEnv.getMinX() < 500000 || gaussEnv.getMaxX() > 64000000 ||
+                    gaussEnv.getMinY() < -10000000 || gaussEnv.getMaxY() > 10000000) {
+                log.warn("转换后的高斯投影坐标超出合理范围：MinX={}, MaxX={}, MinY={}, MaxY={}",
+                        gaussEnv.getMinX(), gaussEnv.getMaxX(), gaussEnv.getMinY(), gaussEnv.getMaxY());
+                return config.EMPTYGEOM;
+            }
+            log.debug("WGS84几何到高斯投影几何转换完成");
+            return gaussGeometry;
+        } catch (Exception e) {
+            log.warn("WGS84几何到高斯投影几何转换失败：错误={}", e.getMessage());
+            return config.EMPTYGEOM;
+        }
     }
 
     /**
@@ -710,6 +796,85 @@ public class GisUtil implements AutoCloseable {
         }
     }
 
+    public double haversine(CoordinatePoint p1, CoordinatePoint p2) {
+        double lon1 = Math.toRadians(p1.getLon());
+        double lat1 = Math.toRadians(p1.getLat());
+        double lon2 = Math.toRadians(p2.getLon());
+        double lat2 = Math.toRadians(p2.getLat());
+
+        double dlon = lon2 - lon1;
+        double dlat = lat2 - lat1;
+
+        double a = Math.sin(dlat / 2.0) * Math.sin(dlat / 2.0) +
+                Math.cos(lat1) * Math.cos(lat2) *
+                        Math.sin(dlon / 2.0) * Math.sin(dlon / 2.0);
+
+        double c = 2.0 * Math.atan2(Math.sqrt(a), Math.sqrt(1.0 - a));
+
+        return config.EARTH_RADIUS * c;
+    }
+
+    public WktIntersectionResult intersection(String wgs84WKT1, String wgs84WKT2) {
+        WktIntersectionResult result = new WktIntersectionResult();
+        result.setWkt(config.EMPTYGEOM.toText());
+        result.setMu(0.0);
+
+        try {
+            log.debug("开始计算两个WGS84几何图形的相交轮廓");
+
+            // 1. 解析WKT字符串为几何对象
+            Geometry geometry1 = new WKTReader(config.geometryFactory).read(wgs84WKT1);
+            Geometry geometry2 = new WKTReader(config.geometryFactory).read(wgs84WKT2);
+
+            log.debug("解析成功：几何1类型={}, 几何2类型={}", geometry1.getGeometryType(), geometry2.getGeometryType());
+
+            // 2. 将WGS84几何图形转换为高斯投影坐标系以获得更精确的相交计算
+            Geometry gaussGeometry1 = wgs84GeometryToGaussGeometry(geometry1);
+            Geometry gaussGeometry2 = wgs84GeometryToGaussGeometry(geometry2);
+
+            if (gaussGeometry1.isEmpty() || gaussGeometry2.isEmpty()) {
+                log.warn("WGS84几何图形转换为高斯投影失败");
+                return result;
+            }
+
+            log.debug("高斯投影转换成功：几何1类型={}, 几何2类型={}",
+                    gaussGeometry1.getGeometryType(), gaussGeometry2.getGeometryType());
+
+            // 3. 在高斯投影坐标系下执行相交操作（更精确）
+            Geometry gaussIntersection = gaussGeometry1.intersection(gaussGeometry2);
+
+            // 4. 检查是否有实际相交区域
+            if (gaussIntersection == null || gaussIntersection.isEmpty()) {
+                log.debug("两个几何图形没有相交区域");
+                return result;
+            }
+
+            log.debug("相交成功，高斯投影下相交几何类型：{}，面积：{}平方米",
+                    gaussIntersection.getGeometryType(), gaussIntersection.getArea());
+
+            // 5. 将相交结果转换回WGS84坐标系
+            Geometry wgs84Intersection = gaussGeometryToWgs84Geometry(gaussIntersection);
+            if (wgs84Intersection.isEmpty()) {
+                log.warn("高斯投影相交结果转换回WGS84失败");
+                return result;
+            }
+
+            // 6. 设置相交结果的WKT字符串
+            result.setWkt(wgs84Intersection.toText());
+
+            // 7. 在高斯投影坐标系下计算面积（更精确），然后转换为亩
+            result.setMu(calcMuByWgs84Geometry(wgs84Intersection));
+
+            log.debug("相交轮廓计算完成：亩数={}亩（基于WGS84精确计算）", result.getMu());
+        } catch (ParseException e) {
+            log.warn("WKT字符串解析失败：{}", e.getMessage());
+        } catch (Exception e) {
+            log.warn("相交计算失败：{}", e.getMessage());
+        }
+
+        return result;
+    }
+
     public SplitRoadResult splitRoad(List<TrackPoint> wgs84Points, double totalWidthM) {
         SplitRoadResult result = new SplitRoadResult();
         result.setTotalWidthM(totalWidthM);
@@ -882,6 +1047,35 @@ public class GisUtil implements AutoCloseable {
                 .createGeometryCollection(gaussBufferedGeometries.toArray(new Geometry[0]))
                 .union();
         log.debug("合并后的几何类型：{}，几何数量：{}", gaussUnionGeometry.getGeometryType(), gaussUnionGeometry.getNumGeometries());
+
+        log.debug("对合并后的几何进行膨胀再收缩操作，消除细小缝隙 - 膨胀{}米再收缩{}米", config.MORPHOLOGY_DISTANCE, config.MORPHOLOGY_DISTANCE);
+
+        // 保存原始几何用于验证
+        Geometry originalGeometry = gaussUnionGeometry;
+
+        // 膨胀操作
+        Geometry dilatedGeometry = gaussUnionGeometry.buffer(config.MORPHOLOGY_DISTANCE);
+        // 收缩操作（使用负值）
+        gaussUnionGeometry = dilatedGeometry.buffer(-config.MORPHOLOGY_DISTANCE);
+
+        // 凹多边形兜底验证：检查面积变化和拓扑有效性
+        double originalArea = originalGeometry.getArea();
+        double processedArea = gaussUnionGeometry.getArea();
+        double areaChangeRatio = Math.abs(processedArea - originalArea) / originalArea;
+
+        // 验证几何有效性
+        boolean isValid = gaussUnionGeometry.isValid();
+
+        // 如果面积变化过大（>5%）或几何无效，回退到原始几何
+        if (areaChangeRatio > 0.05 || !isValid) {
+            log.warn("膨胀收缩操作导致几何异常：面积变化{}%，有效性{}，回退到原始几何",
+                    String.format("%.2f", areaChangeRatio * 100), isValid);
+            gaussUnionGeometry = originalGeometry;
+        } else {
+            log.debug("膨胀收缩操作完成，面积变化{}%，最终几何类型：{}，几何数量：{}",
+                    String.format("%.2f", areaChangeRatio * 100),
+                    gaussUnionGeometry.getGeometryType(), gaussUnionGeometry.getNumGeometries());
+        }
 
         List<OutlinePart> outlineParts = new ArrayList<>();
         if (gaussUnionGeometry instanceof Polygon) {

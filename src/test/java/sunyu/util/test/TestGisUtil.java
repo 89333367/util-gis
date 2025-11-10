@@ -31,9 +31,11 @@ import cn.hutool.log.LogFactory;
 import cn.hutool.log.level.Level;
 import sunyu.util.GisUtil;
 import sunyu.util.TDengineUtil;
+import sunyu.util.pojo.CoordinatePoint;
 import sunyu.util.pojo.OutlinePart;
 import sunyu.util.pojo.SplitRoadResult;
 import sunyu.util.pojo.TrackPoint;
+import sunyu.util.pojo.WktIntersectionResult;
 
 public class TestGisUtil {
     Log log = LogFactory.get();
@@ -76,44 +78,42 @@ public class TestGisUtil {
         return TDengineUtil.builder().dataSource(getTdengineDatasource()).build();
     }
 
-    /*
-     * @Test
-     * void 测试两点距离() {
-     * CoordinatePoint p1 = new CoordinatePoint(116.55470301, 40.21296700);
-     * CoordinatePoint p2 = new CoordinatePoint(116.55473883, 40.21364248);
-     * double distance = gisUtil.haversine(p1, p2);
-     * log.info("{} 米", distance);
-     * }
-     * 
-     * @Test
-     * void 测试轨迹段距离() {
-     * String did = "EC73BD2506050018";
-     * String startTime = "20251029161721";
-     * String endTime = "20251029161856";
-     * 读取一段轨迹数据(did, startTime, endTime);
-     * List<String> lines = FileUtil
-     * .readUtf8Lines(path + StrUtil.format("/{}_{}_{}_trace.txt", did, startTime,
-     * endTime));
-     * double total = 0.0;
-     * CoordinatePoint prev = null;
-     * for (String line : lines) {
-     * if (StrUtil.isBlank(line)) {
-     * continue;
-     * }
-     * String[] ss = line.split(",");
-     * if (ss.length < 2) {
-     * continue;
-     * }
-     * CoordinatePoint p = new CoordinatePoint(Convert.toDouble(ss[1]),
-     * Convert.toDouble(ss[2]));
-     * if (prev != null) {
-     * total += gisUtil.haversine(prev, p);
-     * }
-     * prev = p;
-     * }
-     * log.info("轨迹点数={} 总距离={} 米", lines.size(), total);
-     * }
-     */
+    @Test
+    void 测试两点距离() {
+        CoordinatePoint p1 = new CoordinatePoint(116.55470301, 40.21296700);
+        CoordinatePoint p2 = new CoordinatePoint(116.55473883, 40.21364248);
+        double distance = gisUtil.haversine(p1, p2);
+        log.info("{} 米", distance);
+    }
+
+    @Test
+    void 测试轨迹段距离() {
+        String did = "EC73BD2506050018";
+        String startTime = "20251029161721";
+        String endTime = "20251029161856";
+        读取一段轨迹数据(did, startTime, endTime);
+        List<String> lines = FileUtil
+                .readUtf8Lines(path + StrUtil.format("/{}_{}_{}_trace.txt", did, startTime,
+                        endTime));
+        double total = 0.0;
+        CoordinatePoint prev = null;
+        for (String line : lines) {
+            if (StrUtil.isBlank(line)) {
+                continue;
+            }
+            String[] ss = line.split(",");
+            if (ss.length < 2) {
+                continue;
+            }
+            CoordinatePoint p = new CoordinatePoint(Convert.toDouble(ss[1]),
+                    Convert.toDouble(ss[2]));
+            if (prev != null) {
+                total += gisUtil.haversine(prev, p);
+            }
+            prev = p;
+        }
+        log.info("轨迹点数={} 总距离={} 米", lines.size(), total);
+    }
 
     @Test
     void 测试镂空作业轮廓1() throws Exception {
@@ -181,21 +181,21 @@ public class TestGisUtil {
         输出一段HTML(did, startTime, endTime);
     }
 
-    /*
-     * @Test
-     * void 计算重复亩数0018_1335() throws Exception {
-     * String wkt1 = FileUtil.readUtf8Lines(path +
-     * "/EC73BD2506050018_20251104090717_20251104092257_outline.txt")
-     * .get(6).replace("WKT: ", "");
-     * String wkt2 = FileUtil.readUtf8Lines(path +
-     * "/EC73BD2509061335_20251104100606_20251104101419_outline.txt")
-     * .get(6).replace("WKT: ", "");
-     * WktIntersectionResult r = gisUtil.intersection(wkt1, wkt2);
-     * FileUtil.writeUtf8String(r.getWkt(), path +
-     * "/EC73BD2509061335_20251104100606_20251104101419_intersection.txt");
-     * log.info("相交面积：{} 亩", r.getMu());
-     * }
-     */
+    @Test
+    void 计算重复亩数0018_1335() throws Exception {
+        String wkt1 = FileUtil.readUtf8Lines(path +
+                "/EC73BD2506050018_20251104090717_20251104092257_outline.txt")
+                .get(6).replace("WKT: ", "");
+        String wkt2 = FileUtil.readUtf8Lines(path +
+                "/EC73BD2509061335_20251104100606_20251104101419_outline.txt")
+                .get(6).replace("WKT: ", "");
+        WktIntersectionResult r = gisUtil.intersection(wkt1, wkt2);
+        FileUtil.writeUtf8String(r.getWkt(), path +
+                "/EC73BD2509061335_20251104100606_20251104101419_intersection.txt");
+        FileUtil.writeUtf8String(r.getWkt(), path +
+                "/EC73BD2509061335_20251104100606_20251104101419_intersection.txt");
+        log.info("相交面积：{} 亩", r.getMu());
+    }
 
     @Test
     void t001() {
