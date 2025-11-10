@@ -173,7 +173,8 @@ public class GisUtil implements AutoCloseable {
             double longitude = wgs84Point.getLon();
             double latitude = wgs84Point.getLat();
 
-            log.trace("开始坐标转换：原始经度={}, 纬度={}", longitude, latitude);
+            log.trace("=== 开始WGS84到高斯投影转换 ===");
+            log.trace("原始坐标：经度={}, 纬度={}", longitude, latitude);
 
             // 计算高斯投影带号 (6度分带)
             // 全球范围: 经度-180到180，对应带号1-60
@@ -239,7 +240,7 @@ public class GisUtil implements AutoCloseable {
             result.setSpeed(wgs84Point.getSpeed());
             result.setDirection(wgs84Point.getDirection());
 
-            log.trace("坐标转换成功完成");
+            log.trace("=== WGS84到高斯投影转换完成 ===");
             return result;
         } catch (Exception e) {
             log.warn("坐标转换失败：经度={}, 纬度={}, 错误={}", wgs84Point.getLon(), wgs84Point.getLat(), e.getMessage());
@@ -259,6 +260,11 @@ public class GisUtil implements AutoCloseable {
             Envelope env = gaussGeometry.getEnvelopeInternal();
             double centerX = (env.getMinX() + env.getMaxX()) / 2.0;
 
+            log.debug("=== 开始高斯投影到WGS84转换 ===");
+            log.trace("高斯几何边界：MinX={}, MaxX={}, MinY={}, MaxY={}",
+                    env.getMinX(), env.getMaxX(), env.getMinY(), env.getMaxY());
+            log.trace("几何中心X坐标：centerX={}", centerX);
+
             // 验证高斯投影坐标的合理性
             // 高斯投影X坐标合理范围：50万-6400万米（对应全球1-60带，更宽松的范围）
             // 高斯投影Y坐标合理范围：±1000万米（对应全球纬度范围）
@@ -271,7 +277,8 @@ public class GisUtil implements AutoCloseable {
 
             // 智能确定投影带号策略
             // 1. 首先尝试根据几何中心反推带号
-            int zone = (int) Math.floor((centerX - 500000.0) / 1000000.0);
+            int zone = (int) Math.floor(centerX / 1000000.0);
+            log.trace("反推计算的投影带号：zone={}, centerX={}", zone, centerX);
 
             // 2. 如果几何范围跨越多个投影带（宽度超过100万米），使用更保守的策略
             double geometryWidth = env.getMaxX() - env.getMinX();
@@ -284,12 +291,21 @@ public class GisUtil implements AutoCloseable {
                 }
             } else if (zone < 1 || zone > 60) {
                 log.warn("反推的投影带号不合理：zone={}, centerX={}", zone, centerX);
-                return config.EMPTY_WKT;
+                // 尝试备用策略：如果zone不合理，可能是假东距计算问题，尝试重新计算
+                log.trace("尝试备用策略重新计算投影带号");
+                int backupZone = (int) Math.floor((centerX - 500000.0) / 1000000.0);
+                log.trace("备用策略计算的投影带号：zone={}", backupZone);
+                if (backupZone < 1 || backupZone > 60) {
+                    log.warn("备用策略仍然无法确定合适的投影带号：centerX={}", centerX);
+                    return config.EMPTY_WKT;
+                }
+                zone = backupZone;
             }
 
             // 计算中央经线（与wgs84PointTransformToGaussPoint方法保持一致）
             double centralMeridian = (zone - 1) * 6 - 180 + 3;
             double falseEasting = zone * 1000000.0 + 500000.0;
+            log.trace("计算投影参数：zone={}, centralMeridian={}, falseEasting={}", zone, centralMeridian, falseEasting);
 
             // 从缓存获取或创建高斯投影CRS
             CoordinateReferenceSystem gaussCRS = getOrCreateGaussCRS(zone, falseEasting, centralMeridian);
@@ -303,25 +319,28 @@ public class GisUtil implements AutoCloseable {
             String cacheKey = String.format("%d_%.1f_%.1f", zone, falseEasting, centralMeridian);
 
             // 从缓存获取或创建高斯投影到WGS84的坐标转换
+            final int finalZone = zone;
             MathTransform transform = config.gaussToWgs84TransformCache.computeIfAbsent(cacheKey, key -> {
                 try {
                     return CRS.findMathTransform(gaussCRS, config.WGS84_CRS, true);
                 } catch (Exception e) {
                     log.warn("创建坐标转换失败：zone={}, falseEasting={}, centralMeridian={}, 错误={}",
-                            zone, falseEasting, centralMeridian, e.getMessage());
+                            finalZone, falseEasting, centralMeridian, e.getMessage());
                     return null;
                 }
             });
 
             if (transform == null) {
-                log.warn("无法获取坐标转换：zone={}", zone);
+                log.warn("无法获取坐标转换：zone={}", finalZone);
                 return config.EMPTY_WKT;
             }
 
             // 执行坐标转换（逆向：高斯投影 -> WGS84）
-            log.debug("开始转换高斯投影几何到WGS84：zone={}", zone);
+            log.trace("开始转换高斯投影几何到WGS84：zone={}, 几何点数={}", finalZone, gaussGeometry.getNumPoints());
             Geometry wgs84Geometry = JTS.transform(gaussGeometry, transform);
-            log.debug("转换完成，WGS84几何范围：{}", wgs84Geometry.getEnvelopeInternal());
+            Envelope resultEnv = wgs84Geometry.getEnvelopeInternal();
+            log.trace("转换完成，WGS84几何范围：MinLon={}, MaxLon={}, MinLat={}, MaxLat={}",
+                    resultEnv.getMinX(), resultEnv.getMaxX(), resultEnv.getMinY(), resultEnv.getMaxY());
 
             // 验证转换后的WGS84坐标合理性
             Envelope wgs84Env = wgs84Geometry.getEnvelopeInternal();
@@ -333,7 +352,10 @@ public class GisUtil implements AutoCloseable {
             }
 
             // 返回WKT字符串
-            return wgs84Geometry.toText();
+            String wkt = wgs84Geometry.toText();
+            log.debug("=== 高斯投影到WGS84转换完成 ===");
+            log.trace("生成的WKT字符串长度：{}字符", wkt.length());
+            return wkt;
         } catch (Exception e) {
             log.warn("高斯投影几何转换到WGS84失败：错误={}", e.getMessage());
             return config.EMPTY_WKT;
@@ -397,6 +419,7 @@ public class GisUtil implements AutoCloseable {
                 log.warn("轨迹段点数量小于6个，无法进行拆分");
                 continue;
             }
+
             log.debug("将轨迹段中的WGS84坐标转换为高斯投影坐标 轨迹段点数量：{}", wgs84PointsSegment.size());
             List<TrackPoint> gaussPoints = new ArrayList<>();
             for (TrackPoint point : wgs84PointsSegment) {
@@ -428,6 +451,7 @@ public class GisUtil implements AutoCloseable {
                 double bufferDistance = totalWidthM / 2.0;
                 Geometry bufferedGeometry = lineString.buffer(bufferDistance);
                 log.debug("线缓冲成功，缓冲距离：{}米，结果几何类型：{}", bufferDistance, bufferedGeometry.getGeometryType());
+
                 OutlinePart outlinePart = new OutlinePart();
                 outlinePart.setOutline(bufferedGeometry);
                 outlinePart.setWkt(gaussGeometryToWgs84WKT(bufferedGeometry));
