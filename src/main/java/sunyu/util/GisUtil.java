@@ -2,6 +2,7 @@ package sunyu.util;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
 
 import org.geotools.geometry.jts.JTS;
@@ -12,6 +13,8 @@ import org.locationtech.jts.geom.Envelope;
 import org.locationtech.jts.geom.Geometry;
 import org.locationtech.jts.geom.GeometryFactory;
 import org.locationtech.jts.geom.LineString;
+import org.locationtech.jts.geom.MultiPolygon;
+import org.locationtech.jts.geom.Polygon;
 import org.opengis.referencing.crs.CoordinateReferenceSystem;
 import org.opengis.referencing.operation.MathTransform;
 
@@ -63,24 +66,27 @@ public class GisUtil implements AutoCloseable {
      */
     private static class Config {
         // 几何工厂
-        public final GeometryFactory geometryFactory = new GeometryFactory();
+        private final GeometryFactory geometryFactory = new GeometryFactory();
         // 空几何集合 - 使用空数组参数更明确和安全
-        public final Geometry EMPTYGEOM = geometryFactory.createGeometryCollection(new Geometry[0]);
+        private final Geometry EMPTYGEOM = geometryFactory.createGeometryCollection(new Geometry[0]);
 
         // WGS84坐标参考系统（全局常量，避免重复创建）
-        public final CoordinateReferenceSystem WGS84_CRS = DefaultGeographicCRS.WGS84;
+        private final CoordinateReferenceSystem WGS84_CRS = DefaultGeographicCRS.WGS84;
 
         // 高斯投影CRS缓存（线程安全），key格式："zone_falseEasting_centralMeridian"
-        public final ConcurrentHashMap<String, CoordinateReferenceSystem> gaussCRSCache = new ConcurrentHashMap<>();
+        private final ConcurrentHashMap<String, CoordinateReferenceSystem> gaussCRSCache = new ConcurrentHashMap<>();
 
         // WGS84到高斯投影的坐标转换缓存（线程安全），key格式："zone_falseEasting_centralMeridian"
-        public final ConcurrentHashMap<String, MathTransform> wgs84ToGaussTransformCache = new ConcurrentHashMap<>();
+        private final ConcurrentHashMap<String, MathTransform> wgs84ToGaussTransformCache = new ConcurrentHashMap<>();
 
         // 高斯投影到WGS84的坐标转换缓存（线程安全），key格式："zone_falseEasting_centralMeridian"
-        public final ConcurrentHashMap<String, MathTransform> gaussToWgs84TransformCache = new ConcurrentHashMap<>();
+        private final ConcurrentHashMap<String, MathTransform> gaussToWgs84TransformCache = new ConcurrentHashMap<>();
+
+        // WGS84椭球长半轴（米），与Turf.js保持一致
+        private final double EARTH_RADIUS = 6378137.0;
 
         // 最大速度（单位：米/秒），我们认为农机在田间作业，最大速度不会超过20米/秒
-        public final double MAX_SPEED = 20.0;
+        private final double MAX_SPEED = 20.0;
     }
 
     /**
@@ -374,13 +380,12 @@ public class GisUtil implements AutoCloseable {
 
         double totalArea = 0.0;
 
-        if (geometry instanceof org.locationtech.jts.geom.Polygon) {
-            totalArea = calculatePolygonSphericalArea((org.locationtech.jts.geom.Polygon) geometry);
-        } else if (geometry instanceof org.locationtech.jts.geom.MultiPolygon) {
-            org.locationtech.jts.geom.MultiPolygon multiPolygon = (org.locationtech.jts.geom.MultiPolygon) geometry;
+        if (geometry instanceof Polygon) {
+            totalArea = calculatePolygonSphericalArea((Polygon) geometry);
+        } else if (geometry instanceof MultiPolygon) {
+            MultiPolygon multiPolygon = (MultiPolygon) geometry;
             for (int i = 0; i < multiPolygon.getNumGeometries(); i++) {
-                org.locationtech.jts.geom.Polygon polygon = (org.locationtech.jts.geom.Polygon) multiPolygon
-                        .getGeometryN(i);
+                Polygon polygon = (Polygon) multiPolygon.getGeometryN(i);
                 totalArea += calculatePolygonSphericalArea(polygon);
             }
         }
@@ -395,7 +400,7 @@ public class GisUtil implements AutoCloseable {
      * @param polygon WGS84坐标系的多边形
      * @return 球面面积（平方米）
      */
-    private double calculatePolygonSphericalArea(org.locationtech.jts.geom.Polygon polygon) {
+    private double calculatePolygonSphericalArea(Polygon polygon) {
         // 外环面积
         double exteriorArea = calculateRingSphericalArea(polygon.getExteriorRing());
 
@@ -416,13 +421,10 @@ public class GisUtil implements AutoCloseable {
      * @param ring 线环（WGS84坐标系，单位：度）
      * @return 球面面积（平方米）
      */
-    private double calculateRingSphericalArea(org.locationtech.jts.geom.LineString ring) {
+    private double calculateRingSphericalArea(LineString ring) {
         if (ring == null || ring.isEmpty()) {
             return 0.0;
         }
-
-        // WGS84椭球长半轴（米），与Turf.js保持一致
-        final double EARTH_RADIUS = 6378137.0;
 
         org.locationtech.jts.geom.Coordinate[] coords = ring.getCoordinates();
         if (coords.length < 3) {
@@ -442,7 +444,7 @@ public class GisUtil implements AutoCloseable {
             area += (lon2 - lon1) * (2 + Math.sin(lat1) + Math.sin(lat2));
         }
 
-        area = Math.abs(area) * EARTH_RADIUS * EARTH_RADIUS / 2.0;
+        area = Math.abs(area) * config.EARTH_RADIUS * config.EARTH_RADIUS / 2.0;
         return area;
     }
 
@@ -466,6 +468,7 @@ public class GisUtil implements AutoCloseable {
 
     public SplitRoadResult splitRoad(List<TrackPoint> wgs84Points, double totalWidthM) {
         SplitRoadResult result = new SplitRoadResult();
+        result.setTotalWidthM(totalWidthM);
         result.setOutline(config.EMPTYGEOM);
         result.setWkt(config.EMPTYGEOM.toText());
 
@@ -556,6 +559,7 @@ public class GisUtil implements AutoCloseable {
 
                 Geometry wgs84Geometry = gaussGeometryToWgs84Geometry(gaussBufferedGeometry);
                 OutlinePart outlinePart = new OutlinePart();
+                outlinePart.setTotalWidthM(totalWidthM);
                 outlinePart.setOutline(gaussBufferedGeometry);
                 outlinePart.setWkt(wgs84Geometry.toText());
                 outlinePart.setMu(calcMuByWgs84Geometry(wgs84Geometry));
@@ -583,6 +587,10 @@ public class GisUtil implements AutoCloseable {
         result.setOutline(gaussUnionGeometry);
         result.setWkt(gaussGeometryToWgs84WKT(gaussUnionGeometry));
         result.setParts(outlineParts);
+        result.setMu(outlineParts != null ? outlineParts.stream()
+                .filter(Objects::nonNull)
+                .mapToDouble(OutlinePart::getMu)
+                .sum() : 0.0);
 
         return result;
     }
