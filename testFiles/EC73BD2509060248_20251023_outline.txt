@@ -1,6 +1,6 @@
 type: MultiPolygon
 Parts: 3
-mu: 10.574200000000001
+mu: 10.5742
 totalWidthM: 2.5
 startTime: 2025-10-23T13:56:51
 endTime: 2025-10-23T17:20:11

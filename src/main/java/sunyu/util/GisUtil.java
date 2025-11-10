@@ -1185,10 +1185,11 @@ public class GisUtil implements AutoCloseable {
         result.setOutline(gaussUnionGeometry);
         result.setWkt(gaussGeometryToWgs84WKT(gaussUnionGeometry));
         result.setParts(outlineParts);
-        result.setMu(outlineParts != null ? outlineParts.stream()
+        double totalMu = outlineParts != null ? outlineParts.stream()
                 .filter(Objects::nonNull)
                 .mapToDouble(OutlinePart::getMu)
-                .sum() : 0.0);
+                .sum() : 0.0;
+        result.setMu(Math.round(totalMu * 10000.0) / 10000.0);
 
         log.debug("最终生成区块数量：{}块，总亩数：{}亩", outlineParts.size(), result.getMu());
 
