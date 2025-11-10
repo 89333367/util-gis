@@ -360,6 +360,110 @@ public class GisUtil implements AutoCloseable {
         return wgs84Geometry.toText();
     }
 
+    /**
+     * 计算球面面积（平方米）
+     * 使用球面多边形面积公式，与Turf.js的算法保持一致
+     * 
+     * @param geometry WGS84坐标系的几何图形
+     * @return 球面面积（平方米）
+     */
+    private double calculateSphericalArea(Geometry geometry) {
+        if (geometry == null || geometry.isEmpty()) {
+            return 0.0;
+        }
+
+        double totalArea = 0.0;
+
+        if (geometry instanceof org.locationtech.jts.geom.Polygon) {
+            totalArea = calculatePolygonSphericalArea((org.locationtech.jts.geom.Polygon) geometry);
+        } else if (geometry instanceof org.locationtech.jts.geom.MultiPolygon) {
+            org.locationtech.jts.geom.MultiPolygon multiPolygon = (org.locationtech.jts.geom.MultiPolygon) geometry;
+            for (int i = 0; i < multiPolygon.getNumGeometries(); i++) {
+                org.locationtech.jts.geom.Polygon polygon = (org.locationtech.jts.geom.Polygon) multiPolygon
+                        .getGeometryN(i);
+                totalArea += calculatePolygonSphericalArea(polygon);
+            }
+        }
+
+        return Math.abs(totalArea); // 确保面积为正值
+    }
+
+    /**
+     * 计算单个多边形的球面面积（平方米）
+     * 使用球面多边形面积公式，考虑地球曲率
+     * 
+     * @param polygon WGS84坐标系的多边形
+     * @return 球面面积（平方米）
+     */
+    private double calculatePolygonSphericalArea(org.locationtech.jts.geom.Polygon polygon) {
+        // 外环面积
+        double exteriorArea = calculateRingSphericalArea(polygon.getExteriorRing());
+
+        // 减去内环（孔洞）面积
+        double holesArea = 0.0;
+        for (int i = 0; i < polygon.getNumInteriorRing(); i++) {
+            holesArea += calculateRingSphericalArea(polygon.getInteriorRingN(i));
+        }
+
+        return exteriorArea - holesArea;
+    }
+
+    /**
+     * 计算线环的球面面积（平方米）
+     * 使用球面多边形面积公式：A = R² * |Σ(λi+1 - λi) * sin(φi+1 + φi)/2|
+     * 其中R为地球半径，λ为经度，φ为纬度
+     * 
+     * @param ring 线环（WGS84坐标系，单位：度）
+     * @return 球面面积（平方米）
+     */
+    private double calculateRingSphericalArea(org.locationtech.jts.geom.LineString ring) {
+        if (ring == null || ring.isEmpty()) {
+            return 0.0;
+        }
+
+        // WGS84椭球长半轴（米），与Turf.js保持一致
+        final double EARTH_RADIUS = 6378137.0;
+
+        org.locationtech.jts.geom.Coordinate[] coords = ring.getCoordinates();
+        if (coords.length < 3) {
+            return 0.0; // 需要至少3个点才能形成多边形
+        }
+
+        double area = 0.0;
+
+        // 使用球面多边形面积公式
+        for (int i = 0; i < coords.length - 1; i++) {
+            double lon1 = Math.toRadians(coords[i].x);
+            double lat1 = Math.toRadians(coords[i].y);
+            double lon2 = Math.toRadians(coords[i + 1].x);
+            double lat2 = Math.toRadians(coords[i + 1].y);
+
+            // 球面多边形面积公式
+            area += (lon2 - lon1) * (2 + Math.sin(lat1) + Math.sin(lat2));
+        }
+
+        area = Math.abs(area) * EARTH_RADIUS * EARTH_RADIUS / 2.0;
+        return area;
+    }
+
+    public double calcMuByWgs84Geometry(Geometry wgs84Geometry) {
+        if (wgs84Geometry == null || wgs84Geometry.isEmpty()) {
+            return 0.0;
+        }
+
+        try {
+            // 使用球面面积计算算法，与Turf.js对齐
+            double areaSqm = calculateSphericalArea(wgs84Geometry);
+
+            // 转换为亩：1亩 = 2000/3平方米，四舍五入保留4位小数
+            return Math.round((areaSqm / (2000.0 / 3.0)) * 10000.0) / 10000.0;
+
+        } catch (Exception e) {
+            log.warn("WGS84几何图形计算亩数失败: {}", e.getMessage());
+            return 0.0;
+        }
+    }
+
     public SplitRoadResult splitRoad(List<TrackPoint> wgs84Points, double totalWidthM) {
         SplitRoadResult result = new SplitRoadResult();
         result.setOutline(config.EMPTYGEOM);
@@ -447,12 +551,14 @@ public class GisUtil implements AutoCloseable {
 
                 // 3. 执行缓冲操作：总宽度的一半作为缓冲距离
                 double bufferDistance = totalWidthM / 2.0;
-                Geometry bufferedGeometry = lineString.buffer(bufferDistance);
-                log.debug("线缓冲成功，缓冲距离：{}米，结果几何类型：{}", bufferDistance, bufferedGeometry.getGeometryType());
+                Geometry gaussBufferedGeometry = lineString.buffer(bufferDistance);
+                log.debug("线缓冲成功，缓冲距离：{}米，结果几何类型：{}", bufferDistance, gaussBufferedGeometry.getGeometryType());
 
+                Geometry wgs84Geometry = gaussGeometryToWgs84Geometry(gaussBufferedGeometry);
                 OutlinePart outlinePart = new OutlinePart();
-                outlinePart.setOutline(bufferedGeometry);
-                outlinePart.setWkt(gaussGeometryToWgs84WKT(bufferedGeometry));
+                outlinePart.setOutline(gaussBufferedGeometry);
+                outlinePart.setWkt(wgs84Geometry.toText());
+                outlinePart.setMu(calcMuByWgs84Geometry(wgs84Geometry));
                 outlinePart.setTrackPoints(wgs84PointsSegment);
                 outlinePart.setStartTime(wgs84PointsSegment.get(0).getTime());
                 outlinePart.setEndTime(wgs84PointsSegment.get(wgs84PointsSegment.size() - 1).getTime());
@@ -468,14 +574,14 @@ public class GisUtil implements AutoCloseable {
         }
 
         log.debug("合并所有高斯投影缓冲几何");
-        Geometry unionGeometry = config.geometryFactory
+        Geometry gaussUnionGeometry = config.geometryFactory
                 .createGeometryCollection(outlineParts.stream().map(OutlinePart::getOutline).toArray(Geometry[]::new))
                 .union();
-        log.debug("合并后的几何类型：{}", unionGeometry.getGeometryType());
+        log.debug("合并后的几何类型：{}", gaussUnionGeometry.getGeometryType());
 
         // 4. 设置结果
-        result.setOutline(unionGeometry);
-        result.setWkt(gaussGeometryToWgs84WKT(unionGeometry));
+        result.setOutline(gaussUnionGeometry);
+        result.setWkt(gaussGeometryToWgs84WKT(gaussUnionGeometry));
         result.setParts(outlineParts);
 
         return result;
