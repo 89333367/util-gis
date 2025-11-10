@@ -811,9 +811,21 @@ public class GisUtil implements AutoCloseable {
         }
         log.debug("按照速度和时间间隔切分后的轨迹段数量：{}", wgs84PointsSegments.size());
 
-        log.debug("过滤掉段内小于6个点的轨迹段");
-        wgs84PointsSegments.removeIf(segment -> segment.size() < 6);
-        log.debug("过滤后的轨迹段数量：{}", wgs84PointsSegments.size());
+        log.debug("过滤少点的轨迹段开始");
+        if (minEffectiveInterval == 1) {
+            log.debug("过滤掉段内小于20个点的轨迹段");
+            wgs84PointsSegments.removeIf(segment -> segment.size() < 20);
+            log.debug("过滤后的轨迹段数量：{}", wgs84PointsSegments.size());
+        } else if (minEffectiveInterval == 10) {
+            log.debug("过滤掉段内小于10个点的轨迹段");
+            wgs84PointsSegments.removeIf(segment -> segment.size() < 10);
+            log.debug("过滤后的轨迹段数量：{}", wgs84PointsSegments.size());
+        } else {
+            log.debug("过滤掉段内小于30个点的轨迹段");
+            wgs84PointsSegments.removeIf(segment -> segment.size() < 30);
+            log.debug("过滤后的轨迹段数量：{}", wgs84PointsSegments.size());
+        }
+        log.debug("过滤少点的轨迹段结束");
 
         List<Geometry> gaussBufferedGeometries = new ArrayList<>();
         for (List<TrackPoint> wgs84PointsSegment : wgs84PointsSegments) {
