@@ -7,6 +7,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.stream.Collectors;
 
 import org.geotools.geometry.jts.JTS;
 import org.geotools.referencing.CRS;
@@ -872,21 +873,39 @@ public class GisUtil implements AutoCloseable {
         if (gaussUnionGeometry instanceof Polygon) {
             Geometry wgs84Geometry = gaussGeometryToWgs84Geometry(gaussUnionGeometry);
 
-            // 筛选在合并几何图形内的WGS84点位
+            // 筛选在合并几何图形内的WGS84点位 - 使用边界框过滤+并行处理优化
             List<TrackPoint> wgs84PointsSegment = new ArrayList<>();
-            for (TrackPoint point : filteredWgs84Points) {
-                try {
-                    // 创建点几何用于空间判断
-                    Geometry pointGeometry = config.geometryFactory.createPoint(
-                            new Coordinate(point.getLon(), point.getLat()));
-                    if (wgs84Geometry.contains(pointGeometry)) {
-                        wgs84PointsSegment.add(point);
-                    }
-                } catch (Exception e) {
-                    log.trace("点位空间判断失败：经度{} 纬度{} 错误：{}",
-                            point.getLon(), point.getLat(), e.getMessage());
-                }
-            }
+
+            // 获取几何图形的边界框，避免重复计算
+            Envelope geometryEnvelope = wgs84Geometry.getEnvelopeInternal();
+
+            // 记录性能日志
+            long startTime = System.currentTimeMillis();
+
+            // 使用并行流处理，提高大数据量场景下的性能
+            wgs84PointsSegment = filteredWgs84Points.parallelStream()
+                    .filter(point -> {
+                        try {
+                            // 第一步：边界框快速过滤 - 数值比较，性能极高
+                            if (!geometryEnvelope.contains(point.getLon(), point.getLat())) {
+                                return false;
+                            }
+
+                            // 第二步：精确空间判断 - 仅对边界框内的点进行精确判断
+                            Geometry pointGeometry = config.geometryFactory.createPoint(
+                                    new Coordinate(point.getLon(), point.getLat()));
+                            return wgs84Geometry.contains(pointGeometry);
+                        } catch (Exception e) {
+                            log.trace("点位空间判断失败：经度{} 纬度{} 错误：{}",
+                                    point.getLon(), point.getLat(), e.getMessage());
+                            return false;
+                        }
+                    })
+                    .collect(Collectors.toList());
+
+            long endTime = System.currentTimeMillis();
+            log.debug("点位空间判断完成，原始点位数：{}，筛选后点位数：{}，耗时：{}ms",
+                    filteredWgs84Points.size(), wgs84PointsSegment.size(), (endTime - startTime));
 
             OutlinePart outlinePart = new OutlinePart();
             outlinePart.setTotalWidthM(totalWidthM);
@@ -901,23 +920,42 @@ public class GisUtil implements AutoCloseable {
             MultiPolygon multiPolygon = (MultiPolygon) gaussUnionGeometry;
             for (int i = 0; i < multiPolygon.getNumGeometries(); i++) {
                 Polygon gaussGeometry = (Polygon) multiPolygon.getGeometryN(i);
+
                 Geometry wgs84Geometry = gaussGeometryToWgs84Geometry(gaussGeometry);
 
-                // 筛选在合并几何图形内的WGS84点位
+                // 筛选在合并几何图形内的WGS84点位 - 使用边界框过滤+并行处理优化
                 List<TrackPoint> wgs84PointsSegment = new ArrayList<>();
-                for (TrackPoint point : filteredWgs84Points) {
-                    try {
-                        // 创建点几何用于空间判断
-                        Geometry pointGeometry = config.geometryFactory.createPoint(
-                                new Coordinate(point.getLon(), point.getLat()));
-                        if (wgs84Geometry.contains(pointGeometry)) {
-                            wgs84PointsSegment.add(point);
-                        }
-                    } catch (Exception e) {
-                        log.trace("点位空间判断失败：经度{} 纬度{} 错误：{}",
-                                point.getLon(), point.getLat(), e.getMessage());
-                    }
-                }
+
+                // 获取几何图形的边界框，避免重复计算
+                Envelope geometryEnvelope = wgs84Geometry.getEnvelopeInternal();
+
+                // 记录性能日志
+                long startTime = System.currentTimeMillis();
+
+                // 使用并行流处理，提高大数据量场景下的性能
+                wgs84PointsSegment = filteredWgs84Points.parallelStream()
+                        .filter(point -> {
+                            try {
+                                // 第一步：边界框快速过滤 - 数值比较，性能极大
+                                if (!geometryEnvelope.contains(point.getLon(), point.getLat())) {
+                                    return false;
+                                }
+
+                                // 第二步：精确空间判断 - 仅对边界框内的点进行精确判断
+                                Geometry pointGeometry = config.geometryFactory.createPoint(
+                                        new Coordinate(point.getLon(), point.getLat()));
+                                return wgs84Geometry.contains(pointGeometry);
+                            } catch (Exception e) {
+                                log.trace("点位空间判断失败：经度{} 纬度{} 错误：{}",
+                                        point.getLon(), point.getLat(), e.getMessage());
+                                return false;
+                            }
+                        })
+                        .collect(Collectors.toList());
+
+                long endTime = System.currentTimeMillis();
+                log.debug("多边形{}点位空间判断完成，原始点位数：{}，筛选后点位数：{}，耗时：{}ms",
+                        i, filteredWgs84Points.size(), wgs84PointsSegment.size(), (endTime - startTime));
 
                 OutlinePart outlinePart = new OutlinePart();
                 outlinePart.setTotalWidthM(totalWidthM);
