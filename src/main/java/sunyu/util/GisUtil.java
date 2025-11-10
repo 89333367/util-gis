@@ -382,12 +382,16 @@ public class GisUtil implements AutoCloseable {
 
         if (geometry instanceof Polygon) {
             totalArea = calculatePolygonSphericalArea((Polygon) geometry);
+            log.debug("单多边形面积: {}平方米", totalArea);
         } else if (geometry instanceof MultiPolygon) {
             MultiPolygon multiPolygon = (MultiPolygon) geometry;
             for (int i = 0; i < multiPolygon.getNumGeometries(); i++) {
                 Polygon polygon = (Polygon) multiPolygon.getGeometryN(i);
-                totalArea += calculatePolygonSphericalArea(polygon);
+                double polyArea = calculatePolygonSphericalArea(polygon);
+                totalArea += polyArea;
+                log.debug("多边形{}面积: {}平方米", i, polyArea);
             }
+            log.debug("MULTIPOLYGON总面积: {}平方米", totalArea);
         }
 
         return Math.abs(totalArea); // 确保面积为正值
@@ -403,14 +407,19 @@ public class GisUtil implements AutoCloseable {
     private double calculatePolygonSphericalArea(Polygon polygon) {
         // 外环面积
         double exteriorArea = calculateRingSphericalArea(polygon.getExteriorRing());
+        log.debug("外环面积: {}平方米", exteriorArea);
 
         // 减去内环（孔洞）面积
         double holesArea = 0.0;
         for (int i = 0; i < polygon.getNumInteriorRing(); i++) {
-            holesArea += calculateRingSphericalArea(polygon.getInteriorRingN(i));
+            double holeArea = calculateRingSphericalArea(polygon.getInteriorRingN(i));
+            holesArea += holeArea;
+            log.debug("内环{}面积: {}平方米", i, holeArea);
         }
 
-        return exteriorArea - holesArea;
+        double totalArea = exteriorArea - holesArea;
+        log.debug("多边形总面积: {}平方米", totalArea);
+        return totalArea;
     }
 
     /**
@@ -433,18 +442,225 @@ public class GisUtil implements AutoCloseable {
 
         double area = 0.0;
 
-        // 使用球面多边形面积公式
+        // 使用正确的球面多边形面积公式（与Turf.js相同）
         for (int i = 0; i < coords.length - 1; i++) {
             double lon1 = Math.toRadians(coords[i].x);
             double lat1 = Math.toRadians(coords[i].y);
             double lon2 = Math.toRadians(coords[i + 1].x);
             double lat2 = Math.toRadians(coords[i + 1].y);
 
-            // 球面多边形面积公式
-            area += (lon2 - lon1) * (2 + Math.sin(lat1) + Math.sin(lat2));
+            // 正确的球面面积公式：A = R² × |Σ(λi+1 - λi) × sin((φi+1 + φi)/2)|
+            area += (lon2 - lon1) * Math.sin((lat1 + lat2) / 2.0);
         }
 
-        area = Math.abs(area) * config.EARTH_RADIUS * config.EARTH_RADIUS / 2.0;
+        area = Math.abs(area) * config.EARTH_RADIUS * config.EARTH_RADIUS;
+        return area;
+    }
+
+    /**
+     * 直接从WKT字符串计算球面面积（平方米）
+     * 使用与Turf.js相同的球面面积算法，支持POLYGON和MULTIPOLYGON
+     * 
+     * @param wkt WKT字符串（WGS84坐标系）
+     * @return 球面面积（平方米）
+     */
+    private double calculateSphericalAreaFromWKT(String wkt) {
+        if (wkt == null || wkt.trim().isEmpty()) {
+            return 0.0;
+        }
+
+        wkt = wkt.trim();
+        double totalArea = 0.0;
+
+        try {
+            if (wkt.startsWith("POLYGON")) {
+                // 处理单个POLYGON
+                totalArea = calculatePolygonAreaFromWKT(wkt);
+                log.debug("POLYGON面积: {}平方米", totalArea);
+            } else if (wkt.startsWith("MULTIPOLYGON")) {
+                // 处理MULTIPOLYGON，提取所有多边形
+                List<String> polygons = extractPolygonsFromMultiWKT(wkt);
+                log.debug("MULTIPOLYGON包含 {} 个多边形", polygons.size());
+
+                for (int i = 0; i < polygons.size(); i++) {
+                    double polyArea = calculatePolygonAreaFromWKT(polygons.get(i));
+                    totalArea += polyArea;
+                    log.debug("多边形{}面积: {}平方米", i, polyArea);
+                }
+                log.debug("MULTIPOLYGON总面积: {}平方米", totalArea);
+            }
+
+        } catch (Exception e) {
+            log.warn("WKT面积计算失败: {}", e.getMessage());
+            return 0.0;
+        }
+
+        return Math.abs(totalArea);
+    }
+
+    /**
+     * 从MULTIPOLYGON WKT中提取所有多边形WKT
+     */
+    private List<String> extractPolygonsFromMultiWKT(String multiWKT) {
+        List<String> polygons = new ArrayList<>();
+
+        // 移除MULTIPOLYGON前缀和后缀
+        String content = multiWKT.substring(multiWKT.indexOf("(") + 1, multiWKT.lastIndexOf(")"));
+
+        // 解析嵌套的多边形结构
+        int level = 0;
+        int start = 0;
+
+        for (int i = 0; i < content.length(); i++) {
+            char c = content.charAt(i);
+            if (c == '(') {
+                level++;
+                if (level == 1) {
+                    start = i;
+                }
+            } else if (c == ')') {
+                level--;
+                if (level == 0 && start >= 0) {
+                    String polygonWKT = "POLYGON" + content.substring(start, i + 1);
+                    polygons.add(polygonWKT);
+                    start = -1;
+                }
+            }
+        }
+
+        return polygons;
+    }
+
+    /**
+     * 计算单个POLYGON的面积（平方米）
+     */
+    private double calculatePolygonAreaFromWKT(String polygonWKT) {
+        // 提取外环和内环坐标
+        List<List<double[]>> rings = extractRingsFromPolygonWKT(polygonWKT);
+
+        if (rings.isEmpty()) {
+            return 0.0;
+        }
+
+        // 计算外环面积
+        double exteriorArea = calculateRingArea(rings.get(0));
+
+        // 减去内环（孔洞）面积
+        double holesArea = 0.0;
+        for (int i = 1; i < rings.size(); i++) {
+            double holeArea = calculateRingArea(rings.get(i));
+            holesArea += holeArea;
+        }
+
+        return exteriorArea - holesArea;
+    }
+
+    /**
+     * 从POLYGON WKT中提取所有环（外环和内环）
+     */
+    private List<List<double[]>> extractRingsFromPolygonWKT(String polygonWKT) {
+        List<List<double[]>> rings = new ArrayList<>();
+
+        // 提取括号内的内容
+        String content = polygonWKT.substring(polygonWKT.indexOf("(") + 1, polygonWKT.lastIndexOf(")"));
+
+        // 解析环结构
+        int level = 0;
+        int start = 0;
+
+        for (int i = 0; i < content.length(); i++) {
+            char c = content.charAt(i);
+            if (c == '(') {
+                level++;
+                if (level == 1) {
+                    start = i + 1;
+                }
+            } else if (c == ')') {
+                level--;
+                if (level == 0 && start > 0) {
+                    // 提取坐标字符串
+                    String coordStr = content.substring(start, i);
+                    List<double[]> coords = parseCoordinates(coordStr);
+                    if (!coords.isEmpty()) {
+                        rings.add(coords);
+                    }
+                    start = -1;
+                }
+            }
+        }
+
+        return rings;
+    }
+
+    /**
+     * 解析坐标字符串为坐标列表
+     */
+    private List<double[]> parseCoordinates(String coordStr) {
+        List<double[]> coordinates = new ArrayList<>();
+
+        String[] coordPairs = coordStr.split(",");
+        for (String pair : coordPairs) {
+            pair = pair.trim();
+            if (pair.isEmpty())
+                continue;
+
+            // 处理可能的多重空格
+            String[] coords = pair.trim().split("\\s+");
+            if (coords.length >= 2) {
+                try {
+                    double lon = Double.parseDouble(coords[0].trim());
+                    double lat = Double.parseDouble(coords[1].trim());
+
+                    // 验证坐标范围
+                    if (lon >= -180 && lon <= 180 && lat >= -90 && lat <= 90) {
+                        coordinates.add(new double[] { lon, lat });
+                    } else {
+                        log.warn("跳过无效坐标: 经度={}, 纬度={}", lon, lat);
+                    }
+                } catch (NumberFormatException e) {
+                    log.warn("解析坐标失败: {}", pair);
+                    continue;
+                }
+            }
+        }
+
+        // 确保多边形闭合
+        if (coordinates.size() > 0) {
+            double[] firstCoord = coordinates.get(0);
+            double[] lastCoord = coordinates.get(coordinates.size() - 1);
+            if (firstCoord[0] != lastCoord[0] || firstCoord[1] != lastCoord[1]) {
+                coordinates.add(new double[] { firstCoord[0], firstCoord[1] });
+            }
+        }
+
+        return coordinates;
+    }
+
+    /**
+     * 计算单个环的面积（平方米）
+     * 使用与Turf.js相同的球面面积算法
+     */
+    private double calculateRingArea(List<double[]> coordinates) {
+        if (coordinates.size() < 3) {
+            return 0.0;
+        }
+
+        double area = 0.0;
+
+        // 使用正确的球面多边形面积公式：A = R² × |Σ(λi+1 - λi) × sin((φi+1 + φi)/2)|
+        for (int i = 0; i < coordinates.size() - 1; i++) {
+            double lon1 = Math.toRadians(coordinates.get(i)[0]);
+            double lat1 = Math.toRadians(coordinates.get(i)[1]);
+            double lon2 = Math.toRadians(coordinates.get(i + 1)[0]);
+            double lat2 = Math.toRadians(coordinates.get(i + 1)[1]);
+
+            area += (lon2 - lon1) * Math.sin((lat1 + lat2) / 2.0);
+        }
+
+        // 应用地球半径
+        area = Math.abs(area) * config.EARTH_RADIUS * config.EARTH_RADIUS;
+
+        log.debug("环面积: {}平方米, 坐标点数: {}", area, coordinates.size());
         return area;
     }
 
@@ -462,6 +678,28 @@ public class GisUtil implements AutoCloseable {
 
         } catch (Exception e) {
             log.warn("WGS84几何图形计算亩数失败: {}", e.getMessage());
+            return 0.0;
+        }
+    }
+
+    public double calcMuByWgs84WKT(String wgs84WKT) {
+        if (wgs84WKT == null || wgs84WKT.trim().isEmpty()) {
+            log.warn("WKT字符串为空或null");
+            return 0.0;
+        }
+
+        try {
+            // 直接从WKT字符串计算球面面积，不转换为几何图形
+            double areaSqm = calculateSphericalAreaFromWKT(wgs84WKT);
+
+            // 转换为亩：1亩 = 2000/3平方米，四舍五入保留4位小数
+            double mu = Math.round((areaSqm / (2000.0 / 3.0)) * 10000.0) / 10000.0;
+
+            log.info("WKT面积计算结果: {}平方米 = {}亩", areaSqm, mu);
+            return mu;
+
+        } catch (Exception e) {
+            log.warn("WKT字符串计算亩数失败: {}", e.getMessage());
             return 0.0;
         }
     }
@@ -562,7 +800,8 @@ public class GisUtil implements AutoCloseable {
                 outlinePart.setTotalWidthM(totalWidthM);
                 outlinePart.setOutline(gaussBufferedGeometry);
                 outlinePart.setWkt(wgs84Geometry.toText());
-                outlinePart.setMu(calcMuByWgs84Geometry(wgs84Geometry));
+                // outlinePart.setMu(calcMuByWgs84Geometry(wgs84Geometry));
+                outlinePart.setMu(calcMuByWgs84WKT(outlinePart.getWkt()));
                 outlinePart.setTrackPoints(wgs84PointsSegment);
                 outlinePart.setStartTime(wgs84PointsSegment.get(0).getTime());
                 outlinePart.setEndTime(wgs84PointsSegment.get(wgs84PointsSegment.size() - 1).getTime());
