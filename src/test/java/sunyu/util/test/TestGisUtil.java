@@ -39,7 +39,7 @@ public class TestGisUtil {
     Log log = LogFactory.get();
     GisUtil gisUtil = GisUtil.builder().build();
     ProtocolSdk protocolSdk = new ProtocolSdk(FileUtil.getInputStream(FileUtil.file("d:/tmp/config.xml")));
-    String path = "D:/tmp/java道路拆分算法测试";
+    String path = "D:/GitLab/util-gis/testFiles";
 
     private DataSource getMySqlDatasource() {
         HikariConfig config = new HikariConfig();

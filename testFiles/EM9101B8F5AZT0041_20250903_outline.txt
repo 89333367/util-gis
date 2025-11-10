@@ -1,0 +1,7 @@
+type: GeometryCollection
+Parts: 1
+mu: 0.0
+totalWidthM: 0.0
+startTime: null
+endTime: null
+WKT: GEOMETRYCOLLECTION EMPTY
