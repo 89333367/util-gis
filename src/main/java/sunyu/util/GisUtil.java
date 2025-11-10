@@ -66,8 +66,6 @@ public class GisUtil implements AutoCloseable {
         public final GeometryFactory geometryFactory = new GeometryFactory();
         // 空几何集合 - 使用空数组参数更明确和安全
         public final Geometry EMPTYGEOM = geometryFactory.createGeometryCollection(new Geometry[0]);
-        // 空WKT字符串
-        public final String EMPTY_WKT = EMPTYGEOM.toText();
 
         // WGS84坐标参考系统（全局常量，避免重复创建）
         public final CoordinateReferenceSystem WGS84_CRS = DefaultGeographicCRS.WGS84;
@@ -248,19 +246,13 @@ public class GisUtil implements AutoCloseable {
         }
     }
 
-    /**
-     * 将高斯投影的几何图形转换为WGS84坐标系的WKT字符串
-     * 
-     * @param gaussGeometry 高斯投影坐标系下的几何图形
-     * @return WGS84坐标系下的WKT字符串
-     */
-    private String gaussGeometryToWgs84WKT(Geometry gaussGeometry) {
+    private Geometry gaussGeometryToWgs84Geometry(Geometry gaussGeometry) {
         try {
             // 获取几何图形的边界信息来反推高斯投影参数
             Envelope env = gaussGeometry.getEnvelopeInternal();
             double centerX = (env.getMinX() + env.getMaxX()) / 2.0;
 
-            log.debug("=== 开始高斯投影到WGS84转换 ===");
+            log.debug("高斯投影几何到WGS84投影几何转换开始");
             log.trace("高斯几何边界：MinX={}, MaxX={}, MinY={}, MaxY={}",
                     env.getMinX(), env.getMaxX(), env.getMinY(), env.getMaxY());
             log.trace("几何中心X坐标：centerX={}", centerX);
@@ -272,7 +264,7 @@ public class GisUtil implements AutoCloseable {
                     env.getMinY() < -10000000 || env.getMaxY() > 10000000) {
                 log.warn("高斯投影坐标超出合理范围：MinX={}, MaxX={}, MinY={}, MaxY={}",
                         env.getMinX(), env.getMaxX(), env.getMinY(), env.getMaxY());
-                return config.EMPTY_WKT;
+                return config.EMPTYGEOM;
             }
 
             // 智能确定投影带号策略
@@ -287,7 +279,7 @@ public class GisUtil implements AutoCloseable {
                 // 对于宽几何，优先使用中间带号，并验证整个几何范围
                 if (zone < 1 || zone > 60) {
                     log.warn("无法确定合适的投影带号：centerX={}", centerX);
-                    return config.EMPTY_WKT;
+                    return config.EMPTYGEOM;
                 }
             } else if (zone < 1 || zone > 60) {
                 log.warn("反推的投影带号不合理：zone={}, centerX={}", zone, centerX);
@@ -297,7 +289,7 @@ public class GisUtil implements AutoCloseable {
                 log.trace("备用策略计算的投影带号：zone={}", backupZone);
                 if (backupZone < 1 || backupZone > 60) {
                     log.warn("备用策略仍然无法确定合适的投影带号：centerX={}", centerX);
-                    return config.EMPTY_WKT;
+                    return config.EMPTYGEOM;
                 }
                 zone = backupZone;
             }
@@ -312,7 +304,7 @@ public class GisUtil implements AutoCloseable {
 
             if (gaussCRS == null) {
                 log.warn("无法获取高斯投影CRS：zone={}", zone);
-                return config.EMPTY_WKT;
+                return config.EMPTYGEOM;
             }
 
             // 构建缓存key（用于transform缓存）
@@ -332,15 +324,12 @@ public class GisUtil implements AutoCloseable {
 
             if (transform == null) {
                 log.warn("无法获取坐标转换：zone={}", finalZone);
-                return config.EMPTY_WKT;
+                return config.EMPTYGEOM;
             }
 
             // 执行坐标转换（逆向：高斯投影 -> WGS84）
-            log.trace("开始转换高斯投影几何到WGS84：zone={}, 几何点数={}", finalZone, gaussGeometry.getNumPoints());
+            log.trace("zone={}, 几何点数={}", finalZone, gaussGeometry.getNumPoints());
             Geometry wgs84Geometry = JTS.transform(gaussGeometry, transform);
-            Envelope resultEnv = wgs84Geometry.getEnvelopeInternal();
-            log.trace("转换完成，WGS84几何范围：MinLon={}, MaxLon={}, MinLat={}, MaxLat={}",
-                    resultEnv.getMinX(), resultEnv.getMaxX(), resultEnv.getMinY(), resultEnv.getMaxY());
 
             // 验证转换后的WGS84坐标合理性
             Envelope wgs84Env = wgs84Geometry.getEnvelopeInternal();
@@ -348,24 +337,33 @@ public class GisUtil implements AutoCloseable {
                     wgs84Env.getMinY() < -90 || wgs84Env.getMaxY() > 90) {
                 log.warn("转换后的WGS84坐标超出合理范围：MinLon={}, MaxLon={}, MinLat={}, MaxLat={}",
                         wgs84Env.getMinX(), wgs84Env.getMaxX(), wgs84Env.getMinY(), wgs84Env.getMaxY());
-                return config.EMPTY_WKT;
+                return config.EMPTYGEOM;
             }
-
-            // 返回WKT字符串
-            String wkt = wgs84Geometry.toText();
-            log.debug("=== 高斯投影到WGS84转换完成 ===");
-            log.trace("生成的WKT字符串长度：{}字符", wkt.length());
-            return wkt;
+            log.debug("高斯投影几何到WGS84投影几何转换完成");
+            return wgs84Geometry;
         } catch (Exception e) {
-            log.warn("高斯投影几何转换到WGS84失败：错误={}", e.getMessage());
-            return config.EMPTY_WKT;
+            log.warn("高斯投影几何到WGS84投影几何转换失败：错误={}", e.getMessage());
+            return config.EMPTYGEOM;
         }
+    }
+
+    /**
+     * 将高斯投影的几何图形转换为WGS84坐标系的WKT字符串
+     * 
+     * @param gaussGeometry 高斯投影坐标系下的几何图形
+     * @return WGS84坐标系下的WKT字符串
+     */
+    private String gaussGeometryToWgs84WKT(Geometry gaussGeometry) {
+        log.debug("高斯投影几何转换为WGS84投影WKT字符串开始");
+        Geometry wgs84Geometry = gaussGeometryToWgs84Geometry(gaussGeometry);
+        log.debug("高斯投影几何转换为WGS84投影WKT字符串完成");
+        return wgs84Geometry.toText();
     }
 
     public SplitRoadResult splitRoad(List<TrackPoint> wgs84Points, double totalWidthM) {
         SplitRoadResult result = new SplitRoadResult();
         result.setOutline(config.EMPTYGEOM);
-        result.setWkt(config.EMPTY_WKT);
+        result.setWkt(config.EMPTYGEOM.toText());
 
         log.debug("参数信息：轨迹点数量={} 总宽度={}米", wgs84Points.size(), totalWidthM);
         log.debug("过滤时间为空、经纬度异常、经纬度为0、速度为0、方向角异常的轨迹点");
