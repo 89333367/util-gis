@@ -770,22 +770,43 @@ public class GisUtil implements AutoCloseable {
         }
         log.info("最小有效时间间隔：{}秒（点数最多的时间间隔）", minEffectiveInterval);
 
-        log.debug("按照速度切分成多段轨迹，只要速度超过{}米/秒，就拆分轨迹段", config.MAX_SPEED);
+        int timeCutThreshold = minEffectiveInterval + 1; // 时间切割阈值
+        log.debug("按照速度和时间间隔切分成多段轨迹，速度超过{}米/秒或者时间间隔超过{}秒，就拆分轨迹段", config.MAX_SPEED, timeCutThreshold);
         List<List<TrackPoint>> wgs84PointsSegments = new ArrayList<>();
         List<TrackPoint> currentSegment = new ArrayList<>();
+        TrackPoint prevPoint = null;
+
         for (TrackPoint point : filteredWgs84Points) {
+            boolean shouldSplit = false;
+
+            // 速度超限切割
             if (point.getSpeed() >= config.MAX_SPEED) {
+                shouldSplit = true;
+            }
+
+            // 时间间隔超限切割
+            if (prevPoint != null) {
+                Duration duration = Duration.between(prevPoint.getTime(), point.getTime());
+                int timeDiffSeconds = (int) duration.getSeconds();
+                if (timeDiffSeconds > timeCutThreshold) {
+                    shouldSplit = true;
+                }
+            }
+
+            if (shouldSplit) {
                 if (!currentSegment.isEmpty()) {
                     wgs84PointsSegments.add(currentSegment);
                     currentSegment = new ArrayList<>();
                 }
             }
+
             currentSegment.add(point);
+            prevPoint = point;
         }
         if (!currentSegment.isEmpty()) {
             wgs84PointsSegments.add(currentSegment);
         }
-        log.debug("速度切分后的轨迹段数量：{}", wgs84PointsSegments.size());
+        log.debug("按照速度和时间间隔切分后的轨迹段数量：{}", wgs84PointsSegments.size());
 
         log.debug("过滤掉段内小于6个点的轨迹段");
         wgs84PointsSegments.removeIf(segment -> segment.size() < 6);
