@@ -95,8 +95,8 @@ public class GisUtil implements AutoCloseable {
         // WGS84椭球长半轴（米），与Turf.js保持一致
         private final double EARTH_RADIUS = 6378137.0;
 
-        // 最大速度（单位：米/秒），我们认为农机在田间作业，最大速度不会超过20米/秒
-        private final double MAX_SPEED = 20.0;
+        // 最大速度（单位：米/秒），我们认为农机在田间作业，最大速度不会超过19米/秒
+        private final double MAX_SPEED = 19.0;
 
         // 几何合并后的膨胀收缩距离（米），用于消除细小缝隙
         private final double MORPHOLOGY_DISTANCE = 0.1;
@@ -999,7 +999,7 @@ public class GisUtil implements AutoCloseable {
                 continue;
             }
 
-            log.debug("将轨迹段中的WGS84坐标转换为高斯投影坐标 轨迹段点数量：{}", wgs84PointsSegment.size());
+            log.trace("将轨迹段中的WGS84坐标转换为高斯投影坐标 轨迹段点数量：{}", wgs84PointsSegment.size());
             List<TrackPoint> gaussPoints = new ArrayList<>();
             for (TrackPoint point : wgs84PointsSegment) {
                 TrackPoint gaussPoint = wgs84PointTransformToGaussPoint(point);
@@ -1007,13 +1007,13 @@ public class GisUtil implements AutoCloseable {
                     gaussPoints.add(gaussPoint);
                 }
             }
-            log.debug("转换后的轨迹段点数量：{}", gaussPoints.size());
+            log.trace("转换后的轨迹段点数量：{}", gaussPoints.size());
             if (gaussPoints.size() < 6) {
                 log.warn("转换后的轨迹段点数量小于6个，无法进行拆分");
                 continue;
             }
 
-            log.debug("使用高斯投影的轨迹点进行线缓冲，左右缓冲总宽度：{}米", totalWidthM);
+            log.trace("使用高斯投影的轨迹点进行线缓冲，左右缓冲总宽度：{}米", totalWidthM);
             try {
                 // 1. 创建线几何：将高斯投影点转换为Coordinate数组
                 Coordinate[] gaussCoordinates = new Coordinate[gaussPoints.size()];
@@ -1024,12 +1024,12 @@ public class GisUtil implements AutoCloseable {
 
                 // 2. 创建LineString
                 LineString lineString = config.geometryFactory.createLineString(gaussCoordinates);
-                log.debug("创建线几何成功，点数：{}", gaussCoordinates.length);
+                log.trace("创建线几何成功，点数：{}", gaussCoordinates.length);
 
                 // 3. 执行缓冲操作：总宽度的一半作为缓冲距离
                 double bufferDistance = totalWidthM / 2.0;
                 Geometry gaussBufferedGeometry = lineString.buffer(bufferDistance);
-                log.debug("线缓冲成功，缓冲距离：{}米，结果几何类型：{}", bufferDistance, gaussBufferedGeometry.getGeometryType());
+                log.trace("线缓冲成功，缓冲距离：{}米，结果几何类型：{}", bufferDistance, gaussBufferedGeometry.getGeometryType());
 
                 gaussBufferedGeometries.add(gaussBufferedGeometry);
             } catch (Exception e) {
