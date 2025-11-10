@@ -362,6 +362,10 @@ public class GisUtil implements AutoCloseable {
             }
         }
         log.debug("过滤后的轨迹点数量：{}", filteredWgs84Points.size());
+        if (filteredWgs84Points.size() < 6) {
+            log.warn("过滤后的轨迹点数量小于6个，无法进行拆分");
+            return result;
+        }
 
         log.debug("按定位时间升序排序");
         filteredWgs84Points.sort((p1, p2) -> p1.getTime().compareTo(p2.getTime()));
@@ -389,6 +393,10 @@ public class GisUtil implements AutoCloseable {
 
         List<OutlinePart> outlineParts = new ArrayList<>();
         for (List<TrackPoint> wgs84PointsSegment : wgs84PointsSegments) {
+            if (wgs84PointsSegment.size() < 6) {
+                log.warn("轨迹段点数量小于6个，无法进行拆分");
+                continue;
+            }
             log.debug("将轨迹段中的WGS84坐标转换为高斯投影坐标 轨迹段点数量：{}", wgs84PointsSegment.size());
             List<TrackPoint> gaussPoints = new ArrayList<>();
             for (TrackPoint point : wgs84PointsSegment) {
@@ -398,6 +406,10 @@ public class GisUtil implements AutoCloseable {
                 }
             }
             log.debug("转换后的轨迹段点数量：{}", gaussPoints.size());
+            if (gaussPoints.size() < 6) {
+                log.warn("转换后的轨迹段点数量小于6个，无法进行拆分");
+                continue;
+            }
 
             log.debug("使用高斯投影的轨迹点进行线缓冲，左右缓冲总宽度：{}米", totalWidthM);
             try {
@@ -426,6 +438,11 @@ public class GisUtil implements AutoCloseable {
             } catch (Exception e) {
                 log.warn("线缓冲失败：总宽度={}米，错误={}", totalWidthM, e.getMessage());
             }
+        }
+
+        if (outlineParts.isEmpty()) {
+            log.warn("没有成功创建任何区块，无法进行合并");
+            return result;
         }
 
         log.debug("合并所有高斯投影缓冲几何");
