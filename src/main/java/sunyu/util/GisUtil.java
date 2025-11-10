@@ -19,6 +19,8 @@ import org.locationtech.jts.geom.GeometryFactory;
 import org.locationtech.jts.geom.LineString;
 import org.locationtech.jts.geom.MultiPolygon;
 import org.locationtech.jts.geom.Polygon;
+import org.locationtech.jts.geom.prep.PreparedGeometry;
+import org.locationtech.jts.geom.prep.PreparedGeometryFactory;
 import org.opengis.referencing.crs.CoordinateReferenceSystem;
 import org.opengis.referencing.operation.MathTransform;
 
@@ -873,16 +875,19 @@ public class GisUtil implements AutoCloseable {
         if (gaussUnionGeometry instanceof Polygon) {
             Geometry wgs84Geometry = gaussGeometryToWgs84Geometry(gaussUnionGeometry);
 
-            // 筛选在合并几何图形内的WGS84点位 - 使用边界框过滤+并行处理优化
+            // 筛选在合并几何图形内的WGS84点位 - 使用PreparedGeometry优化性能
             List<TrackPoint> wgs84PointsSegment = new ArrayList<>();
 
             // 获取几何图形的边界框，避免重复计算
             Envelope geometryEnvelope = wgs84Geometry.getEnvelopeInternal();
 
+            // 使用PreparedGeometry预优化，大幅提升空间判断性能
+            PreparedGeometry preparedWgs84Geometry = PreparedGeometryFactory.prepare(wgs84Geometry);
+
             // 记录性能日志
             long startTime = System.currentTimeMillis();
 
-            // 使用并行流处理，提高大数据量场景下的性能
+            // 使用并行流处理，结合PreparedGeometry提高大数据量场景下的性能
             wgs84PointsSegment = filteredWgs84Points.parallelStream()
                     .filter(point -> {
                         try {
@@ -891,10 +896,9 @@ public class GisUtil implements AutoCloseable {
                                 return false;
                             }
 
-                            // 第二步：精确空间判断 - 仅对边界框内的点进行精确判断
-                            Geometry pointGeometry = config.geometryFactory.createPoint(
-                                    new Coordinate(point.getLon(), point.getLat()));
-                            return wgs84Geometry.contains(pointGeometry);
+                            // 第二步：使用PreparedGeometry进行精确空间判断 - 性能比直接contains提升10-100倍
+                            return preparedWgs84Geometry.contains(config.geometryFactory.createPoint(
+                                    new Coordinate(point.getLon(), point.getLat())));
                         } catch (Exception e) {
                             log.trace("点位空间判断失败：经度{} 纬度{} 错误：{}",
                                     point.getLon(), point.getLat(), e.getMessage());
@@ -923,16 +927,19 @@ public class GisUtil implements AutoCloseable {
 
                 Geometry wgs84Geometry = gaussGeometryToWgs84Geometry(gaussGeometry);
 
-                // 筛选在合并几何图形内的WGS84点位 - 使用边界框过滤+并行处理优化
+                // 筛选在合并几何图形内的WGS84点位 - 使用PreparedGeometry优化性能
                 List<TrackPoint> wgs84PointsSegment = new ArrayList<>();
 
                 // 获取几何图形的边界框，避免重复计算
                 Envelope geometryEnvelope = wgs84Geometry.getEnvelopeInternal();
 
+                // 使用PreparedGeometry预优化，大幅提升空间判断性能
+                PreparedGeometry preparedWgs84Geometry = PreparedGeometryFactory.prepare(wgs84Geometry);
+
                 // 记录性能日志
                 long startTime = System.currentTimeMillis();
 
-                // 使用并行流处理，提高大数据量场景下的性能
+                // 使用并行流处理，结合PreparedGeometry提高大数据量场景下的性能
                 wgs84PointsSegment = filteredWgs84Points.parallelStream()
                         .filter(point -> {
                             try {
@@ -941,10 +948,9 @@ public class GisUtil implements AutoCloseable {
                                     return false;
                                 }
 
-                                // 第二步：精确空间判断 - 仅对边界框内的点进行精确判断
-                                Geometry pointGeometry = config.geometryFactory.createPoint(
-                                        new Coordinate(point.getLon(), point.getLat()));
-                                return wgs84Geometry.contains(pointGeometry);
+                                // 第二步：使用PreparedGeometry进行精确空间判断 - 性能比直接contains提升10-100倍
+                                return preparedWgs84Geometry.contains(config.geometryFactory.createPoint(
+                                        new Coordinate(point.getLon(), point.getLat())));
                             } catch (Exception e) {
                                 log.trace("点位空间判断失败：经度{} 纬度{} 错误：{}",
                                         point.getLon(), point.getLat(), e.getMessage());
