@@ -812,7 +812,7 @@ public class GisUtil implements AutoCloseable {
         wgs84PointsSegments.removeIf(segment -> segment.size() < 6);
         log.debug("过滤后的轨迹段数量：{}", wgs84PointsSegments.size());
 
-        List<OutlinePart> outlineParts = new ArrayList<>();
+        List<Geometry> gaussBufferedGeometries = new ArrayList<>();
         for (List<TrackPoint> wgs84PointsSegment : wgs84PointsSegments) {
             if (wgs84PointsSegment.size() < 6) {
                 log.warn("轨迹段点数量小于6个，无法进行拆分");
@@ -851,31 +851,51 @@ public class GisUtil implements AutoCloseable {
                 Geometry gaussBufferedGeometry = lineString.buffer(bufferDistance);
                 log.debug("线缓冲成功，缓冲距离：{}米，结果几何类型：{}", bufferDistance, gaussBufferedGeometry.getGeometryType());
 
-                Geometry wgs84Geometry = gaussGeometryToWgs84Geometry(gaussBufferedGeometry);
-                OutlinePart outlinePart = new OutlinePart();
-                outlinePart.setTotalWidthM(totalWidthM);
-                outlinePart.setOutline(gaussBufferedGeometry);
-                outlinePart.setWkt(wgs84Geometry.toText());
-                outlinePart.setMu(calcMuByWgs84Geometry(wgs84Geometry));
-                outlinePart.setTrackPoints(wgs84PointsSegment);
-                outlinePart.setStartTime(wgs84PointsSegment.get(0).getTime());
-                outlinePart.setEndTime(wgs84PointsSegment.get(wgs84PointsSegment.size() - 1).getTime());
-                outlineParts.add(outlinePart);
+                gaussBufferedGeometries.add(gaussBufferedGeometry);
             } catch (Exception e) {
                 log.warn("线缓冲失败：总宽度={}米，错误={}", totalWidthM, e.getMessage());
             }
         }
 
-        if (outlineParts.isEmpty()) {
+        if (gaussBufferedGeometries.isEmpty()) {
             log.warn("没有成功创建任何区块，无法进行合并");
             return result;
         }
 
         log.debug("合并所有高斯投影缓冲几何");
         Geometry gaussUnionGeometry = config.geometryFactory
-                .createGeometryCollection(outlineParts.stream().map(OutlinePart::getOutline).toArray(Geometry[]::new))
+                .createGeometryCollection(gaussBufferedGeometries.toArray(new Geometry[0]))
                 .union();
         log.debug("合并后的几何类型：{}", gaussUnionGeometry.getGeometryType());
+
+        List<OutlinePart> outlineParts = new ArrayList<>();
+        if (gaussUnionGeometry instanceof Polygon) {
+            Geometry wgs84Geometry = gaussGeometryToWgs84Geometry(gaussUnionGeometry);
+            OutlinePart outlinePart = new OutlinePart();
+            outlinePart.setTotalWidthM(totalWidthM);
+            outlinePart.setOutline(gaussUnionGeometry);
+            outlinePart.setWkt(wgs84Geometry.toText());
+            outlinePart.setMu(calcMuByWgs84Geometry(wgs84Geometry));
+            // outlinePart.setTrackPoints(wgs84PointsSegment);
+            // outlinePart.setStartTime(wgs84PointsSegment.get(0).getTime());
+            // outlinePart.setEndTime(wgs84PointsSegment.get(wgs84PointsSegment.size() - 1).getTime());
+            outlineParts.add(outlinePart);
+        } else if (gaussUnionGeometry instanceof MultiPolygon) {
+            MultiPolygon multiPolygon = (MultiPolygon) gaussUnionGeometry;
+            for (int i = 0; i < multiPolygon.getNumGeometries(); i++) {
+                Polygon gaussGeometry = (Polygon) multiPolygon.getGeometryN(i);
+                Geometry wgs84Geometry = gaussGeometryToWgs84Geometry(gaussGeometry);
+                OutlinePart outlinePart = new OutlinePart();
+                outlinePart.setTotalWidthM(totalWidthM);
+                outlinePart.setOutline(gaussGeometry);
+                outlinePart.setWkt(wgs84Geometry.toText());
+                outlinePart.setMu(calcMuByWgs84Geometry(wgs84Geometry));
+                // outlinePart.setTrackPoints(wgs84PointsSegment);
+                // outlinePart.setStartTime(wgs84PointsSegment.get(0).getTime());
+                // outlinePart.setEndTime(wgs84PointsSegment.get(wgs84PointsSegment.size() - 1).getTime());
+                outlineParts.add(outlinePart);
+            }
+        }
 
         // 4. 设置结果
         result.setOutline(gaussUnionGeometry);
