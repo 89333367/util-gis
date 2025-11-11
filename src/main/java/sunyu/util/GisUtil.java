@@ -1118,6 +1118,12 @@ public class GisUtil implements AutoCloseable {
                 if (timeDiffSeconds > timeCutThreshold) {
                     shouldSplit = true;
                 }
+
+                // 距离间隔超限切割：相邻两点距离超过5米就拆分
+                double distance = haversine(prevPoint, point);
+                if (distance > Math.max(5, totalWidthM * minEffectiveInterval)) {
+                    shouldSplit = true;
+                }
             }
 
             if (shouldSplit) {
@@ -1137,8 +1143,8 @@ public class GisUtil implements AutoCloseable {
 
         List<Geometry> gaussBufferedGeometries = new ArrayList<>();
         for (List<TrackPoint> wgs84PointsSegment : wgs84PointsSegments) {
-            if (wgs84PointsSegment.size() < 6) {
-                log.warn("轨迹段点数量小于6个，无法进行拆分");
+            if (wgs84PointsSegment.size() < 2) {
+                log.warn("轨迹段点数量小于2个，无法进行拆分");
                 continue;
             }
 
@@ -1151,8 +1157,8 @@ public class GisUtil implements AutoCloseable {
                 }
             }
             log.trace("转换后的轨迹段点数量：{}", gaussPoints.size());
-            if (gaussPoints.size() < 6) {
-                log.warn("转换后的轨迹段点数量小于6个，无法进行拆分");
+            if (gaussPoints.size() < 2) {
+                log.warn("转换后的轨迹段点数量小于2个，无法进行拆分");
                 continue;
             }
 
