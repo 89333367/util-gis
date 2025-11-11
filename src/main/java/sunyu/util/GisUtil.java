@@ -818,6 +818,47 @@ public class GisUtil implements AutoCloseable {
     }
 
     /**
+     * 判断WGS84坐标系下的点是否在矩形内
+     * 
+     * @param wgs84Point            WGS84坐标系下的点
+     * @param wgs84TopLeftPoint     WGS84坐标系下的矩形左上角点
+     * @param wgs84BottomRightPoint WGS84坐标系下的矩形右下角点
+     * @return 如果点在矩形内（包含边界），返回true；否则返回false
+     */
+    public boolean isPointInRectangle(CoordinatePoint wgs84Point, CoordinatePoint wgs84TopLeftPoint,
+            CoordinatePoint wgs84BottomRightPoint) {
+        if (wgs84Point == null || wgs84TopLeftPoint == null || wgs84BottomRightPoint == null) {
+            return false;
+        }
+
+        try {
+            double pointLon = wgs84Point.getLon();
+            double pointLat = wgs84Point.getLat();
+            double topLeftLon = wgs84TopLeftPoint.getLon();
+            double topLeftLat = wgs84TopLeftPoint.getLat();
+            double bottomRightLon = wgs84BottomRightPoint.getLon();
+            double bottomRightLat = wgs84BottomRightPoint.getLat();
+
+            // 确保左上角和右下角的经纬度关系正确
+            double minLon = Math.min(topLeftLon, bottomRightLon);
+            double maxLon = Math.max(topLeftLon, bottomRightLon);
+            double maxLat = Math.max(topLeftLat, bottomRightLat);
+            double minLat = Math.min(topLeftLat, bottomRightLat);
+
+            // 判断点是否在矩形范围内（包含边界）
+            return pointLon >= minLon && pointLon <= maxLon &&
+                    pointLat >= minLat && pointLat <= maxLat;
+        } catch (Exception e) {
+            log.warn("判断点是否在矩形内失败：点[{},{}] 左上角[{},{}] 右下角[{},{}] 错误={}",
+                    wgs84Point.getLon(), wgs84Point.getLat(),
+                    wgs84TopLeftPoint.getLon(), wgs84TopLeftPoint.getLat(),
+                    wgs84BottomRightPoint.getLon(), wgs84BottomRightPoint.getLat(),
+                    e.getMessage());
+            return false;
+        }
+    }
+
+    /**
      * 计算WGS84坐标系下的几何图形面积（亩）
      * 
      * @param wgs84Geometry WGS84坐标系下的几何图形
