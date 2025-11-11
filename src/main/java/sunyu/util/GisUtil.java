@@ -1440,7 +1440,7 @@ public class GisUtil implements AutoCloseable {
             finalOutlineGeometry = config.geometryFactory.createGeometryCollection(validGeometries).union();
         } else {
             // 没有有效多边形，回退到原始几何
-            finalOutlineGeometry = gaussUnionGeometry;
+            finalOutlineGeometry = config.EMPTYGEOM;
             log.warn("没有有效区块，回退到原始几何");
         }
 
