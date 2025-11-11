@@ -832,8 +832,9 @@ public class GisUtil implements AutoCloseable {
             Point point = config.geometryFactory.createPoint(
                     new Coordinate(wgs84Point.getLon(), wgs84Point.getLat()));
 
-            // 判断点是否在几何图形内
-            return wgs84Geometry.contains(point);
+            // 判断点是否在几何图形内或边界上
+            // covers() 方法包含边界，而 contains() 不包含边界
+            return wgs84Geometry.covers(point);
         } catch (Exception e) {
             log.warn("判断点是否在几何图形内失败：点[{},{}] 错误={}",
                     wgs84Point.getLon(), wgs84Point.getLat(), e.getMessage());

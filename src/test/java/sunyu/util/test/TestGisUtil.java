@@ -88,6 +88,36 @@ public class TestGisUtil {
     }
 
     @Test
+    void 测试点是否在矩形中() {
+        CoordinatePoint p = new CoordinatePoint(116.55470301, 40.21296700);
+        CoordinatePoint p1 = new CoordinatePoint(116.55560000, 40.21296700); // 向东偏移约100米
+        CoordinatePoint p2 = new CoordinatePoint(116.55560000, 40.21364248); // 向北偏移约100米
+        boolean isIn = gisUtil.isPointInRectangle(p, p1, p2);
+        log.info("点是否在矩形中: {}", isIn);
+    }
+
+    @Test
+    void 测试点是否在多边形中() {
+        Geometry geom = gisUtil.wgs84WktToWgs84Geometry(
+                "POLYGON((116.55470301 40.21296700, 116.55560000 40.21296700, 116.55560000 40.21364248, 116.55470301 40.21364248, 116.55470301 40.21296700))");
+
+        // 测试多边形内部的点
+        CoordinatePoint p1 = new CoordinatePoint(116.55515000, 40.21330000);
+        boolean isIn1 = gisUtil.isPointInGeometry(p1, geom);
+        log.info("内部点[116.55515000, 40.21330000]是否在多边形中: {}", isIn1);
+
+        // 测试多边形顶点（边界点）
+        CoordinatePoint p2 = new CoordinatePoint(116.55560000, 40.21364248);
+        boolean isIn2 = gisUtil.isPointInGeometry(p2, geom);
+        log.info("顶点[116.55560000, 40.21364248]是否在多边形中: {}", isIn2);
+
+        // 测试多边形外部的点
+        CoordinatePoint p3 = new CoordinatePoint(116.55600000, 40.21400000);
+        boolean isIn3 = gisUtil.isPointInGeometry(p3, geom);
+        log.info("外部点[116.55600000, 40.21400000]是否在多边形中: {}", isIn3);
+    }
+
+    @Test
     void 测试两点距离() {
         CoordinatePoint p1 = new CoordinatePoint(116.55470301, 40.21296700);
         CoordinatePoint p2 = new CoordinatePoint(116.55473883, 40.21364248);
