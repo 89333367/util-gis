@@ -468,21 +468,21 @@ public class GisUtil implements AutoCloseable {
      * 计算球面面积（平方米）
      * 使用球面多边形面积公式，与Turf.js的算法保持一致
      * 
-     * @param geometry WGS84坐标系的几何图形
+     * @param wgs84Geometry WGS84坐标系的几何图形
      * @return 球面面积（平方米）
      */
-    private double calculateSphericalArea(Geometry geometry) {
-        if (geometry == null || geometry.isEmpty()) {
+    private double calculateSphericalArea(Geometry wgs84Geometry) {
+        if (wgs84Geometry == null || wgs84Geometry.isEmpty()) {
             return 0.0;
         }
 
         double totalArea = 0.0;
 
-        if (geometry instanceof Polygon) {
-            totalArea = calculatePolygonSphericalArea((Polygon) geometry);
+        if (wgs84Geometry instanceof Polygon) {
+            totalArea = calculatePolygonSphericalArea((Polygon) wgs84Geometry);
             log.debug("单多边形面积: {}平方米", totalArea);
-        } else if (geometry instanceof MultiPolygon) {
-            MultiPolygon multiPolygon = (MultiPolygon) geometry;
+        } else if (wgs84Geometry instanceof MultiPolygon) {
+            MultiPolygon multiPolygon = (MultiPolygon) wgs84Geometry;
             for (int i = 0; i < multiPolygon.getNumGeometries(); i++) {
                 Polygon polygon = (Polygon) multiPolygon.getGeometryN(i);
                 double polyArea = calculatePolygonSphericalArea(polygon);
@@ -499,18 +499,18 @@ public class GisUtil implements AutoCloseable {
      * 计算单个多边形的球面面积（平方米）
      * 使用球面多边形面积公式，考虑地球曲率
      * 
-     * @param polygon WGS84坐标系的多边形
+     * @param wgs84Polygon WGS84坐标系的多边形
      * @return 球面面积（平方米）
      */
-    private double calculatePolygonSphericalArea(Polygon polygon) {
+    private double calculatePolygonSphericalArea(Polygon wgs84Polygon) {
         // 外环面积
-        double exteriorArea = calculateRingSphericalArea(polygon.getExteriorRing());
+        double exteriorArea = calculateRingSphericalArea(wgs84Polygon.getExteriorRing());
         log.trace("外环面积: {}平方米", exteriorArea);
 
         // 减去内环（孔洞）面积
         double holesArea = 0.0;
-        for (int i = 0; i < polygon.getNumInteriorRing(); i++) {
-            double holeArea = calculateRingSphericalArea(polygon.getInteriorRingN(i));
+        for (int i = 0; i < wgs84Polygon.getNumInteriorRing(); i++) {
+            double holeArea = calculateRingSphericalArea(wgs84Polygon.getInteriorRingN(i));
             holesArea += holeArea;
             log.trace("内环{}面积: {}平方米", i, holeArea);
         }
@@ -525,15 +525,15 @@ public class GisUtil implements AutoCloseable {
      * 使用球面多边形面积公式：A = R² * |Σ(λi+1 - λi) * sin(φi+1 + φi)/2|
      * 其中R为地球半径，λ为经度，φ为纬度
      * 
-     * @param ring 线环（WGS84坐标系，单位：度）
+     * @param wgs84Ring 线环（WGS84坐标系，单位：度）
      * @return 球面面积（平方米）
      */
-    private double calculateRingSphericalArea(LineString ring) {
-        if (ring == null || ring.isEmpty()) {
+    private double calculateRingSphericalArea(LineString wgs84Ring) {
+        if (wgs84Ring == null || wgs84Ring.isEmpty()) {
             return 0.0;
         }
 
-        org.locationtech.jts.geom.Coordinate[] coords = ring.getCoordinates();
+        org.locationtech.jts.geom.Coordinate[] coords = wgs84Ring.getCoordinates();
         if (coords.length < 3) {
             return 0.0; // 需要至少3个点才能形成多边形
         }
@@ -559,25 +559,25 @@ public class GisUtil implements AutoCloseable {
      * 直接从WKT字符串计算球面面积（平方米）
      * 使用与Turf.js相同的球面面积算法，支持POLYGON和MULTIPOLYGON
      * 
-     * @param wkt WKT字符串（WGS84坐标系）
+     * @param wgs84WKT WKT字符串（WGS84坐标系）
      * @return 球面面积（平方米）
      */
-    private double calculateSphericalAreaFromWKT(String wkt) {
-        if (wkt == null || wkt.trim().isEmpty()) {
+    private double calculateSphericalAreaFromWKT(String wgs84WKT) {
+        if (wgs84WKT == null || wgs84WKT.trim().isEmpty()) {
             return 0.0;
         }
 
-        wkt = wkt.trim();
+        wgs84WKT = wgs84WKT.trim();
         double totalArea = 0.0;
 
         try {
-            if (wkt.startsWith("POLYGON")) {
+            if (wgs84WKT.startsWith("POLYGON")) {
                 // 处理单个POLYGON
-                totalArea = calculatePolygonAreaFromWKT(wkt);
+                totalArea = calculatePolygonAreaFromWKT(wgs84WKT);
                 log.debug("POLYGON面积: {}平方米", totalArea);
-            } else if (wkt.startsWith("MULTIPOLYGON")) {
+            } else if (wgs84WKT.startsWith("MULTIPOLYGON")) {
                 // 处理MULTIPOLYGON，提取所有多边形
-                List<String> polygons = extractPolygonsFromMultiWKT(wkt);
+                List<String> polygons = extractPolygonsFromMultiWKT(wgs84WKT);
                 log.debug("MULTIPOLYGON包含 {} 个多边形", polygons.size());
 
                 for (int i = 0; i < polygons.size(); i++) {
@@ -780,13 +780,13 @@ public class GisUtil implements AutoCloseable {
     /**
      * 判断点是否在圆内（包含边界）
      * 
-     * @param point  要判断的点
-     * @param center 圆的中心点
-     * @param radius 圆的半径（单位：米）
+     * @param wgs84Point       要判断的点
+     * @param wgs84CenterPoint 圆的中心点
+     * @param radius           圆的半径（单位：米）
      * @return 如果点在圆内（包含边界），返回true；否则返回false
      */
-    public boolean isPointInCircle(CoordinatePoint point, CoordinatePoint center, float radius) {
-        double distance = haversine(point, center);
+    public boolean isPointInCircle(CoordinatePoint wgs84Point, CoordinatePoint wgs84CenterPoint, float radius) {
+        double distance = haversine(wgs84Point, wgs84CenterPoint);
         return distance <= radius;
     }
 
@@ -845,15 +845,15 @@ public class GisUtil implements AutoCloseable {
     /**
      * 计算WGS84坐标系下两点之间的球面距离（米）
      * 
-     * @param p1 第一个点
-     * @param p2 第二个点
+     * @param wgs84Point1 第一个点
+     * @param wgs84Point2 第二个点
      * @return 两点之间的距离（米）
      */
-    public double haversine(CoordinatePoint p1, CoordinatePoint p2) {
-        double lon1 = Math.toRadians(p1.getLon());
-        double lat1 = Math.toRadians(p1.getLat());
-        double lon2 = Math.toRadians(p2.getLon());
-        double lat2 = Math.toRadians(p2.getLat());
+    public double haversine(CoordinatePoint wgs84Point1, CoordinatePoint wgs84Point2) {
+        double lon1 = Math.toRadians(wgs84Point1.getLon());
+        double lat1 = Math.toRadians(wgs84Point1.getLat());
+        double lon2 = Math.toRadians(wgs84Point2.getLon());
+        double lat2 = Math.toRadians(wgs84Point2.getLat());
 
         double dlon = lon2 - lon1;
         double dlat = lat2 - lat1;
