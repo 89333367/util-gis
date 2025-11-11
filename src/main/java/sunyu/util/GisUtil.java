@@ -99,6 +99,9 @@ public class GisUtil implements AutoCloseable {
         // 最大速度（单位：米/秒），我们认为农机在田间作业，最大速度不会超过19米/秒
         private final double MAX_SPEED = 19.0;
 
+        // 最终合并后多边形最小点数阈值，用于过滤小的多边形
+        private final int MIN_POLYGON_POINTS = 30;
+
         // 几何合并后的膨胀收缩距离（米），用于消除细小缝隙
         private final double MORPHOLOGY_DISTANCE = 0.1;
     }
@@ -1098,7 +1101,8 @@ public class GisUtil implements AutoCloseable {
         }
 
         int timeCutThreshold = minEffectiveInterval + 1; // 时间切割阈值
-        log.debug("按照速度和时间间隔切分成多段轨迹，速度超过{}米/秒或者时间间隔超过{}秒，就拆分轨迹段", config.MAX_SPEED, timeCutThreshold);
+        log.debug("按照间隔速度、间隔时间、间隔距离切分成多段轨迹，速度超过{}米/秒或者时间间隔超过{}秒，或者距离间隔超过{}米，就拆分轨迹段", config.MAX_SPEED, timeCutThreshold,
+                Math.max(5, totalWidthM * minEffectiveInterval));
         List<List<TrackPoint>> wgs84PointsSegments = new ArrayList<>();
         List<TrackPoint> currentSegment = new ArrayList<>();
         TrackPoint prevPoint = null;
@@ -1119,7 +1123,7 @@ public class GisUtil implements AutoCloseable {
                     shouldSplit = true;
                 }
 
-                // 距离间隔超限切割：相邻两点距离超过5米就拆分
+                // 距离间隔超限切割
                 double distance = haversine(prevPoint, point);
                 if (distance > Math.max(5, totalWidthM * minEffectiveInterval)) {
                     shouldSplit = true;
@@ -1139,7 +1143,7 @@ public class GisUtil implements AutoCloseable {
         if (!currentSegment.isEmpty()) {
             wgs84PointsSegments.add(currentSegment);
         }
-        log.debug("按照速度和时间间隔切分后的轨迹段数量：{}", wgs84PointsSegments.size());
+        log.debug("按照间隔速度、间隔时间、间隔距离切分后的轨迹段数量：{}", wgs84PointsSegments.size());
 
         List<Geometry> gaussBufferedGeometries = new ArrayList<>();
         for (List<TrackPoint> wgs84PointsSegment : wgs84PointsSegments) {
@@ -1266,15 +1270,19 @@ public class GisUtil implements AutoCloseable {
             log.debug("点位空间判断完成，原始点位数：{}，筛选后点位数：{}，耗时：{}ms",
                     filteredWgs84Points.size(), wgs84PointsSegment.size(), (endTime - startTime));
 
-            OutlinePart outlinePart = new OutlinePart();
-            outlinePart.setTotalWidthM(totalWidthM);
-            outlinePart.setOutline(gaussUnionGeometry);
-            outlinePart.setWkt(wgs84Geometry.toText());
-            outlinePart.setMu(calcMuByWgs84Geometry(wgs84Geometry));
-            outlinePart.setTrackPoints(wgs84PointsSegment);
-            outlinePart.setStartTime(wgs84PointsSegment.get(0).getTime());
-            outlinePart.setEndTime(wgs84PointsSegment.get(wgs84PointsSegment.size() - 1).getTime());
-            outlineParts.add(outlinePart);
+            if (wgs84PointsSegment.size() > config.MIN_POLYGON_POINTS) {
+                OutlinePart outlinePart = new OutlinePart();
+                outlinePart.setTotalWidthM(totalWidthM);
+                outlinePart.setOutline(gaussUnionGeometry);
+                outlinePart.setWkt(wgs84Geometry.toText());
+                outlinePart.setMu(calcMuByWgs84Geometry(wgs84Geometry));
+                outlinePart.setTrackPoints(wgs84PointsSegment);
+                outlinePart.setStartTime(wgs84PointsSegment.get(0).getTime());
+                outlinePart.setEndTime(wgs84PointsSegment.get(wgs84PointsSegment.size() - 1).getTime());
+                outlineParts.add(outlinePart);
+            } else {
+                log.warn("筛选后点位数不足{}，跳过", config.MIN_POLYGON_POINTS);
+            }
         } else if (gaussUnionGeometry instanceof MultiPolygon) {
             MultiPolygon multiPolygon = (MultiPolygon) gaussUnionGeometry;
             for (int i = 0; i < multiPolygon.getNumGeometries(); i++) {
@@ -1318,15 +1326,19 @@ public class GisUtil implements AutoCloseable {
                 log.debug("多边形{}点位空间判断完成，原始点位数：{}，筛选后点位数：{}，耗时：{}ms",
                         i, filteredWgs84Points.size(), wgs84PointsSegment.size(), (endTime - startTime));
 
-                OutlinePart outlinePart = new OutlinePart();
-                outlinePart.setTotalWidthM(totalWidthM);
-                outlinePart.setOutline(gaussGeometry);
-                outlinePart.setWkt(wgs84Geometry.toText());
-                outlinePart.setMu(calcMuByWgs84Geometry(wgs84Geometry));
-                outlinePart.setTrackPoints(wgs84PointsSegment);
-                outlinePart.setStartTime(wgs84PointsSegment.get(0).getTime());
-                outlinePart.setEndTime(wgs84PointsSegment.get(wgs84PointsSegment.size() - 1).getTime());
-                outlineParts.add(outlinePart);
+                if (wgs84PointsSegment.size() > config.MIN_POLYGON_POINTS) {
+                    OutlinePart outlinePart = new OutlinePart();
+                    outlinePart.setTotalWidthM(totalWidthM);
+                    outlinePart.setOutline(gaussGeometry);
+                    outlinePart.setWkt(wgs84Geometry.toText());
+                    outlinePart.setMu(calcMuByWgs84Geometry(wgs84Geometry));
+                    outlinePart.setTrackPoints(wgs84PointsSegment);
+                    outlinePart.setStartTime(wgs84PointsSegment.get(0).getTime());
+                    outlinePart.setEndTime(wgs84PointsSegment.get(wgs84PointsSegment.size() - 1).getTime());
+                    outlineParts.add(outlinePart);
+                } else {
+                    log.warn("筛选后点位数不足{}，跳过", config.MIN_POLYGON_POINTS);
+                }
             }
         }
 
