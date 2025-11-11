@@ -1082,7 +1082,7 @@ public class GisUtil implements AutoCloseable {
         // 根据最小有效时间间隔动态设置最小多边形点数
         int dynamicMinPolygonPoints;
         if (minEffectiveInterval == 1) {
-            dynamicMinPolygonPoints = 60; // 1秒间隔需要60个点
+            dynamicMinPolygonPoints = 120; // 1秒间隔需要120个点
         } else {
             dynamicMinPolygonPoints = 30; // 其他间隔需要30个点
         }
@@ -1109,8 +1109,7 @@ public class GisUtil implements AutoCloseable {
         }
 
         int timeCutThreshold = minEffectiveInterval + 1; // 时间切割阈值
-        log.debug("按照间隔速度、间隔时间、间隔距离切分成多段轨迹，速度超过{}米/秒或者时间间隔超过{}秒，或者距离间隔超过{}米，就拆分轨迹段", config.MAX_SPEED, timeCutThreshold,
-                Math.max(5, totalWidthM * minEffectiveInterval));
+        log.debug("按照间隔速度、间隔时间、间隔距离切分成多段轨迹");
         List<List<TrackPoint>> wgs84PointsSegments = new ArrayList<>();
         List<TrackPoint> currentSegment = new ArrayList<>();
         TrackPoint prevPoint = null;
