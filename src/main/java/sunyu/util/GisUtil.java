@@ -1454,7 +1454,7 @@ public class GisUtil implements AutoCloseable {
         result.setMu(Math.round(totalMu * 10000.0) / 10000.0);
 
         log.debug("最终生成区块数量：{}块，总亩数：{}亩，最终几何类型：{}",
-                outlineParts.size(), result.getMu(), finalOutlineGeometry.getGeometryType());
+                finalOutlineGeometry.getNumGeometries(), result.getMu(), finalOutlineGeometry.getGeometryType());
 
         return result;
     }
