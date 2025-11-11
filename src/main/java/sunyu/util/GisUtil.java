@@ -8,6 +8,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 
 import org.geotools.geometry.jts.JTS;
 import org.geotools.referencing.CRS;
@@ -15,6 +16,7 @@ import org.geotools.referencing.crs.DefaultGeographicCRS;
 import org.locationtech.jts.geom.Coordinate;
 import org.locationtech.jts.geom.Envelope;
 import org.locationtech.jts.geom.Geometry;
+import org.locationtech.jts.geom.GeometryCollection;
 import org.locationtech.jts.geom.GeometryFactory;
 import org.locationtech.jts.geom.LineString;
 import org.locationtech.jts.geom.MultiPolygon;
@@ -98,9 +100,6 @@ public class GisUtil implements AutoCloseable {
 
         // 最大速度（单位：米/秒），我们认为农机在田间作业，最大速度不会超过19米/秒
         private final double MAX_SPEED = 19.0;
-
-        // 最终合并后多边形最小点数阈值，用于过滤小的多边形
-        private final int MIN_POLYGON_POINTS = 30;
 
         // 几何合并后的膨胀收缩距离（米），用于消除细小缝隙
         private final double MORPHOLOGY_DISTANCE = 0.1;
@@ -1080,6 +1079,15 @@ public class GisUtil implements AutoCloseable {
         }
         log.info("最小有效时间间隔：{}秒（点数最多的时间间隔）", minEffectiveInterval);
 
+        // 根据最小有效时间间隔动态设置最小多边形点数
+        int dynamicMinPolygonPoints;
+        if (minEffectiveInterval == 1) {
+            dynamicMinPolygonPoints = 60; // 1秒间隔需要60个点
+        } else {
+            dynamicMinPolygonPoints = 30; // 其他间隔需要30个点
+        }
+        log.debug("根据最小有效时间间隔{}秒，设置最小多边形点数为{}个", minEffectiveInterval, dynamicMinPolygonPoints);
+
         log.debug("过滤时间为空、经纬度异常、经纬度为0、速度为0、方向角异常的轨迹点");
         List<TrackPoint> filteredWgs84Points = new ArrayList<>();
         for (TrackPoint point : wgs84Points) {
@@ -1175,15 +1183,91 @@ public class GisUtil implements AutoCloseable {
                     gaussCoordinates[i] = new Coordinate(point.getLon(), point.getLat());
                 }
 
-                // 2. 创建LineString
-                LineString lineString = config.geometryFactory.createLineString(gaussCoordinates);
-                log.debug("创建线几何成功，点数：{}", gaussCoordinates.length);
-
-                // 3. 执行缓冲操作：总宽度的一半作为缓冲距离
+                // 2. 执行缓冲操作：根据点数决定分批处理或直接处理
                 double bufferDistance = totalWidthM / 2.0;
-                log.debug("执行缓冲操作，缓冲距离：{}米", totalWidthM / 2.0);
-                Geometry gaussBufferedGeometry = lineString.buffer(bufferDistance);
-                log.debug("线缓冲成功，缓冲距离：{}米，结果几何类型：{}", bufferDistance, gaussBufferedGeometry.getGeometryType());
+                Geometry gaussBufferedGeometry;
+
+                if (gaussCoordinates.length > 500) {
+                    log.debug("点数过多({}个)，采用分批并发处理，缓冲距离：{}米", gaussCoordinates.length, bufferDistance);
+
+                    // 分批处理参数
+                    final int batchSize = 500; // 每批500个点
+                    final int overlapSize = 50; // 批次间重叠50个点确保连续性
+                    final List<Geometry> batchGeometries = new ArrayList<>();
+
+                    // 使用并行流处理批次
+                    IntStream
+                            .range(0,
+                                    (gaussCoordinates.length + batchSize - overlapSize - 1) / (batchSize - overlapSize))
+                            .parallel()
+                            .forEach(batchIndex -> {
+                                int startIdx = batchIndex * (batchSize - overlapSize);
+                                int endIdx = Math.min(startIdx + batchSize, gaussCoordinates.length);
+
+                                // 确保至少有两个点才能创建LineString
+                                if (endIdx - startIdx >= 2) {
+                                    Coordinate[] batchCoords = new Coordinate[endIdx - startIdx];
+                                    System.arraycopy(gaussCoordinates, startIdx, batchCoords, 0, endIdx - startIdx);
+
+                                    try {
+                                        LineString batchLine = config.geometryFactory.createLineString(batchCoords);
+                                        Geometry batchBuffer = batchLine.buffer(bufferDistance);
+
+                                        if (!batchBuffer.isEmpty()) {
+                                            synchronized (batchGeometries) {
+                                                batchGeometries.add(batchBuffer);
+                                            }
+                                        }
+
+                                        log.debug("批次{}处理完成：点数={}, 缓冲类型={}",
+                                                batchIndex + 1, batchCoords.length, batchBuffer.getGeometryType());
+                                    } catch (Exception e) {
+                                        log.warn("批次{}处理失败：{}", batchIndex + 1, e.getMessage());
+                                    }
+                                }
+                            });
+
+                    // 合并所有批次结果
+                    if (batchGeometries.isEmpty()) {
+                        log.warn("所有批次处理失败，回退到简化处理");
+                        // 简化处理：每10个点取一个点
+                        int step = Math.max(1, gaussCoordinates.length / 300);
+                        Coordinate[] simplifiedCoords = new Coordinate[(gaussCoordinates.length + step - 1) / step];
+                        for (int i = 0, j = 0; i < gaussCoordinates.length; i += step, j++) {
+                            simplifiedCoords[j] = gaussCoordinates[i];
+                        }
+                        // 确保终点被包含
+                        if (simplifiedCoords.length > 1 && simplifiedCoords[simplifiedCoords.length
+                                - 1] != gaussCoordinates[gaussCoordinates.length - 1]) {
+                            simplifiedCoords[simplifiedCoords.length - 1] = gaussCoordinates[gaussCoordinates.length
+                                    - 1];
+                        }
+
+                        LineString simplifiedLine = config.geometryFactory.createLineString(simplifiedCoords);
+                        gaussBufferedGeometry = simplifiedLine.buffer(bufferDistance);
+                        log.debug("简化处理完成：原始点数={}, 简化后点数={}, 缓冲类型={}",
+                                gaussCoordinates.length, simplifiedCoords.length,
+                                gaussBufferedGeometry.getGeometryType());
+                    } else {
+                        // 使用union合并所有批次结果
+                        try {
+                            GeometryCollection geomCollection = config.geometryFactory.createGeometryCollection(
+                                    batchGeometries.toArray(new Geometry[0]));
+                            gaussBufferedGeometry = geomCollection.union();
+                            log.debug("批次合并完成：批次数量={}, 合并后几何类型={}",
+                                    batchGeometries.size(), gaussBufferedGeometry.getGeometryType());
+                        } catch (Exception e) {
+                            log.warn("批次合并失败：{}，使用第一个批次结果", e.getMessage());
+                            gaussBufferedGeometry = batchGeometries.get(0);
+                        }
+                    }
+                } else {
+                    // 点数较少时直接处理
+                    log.debug("直接处理，点数：{}，缓冲距离：{}米", gaussCoordinates.length, bufferDistance);
+                    LineString lineString = config.geometryFactory.createLineString(gaussCoordinates);
+                    gaussBufferedGeometry = lineString.buffer(bufferDistance);
+                    log.debug("线缓冲成功，结果几何类型：{}", gaussBufferedGeometry.getGeometryType());
+                }
 
                 gaussBufferedGeometries.add(gaussBufferedGeometry);
             } catch (Exception e) {
@@ -1271,7 +1355,7 @@ public class GisUtil implements AutoCloseable {
             log.debug("点位空间判断完成，原始点位数：{}，筛选后点位数：{}，耗时：{}ms",
                     filteredWgs84Points.size(), wgs84PointsSegment.size(), (endTime - startTime));
 
-            if (wgs84PointsSegment.size() > config.MIN_POLYGON_POINTS) {
+            if (wgs84PointsSegment.size() > dynamicMinPolygonPoints) {
                 OutlinePart outlinePart = new OutlinePart();
                 outlinePart.setTotalWidthM(totalWidthM);
                 outlinePart.setOutline(gaussUnionGeometry);
@@ -1282,7 +1366,7 @@ public class GisUtil implements AutoCloseable {
                 outlinePart.setEndTime(wgs84PointsSegment.get(wgs84PointsSegment.size() - 1).getTime());
                 outlineParts.add(outlinePart);
             } else {
-                log.warn("筛选后点位数不足{}，跳过", config.MIN_POLYGON_POINTS);
+                log.warn("筛选后点位数不足{}，跳过", dynamicMinPolygonPoints);
             }
         } else if (gaussUnionGeometry instanceof MultiPolygon) {
             MultiPolygon multiPolygon = (MultiPolygon) gaussUnionGeometry;
@@ -1327,7 +1411,7 @@ public class GisUtil implements AutoCloseable {
                 log.debug("多边形{}点位空间判断完成，原始点位数：{}，筛选后点位数：{}，耗时：{}ms",
                         i, filteredWgs84Points.size(), wgs84PointsSegment.size(), (endTime - startTime));
 
-                if (wgs84PointsSegment.size() > config.MIN_POLYGON_POINTS) {
+                if (wgs84PointsSegment.size() > dynamicMinPolygonPoints) {
                     OutlinePart outlinePart = new OutlinePart();
                     outlinePart.setTotalWidthM(totalWidthM);
                     outlinePart.setOutline(gaussGeometry);
@@ -1338,14 +1422,31 @@ public class GisUtil implements AutoCloseable {
                     outlinePart.setEndTime(wgs84PointsSegment.get(wgs84PointsSegment.size() - 1).getTime());
                     outlineParts.add(outlinePart);
                 } else {
-                    log.warn("筛选后点位数不足{}，跳过", config.MIN_POLYGON_POINTS);
+                    log.warn("筛选后点位数不足{}，跳过", dynamicMinPolygonPoints);
                 }
             }
         }
 
+        // 重新构建只包含有效OutlinePart的几何图形
+        Geometry finalOutlineGeometry;
+        if (outlineParts.size() == 1) {
+            // 只有一个有效多边形时，直接使用该多边形
+            finalOutlineGeometry = outlineParts.get(0).getOutline();
+        } else if (outlineParts.size() > 1) {
+            // 多个有效多边形时，构建MultiPolygon
+            Geometry[] validGeometries = outlineParts.stream()
+                    .map(OutlinePart::getOutline)
+                    .toArray(Geometry[]::new);
+            finalOutlineGeometry = config.geometryFactory.createGeometryCollection(validGeometries).union();
+        } else {
+            // 没有有效多边形，回退到原始几何
+            finalOutlineGeometry = gaussUnionGeometry;
+            log.warn("没有有效区块，回退到原始几何");
+        }
+
         // 4. 设置结果
-        result.setOutline(gaussUnionGeometry);
-        result.setWkt(gaussGeometryToWgs84WKT(gaussUnionGeometry));
+        result.setOutline(finalOutlineGeometry);
+        result.setWkt(gaussGeometryToWgs84WKT(finalOutlineGeometry));
         result.setParts(outlineParts);
         double totalMu = outlineParts != null ? outlineParts.stream()
                 .filter(Objects::nonNull)
@@ -1353,7 +1454,8 @@ public class GisUtil implements AutoCloseable {
                 .sum() : 0.0;
         result.setMu(Math.round(totalMu * 10000.0) / 10000.0);
 
-        log.debug("最终生成区块数量：{}块，总亩数：{}亩", outlineParts.size(), result.getMu());
+        log.debug("最终生成区块数量：{}块，总亩数：{}亩，最终几何类型：{}",
+                outlineParts.size(), result.getMu(), finalOutlineGeometry.getGeometryType());
 
         return result;
     }
