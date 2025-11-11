@@ -786,7 +786,7 @@ public class GisUtil implements AutoCloseable {
      * @param radius           圆的半径（单位：米）
      * @return 如果点在圆内（包含边界），返回true；否则返回false
      */
-    public boolean isPointInCircle(CoordinatePoint wgs84Point, CoordinatePoint wgs84CenterPoint, float radius) {
+    public boolean isPointInCircle(CoordinatePoint wgs84Point, CoordinatePoint wgs84CenterPoint, double radius) {
         double distance = haversine(wgs84Point, wgs84CenterPoint);
         return distance <= radius;
     }

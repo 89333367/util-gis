@@ -79,6 +79,15 @@ public class TestGisUtil {
     }
 
     @Test
+    void 测试点是否在圆中() {
+        CoordinatePoint p = new CoordinatePoint(116.55470301, 40.21296700);
+        CoordinatePoint center = new CoordinatePoint(116.55560000, 40.21296700); // 向东偏移约100米
+        double radius = 10.0;
+        boolean isIn = gisUtil.isPointInCircle(p, center, radius);
+        log.info("点是否在圆中: {}", isIn);
+    }
+
+    @Test
     void 测试两点距离() {
         CoordinatePoint p1 = new CoordinatePoint(116.55470301, 40.21296700);
         CoordinatePoint p2 = new CoordinatePoint(116.55473883, 40.21364248);
