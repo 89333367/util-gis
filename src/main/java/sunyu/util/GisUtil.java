@@ -3,9 +3,11 @@ package sunyu.util;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
@@ -16,7 +18,6 @@ import org.geotools.referencing.crs.DefaultGeographicCRS;
 import org.locationtech.jts.geom.Coordinate;
 import org.locationtech.jts.geom.Envelope;
 import org.locationtech.jts.geom.Geometry;
-import org.locationtech.jts.geom.GeometryCollection;
 import org.locationtech.jts.geom.GeometryFactory;
 import org.locationtech.jts.geom.LineString;
 import org.locationtech.jts.geom.MultiPolygon;
@@ -24,6 +25,7 @@ import org.locationtech.jts.geom.Point;
 import org.locationtech.jts.geom.Polygon;
 import org.locationtech.jts.geom.prep.PreparedGeometry;
 import org.locationtech.jts.geom.prep.PreparedGeometryFactory;
+import org.locationtech.jts.index.strtree.STRtree;
 import org.locationtech.jts.io.ParseException;
 import org.locationtech.jts.io.WKTReader;
 import org.opengis.referencing.crs.CoordinateReferenceSystem;
@@ -432,6 +434,194 @@ public class GisUtil implements AutoCloseable {
 
         area = Math.abs(area) * config.EARTH_RADIUS * config.EARTH_RADIUS;
         return area;
+    }
+
+    /**
+     * 分层并行合并多个几何体，优化大数据量合并性能
+     * 新增空间距离判断：只有相邻或重叠的几何体才需要合并
+     * 
+     * @param geometries 待合并的几何体列表
+     * @return 合并后的几何体
+     */
+    private Geometry parallelUnionGeometries(List<Geometry> geometries) {
+        if (geometries.isEmpty()) {
+            return config.geometryFactory.createGeometryCollection(new Geometry[0]);
+        }
+        if (geometries.size() == 1) {
+            return geometries.get(0);
+        }
+
+        // 对于小数量批次，使用串行合并更高效
+        if (geometries.size() <= 4) {
+            return sequentialUnion(geometries);
+        }
+
+        // 使用空间索引进行分组，只有相邻的几何体才需要合并
+        return mergeGeometriesWithSpatialIndex(geometries);
+    }
+
+    /**
+     * 串行合并几何体（适用于小数量）
+     */
+    private Geometry sequentialUnion(List<Geometry> geometries) {
+        Geometry result = geometries.get(0);
+        for (int i = 1; i < geometries.size(); i++) {
+            try {
+                result = result.union(geometries.get(i));
+            } catch (Exception e) {
+                log.warn("几何体合并失败，跳过该几何体: {}", e.getMessage());
+            }
+        }
+        return result;
+    }
+
+    /**
+     * 使用空间索引进行智能分组合并
+     * 只有相邻或重叠的几何体才需要合并，避免不必要的计算
+     */
+    private Geometry mergeGeometriesWithSpatialIndex(List<Geometry> geometries) {
+        if (geometries.size() <= 4) {
+            return sequentialUnion(geometries);
+        }
+
+        log.debug("使用空间索引进行智能分组合并，几何体数量={}", geometries.size());
+
+        // 创建空间索引
+        STRtree spatialIndex = new STRtree();
+        for (int i = 0; i < geometries.size(); i++) {
+            spatialIndex.insert(geometries.get(i).getEnvelopeInternal(), i);
+        }
+        spatialIndex.build();
+
+        // 分组：找到相互重叠或相邻的几何体
+        List<List<Integer>> groups = new ArrayList<>();
+        Set<Integer> processed = new HashSet<>();
+
+        for (int i = 0; i < geometries.size(); i++) {
+            if (processed.contains(i)) {
+                continue;
+            }
+
+            // 找到与当前几何体相交的所有几何体
+            List<Integer> group = new ArrayList<>();
+            findConnectedGroup(i, geometries, spatialIndex, processed, group);
+
+            if (!group.isEmpty()) {
+                groups.add(group);
+            }
+        }
+
+        log.debug("空间分组完成：{}个几何体被分为{}个组", geometries.size(), groups.size());
+
+        // 如果所有几何体都在一个组中，使用分层并行合并
+        if (groups.size() == 1) {
+            return mergeGeometryLevel(geometries);
+        }
+
+        // 分别合并每个组，然后组合结果
+        List<Geometry> groupResults = new ArrayList<>();
+        for (List<Integer> group : groups) {
+            if (group.size() == 1) {
+                groupResults.add(geometries.get(group.get(0)));
+            } else {
+                List<Geometry> groupGeometries = group.stream()
+                        .map(geometries::get)
+                        .collect(Collectors.toList());
+                Geometry merged = mergeGeometryLevel(groupGeometries);
+                groupResults.add(merged);
+            }
+        }
+
+        // 如果只有一组结果，直接返回
+        if (groupResults.size() == 1) {
+            return groupResults.get(0);
+        }
+
+        // 多组结果，创建GeometryCollection
+        return config.geometryFactory.createGeometryCollection(
+                groupResults.toArray(new Geometry[0]));
+    }
+
+    /**
+     * 找到连通的几何体组（递归）
+     */
+    private void findConnectedGroup(int startIndex, List<Geometry> geometries,
+            STRtree spatialIndex, Set<Integer> processed, List<Integer> group) {
+        if (processed.contains(startIndex)) {
+            return;
+        }
+
+        processed.add(startIndex);
+        group.add(startIndex);
+
+        Geometry startGeom = geometries.get(startIndex);
+
+        // 扩大边界框进行搜索（考虑相邻但不完全重叠的情况）
+        Envelope searchEnv = startGeom.getEnvelopeInternal();
+        double expansion = 10.0; // 扩展10米，考虑相邻情况
+        searchEnv.expandBy(expansion);
+
+        List<?> rawCandidates = spatialIndex.query(searchEnv);
+        List<Integer> candidates = rawCandidates.stream()
+                .filter(obj -> obj instanceof Integer)
+                .map(obj -> (Integer) obj)
+                .collect(Collectors.toList());
+
+        for (Integer candidate : candidates) {
+            if (processed.contains(candidate)) {
+                continue;
+            }
+
+            // 检查是否真正相交或相邻
+            Geometry candidateGeom = geometries.get(candidate);
+            if (startGeom.intersects(candidateGeom) ||
+                    startGeom.distance(candidateGeom) < expansion) {
+                findConnectedGroup(candidate, geometries, spatialIndex, processed, group);
+            }
+        }
+    }
+
+    /**
+     * 递归合并几何体层级（保持原有逻辑）
+     * 
+     * @param geometries 当前层级的几何体列表
+     * @return 合并后的几何体
+     */
+    private Geometry mergeGeometryLevel(List<Geometry> geometries) {
+        if (geometries.size() <= 1) {
+            return geometries.isEmpty() ? config.geometryFactory.createGeometryCollection(new Geometry[0])
+                    : geometries.get(0);
+        }
+
+        // 对于较小的集合，直接使用串行合并
+        if (geometries.size() <= 4) {
+            return sequentialUnion(geometries);
+        }
+
+        // 并行处理当前层的两两合并
+        int pairs = geometries.size() / 2;
+        List<Geometry> mergedPairs = IntStream.range(0, pairs)
+                .parallel()
+                .mapToObj(i -> {
+                    Geometry geom1 = geometries.get(i * 2);
+                    Geometry geom2 = geometries.get(i * 2 + 1);
+                    try {
+                        return geom1.union(geom2);
+                    } catch (Exception e) {
+                        log.warn("几何体合并失败，返回第一个几何体: {}", e.getMessage());
+                        return geom1;
+                    }
+                })
+                .collect(Collectors.toList());
+
+        // 处理剩余的单个几何体
+        List<Geometry> nextLevel = new ArrayList<>(mergedPairs);
+        if (geometries.size() % 2 == 1) {
+            nextLevel.add(geometries.get(geometries.size() - 1));
+        }
+
+        // 递归处理下一层
+        return mergeGeometryLevel(nextLevel);
     }
 
     /**
@@ -1248,11 +1438,10 @@ public class GisUtil implements AutoCloseable {
                                 gaussCoordinates.length, simplifiedCoords.length,
                                 gaussBufferedGeometry.getGeometryType());
                     } else {
-                        // 使用union合并所有批次结果
+                        // 使用分层并行合并策略优化性能
                         try {
-                            GeometryCollection geomCollection = config.geometryFactory.createGeometryCollection(
-                                    batchGeometries.toArray(new Geometry[0]));
-                            gaussBufferedGeometry = geomCollection.union();
+                            log.debug("批次合并开始，批次数量={}", batchGeometries.size());
+                            gaussBufferedGeometry = parallelUnionGeometries(batchGeometries);
                             log.debug("批次合并完成：批次数量={}, 合并后几何类型={}",
                                     batchGeometries.size(), gaussBufferedGeometry.getGeometryType());
                         } catch (Exception e) {
