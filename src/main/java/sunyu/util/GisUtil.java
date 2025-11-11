@@ -265,6 +265,12 @@ public class GisUtil implements AutoCloseable {
         }
     }
 
+    /**
+     * 将高斯投影坐标系下的几何图形转换为WGS84坐标系下的几何图形
+     * 
+     * @param gaussGeometry 高斯投影坐标系下的几何图形
+     * @return WGS84坐标系下的几何图形
+     */
     private Geometry gaussGeometryToWgs84Geometry(Geometry gaussGeometry) {
         try {
             // 获取几何图形的边界信息来反推高斯投影参数
@@ -592,6 +598,9 @@ public class GisUtil implements AutoCloseable {
 
     /**
      * 从MULTIPOLYGON WKT中提取所有多边形WKT
+     * 
+     * @param multiWKT MULTIPOLYGON WKT字符串
+     * @return 包含所有多边形WKT的列表
      */
     private List<String> extractPolygonsFromMultiWKT(String multiWKT) {
         List<String> polygons = new ArrayList<>();
@@ -625,6 +634,9 @@ public class GisUtil implements AutoCloseable {
 
     /**
      * 计算单个POLYGON的面积（平方米）
+     * 
+     * @param polygonWKT POLYGON WKT字符串
+     * @return 多边形面积（平方米）
      */
     private double calculatePolygonAreaFromWKT(String polygonWKT) {
         // 提取外环和内环坐标
@@ -649,6 +661,9 @@ public class GisUtil implements AutoCloseable {
 
     /**
      * 从POLYGON WKT中提取所有环（外环和内环）
+     * 
+     * @param polygonWKT POLYGON WKT字符串
+     * @return 包含所有环坐标的列表，每个环是一个坐标点列表
      */
     private List<List<double[]>> extractRingsFromPolygonWKT(String polygonWKT) {
         List<List<double[]>> rings = new ArrayList<>();
@@ -686,6 +701,9 @@ public class GisUtil implements AutoCloseable {
 
     /**
      * 解析坐标字符串为坐标列表
+     * 
+     * @param coordStr 坐标字符串，格式为"经度 纬度, 经度 纬度, ..."
+     * @return 包含所有有效坐标点的列表，每个坐标点是一个double数组，[经度, 纬度]
      */
     private List<double[]> parseCoordinates(String coordStr) {
         List<double[]> coordinates = new ArrayList<>();
@@ -731,6 +749,9 @@ public class GisUtil implements AutoCloseable {
     /**
      * 计算单个环的面积（平方米）
      * 使用与Turf.js相同的球面面积算法
+     * 
+     * @param coordinates 环的坐标点列表，每个坐标点是一个double数组，[经度, 纬度]
+     * @return 环的面积（平方米）
      */
     private double calculateRingArea(List<double[]> coordinates) {
         if (coordinates.size() < 3) {
@@ -756,6 +777,25 @@ public class GisUtil implements AutoCloseable {
         return area;
     }
 
+    /**
+     * 判断点是否在圆内（包含边界）
+     * 
+     * @param point  要判断的点
+     * @param center 圆的中心点
+     * @param radius 圆的半径（单位：米）
+     * @return 如果点在圆内（包含边界），返回true；否则返回false
+     */
+    public boolean isPointInCircle(CoordinatePoint point, CoordinatePoint center, float radius) {
+        double distance = haversine(point, center);
+        return distance <= radius;
+    }
+
+    /**
+     * 计算WGS84坐标系下的几何图形面积（亩）
+     * 
+     * @param wgs84Geometry WGS84坐标系下的几何图形
+     * @return 几何图形的面积（亩）
+     */
     public double calcMuByWgs84Geometry(Geometry wgs84Geometry) {
         if (wgs84Geometry == null || wgs84Geometry.isEmpty()) {
             return 0.0;
@@ -774,6 +814,12 @@ public class GisUtil implements AutoCloseable {
         }
     }
 
+    /**
+     * 从WGS84 WKT字符串计算几何图形面积（亩）
+     * 
+     * @param wgs84WKT WGS84坐标系下的WKT字符串
+     * @return 几何图形的面积（亩）
+     */
     public double calcMuByWgs84WKT(String wgs84WKT) {
         if (wgs84WKT == null || wgs84WKT.trim().isEmpty()) {
             log.warn("WKT字符串为空或null");
@@ -796,6 +842,13 @@ public class GisUtil implements AutoCloseable {
         }
     }
 
+    /**
+     * 计算WGS84坐标系下两点之间的球面距离（米）
+     * 
+     * @param p1 第一个点
+     * @param p2 第二个点
+     * @return 两点之间的距离（米）
+     */
     public double haversine(CoordinatePoint p1, CoordinatePoint p2) {
         double lon1 = Math.toRadians(p1.getLon());
         double lat1 = Math.toRadians(p1.getLat());
@@ -814,6 +867,13 @@ public class GisUtil implements AutoCloseable {
         return config.EARTH_RADIUS * c;
     }
 
+    /**
+     * 计算WGS84坐标系下两个几何图形的相交轮廓
+     * 
+     * @param wgs84WKT1 第一个WGS84几何图形的WKT字符串
+     * @param wgs84WKT2 第二个WGS84几何图形的WKT字符串
+     * @return 包含相交轮廓WKT字符串(WGS84坐标系)和面积（亩）的结果对象
+     */
     public WktIntersectionResult intersection(String wgs84WKT1, String wgs84WKT2) {
         WktIntersectionResult result = new WktIntersectionResult();
         result.setWkt(config.EMPTYGEOM.toText());
@@ -875,6 +935,13 @@ public class GisUtil implements AutoCloseable {
         return result;
     }
 
+    /**
+     * 拆分WGS84坐标系下的轨迹点为多个区块
+     * 
+     * @param wgs84Points WGS84坐标系下的轨迹点列表
+     * @param totalWidthM 幅宽（米）
+     * @return 包含拆分结果的对象
+     */
     public SplitRoadResult splitRoad(List<TrackPoint> wgs84Points, double totalWidthM) {
         SplitRoadResult result = new SplitRoadResult();
         result.setTotalWidthM(totalWidthM);
