@@ -138,466 +138,6 @@ public class GisUtil implements AutoCloseable {
     }
 
     /**
-     * 从缓存获取或创建高斯投影CRS
-     * 
-     * @param zone            投影带号
-     * @param falseEasting    假东距
-     * @param centralMeridian 中央经线
-     * @return 高斯投影CRS对象，如果创建失败返回null
-     */
-    private CoordinateReferenceSystem getOrCreateGaussCRS(int zone, double falseEasting, double centralMeridian) {
-        // 构建缓存key：zone_falseEasting_centralMeridian
-        String cacheKey = String.format("%d_%.1f_%.1f", zone, falseEasting, centralMeridian);
-
-        // 从缓存获取或创建高斯投影CRS
-        return config.gaussCRSCache.computeIfAbsent(cacheKey, key -> {
-            try {
-                String wkt = String.format(
-                        "PROJCS[\"WGS_1984_Gauss_Kruger_Zone_%d\", " +
-                                "GEOGCS[\"GCS_WGS_1984\", " +
-                                "DATUM[\"D_WGS_1984\", " +
-                                "SPHEROID[\"WGS_1984\",6378137.0,298.257223563]], " +
-                                "PRIMEM[\"Greenwich\",0.0], " +
-                                "UNIT[\"Degree\",0.0174532925199433]], " +
-                                "PROJECTION[\"Transverse_Mercator\"], " +
-                                "PARAMETER[\"False_Easting\",%.1f], " +
-                                "PARAMETER[\"False_Northing\",0.0], " +
-                                "PARAMETER[\"Central_Meridian\",%.1f], " +
-                                "PARAMETER[\"Scale_Factor\",1.0], " +
-                                "PARAMETER[\"Latitude_Of_Origin\",0.0], " +
-                                "UNIT[\"Meter\",1.0]]",
-                        zone, falseEasting, centralMeridian);
-
-                log.debug("高斯投影CRS WKT定义：{}", wkt);
-                return CRS.parseWKT(wkt);
-            } catch (Exception e) {
-                log.warn("解析WKT失败：zone={}, falseEasting={}, centralMeridian={}, 错误={}",
-                        zone, falseEasting, centralMeridian, e.getMessage());
-                return null;
-            }
-        });
-    }
-
-    /**
-     * 将WGS84坐标点转换为高斯投影坐标点
-     * 支持全球范围，根据经度自动选择合适的高斯投影带
-     * 
-     * @param wgs84Point WGS84坐标系下的轨迹点
-     * @return 高斯投影坐标系下的轨迹点
-     */
-    private TrackPoint wgs84PointTransformToGaussPoint(TrackPoint wgs84Point) {
-        try {
-            // 获取经度和纬度
-            double longitude = wgs84Point.getLon();
-            double latitude = wgs84Point.getLat();
-
-            log.trace("=== 开始WGS84到高斯投影转换 ===");
-            log.trace("原始坐标：经度={}, 纬度={}", longitude, latitude);
-
-            // 计算高斯投影带号 (6度分带)
-            // 全球范围: 经度-180到180，对应带号1-60
-            int zone = (int) Math.floor((longitude + 180) / 6) + 1;
-            log.trace("计算投影带号：zone={}", zone);
-
-            // 计算中央经线
-            double centralMeridian = (zone - 1) * 6 - 180 + 3;
-            log.trace("计算中央经线：centralMeridian={}", centralMeridian);
-
-            // 验证投影带号的合理性
-            if (zone < 1 || zone > 60) {
-                log.warn("投影带号超出合理范围：zone={}，经度={}", zone, longitude);
-                return null;
-            }
-
-            // 创建高斯投影坐标参考系统（使用缓存避免重复解析WKT）
-            // 全球支持模式：假东距包含带号信息，便于识别投影带
-            // 格式：zone × 1000000 + 500000（如49带 = 49500000米）
-            double falseEasting = zone * 1000000.0 + 500000.0;
-            log.trace("计算假东距：falseEasting={}", falseEasting);
-
-            // 从缓存获取或创建高斯投影CRS
-            CoordinateReferenceSystem gaussCRS = getOrCreateGaussCRS(zone, falseEasting, centralMeridian);
-
-            // 构建缓存key（用于transform缓存）
-            String cacheKey = String.format("%d_%.1f_%.1f", zone, falseEasting, centralMeridian);
-
-            // 从缓存获取或创建WGS84到高斯投影的坐标转换
-            MathTransform transform = config.wgs84ToGaussTransformCache.computeIfAbsent(cacheKey, key -> {
-                try {
-                    return CRS.findMathTransform(config.WGS84_CRS, gaussCRS, true);
-                } catch (Exception e) {
-                    log.warn("创建坐标转换失败：zone={}, falseEasting={}, centralMeridian={}, 错误={}",
-                            zone, falseEasting, centralMeridian, e.getMessage());
-                    return null;
-                }
-            });
-
-            // 执行坐标转换
-            Coordinate sourceCoord = new Coordinate(longitude, latitude);
-            Coordinate targetCoord = new Coordinate();
-
-            JTS.transform(sourceCoord, targetCoord, transform);
-
-            log.trace("转换结果：X={}, Y={}", targetCoord.x, targetCoord.y);
-
-            // 验证转换结果的合理性（全球范围）
-            // X坐标：最小1带=150万米，最大60带=6050万米，加上实际坐标范围±350万米
-            // 合理范围：50万-6400万米（更宽松的范围，允许边界情况）
-            // Y坐标：全球纬度范围对应约±1000万米
-            if (targetCoord.x < 500000 || targetCoord.x > 64000000 || targetCoord.y < -10000000
-                    || targetCoord.y > 10000000) {
-                log.warn("转换结果超出全球合理范围：X={}, Y={}, zone={}", targetCoord.x, targetCoord.y, zone);
-                return null;
-            }
-
-            // 创建新的轨迹点，保持原有属性，只更新坐标
-            TrackPoint result = new TrackPoint();
-            result.setTime(wgs84Point.getTime());
-            result.setLon(targetCoord.x); // X坐标（东向）
-            result.setLat(targetCoord.y); // Y坐标（北向）
-            result.setSpeed(wgs84Point.getSpeed());
-            result.setDirection(wgs84Point.getDirection());
-
-            log.trace("=== WGS84到高斯投影转换完成 ===");
-            return result;
-        } catch (Exception e) {
-            log.warn("坐标转换失败：经度={}, 纬度={}, 错误={}", wgs84Point.getLon(), wgs84Point.getLat(), e.getMessage());
-            return null;
-        }
-    }
-
-    /**
-     * 将高斯投影坐标系下的几何图形转换为WGS84坐标系下的几何图形
-     * 
-     * @param gaussGeometry 高斯投影坐标系下的几何图形
-     * @return WGS84坐标系下的几何图形
-     */
-    private Geometry gaussGeometryToWgs84Geometry(Geometry gaussGeometry) {
-        try {
-            // 获取几何图形的边界信息来反推高斯投影参数
-            Envelope env = gaussGeometry.getEnvelopeInternal();
-            double centerX = (env.getMinX() + env.getMaxX()) / 2.0;
-
-            log.debug("高斯投影几何到WGS84投影几何转换开始");
-            log.trace("高斯几何边界：MinX={}, MaxX={}, MinY={}, MaxY={}",
-                    env.getMinX(), env.getMaxX(), env.getMinY(), env.getMaxY());
-            log.trace("几何中心X坐标：centerX={}", centerX);
-
-            // 验证高斯投影坐标的合理性
-            // 高斯投影X坐标合理范围：50万-6400万米（对应全球1-60带，更宽松的范围）
-            // 高斯投影Y坐标合理范围：±1000万米（对应全球纬度范围）
-            if (env.getMinX() < 500000 || env.getMaxX() > 64000000 ||
-                    env.getMinY() < -10000000 || env.getMaxY() > 10000000) {
-                log.warn("高斯投影坐标超出合理范围：MinX={}, MaxX={}, MinY={}, MaxY={}",
-                        env.getMinX(), env.getMaxX(), env.getMinY(), env.getMaxY());
-                return config.EMPTYGEOM;
-            }
-
-            // 智能确定投影带号策略
-            // 1. 首先尝试根据几何中心反推带号
-            int zone = (int) Math.floor(centerX / 1000000.0);
-            log.trace("反推计算的投影带号：zone={}, centerX={}", zone, centerX);
-
-            // 2. 如果几何范围跨越多个投影带（宽度超过100万米），使用更保守的策略
-            double geometryWidth = env.getMaxX() - env.getMinX();
-            if (geometryWidth > 1000000) {
-                log.warn("几何图形宽度{}米，可能跨越多个投影带，使用保守策略", geometryWidth);
-                // 对于宽几何，优先使用中间带号，并验证整个几何范围
-                if (zone < 1 || zone > 60) {
-                    log.warn("无法确定合适的投影带号：centerX={}", centerX);
-                    return config.EMPTYGEOM;
-                }
-            } else if (zone < 1 || zone > 60) {
-                log.warn("反推的投影带号不合理：zone={}, centerX={}", zone, centerX);
-                // 尝试备用策略：如果zone不合理，可能是假东距计算问题，尝试重新计算
-                log.trace("尝试备用策略重新计算投影带号");
-                int backupZone = (int) Math.floor((centerX - 500000.0) / 1000000.0);
-                log.trace("备用策略计算的投影带号：zone={}", backupZone);
-                if (backupZone < 1 || backupZone > 60) {
-                    log.warn("备用策略仍然无法确定合适的投影带号：centerX={}", centerX);
-                    return config.EMPTYGEOM;
-                }
-                zone = backupZone;
-            }
-
-            // 计算中央经线（与wgs84PointTransformToGaussPoint方法保持一致）
-            double centralMeridian = (zone - 1) * 6 - 180 + 3;
-            double falseEasting = zone * 1000000.0 + 500000.0;
-            log.trace("计算投影参数：zone={}, centralMeridian={}, falseEasting={}", zone, centralMeridian, falseEasting);
-
-            // 从缓存获取或创建高斯投影CRS
-            CoordinateReferenceSystem gaussCRS = getOrCreateGaussCRS(zone, falseEasting, centralMeridian);
-
-            if (gaussCRS == null) {
-                log.warn("无法获取高斯投影CRS：zone={}", zone);
-                return config.EMPTYGEOM;
-            }
-
-            // 构建缓存key（用于transform缓存）
-            String cacheKey = String.format("%d_%.1f_%.1f", zone, falseEasting, centralMeridian);
-
-            // 从缓存获取或创建高斯投影到WGS84的坐标转换
-            final int finalZone = zone;
-            MathTransform transform = config.gaussToWgs84TransformCache.computeIfAbsent(cacheKey, key -> {
-                try {
-                    return CRS.findMathTransform(gaussCRS, config.WGS84_CRS, true);
-                } catch (Exception e) {
-                    log.warn("创建坐标转换失败：zone={}, falseEasting={}, centralMeridian={}, 错误={}",
-                            finalZone, falseEasting, centralMeridian, e.getMessage());
-                    return null;
-                }
-            });
-
-            if (transform == null) {
-                log.warn("无法获取坐标转换：zone={}", finalZone);
-                return config.EMPTYGEOM;
-            }
-
-            // 执行坐标转换（逆向：高斯投影 -> WGS84）
-            log.trace("zone={}, 几何点数={}", finalZone, gaussGeometry.getNumPoints());
-            Geometry wgs84Geometry = JTS.transform(gaussGeometry, transform);
-
-            // 验证转换后的WGS84坐标合理性
-            Envelope wgs84Env = wgs84Geometry.getEnvelopeInternal();
-            if (wgs84Env.getMinX() < -180 || wgs84Env.getMaxX() > 180 ||
-                    wgs84Env.getMinY() < -90 || wgs84Env.getMaxY() > 90) {
-                log.warn("转换后的WGS84坐标超出合理范围：MinLon={}, MaxLon={}, MinLat={}, MaxLat={}",
-                        wgs84Env.getMinX(), wgs84Env.getMaxX(), wgs84Env.getMinY(), wgs84Env.getMaxY());
-                return config.EMPTYGEOM;
-            }
-            log.debug("高斯投影几何到WGS84投影几何转换完成");
-            return wgs84Geometry;
-        } catch (Exception e) {
-            log.warn("高斯投影几何到WGS84投影几何转换失败：错误={}", e.getMessage());
-            return config.EMPTYGEOM;
-        }
-    }
-
-    /**
-     * 将高斯投影的几何图形转换为WGS84坐标系的WKT字符串
-     * 
-     * @param gaussGeometry 高斯投影坐标系下的几何图形
-     * @return WGS84坐标系下的WKT字符串
-     */
-    private String gaussGeometryToWgs84WKT(Geometry gaussGeometry) {
-        log.debug("高斯投影几何转换为WGS84投影WKT字符串开始");
-        Geometry wgs84Geometry = gaussGeometryToWgs84Geometry(gaussGeometry);
-        log.debug("高斯投影几何转换为WGS84投影WKT字符串完成");
-        return wgs84Geometry.toText();
-    }
-
-    /**
-     * 将WGS84坐标系的几何图形转换为高斯投影坐标系
-     * 支持全球范围，根据几何中心经度自动选择合适的高斯投影带
-     * 
-     * @param wgs84Geometry WGS84坐标系下的几何图形
-     * @return 高斯投影坐标系下的几何图形
-     */
-    private Geometry wgs84GeometryToGaussGeometry(Geometry wgs84Geometry) {
-        try {
-            if (wgs84Geometry == null || wgs84Geometry.isEmpty()) {
-                return config.EMPTYGEOM;
-            }
-
-            // 获取几何图形的边界信息来确定高斯投影参数
-            Envelope env = wgs84Geometry.getEnvelopeInternal();
-            double centerLon = (env.getMinX() + env.getMaxX()) / 2.0;
-            double centerLat = (env.getMinY() + env.getMaxY()) / 2.0;
-
-            log.debug("WGS84几何到高斯投影几何转换开始");
-            log.trace("WGS84几何边界：MinLon={}, MaxLon={}, MinLat={}, MaxLat={}",
-                    env.getMinX(), env.getMaxX(), env.getMinY(), env.getMaxY());
-            log.trace("几何中心坐标：centerLon={}, centerLat={}", centerLon, centerLat);
-
-            // 验证WGS84坐标的合理性
-            if (env.getMinX() < -180 || env.getMaxX() > 180 ||
-                    env.getMinY() < -90 || env.getMaxY() > 90) {
-                log.warn("WGS84坐标超出合理范围：MinLon={}, MaxLon={}, MinLat={}, MaxLat={}",
-                        env.getMinX(), env.getMaxX(), env.getMinY(), env.getMaxY());
-                return config.EMPTYGEOM;
-            }
-
-            // 计算高斯投影带号 (6度分带)
-            int zone = (int) Math.floor((centerLon + 180) / 6) + 1;
-            double centralMeridian = (zone - 1) * 6 - 180 + 3;
-            double falseEasting = zone * 1000000.0 + 500000.0;
-
-            // 验证投影带号的合理性
-            if (zone < 1 || zone > 60) {
-                log.warn("投影带号超出合理范围：zone={}，经度={}", zone, centerLon);
-                return config.EMPTYGEOM;
-            }
-
-            // 从缓存获取或创建高斯投影CRS
-            CoordinateReferenceSystem gaussCRS = getOrCreateGaussCRS(zone, falseEasting, centralMeridian);
-
-            // 构建缓存key（用于transform缓存）
-            String cacheKey = String.format("%d_%.1f_%.1f", zone, falseEasting, centralMeridian);
-
-            // 从缓存获取或创建WGS84到高斯投影的坐标转换
-            MathTransform transform = config.wgs84ToGaussTransformCache.computeIfAbsent(cacheKey, key -> {
-                try {
-                    return CRS.findMathTransform(config.WGS84_CRS, gaussCRS, true);
-                } catch (Exception e) {
-                    log.warn("创建坐标转换失败：zone={}, falseEasting={}, centralMeridian={}, 错误={}",
-                            zone, falseEasting, centralMeridian, e.getMessage());
-                    return null;
-                }
-            });
-
-            // 执行坐标转换（正向：WGS84 -> 高斯投影）
-            log.trace("zone={}, 几何点数={}", (int) Math.floor((centerLon + 180) / 6) + 1, wgs84Geometry.getNumPoints());
-            Geometry gaussGeometry = JTS.transform(wgs84Geometry, transform);
-
-            // 验证转换后的高斯投影坐标合理性
-            Envelope gaussEnv = gaussGeometry.getEnvelopeInternal();
-            if (gaussEnv.getMinX() < 500000 || gaussEnv.getMaxX() > 64000000 ||
-                    gaussEnv.getMinY() < -10000000 || gaussEnv.getMaxY() > 10000000) {
-                log.warn("转换后的高斯投影坐标超出合理范围：MinX={}, MaxX={}, MinY={}, MaxY={}",
-                        gaussEnv.getMinX(), gaussEnv.getMaxX(), gaussEnv.getMinY(), gaussEnv.getMaxY());
-                return config.EMPTYGEOM;
-            }
-            log.debug("WGS84几何到高斯投影几何转换完成");
-            return gaussGeometry;
-        } catch (Exception e) {
-            log.warn("WGS84几何到高斯投影几何转换失败：错误={}", e.getMessage());
-            return config.EMPTYGEOM;
-        }
-    }
-
-    /**
-     * 计算球面面积（平方米）
-     * 使用球面多边形面积公式，与Turf.js的算法保持一致
-     * 
-     * @param wgs84Geometry WGS84坐标系的几何图形
-     * @return 球面面积（平方米）
-     */
-    private double calculateSphericalArea(Geometry wgs84Geometry) {
-        if (wgs84Geometry == null || wgs84Geometry.isEmpty()) {
-            return 0.0;
-        }
-
-        double totalArea = 0.0;
-
-        if (wgs84Geometry instanceof Polygon) {
-            totalArea = calculatePolygonSphericalArea((Polygon) wgs84Geometry);
-            log.debug("单多边形面积: {}平方米", totalArea);
-        } else if (wgs84Geometry instanceof MultiPolygon) {
-            MultiPolygon multiPolygon = (MultiPolygon) wgs84Geometry;
-            for (int i = 0; i < multiPolygon.getNumGeometries(); i++) {
-                Polygon polygon = (Polygon) multiPolygon.getGeometryN(i);
-                double polyArea = calculatePolygonSphericalArea(polygon);
-                totalArea += polyArea;
-                log.debug("多边形{}面积: {}平方米", i, polyArea);
-            }
-            log.debug("MULTIPOLYGON总面积: {}平方米", totalArea);
-        }
-
-        return Math.abs(totalArea); // 确保面积为正值
-    }
-
-    /**
-     * 计算单个多边形的球面面积（平方米）
-     * 使用球面多边形面积公式，考虑地球曲率
-     * 
-     * @param wgs84Polygon WGS84坐标系的多边形
-     * @return 球面面积（平方米）
-     */
-    private double calculatePolygonSphericalArea(Polygon wgs84Polygon) {
-        // 外环面积
-        double exteriorArea = calculateRingSphericalArea(wgs84Polygon.getExteriorRing());
-        log.trace("外环面积: {}平方米", exteriorArea);
-
-        // 减去内环（孔洞）面积
-        double holesArea = 0.0;
-        for (int i = 0; i < wgs84Polygon.getNumInteriorRing(); i++) {
-            double holeArea = calculateRingSphericalArea(wgs84Polygon.getInteriorRingN(i));
-            holesArea += holeArea;
-            log.trace("内环{}面积: {}平方米", i, holeArea);
-        }
-
-        double totalArea = exteriorArea - holesArea;
-        log.trace("多边形总面积: {}平方米", totalArea);
-        return totalArea;
-    }
-
-    /**
-     * 计算线环的球面面积（平方米）
-     * 使用球面多边形面积公式：A = R² * |Σ(λi+1 - λi) * sin(φi+1 + φi)/2|
-     * 其中R为地球半径，λ为经度，φ为纬度
-     * 
-     * @param wgs84Ring 线环（WGS84坐标系，单位：度）
-     * @return 球面面积（平方米）
-     */
-    private double calculateRingSphericalArea(LineString wgs84Ring) {
-        if (wgs84Ring == null || wgs84Ring.isEmpty()) {
-            return 0.0;
-        }
-
-        org.locationtech.jts.geom.Coordinate[] coords = wgs84Ring.getCoordinates();
-        if (coords.length < 3) {
-            return 0.0; // 需要至少3个点才能形成多边形
-        }
-
-        double area = 0.0;
-
-        // 使用正确的球面多边形面积公式（与Turf.js相同）
-        for (int i = 0; i < coords.length - 1; i++) {
-            double lon1 = Math.toRadians(coords[i].x);
-            double lat1 = Math.toRadians(coords[i].y);
-            double lon2 = Math.toRadians(coords[i + 1].x);
-            double lat2 = Math.toRadians(coords[i + 1].y);
-
-            // 正确的球面面积公式：A = R² × |Σ(λi+1 - λi) × sin((φi+1 + φi)/2)|
-            area += (lon2 - lon1) * Math.sin((lat1 + lat2) / 2.0);
-        }
-
-        area = Math.abs(area) * config.EARTH_RADIUS * config.EARTH_RADIUS;
-        return area;
-    }
-
-    /**
-     * 直接从WKT字符串计算球面面积（平方米）
-     * 使用与Turf.js相同的球面面积算法，支持POLYGON和MULTIPOLYGON
-     * 
-     * @param wgs84WKT WKT字符串（WGS84坐标系）
-     * @return 球面面积（平方米）
-     */
-    private double calculateSphericalAreaFromWKT(String wgs84WKT) {
-        if (wgs84WKT == null || wgs84WKT.trim().isEmpty()) {
-            return 0.0;
-        }
-
-        wgs84WKT = wgs84WKT.trim();
-        double totalArea = 0.0;
-
-        try {
-            if (wgs84WKT.startsWith("POLYGON")) {
-                // 处理单个POLYGON
-                totalArea = calculatePolygonAreaFromWKT(wgs84WKT);
-                log.debug("POLYGON面积: {}平方米", totalArea);
-            } else if (wgs84WKT.startsWith("MULTIPOLYGON")) {
-                // 处理MULTIPOLYGON，提取所有多边形
-                List<String> polygons = extractPolygonsFromMultiWKT(wgs84WKT);
-                log.debug("MULTIPOLYGON包含 {} 个多边形", polygons.size());
-
-                for (int i = 0; i < polygons.size(); i++) {
-                    double polyArea = calculatePolygonAreaFromWKT(polygons.get(i));
-                    totalArea += polyArea;
-                    log.debug("多边形{}面积: {}平方米", i, polyArea);
-                }
-                log.debug("MULTIPOLYGON总面积: {}平方米", totalArea);
-            }
-
-        } catch (Exception e) {
-            log.warn("WKT面积计算失败: {}", e.getMessage());
-            return 0.0;
-        }
-
-        return Math.abs(totalArea);
-    }
-
-    /**
      * 从MULTIPOLYGON WKT中提取所有多边形WKT
      * 
      * @param multiWKT MULTIPOLYGON WKT字符串
@@ -779,6 +319,466 @@ public class GisUtil implements AutoCloseable {
     }
 
     /**
+     * 从缓存获取或创建高斯投影CRS
+     * 
+     * @param zone            投影带号
+     * @param falseEasting    假东距
+     * @param centralMeridian 中央经线
+     * @return 高斯投影CRS对象，如果创建失败返回null
+     */
+    private CoordinateReferenceSystem getOrCreateGaussCRS(int zone, double falseEasting, double centralMeridian) {
+        // 构建缓存key：zone_falseEasting_centralMeridian
+        String cacheKey = String.format("%d_%.1f_%.1f", zone, falseEasting, centralMeridian);
+
+        // 从缓存获取或创建高斯投影CRS
+        return config.gaussCRSCache.computeIfAbsent(cacheKey, key -> {
+            try {
+                String wkt = String.format(
+                        "PROJCS[\"WGS_1984_Gauss_Kruger_Zone_%d\", " +
+                                "GEOGCS[\"GCS_WGS_1984\", " +
+                                "DATUM[\"D_WGS_1984\", " +
+                                "SPHEROID[\"WGS_1984\",6378137.0,298.257223563]], " +
+                                "PRIMEM[\"Greenwich\",0.0], " +
+                                "UNIT[\"Degree\",0.0174532925199433]], " +
+                                "PROJECTION[\"Transverse_Mercator\"], " +
+                                "PARAMETER[\"False_Easting\",%.1f], " +
+                                "PARAMETER[\"False_Northing\",0.0], " +
+                                "PARAMETER[\"Central_Meridian\",%.1f], " +
+                                "PARAMETER[\"Scale_Factor\",1.0], " +
+                                "PARAMETER[\"Latitude_Of_Origin\",0.0], " +
+                                "UNIT[\"Meter\",1.0]]",
+                        zone, falseEasting, centralMeridian);
+
+                log.debug("高斯投影CRS WKT定义：{}", wkt);
+                return CRS.parseWKT(wkt);
+            } catch (Exception e) {
+                log.warn("解析WKT失败：zone={}, falseEasting={}, centralMeridian={}, 错误={}",
+                        zone, falseEasting, centralMeridian, e.getMessage());
+                return null;
+            }
+        });
+    }
+
+    /**
+     * 将高斯投影的几何图形转换为WGS84坐标系的WKT字符串
+     * 
+     * @param gaussGeometry 高斯投影坐标系下的几何图形
+     * @return WGS84坐标系下的WKT字符串
+     */
+    private String gaussGeometryToWgs84WKT(Geometry gaussGeometry) {
+        log.debug("高斯投影几何转换为WGS84投影WKT字符串开始");
+        Geometry wgs84Geometry = gaussGeometryToWgs84Geometry(gaussGeometry);
+        log.debug("高斯投影几何转换为WGS84投影WKT字符串完成");
+        return wgs84Geometry.toText();
+    }
+
+    /**
+     * 计算单个多边形的球面面积（平方米）
+     * 使用球面多边形面积公式，考虑地球曲率
+     * 
+     * @param wgs84Polygon WGS84坐标系的多边形
+     * @return 球面面积（平方米）
+     */
+    private double calculatePolygonSphericalArea(Polygon wgs84Polygon) {
+        // 外环面积
+        double exteriorArea = calculateRingSphericalArea(wgs84Polygon.getExteriorRing());
+        log.trace("外环面积: {}平方米", exteriorArea);
+
+        // 减去内环（孔洞）面积
+        double holesArea = 0.0;
+        for (int i = 0; i < wgs84Polygon.getNumInteriorRing(); i++) {
+            double holeArea = calculateRingSphericalArea(wgs84Polygon.getInteriorRingN(i));
+            holesArea += holeArea;
+            log.trace("内环{}面积: {}平方米", i, holeArea);
+        }
+
+        double totalArea = exteriorArea - holesArea;
+        log.trace("多边形总面积: {}平方米", totalArea);
+        return totalArea;
+    }
+
+    /**
+     * 计算线环的球面面积（平方米）
+     * 使用球面多边形面积公式：A = R² * |Σ(λi+1 - λi) * sin(φi+1 + φi)/2|
+     * 其中R为地球半径，λ为经度，φ为纬度
+     * 
+     * @param wgs84Ring 线环（WGS84坐标系，单位：度）
+     * @return 球面面积（平方米）
+     */
+    private double calculateRingSphericalArea(LineString wgs84Ring) {
+        if (wgs84Ring == null || wgs84Ring.isEmpty()) {
+            return 0.0;
+        }
+
+        org.locationtech.jts.geom.Coordinate[] coords = wgs84Ring.getCoordinates();
+        if (coords.length < 3) {
+            return 0.0; // 需要至少3个点才能形成多边形
+        }
+
+        double area = 0.0;
+
+        // 使用正确的球面多边形面积公式（与Turf.js相同）
+        for (int i = 0; i < coords.length - 1; i++) {
+            double lon1 = Math.toRadians(coords[i].x);
+            double lat1 = Math.toRadians(coords[i].y);
+            double lon2 = Math.toRadians(coords[i + 1].x);
+            double lat2 = Math.toRadians(coords[i + 1].y);
+
+            // 正确的球面面积公式：A = R² × |Σ(λi+1 - λi) × sin((φi+1 + φi)/2)|
+            area += (lon2 - lon1) * Math.sin((lat1 + lat2) / 2.0);
+        }
+
+        area = Math.abs(area) * config.EARTH_RADIUS * config.EARTH_RADIUS;
+        return area;
+    }
+
+    /**
+     * 将WGS84坐标点转换为高斯投影坐标点
+     * 支持全球范围，根据经度自动选择合适的高斯投影带
+     * 
+     * @param wgs84Point WGS84坐标系下的轨迹点
+     * @return 高斯投影坐标系下的轨迹点
+     */
+    public TrackPoint wgs84PointTransformToGaussPoint(TrackPoint wgs84Point) {
+        try {
+            // 获取经度和纬度
+            double longitude = wgs84Point.getLon();
+            double latitude = wgs84Point.getLat();
+
+            log.trace("=== 开始WGS84到高斯投影转换 ===");
+            log.trace("原始坐标：经度={}, 纬度={}", longitude, latitude);
+
+            // 计算高斯投影带号 (6度分带)
+            // 全球范围: 经度-180到180，对应带号1-60
+            int zone = (int) Math.floor((longitude + 180) / 6) + 1;
+            log.trace("计算投影带号：zone={}", zone);
+
+            // 计算中央经线
+            double centralMeridian = (zone - 1) * 6 - 180 + 3;
+            log.trace("计算中央经线：centralMeridian={}", centralMeridian);
+
+            // 验证投影带号的合理性
+            if (zone < 1 || zone > 60) {
+                log.warn("投影带号超出合理范围：zone={}，经度={}", zone, longitude);
+                return null;
+            }
+
+            // 创建高斯投影坐标参考系统（使用缓存避免重复解析WKT）
+            // 全球支持模式：假东距包含带号信息，便于识别投影带
+            // 格式：zone × 1000000 + 500000（如49带 = 49500000米）
+            double falseEasting = zone * 1000000.0 + 500000.0;
+            log.trace("计算假东距：falseEasting={}", falseEasting);
+
+            // 从缓存获取或创建高斯投影CRS
+            CoordinateReferenceSystem gaussCRS = getOrCreateGaussCRS(zone, falseEasting, centralMeridian);
+
+            // 构建缓存key（用于transform缓存）
+            String cacheKey = String.format("%d_%.1f_%.1f", zone, falseEasting, centralMeridian);
+
+            // 从缓存获取或创建WGS84到高斯投影的坐标转换
+            MathTransform transform = config.wgs84ToGaussTransformCache.computeIfAbsent(cacheKey, key -> {
+                try {
+                    return CRS.findMathTransform(config.WGS84_CRS, gaussCRS, true);
+                } catch (Exception e) {
+                    log.warn("创建坐标转换失败：zone={}, falseEasting={}, centralMeridian={}, 错误={}",
+                            zone, falseEasting, centralMeridian, e.getMessage());
+                    return null;
+                }
+            });
+
+            // 执行坐标转换
+            Coordinate sourceCoord = new Coordinate(longitude, latitude);
+            Coordinate targetCoord = new Coordinate();
+
+            JTS.transform(sourceCoord, targetCoord, transform);
+
+            log.trace("转换结果：X={}, Y={}", targetCoord.x, targetCoord.y);
+
+            // 验证转换结果的合理性（全球范围）
+            // X坐标：最小1带=150万米，最大60带=6050万米，加上实际坐标范围±350万米
+            // 合理范围：50万-6400万米（更宽松的范围，允许边界情况）
+            // Y坐标：全球纬度范围对应约±1000万米
+            if (targetCoord.x < 500000 || targetCoord.x > 64000000 || targetCoord.y < -10000000
+                    || targetCoord.y > 10000000) {
+                log.warn("转换结果超出全球合理范围：X={}, Y={}, zone={}", targetCoord.x, targetCoord.y, zone);
+                return null;
+            }
+
+            // 创建新的轨迹点，保持原有属性，只更新坐标
+            TrackPoint result = new TrackPoint();
+            result.setTime(wgs84Point.getTime());
+            result.setLon(targetCoord.x); // X坐标（东向）
+            result.setLat(targetCoord.y); // Y坐标（北向）
+            result.setSpeed(wgs84Point.getSpeed());
+            result.setDirection(wgs84Point.getDirection());
+
+            log.trace("=== WGS84到高斯投影转换完成 ===");
+            return result;
+        } catch (Exception e) {
+            log.warn("坐标转换失败：经度={}, 纬度={}, 错误={}", wgs84Point.getLon(), wgs84Point.getLat(), e.getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * 将高斯投影坐标系下的几何图形转换为WGS84坐标系下的几何图形
+     * 
+     * @param gaussGeometry 高斯投影坐标系下的几何图形
+     * @return WGS84坐标系下的几何图形
+     */
+    public Geometry gaussGeometryToWgs84Geometry(Geometry gaussGeometry) {
+        try {
+            // 获取几何图形的边界信息来反推高斯投影参数
+            Envelope env = gaussGeometry.getEnvelopeInternal();
+            double centerX = (env.getMinX() + env.getMaxX()) / 2.0;
+
+            log.debug("高斯投影几何到WGS84投影几何转换开始");
+            log.trace("高斯几何边界：MinX={}, MaxX={}, MinY={}, MaxY={}",
+                    env.getMinX(), env.getMaxX(), env.getMinY(), env.getMaxY());
+            log.trace("几何中心X坐标：centerX={}", centerX);
+
+            // 验证高斯投影坐标的合理性
+            // 高斯投影X坐标合理范围：50万-6400万米（对应全球1-60带，更宽松的范围）
+            // 高斯投影Y坐标合理范围：±1000万米（对应全球纬度范围）
+            if (env.getMinX() < 500000 || env.getMaxX() > 64000000 ||
+                    env.getMinY() < -10000000 || env.getMaxY() > 10000000) {
+                log.warn("高斯投影坐标超出合理范围：MinX={}, MaxX={}, MinY={}, MaxY={}",
+                        env.getMinX(), env.getMaxX(), env.getMinY(), env.getMaxY());
+                return config.EMPTYGEOM;
+            }
+
+            // 智能确定投影带号策略
+            // 1. 首先尝试根据几何中心反推带号
+            int zone = (int) Math.floor(centerX / 1000000.0);
+            log.trace("反推计算的投影带号：zone={}, centerX={}", zone, centerX);
+
+            // 2. 如果几何范围跨越多个投影带（宽度超过100万米），使用更保守的策略
+            double geometryWidth = env.getMaxX() - env.getMinX();
+            if (geometryWidth > 1000000) {
+                log.warn("几何图形宽度{}米，可能跨越多个投影带，使用保守策略", geometryWidth);
+                // 对于宽几何，优先使用中间带号，并验证整个几何范围
+                if (zone < 1 || zone > 60) {
+                    log.warn("无法确定合适的投影带号：centerX={}", centerX);
+                    return config.EMPTYGEOM;
+                }
+            } else if (zone < 1 || zone > 60) {
+                log.warn("反推的投影带号不合理：zone={}, centerX={}", zone, centerX);
+                // 尝试备用策略：如果zone不合理，可能是假东距计算问题，尝试重新计算
+                log.trace("尝试备用策略重新计算投影带号");
+                int backupZone = (int) Math.floor((centerX - 500000.0) / 1000000.0);
+                log.trace("备用策略计算的投影带号：zone={}", backupZone);
+                if (backupZone < 1 || backupZone > 60) {
+                    log.warn("备用策略仍然无法确定合适的投影带号：centerX={}", centerX);
+                    return config.EMPTYGEOM;
+                }
+                zone = backupZone;
+            }
+
+            // 计算中央经线（与wgs84PointTransformToGaussPoint方法保持一致）
+            double centralMeridian = (zone - 1) * 6 - 180 + 3;
+            double falseEasting = zone * 1000000.0 + 500000.0;
+            log.trace("计算投影参数：zone={}, centralMeridian={}, falseEasting={}", zone, centralMeridian, falseEasting);
+
+            // 从缓存获取或创建高斯投影CRS
+            CoordinateReferenceSystem gaussCRS = getOrCreateGaussCRS(zone, falseEasting, centralMeridian);
+
+            if (gaussCRS == null) {
+                log.warn("无法获取高斯投影CRS：zone={}", zone);
+                return config.EMPTYGEOM;
+            }
+
+            // 构建缓存key（用于transform缓存）
+            String cacheKey = String.format("%d_%.1f_%.1f", zone, falseEasting, centralMeridian);
+
+            // 从缓存获取或创建高斯投影到WGS84的坐标转换
+            final int finalZone = zone;
+            MathTransform transform = config.gaussToWgs84TransformCache.computeIfAbsent(cacheKey, key -> {
+                try {
+                    return CRS.findMathTransform(gaussCRS, config.WGS84_CRS, true);
+                } catch (Exception e) {
+                    log.warn("创建坐标转换失败：zone={}, falseEasting={}, centralMeridian={}, 错误={}",
+                            finalZone, falseEasting, centralMeridian, e.getMessage());
+                    return null;
+                }
+            });
+
+            if (transform == null) {
+                log.warn("无法获取坐标转换：zone={}", finalZone);
+                return config.EMPTYGEOM;
+            }
+
+            // 执行坐标转换（逆向：高斯投影 -> WGS84）
+            log.trace("zone={}, 几何点数={}", finalZone, gaussGeometry.getNumPoints());
+            Geometry wgs84Geometry = JTS.transform(gaussGeometry, transform);
+
+            // 验证转换后的WGS84坐标合理性
+            Envelope wgs84Env = wgs84Geometry.getEnvelopeInternal();
+            if (wgs84Env.getMinX() < -180 || wgs84Env.getMaxX() > 180 ||
+                    wgs84Env.getMinY() < -90 || wgs84Env.getMaxY() > 90) {
+                log.warn("转换后的WGS84坐标超出合理范围：MinLon={}, MaxLon={}, MinLat={}, MaxLat={}",
+                        wgs84Env.getMinX(), wgs84Env.getMaxX(), wgs84Env.getMinY(), wgs84Env.getMaxY());
+                return config.EMPTYGEOM;
+            }
+            log.debug("高斯投影几何到WGS84投影几何转换完成");
+            return wgs84Geometry;
+        } catch (Exception e) {
+            log.warn("高斯投影几何到WGS84投影几何转换失败：错误={}", e.getMessage());
+            return config.EMPTYGEOM;
+        }
+    }
+
+    /**
+     * 将WGS84坐标系的几何图形转换为高斯投影坐标系
+     * 支持全球范围，根据几何中心经度自动选择合适的高斯投影带
+     * 
+     * @param wgs84Geometry WGS84坐标系下的几何图形
+     * @return 高斯投影坐标系下的几何图形
+     */
+    public Geometry wgs84GeometryToGaussGeometry(Geometry wgs84Geometry) {
+        try {
+            if (wgs84Geometry == null || wgs84Geometry.isEmpty()) {
+                return config.EMPTYGEOM;
+            }
+
+            // 获取几何图形的边界信息来确定高斯投影参数
+            Envelope env = wgs84Geometry.getEnvelopeInternal();
+            double centerLon = (env.getMinX() + env.getMaxX()) / 2.0;
+            double centerLat = (env.getMinY() + env.getMaxY()) / 2.0;
+
+            log.debug("WGS84几何到高斯投影几何转换开始");
+            log.trace("WGS84几何边界：MinLon={}, MaxLon={}, MinLat={}, MaxLat={}",
+                    env.getMinX(), env.getMaxX(), env.getMinY(), env.getMaxY());
+            log.trace("几何中心坐标：centerLon={}, centerLat={}", centerLon, centerLat);
+
+            // 验证WGS84坐标的合理性
+            if (env.getMinX() < -180 || env.getMaxX() > 180 ||
+                    env.getMinY() < -90 || env.getMaxY() > 90) {
+                log.warn("WGS84坐标超出合理范围：MinLon={}, MaxLon={}, MinLat={}, MaxLat={}",
+                        env.getMinX(), env.getMaxX(), env.getMinY(), env.getMaxY());
+                return config.EMPTYGEOM;
+            }
+
+            // 计算高斯投影带号 (6度分带)
+            int zone = (int) Math.floor((centerLon + 180) / 6) + 1;
+            double centralMeridian = (zone - 1) * 6 - 180 + 3;
+            double falseEasting = zone * 1000000.0 + 500000.0;
+
+            // 验证投影带号的合理性
+            if (zone < 1 || zone > 60) {
+                log.warn("投影带号超出合理范围：zone={}，经度={}", zone, centerLon);
+                return config.EMPTYGEOM;
+            }
+
+            // 从缓存获取或创建高斯投影CRS
+            CoordinateReferenceSystem gaussCRS = getOrCreateGaussCRS(zone, falseEasting, centralMeridian);
+
+            // 构建缓存key（用于transform缓存）
+            String cacheKey = String.format("%d_%.1f_%.1f", zone, falseEasting, centralMeridian);
+
+            // 从缓存获取或创建WGS84到高斯投影的坐标转换
+            MathTransform transform = config.wgs84ToGaussTransformCache.computeIfAbsent(cacheKey, key -> {
+                try {
+                    return CRS.findMathTransform(config.WGS84_CRS, gaussCRS, true);
+                } catch (Exception e) {
+                    log.warn("创建坐标转换失败：zone={}, falseEasting={}, centralMeridian={}, 错误={}",
+                            zone, falseEasting, centralMeridian, e.getMessage());
+                    return null;
+                }
+            });
+
+            // 执行坐标转换（正向：WGS84 -> 高斯投影）
+            log.trace("zone={}, 几何点数={}", (int) Math.floor((centerLon + 180) / 6) + 1, wgs84Geometry.getNumPoints());
+            Geometry gaussGeometry = JTS.transform(wgs84Geometry, transform);
+
+            // 验证转换后的高斯投影坐标合理性
+            Envelope gaussEnv = gaussGeometry.getEnvelopeInternal();
+            if (gaussEnv.getMinX() < 500000 || gaussEnv.getMaxX() > 64000000 ||
+                    gaussEnv.getMinY() < -10000000 || gaussEnv.getMaxY() > 10000000) {
+                log.warn("转换后的高斯投影坐标超出合理范围：MinX={}, MaxX={}, MinY={}, MaxY={}",
+                        gaussEnv.getMinX(), gaussEnv.getMaxX(), gaussEnv.getMinY(), gaussEnv.getMaxY());
+                return config.EMPTYGEOM;
+            }
+            log.debug("WGS84几何到高斯投影几何转换完成");
+            return gaussGeometry;
+        } catch (Exception e) {
+            log.warn("WGS84几何到高斯投影几何转换失败：错误={}", e.getMessage());
+            return config.EMPTYGEOM;
+        }
+    }
+
+    /**
+     * 计算球面面积（平方米）
+     * 使用球面多边形面积公式，与Turf.js的算法保持一致
+     * 
+     * @param wgs84Geometry WGS84坐标系的几何图形
+     * @return 球面面积（平方米）
+     */
+    public double calculateSphericalArea(Geometry wgs84Geometry) {
+        if (wgs84Geometry == null || wgs84Geometry.isEmpty()) {
+            return 0.0;
+        }
+
+        double totalArea = 0.0;
+
+        if (wgs84Geometry instanceof Polygon) {
+            totalArea = calculatePolygonSphericalArea((Polygon) wgs84Geometry);
+            log.debug("单多边形面积: {}平方米", totalArea);
+        } else if (wgs84Geometry instanceof MultiPolygon) {
+            MultiPolygon multiPolygon = (MultiPolygon) wgs84Geometry;
+            for (int i = 0; i < multiPolygon.getNumGeometries(); i++) {
+                Polygon polygon = (Polygon) multiPolygon.getGeometryN(i);
+                double polyArea = calculatePolygonSphericalArea(polygon);
+                totalArea += polyArea;
+                log.debug("多边形{}面积: {}平方米", i, polyArea);
+            }
+            log.debug("MULTIPOLYGON总面积: {}平方米", totalArea);
+        }
+
+        return Math.abs(totalArea); // 确保面积为正值
+    }
+
+    /**
+     * 直接从WKT字符串计算球面面积（平方米）
+     * 使用与Turf.js相同的球面面积算法，支持POLYGON和MULTIPOLYGON
+     * 
+     * @param wgs84WKT WKT字符串（WGS84坐标系）
+     * @return 球面面积（平方米）
+     */
+    public double calculateSphericalAreaFromWKT(String wgs84WKT) {
+        if (wgs84WKT == null || wgs84WKT.trim().isEmpty()) {
+            return 0.0;
+        }
+
+        wgs84WKT = wgs84WKT.trim();
+        double totalArea = 0.0;
+
+        try {
+            if (wgs84WKT.startsWith("POLYGON")) {
+                // 处理单个POLYGON
+                totalArea = calculatePolygonAreaFromWKT(wgs84WKT);
+                log.debug("POLYGON面积: {}平方米", totalArea);
+            } else if (wgs84WKT.startsWith("MULTIPOLYGON")) {
+                // 处理MULTIPOLYGON，提取所有多边形
+                List<String> polygons = extractPolygonsFromMultiWKT(wgs84WKT);
+                log.debug("MULTIPOLYGON包含 {} 个多边形", polygons.size());
+
+                for (int i = 0; i < polygons.size(); i++) {
+                    double polyArea = calculatePolygonAreaFromWKT(polygons.get(i));
+                    totalArea += polyArea;
+                    log.debug("多边形{}面积: {}平方米", i, polyArea);
+                }
+                log.debug("MULTIPOLYGON总面积: {}平方米", totalArea);
+            }
+
+        } catch (Exception e) {
+            log.warn("WKT面积计算失败: {}", e.getMessage());
+            return 0.0;
+        }
+
+        return Math.abs(totalArea);
+    }
+
+    /**
      * 判断点是否在圆内（包含边界）
      * 
      * @param wgs84Point       要判断的点
@@ -855,58 +855,6 @@ public class GisUtil implements AutoCloseable {
                     wgs84BottomRightPoint.getLon(), wgs84BottomRightPoint.getLat(),
                     e.getMessage());
             return false;
-        }
-    }
-
-    /**
-     * 计算WGS84坐标系下的几何图形面积（亩）
-     * 
-     * @param wgs84Geometry WGS84坐标系下的几何图形
-     * @return 几何图形的面积（亩）
-     */
-    public double calcMuByWgs84Geometry(Geometry wgs84Geometry) {
-        if (wgs84Geometry == null || wgs84Geometry.isEmpty()) {
-            return 0.0;
-        }
-
-        try {
-            // 使用球面面积计算算法，与Turf.js对齐
-            double areaSqm = calculateSphericalArea(wgs84Geometry);
-
-            // 转换为亩：1亩 = 2000/3平方米，四舍五入保留4位小数
-            return Math.round((areaSqm / (2000.0 / 3.0)) * 10000.0) / 10000.0;
-
-        } catch (Exception e) {
-            log.warn("WGS84几何图形计算亩数失败: {}", e.getMessage());
-            return 0.0;
-        }
-    }
-
-    /**
-     * 从WGS84 WKT字符串计算几何图形面积（亩）
-     * 
-     * @param wgs84WKT WGS84坐标系下的WKT字符串
-     * @return 几何图形的面积（亩）
-     */
-    public double calcMuByWgs84WKT(String wgs84WKT) {
-        if (wgs84WKT == null || wgs84WKT.trim().isEmpty()) {
-            log.warn("WKT字符串为空或null");
-            return 0.0;
-        }
-
-        try {
-            // 直接从WKT字符串计算球面面积，不转换为几何图形
-            double areaSqm = calculateSphericalAreaFromWKT(wgs84WKT);
-
-            // 转换为亩：1亩 = 2000/3平方米，四舍五入保留4位小数
-            double mu = Math.round((areaSqm / (2000.0 / 3.0)) * 10000.0) / 10000.0;
-
-            log.info("WKT面积计算结果: {}平方米 = {}亩", areaSqm, mu);
-            return mu;
-
-        } catch (Exception e) {
-            log.warn("WKT字符串计算亩数失败: {}", e.getMessage());
-            return 0.0;
         }
     }
 
@@ -1001,6 +949,58 @@ public class GisUtil implements AutoCloseable {
         }
 
         return result;
+    }
+
+    /**
+     * 计算WGS84坐标系下的几何图形面积（亩）
+     * 
+     * @param wgs84Geometry WGS84坐标系下的几何图形
+     * @return 几何图形的面积（亩）
+     */
+    public double calcMuByWgs84Geometry(Geometry wgs84Geometry) {
+        if (wgs84Geometry == null || wgs84Geometry.isEmpty()) {
+            return 0.0;
+        }
+
+        try {
+            // 使用球面面积计算算法，与Turf.js对齐
+            double areaSqm = calculateSphericalArea(wgs84Geometry);
+
+            // 转换为亩：1亩 = 2000/3平方米，四舍五入保留4位小数
+            return Math.round((areaSqm / (2000.0 / 3.0)) * 10000.0) / 10000.0;
+
+        } catch (Exception e) {
+            log.warn("WGS84几何图形计算亩数失败: {}", e.getMessage());
+            return 0.0;
+        }
+    }
+
+    /**
+     * 从WGS84 WKT字符串计算几何图形面积（亩）
+     * 
+     * @param wgs84WKT WGS84坐标系下的WKT字符串
+     * @return 几何图形的面积（亩）
+     */
+    public double calcMuByWgs84WKT(String wgs84WKT) {
+        if (wgs84WKT == null || wgs84WKT.trim().isEmpty()) {
+            log.warn("WKT字符串为空或null");
+            return 0.0;
+        }
+
+        try {
+            // 直接从WKT字符串计算球面面积，不转换为几何图形
+            double areaSqm = calculateSphericalAreaFromWKT(wgs84WKT);
+
+            // 转换为亩：1亩 = 2000/3平方米，四舍五入保留4位小数
+            double mu = Math.round((areaSqm / (2000.0 / 3.0)) * 10000.0) / 10000.0;
+
+            log.info("WKT面积计算结果: {}平方米 = {}亩", areaSqm, mu);
+            return mu;
+
+        } catch (Exception e) {
+            log.warn("WKT字符串计算亩数失败: {}", e.getMessage());
+            return 0.0;
+        }
     }
 
     /**
