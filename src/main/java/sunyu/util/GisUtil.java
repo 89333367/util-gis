@@ -18,6 +18,7 @@ import org.locationtech.jts.geom.Geometry;
 import org.locationtech.jts.geom.GeometryFactory;
 import org.locationtech.jts.geom.LineString;
 import org.locationtech.jts.geom.MultiPolygon;
+import org.locationtech.jts.geom.Point;
 import org.locationtech.jts.geom.Polygon;
 import org.locationtech.jts.geom.prep.PreparedGeometry;
 import org.locationtech.jts.geom.prep.PreparedGeometryFactory;
@@ -788,6 +789,32 @@ public class GisUtil implements AutoCloseable {
     public boolean isPointInCircle(CoordinatePoint wgs84Point, CoordinatePoint wgs84CenterPoint, float radius) {
         double distance = haversine(wgs84Point, wgs84CenterPoint);
         return distance <= radius;
+    }
+
+    /**
+     * 判断WGS84坐标系下的点是否在几何图形内
+     * 
+     * @param wgs84Point    WGS84坐标系下的点
+     * @param wgs84Geometry WGS84坐标系下的几何图形
+     * @return 如果点在几何图形内（包含边界），返回true；否则返回false
+     */
+    public boolean isPointInGeometry(CoordinatePoint wgs84Point, Geometry wgs84Geometry) {
+        if (wgs84Point == null || wgs84Geometry == null || wgs84Geometry.isEmpty()) {
+            return false;
+        }
+
+        try {
+            // 创建点几何对象
+            Point point = config.geometryFactory.createPoint(
+                    new Coordinate(wgs84Point.getLon(), wgs84Point.getLat()));
+
+            // 判断点是否在几何图形内
+            return wgs84Geometry.contains(point);
+        } catch (Exception e) {
+            log.warn("判断点是否在几何图形内失败：点[{},{}] 错误={}",
+                    wgs84Point.getLon(), wgs84Point.getLat(), e.getMessage());
+            return false;
+        }
     }
 
     /**
