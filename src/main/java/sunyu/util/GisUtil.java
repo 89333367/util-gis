@@ -792,6 +792,30 @@ public class GisUtil implements AutoCloseable {
     }
 
     /**
+     * 将WGS84坐标系的WKT字符串转换为Geometry几何图形
+     * 
+     * @param wgs84WKT WGS84坐标系下的WKT字符串
+     * @return WGS84坐标系的Geometry几何图形，如果解析失败返回空几何
+     */
+    public Geometry wgs84WktToWgs84Geometry(String wgs84WKT) {
+        if (wgs84WKT == null || wgs84WKT.trim().isEmpty()) {
+            log.warn("WKT字符串为空或null");
+            return config.EMPTYGEOM;
+        }
+        try {
+            Geometry geometry = new WKTReader(config.geometryFactory).read(wgs84WKT);
+            log.debug("WKT字符串解析成功：几何类型={}", geometry.getGeometryType());
+            return geometry;
+        } catch (ParseException e) {
+            log.warn("WKT字符串解析失败：{}", e.getMessage());
+            return config.EMPTYGEOM;
+        } catch (Exception e) {
+            log.warn("WKT字符串转换几何图形失败：{}", e.getMessage());
+            return config.EMPTYGEOM;
+        }
+    }
+
+    /**
      * 判断WGS84坐标系下的点是否在几何图形内
      * 
      * @param wgs84Point    WGS84坐标系下的点
