@@ -18,28 +18,21 @@ public class TrackPoint extends CoordinatePoint {
      */
     private double speed;
 
-    /**
-     * 方向角（单位：度）
-     */
-    private double direction;
-
     public TrackPoint() {
     }
 
     /**
      * 完整构造函数：包含所有属性
      * 
-     * @param time      时间
-     * @param lon       经度
-     * @param lat       纬度
-     * @param speed     GPS速度（单位：m/s）
-     * @param direction 方向角（单位：度）
+     * @param time  时间
+     * @param lon   经度
+     * @param lat   纬度
+     * @param speed GPS速度（单位：m/s）
      */
-    public TrackPoint(LocalDateTime time, double lon, double lat, double speed, double direction) {
+    public TrackPoint(LocalDateTime time, double lon, double lat, double speed) {
         super(lon, lat);
         this.time = time;
         this.speed = speed;
-        this.direction = direction;
     }
 
     public LocalDateTime getTime() {
@@ -76,14 +69,6 @@ public class TrackPoint extends CoordinatePoint {
 
     public void setSpeed(double speed) {
         this.speed = speed;
-    }
-
-    public double getDirection() {
-        return direction;
-    }
-
-    public void setDirection(double direction) {
-        this.direction = direction;
     }
 
 }

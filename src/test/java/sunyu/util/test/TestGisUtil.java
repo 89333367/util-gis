@@ -119,8 +119,8 @@ public class TestGisUtil {
 
     @Test
     void 测试两点距离() {
-        CoordinatePoint p1 = new CoordinatePoint(116.55470301, 40.21296700);
-        CoordinatePoint p2 = new CoordinatePoint(116.55473883, 40.21364248);
+        CoordinatePoint p1 = new CoordinatePoint(124.501848, 45.380130);
+        CoordinatePoint p2 = new CoordinatePoint(124.501972, 45.380305);
         double distance = gisUtil.haversine(p1, p2);
         log.info("{} 米", distance);
     }
@@ -455,9 +455,9 @@ public class TestGisUtil {
                         continue;
                     }
                 }
-                // {定位时间yyyyMMddHHmmss},{经度},{纬度},{速度km/h},{方向角度0-360}
-                l.add(StrUtil.format("{},{},{},{},{}", protocol.get("3014"), protocol.get("2602"), protocol.get("2603"),
-                        protocol.get("2204"), protocol.get("3012")));
+                // {定位时间yyyyMMddHHmmss},{经度},{纬度},{速度km/h}
+                l.add(StrUtil.format("{},{},{},{}", protocol.get("3014"), protocol.get("2602"), protocol.get("2603"),
+                        protocol.get("2204")));
             }
             if (CollUtil.isNotEmpty(l)) {
                 FileUtil.writeUtf8Lines(l, path + StrUtil.format("/{}_{}_trace.txt", did, yyyyMMdd));
@@ -479,7 +479,6 @@ public class TestGisUtil {
             trackPoint.setLon(Double.parseDouble(split[1]));
             trackPoint.setLat(Double.parseDouble(split[2]));
             trackPoint.setSpeed(Double.parseDouble(split[3]));
-            trackPoint.setDirection(Double.parseDouble(split[4]));
             l.add(trackPoint);
         }
         try {
@@ -540,7 +539,6 @@ public class TestGisUtil {
             trackPoint.setLon(Double.parseDouble(split[1]));
             trackPoint.setLat(Double.parseDouble(split[2]));
             trackPoint.setSpeed(Double.parseDouble(split[3]));
-            trackPoint.setDirection(Double.parseDouble(split[4]));
             l.add(trackPoint);
         }
         try {

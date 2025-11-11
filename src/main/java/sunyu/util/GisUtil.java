@@ -510,7 +510,6 @@ public class GisUtil implements AutoCloseable {
             result.setLon(targetCoord.x); // X坐标（东向）
             result.setLat(targetCoord.y); // Y坐标（北向）
             result.setSpeed(wgs84Point.getSpeed());
-            result.setDirection(wgs84Point.getDirection());
 
             log.trace("=== WGS84到高斯投影转换完成 ===");
             return result;
@@ -1050,11 +1049,11 @@ public class GisUtil implements AutoCloseable {
                     && point.getLat() >= -90 && point.getLat() <= 90// 纬度必须在[-90,90]之间
                     && point.getLon() != 0 && point.getLat() != 0// 经度和纬度不能为0
                     && point.getSpeed() > 0// 速度必须大于0
-                    && point.getDirection() >= 0 && point.getDirection() <= 360) {// 方向角必须在[0,360]之间
+            ) {
                 filteredWgs84Points.add(point);
             } else {
-                log.trace("被过滤点位信息，时间：{} 经度：{} 纬度：{} 速度：{} 方向角：{}", point.getTime(), point.getLon(), point.getLat(),
-                        point.getSpeed(), point.getDirection());
+                log.trace("被过滤点位信息，时间：{} 经度：{} 纬度：{} 速度：{}", point.getTime(), point.getLon(), point.getLat(),
+                        point.getSpeed());
             }
         }
         log.debug("过滤后的轨迹点数量：{}", filteredWgs84Points.size());
@@ -1108,7 +1107,7 @@ public class GisUtil implements AutoCloseable {
             boolean shouldSplit = false;
 
             // 速度超限切割
-            if (point.getSpeed() >= config.MAX_SPEED) {
+            if (point.getSpeed() > config.MAX_SPEED) {
                 shouldSplit = true;
             }
 
