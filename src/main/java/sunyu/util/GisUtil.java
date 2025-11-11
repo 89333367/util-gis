@@ -1041,36 +1041,16 @@ public class GisUtil implements AutoCloseable {
         result.setWkt(config.EMPTYGEOM.toText());
 
         log.debug("参数信息：轨迹点数量={} 总宽度={}米", wgs84Points.size(), totalWidthM);
-        log.debug("过滤时间为空、经纬度异常、经纬度为0、速度为0、方向角异常的轨迹点");
-        List<TrackPoint> filteredWgs84Points = new ArrayList<>();
-        for (TrackPoint point : wgs84Points) {
-            if (point.getTime() != null// 定位时间不能为空
-                    && point.getLon() >= -180 && point.getLon() <= 180// 经度必须在[-180,180]之间
-                    && point.getLat() >= -90 && point.getLat() <= 90// 纬度必须在[-90,90]之间
-                    && point.getLon() != 0 && point.getLat() != 0// 经度和纬度不能为0
-                    && point.getSpeed() > 0// 速度必须大于0
-            ) {
-                filteredWgs84Points.add(point);
-            } else {
-                log.trace("被过滤点位信息，时间：{} 经度：{} 纬度：{} 速度：{}", point.getTime(), point.getLon(), point.getLat(),
-                        point.getSpeed());
-            }
-        }
-        log.debug("过滤后的轨迹点数量：{}", filteredWgs84Points.size());
-        if (filteredWgs84Points.size() < 6) {
-            log.warn("过滤后的轨迹点数量小于6个，无法进行拆分");
-            return result;
-        }
 
         log.debug("按定位时间升序排序");
-        filteredWgs84Points.sort((p1, p2) -> p1.getTime().compareTo(p2.getTime()));
+        wgs84Points.sort((p1, p2) -> p1.getTime().compareTo(p2.getTime()));
 
         // 获取上报时间间隔分布
         Map<Integer, Integer> intervalDistribution = new HashMap<>();
-        log.info("统计轨迹点时间间隔分布，总点数：{}", filteredWgs84Points.size());
-        for (int i = 1; i < filteredWgs84Points.size(); i++) {
-            TrackPoint prevPoint = filteredWgs84Points.get(i - 1);
-            TrackPoint currPoint = filteredWgs84Points.get(i);
+        log.info("统计轨迹点时间间隔分布，总点数：{}", wgs84Points.size());
+        for (int i = 1; i < wgs84Points.size(); i++) {
+            TrackPoint prevPoint = wgs84Points.get(i - 1);
+            TrackPoint currPoint = wgs84Points.get(i);
 
             // 计算时间间隔（秒）- LocalDateTime使用Duration
             Duration duration = Duration.between(prevPoint.getTime(), currPoint.getTime());
@@ -1096,6 +1076,26 @@ public class GisUtil implements AutoCloseable {
                     .orElse(1);
         }
         log.info("最小有效时间间隔：{}秒（点数最多的时间间隔）", minEffectiveInterval);
+
+        log.debug("过滤时间为空、经纬度异常、经纬度为0、速度为0、方向角异常的轨迹点");
+        List<TrackPoint> filteredWgs84Points = new ArrayList<>();
+        for (TrackPoint point : wgs84Points) {
+            if (point.getTime() != null// 定位时间不能为空
+                    && point.getLon() >= -180 && point.getLon() <= 180// 经度必须在[-180,180]之间
+                    && point.getLat() >= -90 && point.getLat() <= 90// 纬度必须在[-90,90]之间
+                    && point.getLon() != 0 && point.getLat() != 0// 经度和纬度不能为0
+            ) {
+                filteredWgs84Points.add(point);
+            } else {
+                log.trace("被过滤点位信息，时间：{} 经度：{} 纬度：{} 速度：{}", point.getTime(), point.getLon(), point.getLat(),
+                        point.getSpeed());
+            }
+        }
+        log.debug("过滤后的轨迹点数量：{}", filteredWgs84Points.size());
+        if (filteredWgs84Points.size() < 6) {
+            log.warn("过滤后的轨迹点数量小于6个，无法进行拆分");
+            return result;
+        }
 
         int timeCutThreshold = minEffectiveInterval + 1; // 时间切割阈值
         log.debug("按照速度和时间间隔切分成多段轨迹，速度超过{}米/秒或者时间间隔超过{}秒，就拆分轨迹段", config.MAX_SPEED, timeCutThreshold);
@@ -1134,22 +1134,6 @@ public class GisUtil implements AutoCloseable {
             wgs84PointsSegments.add(currentSegment);
         }
         log.debug("按照速度和时间间隔切分后的轨迹段数量：{}", wgs84PointsSegments.size());
-
-        log.debug("过滤少点的轨迹段开始");
-        if (minEffectiveInterval == 1) {
-            log.debug("过滤掉段内小于20个点的轨迹段");
-            wgs84PointsSegments.removeIf(segment -> segment.size() < 20);
-            log.debug("过滤后的轨迹段数量：{}", wgs84PointsSegments.size());
-        } else if (minEffectiveInterval == 10) {
-            log.debug("过滤掉段内小于10个点的轨迹段");
-            wgs84PointsSegments.removeIf(segment -> segment.size() < 10);
-            log.debug("过滤后的轨迹段数量：{}", wgs84PointsSegments.size());
-        } else {
-            log.debug("过滤掉段内小于30个点的轨迹段");
-            wgs84PointsSegments.removeIf(segment -> segment.size() < 30);
-            log.debug("过滤后的轨迹段数量：{}", wgs84PointsSegments.size());
-        }
-        log.debug("过滤少点的轨迹段结束");
 
         List<Geometry> gaussBufferedGeometries = new ArrayList<>();
         for (List<TrackPoint> wgs84PointsSegment : wgs84PointsSegments) {
