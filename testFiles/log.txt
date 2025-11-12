@@ -1,89 +1,384 @@
-[2025-11-11 18:39:26] [DEBUG] cn.hutool.log.LogFactory: Use [Hutool Console Logging] Logger As Default.
-[2025-11-11 18:39:26] [INFO] sunyu.util.GisUtil: [构建GisUtil] 开始
-[2025-11-11 18:39:26] [INFO] sunyu.util.GisUtil: [构建GisUtil] 结束
-[2025-11-11 18:39:26] [INFO] sunyu.util.test.ProtocolSdk: 初始化内部协议工具
-[2025-11-11 18:39:26] [INFO] sunyu.util.test.ProtocolSdk: 配置信息加载完毕
-[2025-11-11 18:39:27] [DEBUG] sunyu.util.GisUtil: 参数信息：轨迹点数量=5927 总宽度=1.75米
-[2025-11-11 18:39:27] [DEBUG] sunyu.util.GisUtil: 按定位时间升序排序
-[2025-11-11 18:39:27] [INFO] sunyu.util.GisUtil: 统计轨迹点时间间隔分布，总点数：5927
-[2025-11-11 18:39:27] [INFO] sunyu.util.GisUtil: 最小有效时间间隔：1秒（点数最多的时间间隔）
-[2025-11-11 18:39:27] [DEBUG] sunyu.util.GisUtil: 根据最小有效时间间隔1秒，设置最小多边形点数为120个
-[2025-11-11 18:39:27] [DEBUG] sunyu.util.GisUtil: 过滤时间为空、经纬度异常、经纬度为0、速度为0、方向角异常的轨迹点
-[2025-11-11 18:39:27] [DEBUG] sunyu.util.GisUtil: 过滤后的轨迹点数量：5919
-[2025-11-11 18:39:27] [DEBUG] sunyu.util.GisUtil: 按照间隔速度、间隔时间、间隔距离切分成多段轨迹
-[2025-11-11 18:39:27] [DEBUG] sunyu.util.GisUtil: 按照间隔速度、间隔时间、间隔距离切分后的轨迹段数量：9
-[2025-11-11 18:39:27] [DEBUG] sunyu.util.GisUtil: 将轨迹段中的WGS84坐标转换为高斯投影坐标 轨迹段点数量：1373
-[2025-11-11 18:39:27] [DEBUG] sunyu.util.GisUtil: 高斯投影CRS WKT定义：PROJCS["WGS_1984_Gauss_Kruger_Zone_51", GEOGCS["GCS_WGS_1984", DATUM["D_WGS_1984", SPHEROID["WGS_1984",6378137.0,298.257223563]], PRIMEM["Greenwich",0.0], UNIT["Degree",0.0174532925199433]], PROJECTION["Transverse_Mercator"], PARAMETER["False_Easting",51500000.0], PARAMETER["False_Northing",0.0], PARAMETER["Central_Meridian",123.0], PARAMETER["Scale_Factor",1.0], PARAMETER["Latitude_Of_Origin",0.0], UNIT["Meter",1.0]]
-[2025-11-11 18:39:28] [DEBUG] sunyu.util.GisUtil: 转换后的轨迹段点数量：1373
-[2025-11-11 18:39:28] [DEBUG] sunyu.util.GisUtil: 使用高斯投影的轨迹点进行线缓冲，左右缓冲总宽度：1.75米
-[2025-11-11 18:39:28] [DEBUG] sunyu.util.GisUtil: 点数过多(1373个)，采用分批并发处理，缓冲距离：0.875米
-[2025-11-11 18:39:28] [DEBUG] sunyu.util.GisUtil: 批次4处理完成：点数=23, 缓冲类型=Polygon
-[2025-11-11 18:39:28] [DEBUG] sunyu.util.GisUtil: 批次3处理完成：点数=473, 缓冲类型=Polygon
-[2025-11-11 18:39:28] [DEBUG] sunyu.util.GisUtil: 批次2处理完成：点数=500, 缓冲类型=Polygon
-[2025-11-11 18:39:29] [DEBUG] sunyu.util.GisUtil: 批次1处理完成：点数=500, 缓冲类型=Polygon
-[2025-11-11 18:39:29] [DEBUG] sunyu.util.GisUtil: 批次合并开始，批次数量=4
-[2025-11-11 18:39:29] [DEBUG] sunyu.util.GisUtil: 批次合并完成：批次数量=4, 合并后几何类型=Polygon
-[2025-11-11 18:39:29] [DEBUG] sunyu.util.GisUtil: 将轨迹段中的WGS84坐标转换为高斯投影坐标 轨迹段点数量：146
-[2025-11-11 18:39:29] [DEBUG] sunyu.util.GisUtil: 转换后的轨迹段点数量：146
-[2025-11-11 18:39:29] [DEBUG] sunyu.util.GisUtil: 使用高斯投影的轨迹点进行线缓冲，左右缓冲总宽度：1.75米
-[2025-11-11 18:39:29] [DEBUG] sunyu.util.GisUtil: 直接处理，点数：146，缓冲距离：0.875米
-[2025-11-11 18:39:29] [DEBUG] sunyu.util.GisUtil: 线缓冲成功，结果几何类型：Polygon
-[2025-11-11 18:39:29] [DEBUG] sunyu.util.GisUtil: 将轨迹段中的WGS84坐标转换为高斯投影坐标 轨迹段点数量：4
-[2025-11-11 18:39:29] [DEBUG] sunyu.util.GisUtil: 转换后的轨迹段点数量：4
-[2025-11-11 18:39:29] [DEBUG] sunyu.util.GisUtil: 使用高斯投影的轨迹点进行线缓冲，左右缓冲总宽度：1.75米
-[2025-11-11 18:39:29] [DEBUG] sunyu.util.GisUtil: 直接处理，点数：4，缓冲距离：0.875米
-[2025-11-11 18:39:29] [DEBUG] sunyu.util.GisUtil: 线缓冲成功，结果几何类型：Polygon
-[2025-11-11 18:39:29] [DEBUG] sunyu.util.GisUtil: 将轨迹段中的WGS84坐标转换为高斯投影坐标 轨迹段点数量：86
-[2025-11-11 18:39:29] [DEBUG] sunyu.util.GisUtil: 转换后的轨迹段点数量：86
-[2025-11-11 18:39:29] [DEBUG] sunyu.util.GisUtil: 使用高斯投影的轨迹点进行线缓冲，左右缓冲总宽度：1.75米
-[2025-11-11 18:39:29] [DEBUG] sunyu.util.GisUtil: 直接处理，点数：86，缓冲距离：0.875米
-[2025-11-11 18:39:29] [DEBUG] sunyu.util.GisUtil: 线缓冲成功，结果几何类型：Polygon
-[2025-11-11 18:39:29] [DEBUG] sunyu.util.GisUtil: 将轨迹段中的WGS84坐标转换为高斯投影坐标 轨迹段点数量：172
-[2025-11-11 18:39:29] [DEBUG] sunyu.util.GisUtil: 转换后的轨迹段点数量：172
-[2025-11-11 18:39:29] [DEBUG] sunyu.util.GisUtil: 使用高斯投影的轨迹点进行线缓冲，左右缓冲总宽度：1.75米
-[2025-11-11 18:39:29] [DEBUG] sunyu.util.GisUtil: 直接处理，点数：172，缓冲距离：0.875米
-[2025-11-11 18:39:29] [DEBUG] sunyu.util.GisUtil: 线缓冲成功，结果几何类型：Polygon
-[2025-11-11 18:39:29] [DEBUG] sunyu.util.GisUtil: 将轨迹段中的WGS84坐标转换为高斯投影坐标 轨迹段点数量：4
-[2025-11-11 18:39:29] [DEBUG] sunyu.util.GisUtil: 转换后的轨迹段点数量：4
-[2025-11-11 18:39:29] [DEBUG] sunyu.util.GisUtil: 使用高斯投影的轨迹点进行线缓冲，左右缓冲总宽度：1.75米
-[2025-11-11 18:39:29] [DEBUG] sunyu.util.GisUtil: 直接处理，点数：4，缓冲距离：0.875米
-[2025-11-11 18:39:29] [DEBUG] sunyu.util.GisUtil: 线缓冲成功，结果几何类型：Polygon
-[2025-11-11 18:39:29] [DEBUG] sunyu.util.GisUtil: 将轨迹段中的WGS84坐标转换为高斯投影坐标 轨迹段点数量：5
-[2025-11-11 18:39:29] [DEBUG] sunyu.util.GisUtil: 转换后的轨迹段点数量：5
-[2025-11-11 18:39:29] [DEBUG] sunyu.util.GisUtil: 使用高斯投影的轨迹点进行线缓冲，左右缓冲总宽度：1.75米
-[2025-11-11 18:39:29] [DEBUG] sunyu.util.GisUtil: 直接处理，点数：5，缓冲距离：0.875米
-[2025-11-11 18:39:29] [DEBUG] sunyu.util.GisUtil: 线缓冲成功，结果几何类型：Polygon
-[2025-11-11 18:39:29] [DEBUG] sunyu.util.GisUtil: 将轨迹段中的WGS84坐标转换为高斯投影坐标 轨迹段点数量：326
-[2025-11-11 18:39:29] [DEBUG] sunyu.util.GisUtil: 转换后的轨迹段点数量：326
-[2025-11-11 18:39:29] [DEBUG] sunyu.util.GisUtil: 使用高斯投影的轨迹点进行线缓冲，左右缓冲总宽度：1.75米
-[2025-11-11 18:39:29] [DEBUG] sunyu.util.GisUtil: 直接处理，点数：326，缓冲距离：0.875米
-[2025-11-11 18:39:29] [DEBUG] sunyu.util.GisUtil: 线缓冲成功，结果几何类型：Polygon
-[2025-11-11 18:39:29] [DEBUG] sunyu.util.GisUtil: 将轨迹段中的WGS84坐标转换为高斯投影坐标 轨迹段点数量：3803
-[2025-11-11 18:39:29] [DEBUG] sunyu.util.GisUtil: 转换后的轨迹段点数量：3803
-[2025-11-11 18:39:29] [DEBUG] sunyu.util.GisUtil: 使用高斯投影的轨迹点进行线缓冲，左右缓冲总宽度：1.75米
-[2025-11-11 18:39:29] [DEBUG] sunyu.util.GisUtil: 点数过多(3803个)，采用分批并发处理，缓冲距离：0.875米
-[2025-11-11 18:39:29] [DEBUG] sunyu.util.GisUtil: 批次9处理完成：点数=203, 缓冲类型=Polygon
-[2025-11-11 18:39:29] [DEBUG] sunyu.util.GisUtil: 批次3处理完成：点数=500, 缓冲类型=Polygon
-[2025-11-11 18:39:29] [DEBUG] sunyu.util.GisUtil: 批次7处理完成：点数=500, 缓冲类型=Polygon
-[2025-11-11 18:39:29] [DEBUG] sunyu.util.GisUtil: 批次8处理完成：点数=500, 缓冲类型=Polygon
-[2025-11-11 18:39:29] [DEBUG] sunyu.util.GisUtil: 批次2处理完成：点数=500, 缓冲类型=Polygon
-[2025-11-11 18:39:29] [DEBUG] sunyu.util.GisUtil: 批次5处理完成：点数=500, 缓冲类型=Polygon
-[2025-11-11 18:39:29] [DEBUG] sunyu.util.GisUtil: 批次4处理完成：点数=500, 缓冲类型=Polygon
-[2025-11-11 18:39:29] [DEBUG] sunyu.util.GisUtil: 批次6处理完成：点数=500, 缓冲类型=Polygon
-[2025-11-11 18:39:29] [DEBUG] sunyu.util.GisUtil: 批次1处理完成：点数=500, 缓冲类型=Polygon
-[2025-11-11 18:39:29] [DEBUG] sunyu.util.GisUtil: 批次合并开始，批次数量=9
-[2025-11-11 18:39:44] [DEBUG] sunyu.util.GisUtil: 批次合并完成：批次数量=9, 合并后几何类型=Polygon
-[2025-11-11 18:39:44] [DEBUG] sunyu.util.GisUtil: 合并所有高斯投影缓冲几何
-[2025-11-11 18:39:44] [DEBUG] sunyu.util.GisUtil: 合并后的几何类型：Polygon，几何数量：1
-[2025-11-11 18:39:44] [DEBUG] sunyu.util.GisUtil: 对合并后的几何进行膨胀再收缩操作，消除细小缝隙 - 膨胀0.1米再收缩0.1米
-[2025-11-11 18:39:44] [DEBUG] sunyu.util.GisUtil: 膨胀收缩操作完成，面积变化0.57%，最终几何类型：Polygon，几何数量：1
-[2025-11-11 18:39:44] [DEBUG] sunyu.util.GisUtil: 高斯投影几何到WGS84投影几何转换开始
-[2025-11-11 18:39:44] [DEBUG] sunyu.util.GisUtil: 高斯投影几何到WGS84投影几何转换完成
-[2025-11-11 18:39:44] [DEBUG] sunyu.util.GisUtil: 点位空间判断完成，原始点位数：5919，筛选后点位数：5919，耗时：62ms
-[2025-11-11 18:39:44] [DEBUG] sunyu.util.GisUtil: 单多边形面积: 8958.985728082322平方米
-[2025-11-11 18:39:44] [DEBUG] sunyu.util.GisUtil: 高斯投影几何转换为WGS84投影WKT字符串开始
-[2025-11-11 18:39:44] [DEBUG] sunyu.util.GisUtil: 高斯投影几何到WGS84投影几何转换开始
-[2025-11-11 18:39:44] [DEBUG] sunyu.util.GisUtil: 高斯投影几何到WGS84投影几何转换完成
-[2025-11-11 18:39:44] [DEBUG] sunyu.util.GisUtil: 高斯投影几何转换为WGS84投影WKT字符串完成
-[2025-11-11 18:39:44] [DEBUG] sunyu.util.GisUtil: 最终生成区块数量：1块，总亩数：13.4385亩，最终几何类型：Polygon
-[2025-11-11 18:39:44] [INFO] sunyu.util.test.TestGisUtil: 结果文件已生成：outline=D:/GitLab/util-gis/testFiles/EC71BT2406060220_20251102154200_20251102172202_outline.txt, parts=D:/GitLab/util-gis/testFiles/EC71BT2406060220_20251102154200_20251102172202_parts.txt
+[2025-11-11 19:57:46] [DEBUG] cn.hutool.log.LogFactory: Use [Hutool Console Logging] Logger As Default.
+[2025-11-11 19:57:46] [INFO] sunyu.util.GisUtil: [构建GisUtil] 开始
+[2025-11-11 19:57:46] [INFO] sunyu.util.GisUtil: [构建GisUtil] 结束
+[2025-11-11 19:57:46] [INFO] sunyu.util.test.ProtocolSdk: 初始化内部协议工具
+[2025-11-11 19:57:47] [INFO] sunyu.util.test.ProtocolSdk: 配置信息加载完毕
+[2025-11-11 19:57:47] [DEBUG] sunyu.util.GisUtil: 参数信息：轨迹点数量=9185 总宽度=2.7米
+[2025-11-11 19:57:47] [DEBUG] sunyu.util.GisUtil: 按定位时间升序排序
+[2025-11-11 19:57:47] [INFO] sunyu.util.GisUtil: 统计轨迹点时间间隔分布，总点数：9185
+[2025-11-11 19:57:47] [INFO] sunyu.util.GisUtil: 最小有效时间间隔：1秒（点数最多的时间间隔）
+[2025-11-11 19:57:47] [DEBUG] sunyu.util.GisUtil: 根据最小有效时间间隔1秒，设置最小多边形点数为120个
+[2025-11-11 19:57:47] [DEBUG] sunyu.util.GisUtil: 过滤时间为空、经纬度异常、经纬度为0、速度为0、方向角异常的轨迹点
+[2025-11-11 19:57:47] [DEBUG] sunyu.util.GisUtil: 过滤后的轨迹点数量：9185
+[2025-11-11 19:57:47] [DEBUG] sunyu.util.GisUtil: 按照间隔速度、间隔时间、间隔距离切分成多段轨迹
+[2025-11-11 19:57:47] [DEBUG] sunyu.util.GisUtil: 按照间隔速度、间隔时间、间隔距离切分后的轨迹段数量：53
+[2025-11-11 19:57:47] [DEBUG] sunyu.util.GisUtil: 将轨迹段中的WGS84坐标转换为高斯投影坐标 轨迹段点数量：7
+[2025-11-11 19:57:47] [DEBUG] sunyu.util.GisUtil: 高斯投影CRS WKT定义：PROJCS["WGS_1984_Gauss_Kruger_Zone_49", GEOGCS["GCS_WGS_1984", DATUM["D_WGS_1984", SPHEROID["WGS_1984",6378137.0,298.257223563]], PRIMEM["Greenwich",0.0], UNIT["Degree",0.0174532925199433]], PROJECTION["Transverse_Mercator"], PARAMETER["False_Easting",49500000.0], PARAMETER["False_Northing",0.0], PARAMETER["Central_Meridian",111.0], PARAMETER["Scale_Factor",1.0], PARAMETER["Latitude_Of_Origin",0.0], UNIT["Meter",1.0]]
+[2025-11-11 19:57:48] [DEBUG] sunyu.util.GisUtil: 转换后的轨迹段点数量：7
+[2025-11-11 19:57:48] [DEBUG] sunyu.util.GisUtil: 使用高斯投影的轨迹点进行线缓冲，左右缓冲总宽度：2.7米
+[2025-11-11 19:57:48] [DEBUG] sunyu.util.GisUtil: 直接处理，点数：7，缓冲距离：1.35米
+[2025-11-11 19:57:48] [DEBUG] sunyu.util.GisUtil: 线缓冲成功，结果几何类型：Polygon
+[2025-11-11 19:57:48] [DEBUG] sunyu.util.GisUtil: 将轨迹段中的WGS84坐标转换为高斯投影坐标 轨迹段点数量：10
+[2025-11-11 19:57:48] [DEBUG] sunyu.util.GisUtil: 转换后的轨迹段点数量：10
+[2025-11-11 19:57:48] [DEBUG] sunyu.util.GisUtil: 使用高斯投影的轨迹点进行线缓冲，左右缓冲总宽度：2.7米
+[2025-11-11 19:57:48] [DEBUG] sunyu.util.GisUtil: 直接处理，点数：10，缓冲距离：1.35米
+[2025-11-11 19:57:48] [DEBUG] sunyu.util.GisUtil: 线缓冲成功，结果几何类型：Polygon
+[2025-11-11 19:57:48] [DEBUG] sunyu.util.GisUtil: 将轨迹段中的WGS84坐标转换为高斯投影坐标 轨迹段点数量：19
+[2025-11-11 19:57:48] [DEBUG] sunyu.util.GisUtil: 转换后的轨迹段点数量：19
+[2025-11-11 19:57:48] [DEBUG] sunyu.util.GisUtil: 使用高斯投影的轨迹点进行线缓冲，左右缓冲总宽度：2.7米
+[2025-11-11 19:57:48] [DEBUG] sunyu.util.GisUtil: 直接处理，点数：19，缓冲距离：1.35米
+[2025-11-11 19:57:48] [DEBUG] sunyu.util.GisUtil: 线缓冲成功，结果几何类型：Polygon
+[2025-11-11 19:57:48] [DEBUG] sunyu.util.GisUtil: 将轨迹段中的WGS84坐标转换为高斯投影坐标 轨迹段点数量：8
+[2025-11-11 19:57:48] [DEBUG] sunyu.util.GisUtil: 转换后的轨迹段点数量：8
+[2025-11-11 19:57:48] [DEBUG] sunyu.util.GisUtil: 使用高斯投影的轨迹点进行线缓冲，左右缓冲总宽度：2.7米
+[2025-11-11 19:57:48] [DEBUG] sunyu.util.GisUtil: 直接处理，点数：8，缓冲距离：1.35米
+[2025-11-11 19:57:48] [DEBUG] sunyu.util.GisUtil: 线缓冲成功，结果几何类型：Polygon
+[2025-11-11 19:57:48] [DEBUG] sunyu.util.GisUtil: 将轨迹段中的WGS84坐标转换为高斯投影坐标 轨迹段点数量：6
+[2025-11-11 19:57:48] [DEBUG] sunyu.util.GisUtil: 转换后的轨迹段点数量：6
+[2025-11-11 19:57:48] [DEBUG] sunyu.util.GisUtil: 使用高斯投影的轨迹点进行线缓冲，左右缓冲总宽度：2.7米
+[2025-11-11 19:57:48] [DEBUG] sunyu.util.GisUtil: 直接处理，点数：6，缓冲距离：1.35米
+[2025-11-11 19:57:48] [DEBUG] sunyu.util.GisUtil: 线缓冲成功，结果几何类型：Polygon
+[2025-11-11 19:57:48] [DEBUG] sunyu.util.GisUtil: 将轨迹段中的WGS84坐标转换为高斯投影坐标 轨迹段点数量：18
+[2025-11-11 19:57:48] [DEBUG] sunyu.util.GisUtil: 转换后的轨迹段点数量：18
+[2025-11-11 19:57:48] [DEBUG] sunyu.util.GisUtil: 使用高斯投影的轨迹点进行线缓冲，左右缓冲总宽度：2.7米
+[2025-11-11 19:57:48] [DEBUG] sunyu.util.GisUtil: 直接处理，点数：18，缓冲距离：1.35米
+[2025-11-11 19:57:48] [DEBUG] sunyu.util.GisUtil: 线缓冲成功，结果几何类型：Polygon
+[2025-11-11 19:57:48] [DEBUG] sunyu.util.GisUtil: 将轨迹段中的WGS84坐标转换为高斯投影坐标 轨迹段点数量：2
+[2025-11-11 19:57:48] [DEBUG] sunyu.util.GisUtil: 转换后的轨迹段点数量：2
+[2025-11-11 19:57:48] [DEBUG] sunyu.util.GisUtil: 使用高斯投影的轨迹点进行线缓冲，左右缓冲总宽度：2.7米
+[2025-11-11 19:57:48] [DEBUG] sunyu.util.GisUtil: 直接处理，点数：2，缓冲距离：1.35米
+[2025-11-11 19:57:48] [DEBUG] sunyu.util.GisUtil: 线缓冲成功，结果几何类型：Polygon
+[2025-11-11 19:57:48] [DEBUG] sunyu.util.GisUtil: 将轨迹段中的WGS84坐标转换为高斯投影坐标 轨迹段点数量：2
+[2025-11-11 19:57:48] [DEBUG] sunyu.util.GisUtil: 转换后的轨迹段点数量：2
+[2025-11-11 19:57:48] [DEBUG] sunyu.util.GisUtil: 使用高斯投影的轨迹点进行线缓冲，左右缓冲总宽度：2.7米
+[2025-11-11 19:57:48] [DEBUG] sunyu.util.GisUtil: 直接处理，点数：2，缓冲距离：1.35米
+[2025-11-11 19:57:48] [DEBUG] sunyu.util.GisUtil: 线缓冲成功，结果几何类型：Polygon
+[2025-11-11 19:57:48] [DEBUG] sunyu.util.GisUtil: 将轨迹段中的WGS84坐标转换为高斯投影坐标 轨迹段点数量：3
+[2025-11-11 19:57:48] [DEBUG] sunyu.util.GisUtil: 转换后的轨迹段点数量：3
+[2025-11-11 19:57:48] [DEBUG] sunyu.util.GisUtil: 使用高斯投影的轨迹点进行线缓冲，左右缓冲总宽度：2.7米
+[2025-11-11 19:57:48] [DEBUG] sunyu.util.GisUtil: 直接处理，点数：3，缓冲距离：1.35米
+[2025-11-11 19:57:48] [DEBUG] sunyu.util.GisUtil: 线缓冲成功，结果几何类型：Polygon
+[2025-11-11 19:57:48] [DEBUG] sunyu.util.GisUtil: 将轨迹段中的WGS84坐标转换为高斯投影坐标 轨迹段点数量：11
+[2025-11-11 19:57:48] [DEBUG] sunyu.util.GisUtil: 转换后的轨迹段点数量：11
+[2025-11-11 19:57:48] [DEBUG] sunyu.util.GisUtil: 使用高斯投影的轨迹点进行线缓冲，左右缓冲总宽度：2.7米
+[2025-11-11 19:57:48] [DEBUG] sunyu.util.GisUtil: 直接处理，点数：11，缓冲距离：1.35米
+[2025-11-11 19:57:48] [DEBUG] sunyu.util.GisUtil: 线缓冲成功，结果几何类型：Polygon
+[2025-11-11 19:57:48] [DEBUG] sunyu.util.GisUtil: 将轨迹段中的WGS84坐标转换为高斯投影坐标 轨迹段点数量：12
+[2025-11-11 19:57:48] [DEBUG] sunyu.util.GisUtil: 转换后的轨迹段点数量：12
+[2025-11-11 19:57:48] [DEBUG] sunyu.util.GisUtil: 使用高斯投影的轨迹点进行线缓冲，左右缓冲总宽度：2.7米
+[2025-11-11 19:57:48] [DEBUG] sunyu.util.GisUtil: 直接处理，点数：12，缓冲距离：1.35米
+[2025-11-11 19:57:48] [DEBUG] sunyu.util.GisUtil: 线缓冲成功，结果几何类型：Polygon
+[2025-11-11 19:57:48] [DEBUG] sunyu.util.GisUtil: 将轨迹段中的WGS84坐标转换为高斯投影坐标 轨迹段点数量：5
+[2025-11-11 19:57:48] [DEBUG] sunyu.util.GisUtil: 转换后的轨迹段点数量：5
+[2025-11-11 19:57:48] [DEBUG] sunyu.util.GisUtil: 使用高斯投影的轨迹点进行线缓冲，左右缓冲总宽度：2.7米
+[2025-11-11 19:57:48] [DEBUG] sunyu.util.GisUtil: 直接处理，点数：5，缓冲距离：1.35米
+[2025-11-11 19:57:48] [DEBUG] sunyu.util.GisUtil: 线缓冲成功，结果几何类型：Polygon
+[2025-11-11 19:57:48] [DEBUG] sunyu.util.GisUtil: 将轨迹段中的WGS84坐标转换为高斯投影坐标 轨迹段点数量：11
+[2025-11-11 19:57:48] [DEBUG] sunyu.util.GisUtil: 转换后的轨迹段点数量：11
+[2025-11-11 19:57:48] [DEBUG] sunyu.util.GisUtil: 使用高斯投影的轨迹点进行线缓冲，左右缓冲总宽度：2.7米
+[2025-11-11 19:57:48] [DEBUG] sunyu.util.GisUtil: 直接处理，点数：11，缓冲距离：1.35米
+[2025-11-11 19:57:48] [DEBUG] sunyu.util.GisUtil: 线缓冲成功，结果几何类型：Polygon
+[2025-11-11 19:57:48] [DEBUG] sunyu.util.GisUtil: 将轨迹段中的WGS84坐标转换为高斯投影坐标 轨迹段点数量：27
+[2025-11-11 19:57:48] [DEBUG] sunyu.util.GisUtil: 转换后的轨迹段点数量：27
+[2025-11-11 19:57:48] [DEBUG] sunyu.util.GisUtil: 使用高斯投影的轨迹点进行线缓冲，左右缓冲总宽度：2.7米
+[2025-11-11 19:57:48] [DEBUG] sunyu.util.GisUtil: 直接处理，点数：27，缓冲距离：1.35米
+[2025-11-11 19:57:48] [DEBUG] sunyu.util.GisUtil: 线缓冲成功，结果几何类型：Polygon
+[2025-11-11 19:57:48] [DEBUG] sunyu.util.GisUtil: 将轨迹段中的WGS84坐标转换为高斯投影坐标 轨迹段点数量：5
+[2025-11-11 19:57:48] [DEBUG] sunyu.util.GisUtil: 转换后的轨迹段点数量：5
+[2025-11-11 19:57:48] [DEBUG] sunyu.util.GisUtil: 使用高斯投影的轨迹点进行线缓冲，左右缓冲总宽度：2.7米
+[2025-11-11 19:57:48] [DEBUG] sunyu.util.GisUtil: 直接处理，点数：5，缓冲距离：1.35米
+[2025-11-11 19:57:48] [DEBUG] sunyu.util.GisUtil: 线缓冲成功，结果几何类型：Polygon
+[2025-11-11 19:57:48] [DEBUG] sunyu.util.GisUtil: 将轨迹段中的WGS84坐标转换为高斯投影坐标 轨迹段点数量：3
+[2025-11-11 19:57:48] [DEBUG] sunyu.util.GisUtil: 转换后的轨迹段点数量：3
+[2025-11-11 19:57:48] [DEBUG] sunyu.util.GisUtil: 使用高斯投影的轨迹点进行线缓冲，左右缓冲总宽度：2.7米
+[2025-11-11 19:57:48] [DEBUG] sunyu.util.GisUtil: 直接处理，点数：3，缓冲距离：1.35米
+[2025-11-11 19:57:48] [DEBUG] sunyu.util.GisUtil: 线缓冲成功，结果几何类型：Polygon
+[2025-11-11 19:57:48] [DEBUG] sunyu.util.GisUtil: 将轨迹段中的WGS84坐标转换为高斯投影坐标 轨迹段点数量：6
+[2025-11-11 19:57:48] [DEBUG] sunyu.util.GisUtil: 转换后的轨迹段点数量：6
+[2025-11-11 19:57:48] [DEBUG] sunyu.util.GisUtil: 使用高斯投影的轨迹点进行线缓冲，左右缓冲总宽度：2.7米
+[2025-11-11 19:57:48] [DEBUG] sunyu.util.GisUtil: 直接处理，点数：6，缓冲距离：1.35米
+[2025-11-11 19:57:48] [DEBUG] sunyu.util.GisUtil: 线缓冲成功，结果几何类型：Polygon
+[2025-11-11 19:57:48] [DEBUG] sunyu.util.GisUtil: 将轨迹段中的WGS84坐标转换为高斯投影坐标 轨迹段点数量：2
+[2025-11-11 19:57:48] [DEBUG] sunyu.util.GisUtil: 转换后的轨迹段点数量：2
+[2025-11-11 19:57:48] [DEBUG] sunyu.util.GisUtil: 使用高斯投影的轨迹点进行线缓冲，左右缓冲总宽度：2.7米
+[2025-11-11 19:57:48] [DEBUG] sunyu.util.GisUtil: 直接处理，点数：2，缓冲距离：1.35米
+[2025-11-11 19:57:48] [DEBUG] sunyu.util.GisUtil: 线缓冲成功，结果几何类型：Polygon
+[2025-11-11 19:57:48] [DEBUG] sunyu.util.GisUtil: 将轨迹段中的WGS84坐标转换为高斯投影坐标 轨迹段点数量：2
+[2025-11-11 19:57:48] [DEBUG] sunyu.util.GisUtil: 转换后的轨迹段点数量：2
+[2025-11-11 19:57:48] [DEBUG] sunyu.util.GisUtil: 使用高斯投影的轨迹点进行线缓冲，左右缓冲总宽度：2.7米
+[2025-11-11 19:57:48] [DEBUG] sunyu.util.GisUtil: 直接处理，点数：2，缓冲距离：1.35米
+[2025-11-11 19:57:48] [DEBUG] sunyu.util.GisUtil: 线缓冲成功，结果几何类型：Polygon
+[2025-11-11 19:57:48] [DEBUG] sunyu.util.GisUtil: 将轨迹段中的WGS84坐标转换为高斯投影坐标 轨迹段点数量：4
+[2025-11-11 19:57:48] [WARN] sunyu.util.GisUtil: 轨迹段点数量小于2个，无法进行拆分
+[2025-11-11 19:57:48] [DEBUG] sunyu.util.GisUtil: 转换后的轨迹段点数量：4
+[2025-11-11 19:57:48] [DEBUG] sunyu.util.GisUtil: 使用高斯投影的轨迹点进行线缓冲，左右缓冲总宽度：2.7米
+[2025-11-11 19:57:48] [DEBUG] sunyu.util.GisUtil: 直接处理，点数：4，缓冲距离：1.35米
+[2025-11-11 19:57:48] [DEBUG] sunyu.util.GisUtil: 线缓冲成功，结果几何类型：Polygon
+[2025-11-11 19:57:48] [DEBUG] sunyu.util.GisUtil: 将轨迹段中的WGS84坐标转换为高斯投影坐标 轨迹段点数量：2
+[2025-11-11 19:57:48] [DEBUG] sunyu.util.GisUtil: 转换后的轨迹段点数量：2
+[2025-11-11 19:57:48] [DEBUG] sunyu.util.GisUtil: 使用高斯投影的轨迹点进行线缓冲，左右缓冲总宽度：2.7米
+[2025-11-11 19:57:48] [DEBUG] sunyu.util.GisUtil: 直接处理，点数：2，缓冲距离：1.35米
+[2025-11-11 19:57:48] [DEBUG] sunyu.util.GisUtil: 线缓冲成功，结果几何类型：Polygon
+[2025-11-11 19:57:48] [DEBUG] sunyu.util.GisUtil: 将轨迹段中的WGS84坐标转换为高斯投影坐标 轨迹段点数量：4
+[2025-11-11 19:57:48] [DEBUG] sunyu.util.GisUtil: 转换后的轨迹段点数量：4
+[2025-11-11 19:57:48] [DEBUG] sunyu.util.GisUtil: 使用高斯投影的轨迹点进行线缓冲，左右缓冲总宽度：2.7米
+[2025-11-11 19:57:48] [DEBUG] sunyu.util.GisUtil: 直接处理，点数：4，缓冲距离：1.35米
+[2025-11-11 19:57:48] [DEBUG] sunyu.util.GisUtil: 线缓冲成功，结果几何类型：Polygon
+[2025-11-11 19:57:48] [DEBUG] sunyu.util.GisUtil: 将轨迹段中的WGS84坐标转换为高斯投影坐标 轨迹段点数量：4
+[2025-11-11 19:57:48] [DEBUG] sunyu.util.GisUtil: 转换后的轨迹段点数量：4
+[2025-11-11 19:57:48] [DEBUG] sunyu.util.GisUtil: 使用高斯投影的轨迹点进行线缓冲，左右缓冲总宽度：2.7米
+[2025-11-11 19:57:48] [DEBUG] sunyu.util.GisUtil: 直接处理，点数：4，缓冲距离：1.35米
+[2025-11-11 19:57:48] [DEBUG] sunyu.util.GisUtil: 线缓冲成功，结果几何类型：Polygon
+[2025-11-11 19:57:48] [WARN] sunyu.util.GisUtil: 轨迹段点数量小于2个，无法进行拆分
+[2025-11-11 19:57:48] [DEBUG] sunyu.util.GisUtil: 将轨迹段中的WGS84坐标转换为高斯投影坐标 轨迹段点数量：2
+[2025-11-11 19:57:48] [DEBUG] sunyu.util.GisUtil: 转换后的轨迹段点数量：2
+[2025-11-11 19:57:48] [DEBUG] sunyu.util.GisUtil: 使用高斯投影的轨迹点进行线缓冲，左右缓冲总宽度：2.7米
+[2025-11-11 19:57:48] [DEBUG] sunyu.util.GisUtil: 直接处理，点数：2，缓冲距离：1.35米
+[2025-11-11 19:57:48] [DEBUG] sunyu.util.GisUtil: 线缓冲成功，结果几何类型：Polygon
+[2025-11-11 19:57:48] [DEBUG] sunyu.util.GisUtil: 将轨迹段中的WGS84坐标转换为高斯投影坐标 轨迹段点数量：22
+[2025-11-11 19:57:48] [DEBUG] sunyu.util.GisUtil: 转换后的轨迹段点数量：22
+[2025-11-11 19:57:48] [DEBUG] sunyu.util.GisUtil: 使用高斯投影的轨迹点进行线缓冲，左右缓冲总宽度：2.7米
+[2025-11-11 19:57:48] [DEBUG] sunyu.util.GisUtil: 直接处理，点数：22，缓冲距离：1.35米
+[2025-11-11 19:57:48] [DEBUG] sunyu.util.GisUtil: 线缓冲成功，结果几何类型：Polygon
+[2025-11-11 19:57:48] [DEBUG] sunyu.util.GisUtil: 将轨迹段中的WGS84坐标转换为高斯投影坐标 轨迹段点数量：27
+[2025-11-11 19:57:48] [DEBUG] sunyu.util.GisUtil: 转换后的轨迹段点数量：27
+[2025-11-11 19:57:48] [DEBUG] sunyu.util.GisUtil: 使用高斯投影的轨迹点进行线缓冲，左右缓冲总宽度：2.7米
+[2025-11-11 19:57:48] [DEBUG] sunyu.util.GisUtil: 直接处理，点数：27，缓冲距离：1.35米
+[2025-11-11 19:57:48] [DEBUG] sunyu.util.GisUtil: 线缓冲成功，结果几何类型：Polygon
+[2025-11-11 19:57:48] [DEBUG] sunyu.util.GisUtil: 将轨迹段中的WGS84坐标转换为高斯投影坐标 轨迹段点数量：97
+[2025-11-11 19:57:48] [DEBUG] sunyu.util.GisUtil: 转换后的轨迹段点数量：97
+[2025-11-11 19:57:48] [DEBUG] sunyu.util.GisUtil: 使用高斯投影的轨迹点进行线缓冲，左右缓冲总宽度：2.7米
+[2025-11-11 19:57:48] [DEBUG] sunyu.util.GisUtil: 直接处理，点数：97，缓冲距离：1.35米
+[2025-11-11 19:57:48] [DEBUG] sunyu.util.GisUtil: 线缓冲成功，结果几何类型：Polygon
+[2025-11-11 19:57:48] [DEBUG] sunyu.util.GisUtil: 将轨迹段中的WGS84坐标转换为高斯投影坐标 轨迹段点数量：67
+[2025-11-11 19:57:48] [DEBUG] sunyu.util.GisUtil: 转换后的轨迹段点数量：67
+[2025-11-11 19:57:48] [DEBUG] sunyu.util.GisUtil: 使用高斯投影的轨迹点进行线缓冲，左右缓冲总宽度：2.7米
+[2025-11-11 19:57:48] [DEBUG] sunyu.util.GisUtil: 直接处理，点数：67，缓冲距离：1.35米
+[2025-11-11 19:57:48] [DEBUG] sunyu.util.GisUtil: 线缓冲成功，结果几何类型：Polygon
+[2025-11-11 19:57:48] [DEBUG] sunyu.util.GisUtil: 将轨迹段中的WGS84坐标转换为高斯投影坐标 轨迹段点数量：1351
+[2025-11-11 19:57:48] [DEBUG] sunyu.util.GisUtil: 转换后的轨迹段点数量：1351
+[2025-11-11 19:57:48] [DEBUG] sunyu.util.GisUtil: 使用高斯投影的轨迹点进行线缓冲，左右缓冲总宽度：2.7米
+[2025-11-11 19:57:48] [DEBUG] sunyu.util.GisUtil: 点数过多(1351个)，采用分批并发处理，缓冲距离：1.35米
+[2025-11-11 19:57:48] [DEBUG] sunyu.util.GisUtil: 批次2处理完成：点数=500, 缓冲类型=Polygon
+[2025-11-11 19:57:48] [DEBUG] sunyu.util.GisUtil: 批次3处理完成：点数=451, 缓冲类型=Polygon
+[2025-11-11 19:57:48] [DEBUG] sunyu.util.GisUtil: 批次1处理完成：点数=500, 缓冲类型=Polygon
+[2025-11-11 19:57:48] [DEBUG] sunyu.util.GisUtil: 批次合并开始，批次数量=3
+[2025-11-11 19:57:48] [DEBUG] sunyu.util.GisUtil: 批次合并完成：批次数量=3, 合并后几何类型=Polygon
+[2025-11-11 19:57:48] [DEBUG] sunyu.util.GisUtil: 将轨迹段中的WGS84坐标转换为高斯投影坐标 轨迹段点数量：215
+[2025-11-11 19:57:48] [DEBUG] sunyu.util.GisUtil: 转换后的轨迹段点数量：215
+[2025-11-11 19:57:48] [DEBUG] sunyu.util.GisUtil: 使用高斯投影的轨迹点进行线缓冲，左右缓冲总宽度：2.7米
+[2025-11-11 19:57:48] [DEBUG] sunyu.util.GisUtil: 直接处理，点数：215，缓冲距离：1.35米
+[2025-11-11 19:57:48] [DEBUG] sunyu.util.GisUtil: 线缓冲成功，结果几何类型：Polygon
+[2025-11-11 19:57:48] [DEBUG] sunyu.util.GisUtil: 将轨迹段中的WGS84坐标转换为高斯投影坐标 轨迹段点数量：1715
+[2025-11-11 19:57:48] [DEBUG] sunyu.util.GisUtil: 转换后的轨迹段点数量：1715
+[2025-11-11 19:57:48] [DEBUG] sunyu.util.GisUtil: 使用高斯投影的轨迹点进行线缓冲，左右缓冲总宽度：2.7米
+[2025-11-11 19:57:48] [DEBUG] sunyu.util.GisUtil: 点数过多(1715个)，采用分批并发处理，缓冲距离：1.35米
+[2025-11-11 19:57:48] [DEBUG] sunyu.util.GisUtil: 批次4处理完成：点数=365, 缓冲类型=Polygon
+[2025-11-11 19:57:48] [DEBUG] sunyu.util.GisUtil: 批次3处理完成：点数=500, 缓冲类型=Polygon
+[2025-11-11 19:57:48] [DEBUG] sunyu.util.GisUtil: 批次1处理完成：点数=500, 缓冲类型=Polygon
+[2025-11-11 19:57:48] [DEBUG] sunyu.util.GisUtil: 批次2处理完成：点数=500, 缓冲类型=Polygon
+[2025-11-11 19:57:48] [DEBUG] sunyu.util.GisUtil: 批次合并开始，批次数量=4
+[2025-11-11 19:57:49] [DEBUG] sunyu.util.GisUtil: 批次合并完成：批次数量=4, 合并后几何类型=Polygon
+[2025-11-11 19:57:49] [DEBUG] sunyu.util.GisUtil: 将轨迹段中的WGS84坐标转换为高斯投影坐标 轨迹段点数量：1595
+[2025-11-11 19:57:49] [DEBUG] sunyu.util.GisUtil: 转换后的轨迹段点数量：1595
+[2025-11-11 19:57:49] [DEBUG] sunyu.util.GisUtil: 使用高斯投影的轨迹点进行线缓冲，左右缓冲总宽度：2.7米
+[2025-11-11 19:57:49] [DEBUG] sunyu.util.GisUtil: 点数过多(1595个)，采用分批并发处理，缓冲距离：1.35米
+[2025-11-11 19:57:49] [DEBUG] sunyu.util.GisUtil: 批次4处理完成：点数=245, 缓冲类型=Polygon
+[2025-11-11 19:57:49] [DEBUG] sunyu.util.GisUtil: 批次3处理完成：点数=500, 缓冲类型=Polygon
+[2025-11-11 19:57:49] [DEBUG] sunyu.util.GisUtil: 批次2处理完成：点数=500, 缓冲类型=Polygon
+[2025-11-11 19:57:49] [DEBUG] sunyu.util.GisUtil: 批次1处理完成：点数=500, 缓冲类型=Polygon
+[2025-11-11 19:57:49] [DEBUG] sunyu.util.GisUtil: 批次合并开始，批次数量=4
+[2025-11-11 19:57:49] [DEBUG] sunyu.util.GisUtil: 批次合并完成：批次数量=4, 合并后几何类型=Polygon
+[2025-11-11 19:57:49] [DEBUG] sunyu.util.GisUtil: 将轨迹段中的WGS84坐标转换为高斯投影坐标 轨迹段点数量：9
+[2025-11-11 19:57:49] [DEBUG] sunyu.util.GisUtil: 转换后的轨迹段点数量：9
+[2025-11-11 19:57:49] [DEBUG] sunyu.util.GisUtil: 使用高斯投影的轨迹点进行线缓冲，左右缓冲总宽度：2.7米
+[2025-11-11 19:57:49] [DEBUG] sunyu.util.GisUtil: 直接处理，点数：9，缓冲距离：1.35米
+[2025-11-11 19:57:49] [DEBUG] sunyu.util.GisUtil: 线缓冲成功，结果几何类型：Polygon
+[2025-11-11 19:57:49] [DEBUG] sunyu.util.GisUtil: 将轨迹段中的WGS84坐标转换为高斯投影坐标 轨迹段点数量：27
+[2025-11-11 19:57:49] [DEBUG] sunyu.util.GisUtil: 转换后的轨迹段点数量：27
+[2025-11-11 19:57:49] [DEBUG] sunyu.util.GisUtil: 使用高斯投影的轨迹点进行线缓冲，左右缓冲总宽度：2.7米
+[2025-11-11 19:57:49] [DEBUG] sunyu.util.GisUtil: 直接处理，点数：27，缓冲距离：1.35米
+[2025-11-11 19:57:49] [DEBUG] sunyu.util.GisUtil: 线缓冲成功，结果几何类型：Polygon
+[2025-11-11 19:57:49] [DEBUG] sunyu.util.GisUtil: 将轨迹段中的WGS84坐标转换为高斯投影坐标 轨迹段点数量：9
+[2025-11-11 19:57:49] [DEBUG] sunyu.util.GisUtil: 转换后的轨迹段点数量：9
+[2025-11-11 19:57:49] [DEBUG] sunyu.util.GisUtil: 使用高斯投影的轨迹点进行线缓冲，左右缓冲总宽度：2.7米
+[2025-11-11 19:57:49] [DEBUG] sunyu.util.GisUtil: 直接处理，点数：9，缓冲距离：1.35米
+[2025-11-11 19:57:49] [DEBUG] sunyu.util.GisUtil: 线缓冲成功，结果几何类型：Polygon
+[2025-11-11 19:57:49] [DEBUG] sunyu.util.GisUtil: 将轨迹段中的WGS84坐标转换为高斯投影坐标 轨迹段点数量：1058
+[2025-11-11 19:57:49] [DEBUG] sunyu.util.GisUtil: 转换后的轨迹段点数量：1058
+[2025-11-11 19:57:49] [DEBUG] sunyu.util.GisUtil: 使用高斯投影的轨迹点进行线缓冲，左右缓冲总宽度：2.7米
+[2025-11-11 19:57:49] [DEBUG] sunyu.util.GisUtil: 点数过多(1058个)，采用分批并发处理，缓冲距离：1.35米
+[2025-11-11 19:57:49] [DEBUG] sunyu.util.GisUtil: 批次3处理完成：点数=158, 缓冲类型=Polygon
+[2025-11-11 19:57:49] [DEBUG] sunyu.util.GisUtil: 批次1处理完成：点数=500, 缓冲类型=Polygon
+[2025-11-11 19:57:49] [DEBUG] sunyu.util.GisUtil: 批次2处理完成：点数=500, 缓冲类型=Polygon
+[2025-11-11 19:57:49] [DEBUG] sunyu.util.GisUtil: 批次合并开始，批次数量=3
+[2025-11-11 19:57:49] [DEBUG] sunyu.util.GisUtil: 批次合并完成：批次数量=3, 合并后几何类型=Polygon
+[2025-11-11 19:57:49] [DEBUG] sunyu.util.GisUtil: 将轨迹段中的WGS84坐标转换为高斯投影坐标 轨迹段点数量：604
+[2025-11-11 19:57:49] [DEBUG] sunyu.util.GisUtil: 转换后的轨迹段点数量：604
+[2025-11-11 19:57:49] [DEBUG] sunyu.util.GisUtil: 使用高斯投影的轨迹点进行线缓冲，左右缓冲总宽度：2.7米
+[2025-11-11 19:57:49] [DEBUG] sunyu.util.GisUtil: 点数过多(604个)，采用分批并发处理，缓冲距离：1.35米
+[2025-11-11 19:57:49] [DEBUG] sunyu.util.GisUtil: 批次2处理完成：点数=154, 缓冲类型=Polygon
+[2025-11-11 19:57:49] [DEBUG] sunyu.util.GisUtil: 批次1处理完成：点数=500, 缓冲类型=Polygon
+[2025-11-11 19:57:49] [DEBUG] sunyu.util.GisUtil: 批次合并开始，批次数量=2
+[2025-11-11 19:57:49] [DEBUG] sunyu.util.GisUtil: 批次合并完成：批次数量=2, 合并后几何类型=Polygon
+[2025-11-11 19:57:49] [DEBUG] sunyu.util.GisUtil: 将轨迹段中的WGS84坐标转换为高斯投影坐标 轨迹段点数量：653
+[2025-11-11 19:57:49] [DEBUG] sunyu.util.GisUtil: 转换后的轨迹段点数量：653
+[2025-11-11 19:57:49] [DEBUG] sunyu.util.GisUtil: 使用高斯投影的轨迹点进行线缓冲，左右缓冲总宽度：2.7米
+[2025-11-11 19:57:49] [DEBUG] sunyu.util.GisUtil: 点数过多(653个)，采用分批并发处理，缓冲距离：1.35米
+[2025-11-11 19:57:49] [DEBUG] sunyu.util.GisUtil: 批次2处理完成：点数=203, 缓冲类型=Polygon
+[2025-11-11 19:57:49] [DEBUG] sunyu.util.GisUtil: 批次1处理完成：点数=500, 缓冲类型=Polygon
+[2025-11-11 19:57:49] [DEBUG] sunyu.util.GisUtil: 批次合并开始，批次数量=2
+[2025-11-11 19:57:49] [DEBUG] sunyu.util.GisUtil: 批次合并完成：批次数量=2, 合并后几何类型=Polygon
+[2025-11-11 19:57:49] [DEBUG] sunyu.util.GisUtil: 将轨迹段中的WGS84坐标转换为高斯投影坐标 轨迹段点数量：952
+[2025-11-11 19:57:49] [DEBUG] sunyu.util.GisUtil: 转换后的轨迹段点数量：952
+[2025-11-11 19:57:49] [DEBUG] sunyu.util.GisUtil: 使用高斯投影的轨迹点进行线缓冲，左右缓冲总宽度：2.7米
+[2025-11-11 19:57:49] [DEBUG] sunyu.util.GisUtil: 点数过多(952个)，采用分批并发处理，缓冲距离：1.35米
+[2025-11-11 19:57:49] [DEBUG] sunyu.util.GisUtil: 批次3处理完成：点数=52, 缓冲类型=Polygon
+[2025-11-11 19:57:49] [DEBUG] sunyu.util.GisUtil: 批次2处理完成：点数=500, 缓冲类型=Polygon
+[2025-11-11 19:57:49] [DEBUG] sunyu.util.GisUtil: 批次1处理完成：点数=500, 缓冲类型=Polygon
+[2025-11-11 19:57:49] [DEBUG] sunyu.util.GisUtil: 批次合并开始，批次数量=3
+[2025-11-11 19:57:49] [DEBUG] sunyu.util.GisUtil: 批次合并完成：批次数量=3, 合并后几何类型=Polygon
+[2025-11-11 19:57:49] [DEBUG] sunyu.util.GisUtil: 将轨迹段中的WGS84坐标转换为高斯投影坐标 轨迹段点数量：298
+[2025-11-11 19:57:49] [DEBUG] sunyu.util.GisUtil: 转换后的轨迹段点数量：298
+[2025-11-11 19:57:49] [DEBUG] sunyu.util.GisUtil: 使用高斯投影的轨迹点进行线缓冲，左右缓冲总宽度：2.7米
+[2025-11-11 19:57:49] [DEBUG] sunyu.util.GisUtil: 直接处理，点数：298，缓冲距离：1.35米
+[2025-11-11 19:57:49] [DEBUG] sunyu.util.GisUtil: 线缓冲成功，结果几何类型：Polygon
+[2025-11-11 19:57:49] [DEBUG] sunyu.util.GisUtil: 将轨迹段中的WGS84坐标转换为高斯投影坐标 轨迹段点数量：5
+[2025-11-11 19:57:49] [DEBUG] sunyu.util.GisUtil: 转换后的轨迹段点数量：5
+[2025-11-11 19:57:49] [DEBUG] sunyu.util.GisUtil: 使用高斯投影的轨迹点进行线缓冲，左右缓冲总宽度：2.7米
+[2025-11-11 19:57:49] [DEBUG] sunyu.util.GisUtil: 直接处理，点数：5，缓冲距离：1.35米
+[2025-11-11 19:57:49] [DEBUG] sunyu.util.GisUtil: 线缓冲成功，结果几何类型：Polygon
+[2025-11-11 19:57:49] [DEBUG] sunyu.util.GisUtil: 将轨迹段中的WGS84坐标转换为高斯投影坐标 轨迹段点数量：11
+[2025-11-11 19:57:49] [DEBUG] sunyu.util.GisUtil: 转换后的轨迹段点数量：11
+[2025-11-11 19:57:49] [DEBUG] sunyu.util.GisUtil: 使用高斯投影的轨迹点进行线缓冲，左右缓冲总宽度：2.7米
+[2025-11-11 19:57:49] [DEBUG] sunyu.util.GisUtil: 直接处理，点数：11，缓冲距离：1.35米
+[2025-11-11 19:57:49] [DEBUG] sunyu.util.GisUtil: 线缓冲成功，结果几何类型：Polygon
+[2025-11-11 19:57:49] [DEBUG] sunyu.util.GisUtil: 将轨迹段中的WGS84坐标转换为高斯投影坐标 轨迹段点数量：5
+[2025-11-11 19:57:49] [DEBUG] sunyu.util.GisUtil: 转换后的轨迹段点数量：5
+[2025-11-11 19:57:49] [DEBUG] sunyu.util.GisUtil: 使用高斯投影的轨迹点进行线缓冲，左右缓冲总宽度：2.7米
+[2025-11-11 19:57:49] [DEBUG] sunyu.util.GisUtil: 直接处理，点数：5，缓冲距离：1.35米
+[2025-11-11 19:57:49] [DEBUG] sunyu.util.GisUtil: 线缓冲成功，结果几何类型：Polygon
+[2025-11-11 19:57:49] [DEBUG] sunyu.util.GisUtil: 将轨迹段中的WGS84坐标转换为高斯投影坐标 轨迹段点数量：4
+[2025-11-11 19:57:49] [DEBUG] sunyu.util.GisUtil: 转换后的轨迹段点数量：4
+[2025-11-11 19:57:49] [DEBUG] sunyu.util.GisUtil: 使用高斯投影的轨迹点进行线缓冲，左右缓冲总宽度：2.7米
+[2025-11-11 19:57:49] [DEBUG] sunyu.util.GisUtil: 直接处理，点数：4，缓冲距离：1.35米
+[2025-11-11 19:57:49] [DEBUG] sunyu.util.GisUtil: 线缓冲成功，结果几何类型：Polygon
+[2025-11-11 19:57:49] [DEBUG] sunyu.util.GisUtil: 将轨迹段中的WGS84坐标转换为高斯投影坐标 轨迹段点数量：2
+[2025-11-11 19:57:49] [DEBUG] sunyu.util.GisUtil: 转换后的轨迹段点数量：2
+[2025-11-11 19:57:49] [DEBUG] sunyu.util.GisUtil: 使用高斯投影的轨迹点进行线缓冲，左右缓冲总宽度：2.7米
+[2025-11-11 19:57:49] [DEBUG] sunyu.util.GisUtil: 直接处理，点数：2，缓冲距离：1.35米
+[2025-11-11 19:57:49] [DEBUG] sunyu.util.GisUtil: 线缓冲成功，结果几何类型：Polygon
+[2025-11-11 19:57:49] [DEBUG] sunyu.util.GisUtil: 将轨迹段中的WGS84坐标转换为高斯投影坐标 轨迹段点数量：9
+[2025-11-11 19:57:49] [WARN] sunyu.util.GisUtil: 轨迹段点数量小于2个，无法进行拆分
+[2025-11-11 19:57:49] [DEBUG] sunyu.util.GisUtil: 转换后的轨迹段点数量：9
+[2025-11-11 19:57:49] [DEBUG] sunyu.util.GisUtil: 使用高斯投影的轨迹点进行线缓冲，左右缓冲总宽度：2.7米
+[2025-11-11 19:57:49] [DEBUG] sunyu.util.GisUtil: 直接处理，点数：9，缓冲距离：1.35米
+[2025-11-11 19:57:49] [DEBUG] sunyu.util.GisUtil: 线缓冲成功，结果几何类型：Polygon
+[2025-11-11 19:57:49] [WARN] sunyu.util.GisUtil: 轨迹段点数量小于2个，无法进行拆分
+[2025-11-11 19:57:49] [DEBUG] sunyu.util.GisUtil: 将轨迹段中的WGS84坐标转换为高斯投影坐标 轨迹段点数量：3
+[2025-11-11 19:57:49] [DEBUG] sunyu.util.GisUtil: 转换后的轨迹段点数量：3
+[2025-11-11 19:57:49] [DEBUG] sunyu.util.GisUtil: 使用高斯投影的轨迹点进行线缓冲，左右缓冲总宽度：2.7米
+[2025-11-11 19:57:49] [DEBUG] sunyu.util.GisUtil: 直接处理，点数：3，缓冲距离：1.35米
+[2025-11-11 19:57:49] [DEBUG] sunyu.util.GisUtil: 线缓冲成功，结果几何类型：Polygon
+[2025-11-11 19:57:49] [DEBUG] sunyu.util.GisUtil: 将轨迹段中的WGS84坐标转换为高斯投影坐标 轨迹段点数量：97
+[2025-11-11 19:57:49] [DEBUG] sunyu.util.GisUtil: 转换后的轨迹段点数量：97
+[2025-11-11 19:57:49] [DEBUG] sunyu.util.GisUtil: 使用高斯投影的轨迹点进行线缓冲，左右缓冲总宽度：2.7米
+[2025-11-11 19:57:49] [DEBUG] sunyu.util.GisUtil: 直接处理，点数：97，缓冲距离：1.35米
+[2025-11-11 19:57:49] [DEBUG] sunyu.util.GisUtil: 线缓冲成功，结果几何类型：Polygon
+[2025-11-11 19:57:49] [DEBUG] sunyu.util.GisUtil: 将轨迹段中的WGS84坐标转换为高斯投影坐标 轨迹段点数量：171
+[2025-11-11 19:57:49] [DEBUG] sunyu.util.GisUtil: 转换后的轨迹段点数量：171
+[2025-11-11 19:57:49] [DEBUG] sunyu.util.GisUtil: 使用高斯投影的轨迹点进行线缓冲，左右缓冲总宽度：2.7米
+[2025-11-11 19:57:49] [DEBUG] sunyu.util.GisUtil: 直接处理，点数：171，缓冲距离：1.35米
+[2025-11-11 19:57:49] [DEBUG] sunyu.util.GisUtil: 线缓冲成功，结果几何类型：Polygon
+[2025-11-11 19:57:49] [DEBUG] sunyu.util.GisUtil: 合并所有高斯投影缓冲几何
+[2025-11-11 19:57:49] [DEBUG] sunyu.util.GisUtil: 合并后的几何类型：MultiPolygon，几何数量：30
+[2025-11-11 19:57:49] [DEBUG] sunyu.util.GisUtil: 对合并后的几何进行膨胀再收缩操作，消除细小缝隙 - 膨胀0.1米再收缩0.1米
+[2025-11-11 19:57:49] [DEBUG] sunyu.util.GisUtil: 膨胀收缩操作完成，面积变化0.05%，最终几何类型：MultiPolygon，几何数量：30
+[2025-11-11 19:57:49] [DEBUG] sunyu.util.GisUtil: 开始移除轮廓外边缘的道路部分
+[2025-11-11 19:57:49] [DEBUG] sunyu.util.GisUtil: 高斯投影几何到WGS84投影几何转换开始
+[2025-11-11 19:57:49] [DEBUG] sunyu.util.GisUtil: 高斯投影几何到WGS84投影几何转换完成
+[2025-11-11 19:57:49] [DEBUG] sunyu.util.GisUtil: 高斯投影几何到WGS84投影几何转换开始
+[2025-11-11 19:57:49] [DEBUG] sunyu.util.GisUtil: 高斯投影几何到WGS84投影几何转换完成
+[2025-11-11 19:57:49] [ERROR] sunyu.util.test.TestGisUtil: -530981
+java.lang.ArrayIndexOutOfBoundsException: -530981
+	at sunyu.util.GisUtil.calculatePointUniformity(GisUtil.java:1844)
+	at sunyu.util.GisUtil.calculatePointDensityScore(GisUtil.java:1810)
+	at sunyu.util.GisUtil.splitRoad(GisUtil.java:1574)
+	at sunyu.util.test.TestGisUtil.测试一天拆分数据(TestGisUtil.java:485)
+	at sunyu.util.test.TestGisUtil.t003(TestGisUtil.java:262)
+	at sun.reflect.NativeMethodAccessorImpl.invoke0(Native Method)
+	at sun.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:62)
+	at sun.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)
+	at java.lang.reflect.Method.invoke(Method.java:498)
+	at org.junit.platform.commons.util.ReflectionUtils.invokeMethod(ReflectionUtils.java:786)
+	at org.junit.platform.commons.support.ReflectionSupport.invokeMethod(ReflectionSupport.java:514)
+	at org.junit.jupiter.engine.execution.MethodInvocation.proceed(MethodInvocation.java:60)
+	at org.junit.jupiter.engine.execution.InvocationInterceptorChain$ValidatingInvocation.proceed(InvocationInterceptorChain.java:131)
+	at org.junit.jupiter.engine.extension.TimeoutExtension.intercept(TimeoutExtension.java:161)
+	at org.junit.jupiter.engine.extension.TimeoutExtension.interceptTestableMethod(TimeoutExtension.java:152)
+	at org.junit.jupiter.engine.extension.TimeoutExtension.interceptTestMethod(TimeoutExtension.java:91)
+	at org.junit.jupiter.engine.execution.InterceptingExecutableInvoker$ReflectiveInterceptorCall.lambda$ofVoidMethod$0(InterceptingExecutableInvoker.java:112)
+	at org.junit.jupiter.engine.execution.InterceptingExecutableInvoker.lambda$invoke$0(InterceptingExecutableInvoker.java:94)
+	at org.junit.jupiter.engine.execution.InvocationInterceptorChain$InterceptedInvocation.proceed(InvocationInterceptorChain.java:106)
+	at org.junit.jupiter.engine.execution.InvocationInterceptorChain.proceed(InvocationInterceptorChain.java:64)
+	at org.junit.jupiter.engine.execution.InvocationInterceptorChain.chainAndInvoke(InvocationInterceptorChain.java:45)
+	at org.junit.jupiter.engine.execution.InvocationInterceptorChain.invoke(InvocationInterceptorChain.java:37)
+	at org.junit.jupiter.engine.execution.InterceptingExecutableInvoker.invoke(InterceptingExecutableInvoker.java:93)
+	at org.junit.jupiter.engine.execution.InterceptingExecutableInvoker.invoke(InterceptingExecutableInvoker.java:87)
+	at org.junit.jupiter.engine.descriptor.TestMethodTestDescriptor.lambda$invokeTestMethod$4(TestMethodTestDescriptor.java:221)
+	at org.junit.platform.engine.support.hierarchical.ThrowableCollector.execute(ThrowableCollector.java:73)
+	at org.junit.jupiter.engine.descriptor.TestMethodTestDescriptor.invokeTestMethod(TestMethodTestDescriptor.java:217)
+	at org.junit.jupiter.engine.descriptor.TestMethodTestDescriptor.execute(TestMethodTestDescriptor.java:159)
+	at org.junit.jupiter.engine.descriptor.TestMethodTestDescriptor.execute(TestMethodTestDescriptor.java:70)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$6(NodeTestTask.java:157)
+	at org.junit.platform.engine.support.hierarchical.ThrowableCollector.execute(ThrowableCollector.java:73)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$8(NodeTestTask.java:147)
+	at org.junit.platform.engine.support.hierarchical.Node.around(Node.java:137)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$9(NodeTestTask.java:145)
+	at org.junit.platform.engine.support.hierarchical.ThrowableCollector.execute(ThrowableCollector.java:73)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.executeRecursively(NodeTestTask.java:144)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.execute(NodeTestTask.java:101)
+	at java.util.ArrayList.forEach(ArrayList.java:1259)
+	at org.junit.platform.engine.support.hierarchical.SameThreadHierarchicalTestExecutorService.invokeAll(SameThreadHierarchicalTestExecutorService.java:41)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$6(NodeTestTask.java:161)
+	at org.junit.platform.engine.support.hierarchical.ThrowableCollector.execute(ThrowableCollector.java:73)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$8(NodeTestTask.java:147)
+	at org.junit.platform.engine.support.hierarchical.Node.around(Node.java:137)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$9(NodeTestTask.java:145)
+	at org.junit.platform.engine.support.hierarchical.ThrowableCollector.execute(ThrowableCollector.java:73)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.executeRecursively(NodeTestTask.java:144)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.execute(NodeTestTask.java:101)
+	at java.util.ArrayList.forEach(ArrayList.java:1259)
+	at org.junit.platform.engine.support.hierarchical.SameThreadHierarchicalTestExecutorService.invokeAll(SameThreadHierarchicalTestExecutorService.java:41)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$6(NodeTestTask.java:161)
+	at org.junit.platform.engine.support.hierarchical.ThrowableCollector.execute(ThrowableCollector.java:73)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$8(NodeTestTask.java:147)
+	at org.junit.platform.engine.support.hierarchical.Node.around(Node.java:137)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$9(NodeTestTask.java:145)
+	at org.junit.platform.engine.support.hierarchical.ThrowableCollector.execute(ThrowableCollector.java:73)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.executeRecursively(NodeTestTask.java:144)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.execute(NodeTestTask.java:101)
+	at org.junit.platform.engine.support.hierarchical.SameThreadHierarchicalTestExecutorService.submit(SameThreadHierarchicalTestExecutorService.java:35)
+	at org.junit.platform.engine.support.hierarchical.HierarchicalTestExecutor.execute(HierarchicalTestExecutor.java:57)
+	at org.junit.platform.engine.support.hierarchical.HierarchicalTestEngine.execute(HierarchicalTestEngine.java:54)
+	at org.junit.platform.launcher.core.EngineExecutionOrchestrator.executeEngine(EngineExecutionOrchestrator.java:230)
+	at org.junit.platform.launcher.core.EngineExecutionOrchestrator.failOrExecuteEngine(EngineExecutionOrchestrator.java:204)
+	at org.junit.platform.launcher.core.EngineExecutionOrchestrator.execute(EngineExecutionOrchestrator.java:172)
+	at org.junit.platform.launcher.core.EngineExecutionOrchestrator.execute(EngineExecutionOrchestrator.java:101)
+	at org.junit.platform.launcher.core.EngineExecutionOrchestrator.lambda$execute$0(EngineExecutionOrchestrator.java:64)
+	at org.junit.platform.launcher.core.EngineExecutionOrchestrator.withInterceptedStreams(EngineExecutionOrchestrator.java:150)
+	at org.junit.platform.launcher.core.EngineExecutionOrchestrator.execute(EngineExecutionOrchestrator.java:63)
+	at org.junit.platform.launcher.core.DefaultLauncher.execute(DefaultLauncher.java:109)
+	at org.junit.platform.launcher.core.DefaultLauncher.execute(DefaultLauncher.java:100)
+	at org.junit.platform.launcher.core.DelegatingLauncher.execute(DelegatingLauncher.java:52)
+	at org.junit.platform.launcher.core.InterceptingLauncher.lambda$execute$2(InterceptingLauncher.java:47)
+	at org.junit.platform.launcher.core.ClasspathAlignmentCheckingLauncherInterceptor.intercept(ClasspathAlignmentCheckingLauncherInterceptor.java:25)
+	at org.junit.platform.launcher.core.InterceptingLauncher.execute(InterceptingLauncher.java:46)
+	at org.junit.platform.launcher.core.DelegatingLauncher.execute(DelegatingLauncher.java:52)
+	at org.junit.platform.launcher.core.SessionPerRequestLauncher.execute(SessionPerRequestLauncher.java:73)
+	at org.eclipse.jdt.internal.junit5.runner.JUnit5TestReference.run(JUnit5TestReference.java:100)
+	at org.eclipse.jdt.internal.junit.runner.TestExecution.run(TestExecution.java:40)
+	at org.eclipse.jdt.internal.junit.runner.RemoteTestRunner.runTests(RemoteTestRunner.java:520)
+	at org.eclipse.jdt.internal.junit.runner.RemoteTestRunner.runTests(RemoteTestRunner.java:748)
+	at org.eclipse.jdt.internal.junit.runner.RemoteTestRunner.run(RemoteTestRunner.java:443)
+	at org.eclipse.jdt.internal.junit.runner.RemoteTestRunner.main(RemoteTestRunner.java:211)
