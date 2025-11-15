@@ -265,7 +265,7 @@
           #copyMultiBtn { background: #f5f5f5; color: #333; }
           #copyMultiBtn:hover { background: #e0e0e0; }
       </style>
-    <script src="https://api.tianditu.gov.cn/api?v=4.0&tk=bff6b76492ebb706fd7c39b07acf6569"></script>
+    <script src="https://api.tianditu.gov.cn/api?v=4.0&tk=648f621977051d0199ff0f965d3fd322"></script>
     <script src="https://cdn.bootcdn.net/ajax/libs/Turf.js/6.5.0/turf.min.js"></script>
     <script src="https://lib.baomitu.com/terraformer/1.0.12/terraformer.min.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
     <script src="https://unpkg.com/terraformer-wkt-parser@1.2.1/terraformer-wkt-parser.min.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
@@ -456,7 +456,7 @@
             map.addControl(mapTypeCtrl);
 
             // 加载影像底图（卫星）
-            const tk = "bff6b76492ebb706fd7c39b07acf6569";
+            const tk = "648f621977051d0199ff0f965d3fd322";
 
             // 方案1：使用默认地图类型（作为备选）
             map.setMapType(TMAP_SATELLITE_MAP);
@@ -1376,11 +1376,11 @@
         console.log(`准备显示${points.length}个轨迹点`);
         
         // 使用批量处理和更小的图标来提高性能
-        // 创建一个极小的红点SVG图标
+        // 创建一个更小的红点SVG图标
         const smallRedDotIcon = new T.Icon({
-            iconUrl: 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="2" height="2"><circle cx="1" cy="1" r="0.75" fill="%23FF0000"/></svg>',
-            iconSize: new T.Point(2, 2),
-            iconAnchor: new T.Point(1, 1)
+            iconUrl: 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="1" height="1"><circle cx="0.5" cy="0.5" r="0.3" fill="%23FF0000"/></svg>',
+            iconSize: new T.Point(1, 1),
+            iconAnchor: new T.Point(0.5, 0.5)
         });
         
         // 优化批量添加点的速度
@@ -1505,7 +1505,7 @@
         clearTrackOverlays(false);
         const polyline = new T.Polyline(points, {
             color: '#FF3B30',
-            weight: 2.5,
+            weight: 1,
             opacity: 0.9
         });
         if (map) {
@@ -1677,7 +1677,7 @@
         const first = points[initIdx];
         console.log('[Playback] 首点:', first && first.ts, first && first.ll, 'initIdx=', initIdx);
         playbackState.path = points.slice(0, initIdx+1).map(p=>p.ll);
-        playbackState.line = new T.Polyline(playbackState.path, { color: '#00FFFF', weight: 3, opacity: 0.9 });
+        playbackState.line = new T.Polyline(playbackState.path, { color: '#00FFFF', weight: 1, opacity: 0.9 });
         if (map) {
             map.addOverLay(playbackState.line);
         }
@@ -1722,13 +1722,13 @@
                     catch(e){
                         console.warn('[Playback] setLngLats失败，重建折线', e);
                         if (map) { try { map.removeOverLay(playbackState.line); } catch(e){} }
-                        playbackState.line = new T.Polyline(playbackState.path, { color: '#00FFFF', weight: 3, opacity: 0.9 });
+                        playbackState.line = new T.Polyline(playbackState.path, { color: '#00FFFF', weight: 1, opacity: 0.9 });
                         if (map) map.addOverLay(playbackState.line);
                     }
                 } else {
                     console.log('[Playback] 折线不支持setLngLats，重建');
                     if (playbackState.line && map) { try { map.removeOverLay(playbackState.line); } catch(e){} }
-                    playbackState.line = new T.Polyline(playbackState.path, { color: '#00FFFF', weight: 3, opacity: 0.9 });
+                    playbackState.line = new T.Polyline(playbackState.path, { color: '#00FFFF', weight: 1, opacity: 0.9 });
                     if (map) map.addOverLay(playbackState.line);
                 }
             } catch(e) { console.warn('更新回放覆盖物失败:', e); }
@@ -1824,7 +1824,7 @@
                     playbackState.line.setLngLats(playbackState.path);
                 } else {
                     if (playbackState.line && map) { try { map.removeOverLay(playbackState.line); } catch(e){} }
-                    playbackState.line = new T.Polyline(playbackState.path, { color: '#00FFFF', weight: 3, opacity: 0.9 });
+                    playbackState.line = new T.Polyline(playbackState.path, { color: '#00FFFF', weight: 1, opacity: 0.9 });
                     if (map) map.addOverLay(playbackState.line);
                 }
             } catch(e){ console.warn('滑块更新折线失败:', e); }
@@ -1852,13 +1852,16 @@
                 const el = document.createElement('div');
                 el.id = 'playbackDomMarker';
                 el.style.position = 'absolute';
-                el.style.width = '16px';
-                el.style.height = '16px';
-                el.style.borderRadius = '50%';
-                el.style.background = '#2C64A7';
-                el.style.border = '2px solid #fff';
-                el.style.boxShadow = '0 0 0 1px rgba(0,0,0,.25)';
+                el.style.width = '0';
+                el.style.height = '0';
+                el.style.borderLeft = '3px solid transparent';
+                el.style.borderRight = '3px solid transparent';
+                el.style.borderBottom = '4px solid #2C64A7';
+                el.style.borderTop = '0';
+                el.style.transform = 'translate(-50%, -50%)';
                 el.style.zIndex = '9999';
+                // 添加伪元素来增强箭头效果
+                el.style.clipPath = 'polygon(50% 0, 100% 100%, 0 100%)';
                 pane.appendChild(el);
                 playbackDom.el = el;
                 console.log('[Playback] 创建DOM标记，父节点=', pane === document.getElementById('mapContainer') ? '#mapContainer' : 'overlayPane');

@@ -16,7 +16,7 @@ import cn.hutool.core.util.StrUtil;
  */
 public class OutlinePart {
     /**
-     * 区块的几何图形（Polygon，高斯投影）
+     * 区块的几何图形（Polygon，平面投影，可能是高斯投影或者是UTM投影）
      */
     private Geometry outline;
     /**

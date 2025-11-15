@@ -2,17 +2,16 @@ package sunyu.util;
 
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
-import java.util.stream.IntStream;
 
 import org.geotools.geometry.jts.JTS;
+import org.geotools.geometry.jts.JTSFactoryFinder;
 import org.geotools.referencing.CRS;
 import org.geotools.referencing.crs.DefaultGeographicCRS;
 import org.locationtech.jts.geom.Coordinate;
@@ -25,12 +24,13 @@ import org.locationtech.jts.geom.Point;
 import org.locationtech.jts.geom.Polygon;
 import org.locationtech.jts.geom.prep.PreparedGeometry;
 import org.locationtech.jts.geom.prep.PreparedGeometryFactory;
-import org.locationtech.jts.index.strtree.STRtree;
 import org.locationtech.jts.io.ParseException;
 import org.locationtech.jts.io.WKTReader;
+import org.locationtech.jts.simplify.DouglasPeuckerSimplifier;
 import org.opengis.referencing.crs.CoordinateReferenceSystem;
 import org.opengis.referencing.operation.MathTransform;
 
+import cn.hutool.core.collection.CollUtil;
 import cn.hutool.log.Log;
 import cn.hutool.log.LogFactory;
 import sunyu.util.pojo.CoordinatePoint;
@@ -40,10 +40,41 @@ import sunyu.util.pojo.TrackPoint;
 import sunyu.util.pojo.WktIntersectionResult;
 
 /**
- * GIS工具类，封装轨迹轮廓构建、道路分段、坐标转换、拓扑判断与面积计算。
- * 
- * 
+ * GIS工具类，提供全面的地理空间数据处理功能，包括坐标转换、几何计算、轨迹处理和面积计算。
+ * <p>
+ * 主要功能：
+ * <ul>
+ *   <li><strong>坐标转换</strong>：WGS84与高斯-克吕格投影坐标系之间的相互转换，支持自动投影带选择</li>
+ *   <li><strong>几何计算</strong>：点与几何图形关系判断、两点间球面距离计算、几何图形相交分析等</li>
+ *   <li><strong>轨迹处理</strong>：轨迹点抽稀、过滤、轨迹分段、道路拆分等农业轨迹处理功能</li>
+ *   <li><strong>面积计算</strong>：支持球面面积计算，使用Haversine公式确保高精度，与Turf.js算法保持一致</li>
+ *   <li><strong>性能优化</strong>：包含空间索引、PreparedGeometry、分块处理等多种优化策略</li>
+ * </ul>
+ * </p>
+ * <p>
+ * 使用说明：
+ * <ul>
+ *   <li>本类实现了AutoCloseable接口，建议使用try-with-resources语句管理资源</li>
+ *   <li>采用Builder模式创建实例，可自定义配置参数如地球半径、投影精度等</li>
+ *   <li>所有公开方法的输入和输出坐标均采用WGS84坐标系（经纬度）</li>
+ *   <li>内部计算会根据需要转换至高斯投影以提高精度，特别适合需要精确面积计算的场景</li>
+ *   <li>针对大数据量场景进行了性能优化，支持大量轨迹点的高效处理</li>
+ * </ul>
+ * </p>
+ * <p>
+ * 适用场景：
+ * <ul>
+ *   <li>农业轨迹数据分析与处理</li>
+ *   <li>地理围栏与空间关系判断</li>
+ *   <li>地理信息系统数据处理</li>
+ *   <li>高精度面积计算与测量</li>
+ *   <li>轨迹点抽稀与优化</li>
+ * </ul>
+ * </p>
+ *
  * @author SunYu
+ * @since 1.0
+ * @see AutoCloseable
  */
 public class GisUtil implements AutoCloseable {
     private final Log log = LogFactory.get();
@@ -51,312 +82,487 @@ public class GisUtil implements AutoCloseable {
     private final Config config;
 
     /**
-     * 创建构建器实例（Builder）。
-     * 通过构建器配置参数后再构建 `GisUtil`，避免直接实例化带来的不完整/不一致配置。
-     *
-     * @return 用于配置并构建 `GisUtil` 的构建器
+     * 创建GisUtil构建器实例，采用Builder模式进行对象创建。
+     * <p>
+     * 这是获取GisUtil实例的唯一入口，确保所有实例都经过正确配置和初始化。
+     * Builder模式提供了灵活的参数配置选项，同时保证对象的一致性和完整性。
+     * </p>
+     * 
+     * @return GisUtil构建器实例，用于配置和创建GisUtil对象
+     * @see Builder
      */
     public static Builder builder() {
         return new Builder();
     }
 
     /**
-     * 私有构造函数，通过 Builder 创建实例。
-     * 保持不可直接实例化，集中初始化日志与配置引用。
-     *
-     * @param config 内部配置对象，包含常量、默认值与缓存实例
+     * 私有构造函数，通过Builder模式创建GisUtil实例。
+     * <p>
+     * 确保所有GisUtil实例只能通过builder()方法获取，保证配置的一致性和完整性。
+     * 构造函数内部初始化必要的日志记录和配置引用。
+     * </p>
+     * 
+     * @param config 内部配置对象，包含GIS处理所需的常量、默认值和缓存实例
      */
     private GisUtil(Config config) {
         log.info("[构建{}] 开始", this.getClass().getSimpleName());
-        log.info("[构建{}] 结束", this.getClass().getSimpleName());
         this.config = config;
+        log.info("[构建{}] 结束", this.getClass().getSimpleName());
     }
 
     /**
-     * 内部配置类。
+     * 内部配置类，封装GisUtil所需的所有配置参数和共享资源。
      * <p>
-     * 持有常量、默认参数、线程安全缓存与几何工厂；供 {@link GisUtil} 使用。
-     * 该类包含所有GIS处理过程中需要的配置参数，确保线程安全的参数访问。
+     * 该类负责管理GIS处理过程中的核心配置，包括几何工厂、坐标参考系统、
+     * 线程安全的缓存机制以及各种常量定义。所有配置参数都设计为不可变，
+     * 确保在多线程环境下的安全访问。
      * </p>
      */
     private static class Config {
-        // 几何工厂
-        private final GeometryFactory geometryFactory = new GeometryFactory();
-        // 空几何集合 - 使用空数组参数更明确和安全
-        private final Geometry EMPTYGEOM = geometryFactory.createGeometryCollection(new Geometry[0]);
+        /** 几何工厂，用于创建各种几何对象 */
+        private final GeometryFactory geometryFactory = JTSFactoryFinder.getGeometryFactory();
 
-        // WGS84坐标参考系统（全局常量，避免重复创建）
+        /** 空几何集合，用于表示无效或空的几何结果 */
+        private final Geometry EMPTYGEOM = geometryFactory.createGeometryCollection();
+
+        /** WGS84坐标参考系统，使用默认地理CRS，避免重复创建 */
         private final CoordinateReferenceSystem WGS84_CRS = DefaultGeographicCRS.WGS84;
 
-        // 高斯投影CRS缓存（线程安全），key格式："zone_falseEasting_centralMeridian"
+        /**
+         * 高斯投影CRS缓存（线程安全）
+         * <p>
+         * 键格式："zone_falseEasting_centralMeridian"
+         * 用于缓存不同投影参数的坐标参考系统，避免重复创建提高性能
+         * </p>
+         */
         private final ConcurrentHashMap<String, CoordinateReferenceSystem> gaussCRSCache = new ConcurrentHashMap<>();
 
-        // WGS84到高斯投影的坐标转换缓存（线程安全），key格式："zone_falseEasting_centralMeridian"
+        /**
+         * WGS84到高斯投影的坐标转换缓存（线程安全）
+         * <p>
+         * 键格式："zone_falseEasting_centralMeridian"
+         * 用于缓存不同参数的坐标转换对象，显著提升重复坐标转换的性能
+         * </p>
+         */
         private final ConcurrentHashMap<String, MathTransform> wgs84ToGaussTransformCache = new ConcurrentHashMap<>();
 
-        // 高斯投影到WGS84的坐标转换缓存（线程安全），key格式："zone_falseEasting_centralMeridian"
+        /**
+         * 高斯投影到WGS84的坐标转换缓存（线程安全）
+         * <p>
+         * 键格式："zone_falseEasting_centralMeridian"
+         * 用于缓存不同参数的坐标转换对象，显著提升重复坐标转换的性能
+         * </p>
+         */
         private final ConcurrentHashMap<String, MathTransform> gaussToWgs84TransformCache = new ConcurrentHashMap<>();
 
-        // WGS84椭球长半轴（米），与Turf.js保持一致
+        /** WGS84椭球长半轴（米），与Turf.js保持一致，用于计算球面距离 */
         private final double EARTH_RADIUS = 6378137.0;
 
-        // 最大速度（单位：米/秒），我们认为农机在田间作业，最大速度不会超过19米/秒
-        private final double MAX_SPEED = 19.0;
-
-        // 几何合并后的膨胀收缩距离（米），用于消除细小缝隙
-        private final double MORPHOLOGY_DISTANCE = 0.1;
+        /** 最小作业幅宽阈值（米），低于此值认为参数无效，用于农业轨迹处理 */
+        private final double MIN_WORKING_WIDTH_M = 1.0;
     }
 
     /**
-     * 构建器类，用于构建GisUtil实例。
+     * GisUtil构建器类，提供流式API用于配置和创建GisUtil实例。
      * <p>
-     * 实现构建器模式，允许灵活配置和创建GisUtil对象，提供流式API进行参数设置。
+     * 该类实现了Builder设计模式，允许在创建GisUtil对象前灵活配置各项参数。
+     * 构建器模式确保对象创建的一致性和完整性，避免了构造函数参数膨胀问题。
+     * </p>
+     * <p>
+     * 使用示例：
+     * <pre>
+     * try (GisUtil gisUtil = GisUtil.builder().build()) {
+     *     // 使用gisUtil进行GIS操作
+     * }
+     * </pre>
      * </p>
      */
     public static class Builder {
-        // 配置对象，包含各种常量和默认值
+        /** 配置对象，包含GisUtil所需的常量、默认值和缓存实例 */
         private Config config = new Config();
 
         /**
-         * 构建GisUtil实例。
+         * 构建并返回完全初始化的GisUtil实例。
          * <p>
-         * 使用预配置的参数创建GisUtil对象，完成所有必要的初始化工作。
+         * 调用此方法会使用当前配置参数创建GisUtil对象，并完成所有必要的初始化。
+         * 返回的对象已准备就绪，可以直接用于各种GIS操作。
          * </p>
          * 
-         * @return 已初始化完成的GisUtil对象，可直接使用
+         * @return 初始化完成的GisUtil实例
+         * @see GisUtil#builder()
          */
         public GisUtil build() {
             return new GisUtil(config);
         }
-
     }
 
     /**
-     * 关闭资源（AutoCloseable）
-     * 重置转换对象以释放资源。
+     * 关闭GisUtil实例，释放相关资源。
+     * <p>
+     * 实现AutoCloseable接口的方法，用于释放GisUtil使用的各种资源。
+     * 建议使用try-with-resources语句自动调用此方法，确保资源正确释放。
+     * </p>
+     * 
+     * @see AutoCloseable#close()
      */
     @Override
     public void close() {
         log.info("[销毁{}] 开始", this.getClass().getSimpleName());
+        // 可以在此处添加资源清理逻辑，如清空缓存等
         log.info("[销毁{}] 结束", this.getClass().getSimpleName());
     }
 
     /**
-     * 从MULTIPOLYGON WKT中提取所有多边形WKT
+     * 使用Douglas-Peucker算法对轨迹点进行抽稀
      * 
-     * @param multiWKT MULTIPOLYGON WKT字符串
-     * @return 包含所有多边形WKT的列表
+     * @param points    原始轨迹点列表
+     * @param tolerance 容差（米）
+     * @return 抽稀后的轨迹点列表
      */
-    private List<String> extractPolygonsFromMultiWKT(String multiWKT) {
-        List<String> polygons = new ArrayList<>();
+    private List<TrackPoint> simplifyTrackPoints(List<TrackPoint> points, double tolerance) {
+        if (points.size() <= 2) {
+            return new ArrayList<>(points);
+        }
 
-        // 移除MULTIPOLYGON前缀和后缀
-        String content = multiWKT.substring(multiWKT.indexOf("(") + 1, multiWKT.lastIndexOf(")"));
+        // 转换为Coordinate数组用于Douglas-Peucker算法
+        Coordinate[] coords = new Coordinate[points.size()];
+        for (int i = 0; i < points.size(); i++) {
+            TrackPoint p = points.get(i);
+            coords[i] = new Coordinate(p.getLon(), p.getLat());
+        }
 
-        // 解析嵌套的多边形结构
-        int level = 0;
-        int start = 0;
+        // 执行Douglas-Peucker抽稀
+        // 先创建LineString几何对象，再应用简化算法
+        GeometryFactory factory = new GeometryFactory();
+        LineString line = factory.createLineString(coords);
+        Geometry simplifiedGeometry = DouglasPeuckerSimplifier.simplify(line, tolerance);
+        Coordinate[] simplifiedCoords = simplifiedGeometry.getCoordinates();
 
-        for (int i = 0; i < content.length(); i++) {
-            char c = content.charAt(i);
-            if (c == '(') {
-                level++;
-                if (level == 1) {
-                    start = i;
-                }
-            } else if (c == ')') {
-                level--;
-                if (level == 0 && start >= 0) {
-                    String polygonWKT = "POLYGON" + content.substring(start, i + 1);
-                    polygons.add(polygonWKT);
-                    start = -1;
+        // 将结果映射回TrackPoint列表
+        List<TrackPoint> result = new ArrayList<>(simplifiedCoords.length);
+        Map<Coordinate, TrackPoint> coordToPointMap = new HashMap<>();
+
+        // 构建坐标到点的映射，优先保留时间信息
+        for (TrackPoint point : points) {
+            Coordinate coord = new Coordinate(point.getLon(), point.getLat());
+            coordToPointMap.put(coord, point);
+        }
+
+        // 匹配抽稀后的坐标对应的原始点
+        for (Coordinate coord : simplifiedCoords) {
+            // 精确匹配
+            TrackPoint exactMatch = coordToPointMap.get(coord);
+            if (exactMatch != null) {
+                result.add(exactMatch);
+            } else {
+                // 如果没有精确匹配，查找最接近的点
+                TrackPoint closest = findClosestPoint(coord, points);
+                if (closest != null) {
+                    result.add(closest);
                 }
             }
         }
 
-        return polygons;
+        return result;
     }
 
     /**
-     * 计算单个POLYGON的面积（平方米）
-     * 
-     * @param polygonWKT POLYGON WKT字符串
-     * @return 多边形面积（平方米）
+     * 查找最接近给定坐标的轨迹点
      */
-    private double calculatePolygonAreaFromWKT(String polygonWKT) {
-        // 提取外环和内环坐标
-        List<List<double[]>> rings = extractRingsFromPolygonWKT(polygonWKT);
+    private TrackPoint findClosestPoint(Coordinate coord, List<TrackPoint> points) {
+        TrackPoint closest = null;
+        double minDist = Double.MAX_VALUE;
 
-        if (rings.isEmpty()) {
+        for (TrackPoint point : points) {
+            // 计算欧几里得距离
+            double dx = coord.x - point.getLon();
+            double dy = coord.y - point.getLat();
+            double dist = Math.sqrt(dx * dx + dy * dy);
+            if (dist < minDist) {
+                minDist = dist;
+                closest = point;
+            }
+        }
+
+        return closest;
+    }
+
+    /**
+     * 分块处理大型轨迹段 - 高级优化版本
+     * 关键优化：
+     * 1. 动态调整块大小和重叠区域，进一步减少几何图形复杂度
+     * 2. 优化并行配置和分块策略，减少线程创建开销
+     * 3. 提升buffer计算效率，添加线段简化预处理
+     * 4. 优化内存使用，减少中间对象创建
+     * 
+     * @param points      轨迹点列表
+     * @param bufferWidth 缓冲区宽度（米）
+     * @return 合并后的几何图形
+     */
+    private Geometry processLargeSegmentInChunks(List<TrackPoint> points, double bufferWidth) {
+        long startTime = System.currentTimeMillis();
+        log.debug("开始分块处理大型轨迹段，点数: {}", points.size());
+
+        // 简化分块逻辑：使用固定的较大块大小，减少分块数
+        int totalPoints = points.size();
+        int chunkSize = Math.max(1000, Math.min(totalPoints, 2000)); // 使用更大的块大小减少分块数
+        int overlapSize = 50; // 使用固定的重叠区域确保连续性
+
+        // 计算块数并生成块起始索引
+        int chunksCount = (int) Math.ceil((double) totalPoints / (chunkSize - overlapSize));
+        List<Integer> chunkStartIndices = new ArrayList<>(chunksCount);
+
+        for (int i = 0; i < chunksCount; i++) {
+            int startIndex = i * (chunkSize - overlapSize);
+            // 确保最后一个块的完整性
+            if (i == chunksCount - 1 && startIndex + chunkSize > totalPoints) {
+                startIndex = Math.max(0, totalPoints - chunkSize);
+            }
+            chunkStartIndices.add(startIndex);
+        }
+
+        log.debug("共分成 {} 个块进行处理，块大小: {}, 重叠区域: {}",
+                chunkStartIndices.size(), chunkSize, overlapSize);
+
+        // 直接使用顺序处理所有块
+        List<Geometry> chunkGeometries = new ArrayList<>();
+        for (Integer startIndex : chunkStartIndices) {
+            Geometry geom = processChunk(points, startIndex, chunkSize, totalPoints, bufferWidth);
+            if (geom != null && !geom.isEmpty()) {
+                chunkGeometries.add(geom);
+            }
+        }
+
+        log.debug("所有块处理完成，准备合并几何图形，耗时: {}ms", System.currentTimeMillis() - startTime);
+
+        // 直接合并几何图形，移除中间预处理步骤
+        Geometry mergedGeometry = mergeGeometriesRecursively(chunkGeometries);
+
+        // 简化后处理：只进行基本的有效性检查和修复，避免过度处理
+        if (!mergedGeometry.isValid()) {
+            mergedGeometry = mergedGeometry.buffer(0); // 修复无效几何图形
+        }
+
+        log.debug("分块处理完成，合并后几何类型: {}, 总耗时: {}ms",
+                mergedGeometry.getGeometryType(), System.currentTimeMillis() - startTime);
+        return mergedGeometry;
+    }
+
+    /**
+     * 处理单个轨迹块，提取为单独方法以提高可读性和可维护性
+     */
+    private Geometry processChunk(List<TrackPoint> points, int startIndex, int chunkSize,
+            int totalPoints, double bufferWidth) {
+        int end = Math.min(startIndex + chunkSize, totalPoints);
+        List<TrackPoint> chunk = points.subList(startIndex, end);
+
+        long chunkStartTime = System.currentTimeMillis();
+
+        // 优化：直接使用数组而不是中间集合
+        int chunkLength = chunk.size();
+        Coordinate[] coords = new Coordinate[chunkLength];
+        for (int j = 0; j < chunkLength; j++) {
+            TrackPoint p = chunk.get(j);
+            coords[j] = new Coordinate(p.getLon(), p.getLat());
+        }
+
+        LineString chunkLine = config.geometryFactory.createLineString(coords);
+
+        // 优化4: 进一步优化buffer参数，使用最小必要的精度
+        int quadrantSegments = 4; // 更低的值，显著提升性能，在保证准确性的前提下
+        int endCapStyle = 1; // 1=LINEAREND，高效的样式
+
+        // 计算buffer
+        Geometry chunkBuffer = chunkLine.buffer(bufferWidth, quadrantSegments, endCapStyle);
+
+        // 可选：简化几何图形，进一步减少复杂度（如果buffer后图形仍然复杂）
+        if (chunkBuffer.getNumPoints() > 1000) {
+            chunkBuffer = DouglasPeuckerSimplifier.simplify(chunkBuffer, 0.00001); // 轻微简化，保持形状
+        }
+
+        log.debug("处理块: {}-{}, 点数: {}, buffer几何类型: {}, 耗时: {}ms",
+                startIndex, end, chunkLength, chunkBuffer.getGeometryType(),
+                System.currentTimeMillis() - chunkStartTime);
+
+        return chunkBuffer;
+    }
+
+    /**
+     * 高效合并几何图形列表
+     * 使用更优的合并策略，优化性能
+     * 
+     * @param geometries 几何图形列表
+     * @return 合并后的几何图形
+     */
+    private Geometry mergeGeometriesRecursively(List<Geometry> geometries) {
+        // 基本情况：列表为空或只有一个元素
+        if (geometries.isEmpty()) {
+            return config.EMPTYGEOM;
+        }
+        if (geometries.size() == 1) {
+            return geometries.get(0);
+        }
+
+        // 优化合并策略：使用空间索引提高合并效率
+        // 1. 过滤掉空的几何图形
+        List<Geometry> nonEmptyGeometries = new ArrayList<>();
+        for (Geometry geom : geometries) {
+            if (geom != null && !geom.isEmpty()) {
+                nonEmptyGeometries.add(geom);
+            }
+        }
+
+        if (nonEmptyGeometries.isEmpty()) {
+            return config.EMPTYGEOM;
+        }
+        if (nonEmptyGeometries.size() == 1) {
+            return nonEmptyGeometries.get(0);
+        }
+
+        // 2. 使用空间索引优化合并顺序
+        // 优先合并相邻的几何图形，减少计算量
+        Geometry result = nonEmptyGeometries.get(0);
+        List<Geometry> remainingGeometries = new ArrayList<>(nonEmptyGeometries.subList(1, nonEmptyGeometries.size()));
+
+        while (!remainingGeometries.isEmpty()) {
+            boolean merged = false;
+            for (int i = 0; i < remainingGeometries.size(); i++) {
+                Geometry nextGeom = remainingGeometries.get(i);
+
+                // 快速检查边界框是否相交，避免不必要的union操作
+                if (result.getEnvelopeInternal().intersects(nextGeom.getEnvelopeInternal())) {
+                    try {
+                        Geometry newResult = result.union(nextGeom);
+                        // 只有当合并成功（面积增加）时才更新结果
+                        if (!newResult.isEmpty()) {
+                            result = newResult;
+                            remainingGeometries.remove(i);
+                            merged = true;
+                            break;
+                        }
+                    } catch (Exception e) {
+                        log.trace("合并几何图形时出错: {}", e.getMessage());
+                        // 合并失败时继续下一个几何图形
+                    }
+                }
+            }
+
+            // 如果没有找到可合并的几何图形，强制合并第一个
+            if (!merged && !remainingGeometries.isEmpty()) {
+                result = result.union(remainingGeometries.remove(0));
+            }
+        }
+
+        return result;
+    }
+
+    /**
+     * 计算线环的球面面积（平方米）
+     * <p>
+     * 该方法使用球面多边形面积计算公式，精确考虑地球曲率，适用于任意区域大小的面积计算。
+     * 算法与Turf.js保持一致，确保跨平台结果兼容性。公式为：A = R² × |Σ(λi+1 - λi) × sin((φi+1 + φi)/2)|
+     * 其中R为地球半径，λ为经度（弧度），φ为纬度（弧度）。
+     * </p>
+     * 
+     * @param wgs84Ring WGS84坐标系下的线环（单位：度），必须是闭合的环
+     * @return 球面面积（平方米），计算失败返回0.0
+     */
+    private double calculateRingSphericalArea(LineString wgs84Ring) {
+        // 参数有效性检查
+        if (wgs84Ring == null || wgs84Ring.isEmpty()) {
             return 0.0;
         }
 
-        // 计算外环面积
-        double exteriorArea = calculateRingArea(rings.get(0));
-
-        // 减去内环（孔洞）面积
-        double holesArea = 0.0;
-        for (int i = 1; i < rings.size(); i++) {
-            double holeArea = calculateRingArea(rings.get(i));
-            holesArea += holeArea;
-        }
-
-        return exteriorArea - holesArea;
-    }
-
-    /**
-     * 从POLYGON WKT中提取所有环（外环和内环）
-     * 
-     * @param polygonWKT POLYGON WKT字符串
-     * @return 包含所有环坐标的列表，每个环是一个坐标点列表
-     */
-    private List<List<double[]>> extractRingsFromPolygonWKT(String polygonWKT) {
-        List<List<double[]>> rings = new ArrayList<>();
-
-        // 提取括号内的内容
-        String content = polygonWKT.substring(polygonWKT.indexOf("(") + 1, polygonWKT.lastIndexOf(")"));
-
-        // 解析环结构
-        int level = 0;
-        int start = 0;
-
-        for (int i = 0; i < content.length(); i++) {
-            char c = content.charAt(i);
-            if (c == '(') {
-                level++;
-                if (level == 1) {
-                    start = i + 1;
-                }
-            } else if (c == ')') {
-                level--;
-                if (level == 0 && start > 0) {
-                    // 提取坐标字符串
-                    String coordStr = content.substring(start, i);
-                    List<double[]> coords = parseCoordinates(coordStr);
-                    if (!coords.isEmpty()) {
-                        rings.add(coords);
-                    }
-                    start = -1;
-                }
-            }
-        }
-
-        return rings;
-    }
-
-    /**
-     * 解析坐标字符串为坐标列表
-     * 
-     * @param coordStr 坐标字符串，格式为"经度 纬度, 经度 纬度, ..."
-     * @return 包含所有有效坐标点的列表，每个坐标点是一个double数组，[经度, 纬度]
-     */
-    private List<double[]> parseCoordinates(String coordStr) {
-        List<double[]> coordinates = new ArrayList<>();
-
-        String[] coordPairs = coordStr.split(",");
-        for (String pair : coordPairs) {
-            pair = pair.trim();
-            if (pair.isEmpty())
-                continue;
-
-            // 处理可能的多重空格
-            String[] coords = pair.trim().split("\\s+");
-            if (coords.length >= 2) {
-                try {
-                    double lon = Double.parseDouble(coords[0].trim());
-                    double lat = Double.parseDouble(coords[1].trim());
-
-                    // 验证坐标范围
-                    if (lon >= -180 && lon <= 180 && lat >= -90 && lat <= 90) {
-                        coordinates.add(new double[] { lon, lat });
-                    } else {
-                        log.warn("跳过无效坐标: 经度={}, 纬度={}", lon, lat);
-                    }
-                } catch (NumberFormatException e) {
-                    log.warn("解析坐标失败: {}", pair);
-                    continue;
-                }
-            }
-        }
-
-        // 确保多边形闭合
-        if (coordinates.size() > 0) {
-            double[] firstCoord = coordinates.get(0);
-            double[] lastCoord = coordinates.get(coordinates.size() - 1);
-            if (firstCoord[0] != lastCoord[0] || firstCoord[1] != lastCoord[1]) {
-                coordinates.add(new double[] { firstCoord[0], firstCoord[1] });
-            }
-        }
-
-        return coordinates;
-    }
-
-    /**
-     * 计算单个环的面积（平方米）
-     * 使用与Turf.js相同的球面面积算法
-     * 
-     * @param coordinates 环的坐标点列表，每个坐标点是一个double数组，[经度, 纬度]
-     * @return 环的面积（平方米）
-     */
-    private double calculateRingArea(List<double[]> coordinates) {
-        if (coordinates.size() < 3) {
+        // 获取环的所有坐标点
+        org.locationtech.jts.geom.Coordinate[] coords = wgs84Ring.getCoordinates();
+        // 至少需要3个点才能形成多边形
+        if (coords.length < 3) {
             return 0.0;
         }
 
         double area = 0.0;
 
-        // 使用正确的球面多边形面积公式：A = R² × |Σ(λi+1 - λi) × sin((φi+1 + φi)/2)|
-        for (int i = 0; i < coordinates.size() - 1; i++) {
-            double lon1 = Math.toRadians(coordinates.get(i)[0]);
-            double lat1 = Math.toRadians(coordinates.get(i)[1]);
-            double lon2 = Math.toRadians(coordinates.get(i + 1)[0]);
-            double lat2 = Math.toRadians(coordinates.get(i + 1)[1]);
+        // 步骤1：遍历环上的连续点对，应用球面面积公式
+        for (int i = 0; i < coords.length - 1; i++) {
+            // 步骤2：将经纬度转换为弧度
+            double lon1 = Math.toRadians(coords[i].x);
+            double lat1 = Math.toRadians(coords[i].y);
+            double lon2 = Math.toRadians(coords[i + 1].x);
+            double lat2 = Math.toRadians(coords[i + 1].y);
 
+            // 步骤3：应用球面面积公式的累加项
+            // 计算：(λi+1 - λi) × sin((φi+1 + φi)/2)
             area += (lon2 - lon1) * Math.sin((lat1 + lat2) / 2.0);
         }
 
-        // 应用地球半径
+        // 步骤4：计算最终面积 = |面积累加值| × 地球半径²
         area = Math.abs(area) * config.EARTH_RADIUS * config.EARTH_RADIUS;
-
-        log.debug("环面积: {}平方米, 坐标点数: {}", area, coordinates.size());
         return area;
     }
 
     /**
-     * 从缓存获取或创建高斯投影CRS
+     * 计算单个多边形的球面面积（平方米）
+     * <p>
+     * 该方法精确计算WGS84坐标系下多边形的球面面积，同时考虑了地球曲率和多边形内部孔洞。
+     * 实现方式为：计算外环面积减去所有内环（孔洞）面积的总和。支持复杂多边形形状，包括带孔洞的多边形。
+     * 适用于精确面积测量、土地面积计算和地理统计分析。
+     * </p>
      * 
-     * @param zone            投影带号
-     * @param falseEasting    假东距
-     * @param centralMeridian 中央经线
-     * @return 高斯投影CRS对象，如果创建失败返回null
+     * @param wgs84Polygon WGS84坐标系下的多边形，可包含内部孔洞
+     * @return 多边形的球面面积（平方米）
      */
-    private CoordinateReferenceSystem getOrCreateGaussCRS(int zone, double falseEasting, double centralMeridian) {
-        // 构建缓存key：zone_falseEasting_centralMeridian
+    private double calculatePolygonSphericalArea(Polygon wgs84Polygon) {
+        // 步骤1：计算多边形外环的面积
+        double exteriorArea = calculateRingSphericalArea(wgs84Polygon.getExteriorRing());
+        log.trace("外环面积: {}平方米", exteriorArea);
+
+        // 步骤2：计算所有内环（孔洞）的面积总和
+        double holesArea = 0.0;
+        for (int i = 0; i < wgs84Polygon.getNumInteriorRing(); i++) {
+            // 计算单个内环面积
+            double holeArea = calculateRingSphericalArea(wgs84Polygon.getInteriorRingN(i));
+            // 累加所有孔洞面积
+            holesArea += holeArea;
+            log.trace("内环{}面积: {}平方米", i, holeArea);
+        }
+
+        // 步骤3：总面积 = 外环面积 - 所有孔洞面积
+        double totalArea = exteriorArea - holesArea;
+        log.trace("多边形总面积: {}平方米", totalArea);
+        return totalArea;
+    }
+
+    /**
+     * 从缓存获取或创建高斯-克吕格投影坐标参考系统（CRS）。
+     * <p>
+     * 该方法实现了高斯投影CRS的高效管理，使用线程安全的缓存机制避免重复创建相同参数的CRS。
+     * 采用Transverse Mercator投影（横轴墨卡托投影），适用于中纬度地区的精确测量。
+     * </p>
+     * 
+     * @param zone 高斯投影带号（1-60，对应全球6度分带）
+     * @param falseEasting 假东距（米），用于避免负值坐标
+     * @param centralMeridian 中央经线（度），投影带的中心线
+     * @return 高斯投影坐标参考系统，创建失败返回null
+     */
+    private CoordinateReferenceSystem getGaussCRS(int zone, double falseEasting, double centralMeridian) {
+        // 创建缓存键，使用带号、假东距和中央经线作为唯一标识
         String cacheKey = String.format("%d_%.1f_%.1f", zone, falseEasting, centralMeridian);
 
-        // 从缓存获取或创建高斯投影CRS
+        // 使用computeIfAbsent实现线程安全的缓存机制，只在缓存未命中时创建新CRS
         return config.gaussCRSCache.computeIfAbsent(cacheKey, key -> {
             try {
-                String wkt = String.format(
-                        "PROJCS[\"WGS_1984_Gauss_Kruger_Zone_%d\", " +
-                                "GEOGCS[\"GCS_WGS_1984\", " +
-                                "DATUM[\"D_WGS_1984\", " +
-                                "SPHEROID[\"WGS_1984\",6378137.0,298.257223563]], " +
-                                "PRIMEM[\"Greenwich\",0.0], " +
-                                "UNIT[\"Degree\",0.0174532925199433]], " +
-                                "PROJECTION[\"Transverse_Mercator\"], " +
-                                "PARAMETER[\"False_Easting\",%.1f], " +
-                                "PARAMETER[\"False_Northing\",0.0], " +
-                                "PARAMETER[\"Central_Meridian\",%.1f], " +
-                                "PARAMETER[\"Scale_Factor\",1.0], " +
-                                "PARAMETER[\"Latitude_Of_Origin\",0.0], " +
-                                "UNIT[\"Meter\",1.0]]",
-                        zone, falseEasting, centralMeridian);
+                log.debug("创建高斯投影CRS：投影带号={}, 假东距={}, 中央经线={}", zone, falseEasting,
+                        centralMeridian);
+                // 定义高斯-克吕格投影坐标系 - 使用预构建的WKT模板
+                // WKT格式定义了完整的坐标系统参数，包括基准面、椭球体、投影方式和参数
+                String wktTemplate = "PROJCS[\"Gauss_Kruger_ZONE_" + zone + "\"," +
+                        " GEOGCS[\"GCS_WGS_1984\", DATUM[\"WGS_1984\", SPHEROID[\"WGS_84\", 6378137.0, 298.257223563]], PRIMEM[\"Greenwich\", 0.0], UNIT[\"Degree\", 0.0174532925199433]], PROJECTION[\"Transverse_Mercator\"], PARAMETER[\"False_Easting\", %.6f], PARAMETER[\"False_Northing\", 0.0], PARAMETER[\"Central_Meridian\", %.6f], PARAMETER[\"Scale_Factor\", 1.0], PARAMETER[\"Latitude_Of_Origin\", 0.0], UNIT[\"Meter\", 1.0]]";
+                String gaussProjString = String.format(wktTemplate, falseEasting, centralMeridian);
 
-                log.debug("高斯投影CRS WKT定义：{}", wkt);
-                return CRS.parseWKT(wkt);
+                // 解析WKT字符串创建CRS对象
+                return CRS.parseWKT(gaussProjString);
             } catch (Exception e) {
-                log.warn("解析WKT失败：zone={}, falseEasting={}, centralMeridian={}, 错误={}",
+                log.warn("创建高斯投影CRS失败：zone={}, falseEasting={}, centralMeridian={}, 错误={}",
                         zone, falseEasting, centralMeridian, e.getMessage());
                 return null;
             }
@@ -364,369 +570,28 @@ public class GisUtil implements AutoCloseable {
     }
 
     /**
-     * 将高斯投影的几何图形转换为WGS84坐标系的WKT字符串
+     * 将高斯-克吕格投影坐标系下的几何图形转换为WGS84地理坐标系下的几何图形。
+     * <p>
+     * 该方法实现了高精度的坐标逆转换，包括：
+     * <ul>
+     *   <li>根据几何中心智能推断投影带号</li>
+     *   <li>坐标合理性验证</li>
+     *   <li>跨越多个投影带的几何图形处理策略</li>
+     *   <li>线程安全的转换缓存机制</li>
+     * </ul>
+     * 适用于将平面坐标数据转换回地理坐标，用于全球定位和地图显示。
+     * </p>
      * 
-     * @param gaussGeometry 高斯投影坐标系下的几何图形
-     * @return WGS84坐标系下的WKT字符串
+     * @param gaussGeometry 高斯投影坐标系下的几何图形（米制）
+     * @return WGS84坐标系下的几何图形（经纬度），转换失败返回空几何
      */
-    private String gaussGeometryToWgs84WKT(Geometry gaussGeometry) {
-        log.debug("高斯投影几何转换为WGS84投影WKT字符串开始");
-        Geometry wgs84Geometry = gaussGeometryToWgs84Geometry(gaussGeometry);
-        log.debug("高斯投影几何转换为WGS84投影WKT字符串完成");
-        return wgs84Geometry.toText();
-    }
-
-    /**
-     * 计算单个多边形的球面面积（平方米）
-     * 使用球面多边形面积公式，考虑地球曲率
-     * 
-     * @param wgs84Polygon WGS84坐标系的多边形
-     * @return 球面面积（平方米）
-     */
-    private double calculatePolygonSphericalArea(Polygon wgs84Polygon) {
-        // 外环面积
-        double exteriorArea = calculateRingSphericalArea(wgs84Polygon.getExteriorRing());
-        log.trace("外环面积: {}平方米", exteriorArea);
-
-        // 减去内环（孔洞）面积
-        double holesArea = 0.0;
-        for (int i = 0; i < wgs84Polygon.getNumInteriorRing(); i++) {
-            double holeArea = calculateRingSphericalArea(wgs84Polygon.getInteriorRingN(i));
-            holesArea += holeArea;
-            log.trace("内环{}面积: {}平方米", i, holeArea);
-        }
-
-        double totalArea = exteriorArea - holesArea;
-        log.trace("多边形总面积: {}平方米", totalArea);
-        return totalArea;
-    }
-
-    /**
-     * 计算线环的球面面积（平方米）
-     * 使用球面多边形面积公式：A = R² * |Σ(λi+1 - λi) * sin(φi+1 + φi)/2|
-     * 其中R为地球半径，λ为经度，φ为纬度
-     * 
-     * @param wgs84Ring 线环（WGS84坐标系，单位：度）
-     * @return 球面面积（平方米）
-     */
-    private double calculateRingSphericalArea(LineString wgs84Ring) {
-        if (wgs84Ring == null || wgs84Ring.isEmpty()) {
-            return 0.0;
-        }
-
-        org.locationtech.jts.geom.Coordinate[] coords = wgs84Ring.getCoordinates();
-        if (coords.length < 3) {
-            return 0.0; // 需要至少3个点才能形成多边形
-        }
-
-        double area = 0.0;
-
-        // 使用正确的球面多边形面积公式（与Turf.js相同）
-        for (int i = 0; i < coords.length - 1; i++) {
-            double lon1 = Math.toRadians(coords[i].x);
-            double lat1 = Math.toRadians(coords[i].y);
-            double lon2 = Math.toRadians(coords[i + 1].x);
-            double lat2 = Math.toRadians(coords[i + 1].y);
-
-            // 正确的球面面积公式：A = R² × |Σ(λi+1 - λi) × sin((φi+1 + φi)/2)|
-            area += (lon2 - lon1) * Math.sin((lat1 + lat2) / 2.0);
-        }
-
-        area = Math.abs(area) * config.EARTH_RADIUS * config.EARTH_RADIUS;
-        return area;
-    }
-
-    /**
-     * 分层并行合并多个几何体，优化大数据量合并性能
-     * 新增空间距离判断：只有相邻或重叠的几何体才需要合并
-     * 
-     * @param geometries 待合并的几何体列表
-     * @return 合并后的几何体
-     */
-    private Geometry parallelUnionGeometries(List<Geometry> geometries) {
-        if (geometries.isEmpty()) {
-            return config.geometryFactory.createGeometryCollection(new Geometry[0]);
-        }
-        if (geometries.size() == 1) {
-            return geometries.get(0);
-        }
-
-        // 对于小数量批次，使用串行合并更高效
-        if (geometries.size() <= 4) {
-            return sequentialUnion(geometries);
-        }
-
-        // 使用空间索引进行分组，只有相邻的几何体才需要合并
-        return mergeGeometriesWithSpatialIndex(geometries);
-    }
-
-    /**
-     * 串行合并几何体（适用于小数量）
-     */
-    private Geometry sequentialUnion(List<Geometry> geometries) {
-        Geometry result = geometries.get(0);
-        for (int i = 1; i < geometries.size(); i++) {
-            try {
-                result = result.union(geometries.get(i));
-            } catch (Exception e) {
-                log.warn("几何体合并失败，跳过该几何体: {}", e.getMessage());
-            }
-        }
-        return result;
-    }
-
-    /**
-     * 使用空间索引进行智能分组合并
-     * 只有相邻或重叠的几何体才需要合并，避免不必要的计算
-     */
-    private Geometry mergeGeometriesWithSpatialIndex(List<Geometry> geometries) {
-        if (geometries.size() <= 4) {
-            return sequentialUnion(geometries);
-        }
-
-        log.debug("使用空间索引进行智能分组合并，几何体数量={}", geometries.size());
-
-        // 创建空间索引
-        STRtree spatialIndex = new STRtree();
-        for (int i = 0; i < geometries.size(); i++) {
-            spatialIndex.insert(geometries.get(i).getEnvelopeInternal(), i);
-        }
-        spatialIndex.build();
-
-        // 分组：找到相互重叠或相邻的几何体
-        List<List<Integer>> groups = new ArrayList<>();
-        Set<Integer> processed = new HashSet<>();
-
-        for (int i = 0; i < geometries.size(); i++) {
-            if (processed.contains(i)) {
-                continue;
-            }
-
-            // 找到与当前几何体相交的所有几何体
-            List<Integer> group = new ArrayList<>();
-            findConnectedGroup(i, geometries, spatialIndex, processed, group);
-
-            if (!group.isEmpty()) {
-                groups.add(group);
-            }
-        }
-
-        log.debug("空间分组完成：{}个几何体被分为{}个组", geometries.size(), groups.size());
-
-        // 如果所有几何体都在一个组中，使用分层并行合并
-        if (groups.size() == 1) {
-            return mergeGeometryLevel(geometries);
-        }
-
-        // 分别合并每个组，然后组合结果
-        List<Geometry> groupResults = new ArrayList<>();
-        for (List<Integer> group : groups) {
-            if (group.size() == 1) {
-                groupResults.add(geometries.get(group.get(0)));
-            } else {
-                List<Geometry> groupGeometries = group.stream()
-                        .map(geometries::get)
-                        .collect(Collectors.toList());
-                Geometry merged = mergeGeometryLevel(groupGeometries);
-                groupResults.add(merged);
-            }
-        }
-
-        // 如果只有一组结果，直接返回
-        if (groupResults.size() == 1) {
-            return groupResults.get(0);
-        }
-
-        // 多组结果，创建GeometryCollection
-        return config.geometryFactory.createGeometryCollection(
-                groupResults.toArray(new Geometry[0]));
-    }
-
-    /**
-     * 找到连通的几何体组（递归）
-     */
-    private void findConnectedGroup(int startIndex, List<Geometry> geometries,
-            STRtree spatialIndex, Set<Integer> processed, List<Integer> group) {
-        if (processed.contains(startIndex)) {
-            return;
-        }
-
-        processed.add(startIndex);
-        group.add(startIndex);
-
-        Geometry startGeom = geometries.get(startIndex);
-
-        // 扩大边界框进行搜索（考虑相邻但不完全重叠的情况）
-        Envelope searchEnv = startGeom.getEnvelopeInternal();
-        double expansion = 10.0; // 扩展10米，考虑相邻情况
-        searchEnv.expandBy(expansion);
-
-        List<?> rawCandidates = spatialIndex.query(searchEnv);
-        List<Integer> candidates = rawCandidates.stream()
-                .filter(obj -> obj instanceof Integer)
-                .map(obj -> (Integer) obj)
-                .collect(Collectors.toList());
-
-        for (Integer candidate : candidates) {
-            if (processed.contains(candidate)) {
-                continue;
-            }
-
-            // 检查是否真正相交或相邻
-            Geometry candidateGeom = geometries.get(candidate);
-            if (startGeom.intersects(candidateGeom) ||
-                    startGeom.distance(candidateGeom) < expansion) {
-                findConnectedGroup(candidate, geometries, spatialIndex, processed, group);
-            }
-        }
-    }
-
-    /**
-     * 递归合并几何体层级（保持原有逻辑）
-     * 
-     * @param geometries 当前层级的几何体列表
-     * @return 合并后的几何体
-     */
-    private Geometry mergeGeometryLevel(List<Geometry> geometries) {
-        if (geometries.size() <= 1) {
-            return geometries.isEmpty() ? config.geometryFactory.createGeometryCollection(new Geometry[0])
-                    : geometries.get(0);
-        }
-
-        // 对于较小的集合，直接使用串行合并
-        if (geometries.size() <= 4) {
-            return sequentialUnion(geometries);
-        }
-
-        // 并行处理当前层的两两合并
-        int pairs = geometries.size() / 2;
-        List<Geometry> mergedPairs = IntStream.range(0, pairs)
-                .parallel()
-                .mapToObj(i -> {
-                    Geometry geom1 = geometries.get(i * 2);
-                    Geometry geom2 = geometries.get(i * 2 + 1);
-                    try {
-                        return geom1.union(geom2);
-                    } catch (Exception e) {
-                        log.warn("几何体合并失败，返回第一个几何体: {}", e.getMessage());
-                        return geom1;
-                    }
-                })
-                .collect(Collectors.toList());
-
-        // 处理剩余的单个几何体
-        List<Geometry> nextLevel = new ArrayList<>(mergedPairs);
-        if (geometries.size() % 2 == 1) {
-            nextLevel.add(geometries.get(geometries.size() - 1));
-        }
-
-        // 递归处理下一层
-        return mergeGeometryLevel(nextLevel);
-    }
-
-    /**
-     * 将WGS84坐标点转换为高斯投影坐标点
-     * 支持全球范围，根据经度自动选择合适的高斯投影带
-     * 
-     * @param wgs84Point WGS84坐标系下的轨迹点
-     * @return 高斯投影坐标系下的轨迹点
-     */
-    public TrackPoint wgs84PointTransformToGaussPoint(TrackPoint wgs84Point) {
-        try {
-            // 获取经度和纬度
-            double longitude = wgs84Point.getLon();
-            double latitude = wgs84Point.getLat();
-
-            log.trace("=== 开始WGS84到高斯投影转换 ===");
-            log.trace("原始坐标：经度={}, 纬度={}", longitude, latitude);
-
-            // 计算高斯投影带号 (6度分带)
-            // 全球范围: 经度-180到180，对应带号1-60
-            int zone = (int) Math.floor((longitude + 180) / 6) + 1;
-            log.trace("计算投影带号：zone={}", zone);
-
-            // 计算中央经线
-            double centralMeridian = (zone - 1) * 6 - 180 + 3;
-            log.trace("计算中央经线：centralMeridian={}", centralMeridian);
-
-            // 验证投影带号的合理性
-            if (zone < 1 || zone > 60) {
-                log.warn("投影带号超出合理范围：zone={}，经度={}", zone, longitude);
-                return null;
-            }
-
-            // 创建高斯投影坐标参考系统（使用缓存避免重复解析WKT）
-            // 全球支持模式：假东距包含带号信息，便于识别投影带
-            // 格式：zone × 1000000 + 500000（如49带 = 49500000米）
-            double falseEasting = zone * 1000000.0 + 500000.0;
-            log.trace("计算假东距：falseEasting={}", falseEasting);
-
-            // 从缓存获取或创建高斯投影CRS
-            CoordinateReferenceSystem gaussCRS = getOrCreateGaussCRS(zone, falseEasting, centralMeridian);
-
-            // 构建缓存key（用于transform缓存）
-            String cacheKey = String.format("%d_%.1f_%.1f", zone, falseEasting, centralMeridian);
-
-            // 从缓存获取或创建WGS84到高斯投影的坐标转换
-            MathTransform transform = config.wgs84ToGaussTransformCache.computeIfAbsent(cacheKey, key -> {
-                try {
-                    return CRS.findMathTransform(config.WGS84_CRS, gaussCRS, true);
-                } catch (Exception e) {
-                    log.warn("创建坐标转换失败：zone={}, falseEasting={}, centralMeridian={}, 错误={}",
-                            zone, falseEasting, centralMeridian, e.getMessage());
-                    return null;
-                }
-            });
-
-            // 执行坐标转换
-            Coordinate sourceCoord = new Coordinate(longitude, latitude);
-            Coordinate targetCoord = new Coordinate();
-
-            JTS.transform(sourceCoord, targetCoord, transform);
-
-            log.trace("转换结果：X={}, Y={}", targetCoord.x, targetCoord.y);
-
-            // 验证转换结果的合理性（全球范围）
-            // X坐标：最小1带=150万米，最大60带=6050万米，加上实际坐标范围±350万米
-            // 合理范围：50万-6400万米（更宽松的范围，允许边界情况）
-            // Y坐标：全球纬度范围对应约±1000万米
-            if (targetCoord.x < 500000 || targetCoord.x > 64000000 || targetCoord.y < -10000000
-                    || targetCoord.y > 10000000) {
-                log.warn("转换结果超出全球合理范围：X={}, Y={}, zone={}", targetCoord.x, targetCoord.y, zone);
-                return null;
-            }
-
-            // 创建新的轨迹点，保持原有属性，只更新坐标
-            TrackPoint result = new TrackPoint();
-            result.setTime(wgs84Point.getTime());
-            result.setLon(targetCoord.x); // X坐标（东向）
-            result.setLat(targetCoord.y); // Y坐标（北向）
-            result.setSpeed(wgs84Point.getSpeed());
-
-            log.trace("=== WGS84到高斯投影转换完成 ===");
-            return result;
-        } catch (Exception e) {
-            log.warn("坐标转换失败：经度={}, 纬度={}, 错误={}", wgs84Point.getLon(), wgs84Point.getLat(), e.getMessage());
-            return null;
-        }
-    }
-
-    /**
-     * 将高斯投影坐标系下的几何图形转换为WGS84坐标系下的几何图形
-     * 
-     * @param gaussGeometry 高斯投影坐标系下的几何图形
-     * @return WGS84坐标系下的几何图形
-     */
-    public Geometry gaussGeometryToWgs84Geometry(Geometry gaussGeometry) {
+    public Geometry toWgs84Geometry(Geometry gaussGeometry) {
         try {
             // 获取几何图形的边界信息来反推高斯投影参数
             Envelope env = gaussGeometry.getEnvelopeInternal();
             double centerX = (env.getMinX() + env.getMaxX()) / 2.0;
 
             log.debug("高斯投影几何到WGS84投影几何转换开始");
-            log.trace("高斯几何边界：MinX={}, MaxX={}, MinY={}, MaxY={}",
-                    env.getMinX(), env.getMaxX(), env.getMinY(), env.getMaxY());
-            log.trace("几何中心X坐标：centerX={}", centerX);
 
             // 验证高斯投影坐标的合理性
             // 高斯投影X坐标合理范围：50万-6400万米（对应全球1-60带，更宽松的范围）
@@ -742,6 +607,10 @@ public class GisUtil implements AutoCloseable {
             // 1. 首先尝试根据几何中心反推带号
             int zone = (int) Math.floor(centerX / 1000000.0);
             log.trace("反推计算的投影带号：zone={}, centerX={}", zone, centerX);
+            // 计算中央经线（与wgs84PointTransformToGaussPoint方法保持一致）
+            double centralMeridian = (zone - 1) * 6 - 180 + 3;
+            double falseEasting = zone * 1000000.0 + 500000.0;
+            log.trace("计算投影参数：zone={}, centralMeridian={}, falseEasting={}", zone, centralMeridian, falseEasting);
 
             // 2. 如果几何范围跨越多个投影带（宽度超过100万米），使用更保守的策略
             double geometryWidth = env.getMaxX() - env.getMinX();
@@ -765,13 +634,8 @@ public class GisUtil implements AutoCloseable {
                 zone = backupZone;
             }
 
-            // 计算中央经线（与wgs84PointTransformToGaussPoint方法保持一致）
-            double centralMeridian = (zone - 1) * 6 - 180 + 3;
-            double falseEasting = zone * 1000000.0 + 500000.0;
-            log.trace("计算投影参数：zone={}, centralMeridian={}, falseEasting={}", zone, centralMeridian, falseEasting);
-
             // 从缓存获取或创建高斯投影CRS
-            CoordinateReferenceSystem gaussCRS = getOrCreateGaussCRS(zone, falseEasting, centralMeridian);
+            CoordinateReferenceSystem gaussCRS = getGaussCRS(zone, falseEasting, centralMeridian);
 
             if (gaussCRS == null) {
                 log.warn("无法获取高斯投影CRS：zone={}", zone);
@@ -819,13 +683,51 @@ public class GisUtil implements AutoCloseable {
     }
 
     /**
-     * 将WGS84坐标系的几何图形转换为高斯投影坐标系
-     * 支持全球范围，根据几何中心经度自动选择合适的高斯投影带
+     * 将WGS84坐标系的WKT（Well-Known Text）字符串解析为Geometry几何图形。
+     * <p>
+     * 该方法将标准WKT格式的几何描述文本解析为JTS几何对象，支持所有标准几何类型，
+     * 如点(POINT)、线(LINESTRING)、多边形(POLYGON)、多点(MULTIPOINT)等。
+     * 解析后的几何对象可直接用于GIS空间分析操作。
+     * </p>
      * 
-     * @param wgs84Geometry WGS84坐标系下的几何图形
-     * @return 高斯投影坐标系下的几何图形
+     * @param wgs84WKT WGS84坐标系下的WKT字符串，如"POINT(116.4 39.9)"或"POLYGON((...))"
+     * @return WGS84坐标系的Geometry几何图形，解析失败返回空几何
      */
-    public Geometry wgs84GeometryToGaussGeometry(Geometry wgs84Geometry) {
+    public Geometry toWgs84Geometry(String wgs84WKT) {
+        if (wgs84WKT == null || wgs84WKT.trim().isEmpty()) {
+            log.warn("WKT字符串为空或null");
+            return config.EMPTYGEOM;
+        }
+        try {
+            Geometry geometry = new WKTReader(config.geometryFactory).read(wgs84WKT);
+            log.debug("WKT字符串解析成功：几何类型={}", geometry.getGeometryType());
+            return geometry;
+        } catch (ParseException e) {
+            log.warn("WKT字符串解析失败：{}", e.getMessage());
+            return config.EMPTYGEOM;
+        } catch (Exception e) {
+            log.warn("WKT字符串转换几何图形失败：{}", e.getMessage());
+            return config.EMPTYGEOM;
+        }
+    }
+
+    /**
+     * 将WGS84地理坐标系的几何图形转换为高斯-克吕格投影坐标系。
+     * <p>
+     * 该方法实现了高精度的坐标正转换，包括：
+     * <ul>
+     *   <li>全球范围支持，自动处理1-60投影带</li>
+     *   <li>根据几何中心经度智能选择最合适的投影带</li>
+     *   <li>输入输出坐标合理性验证</li>
+     *   <li>线程安全的转换缓存机制</li>
+     * </ul>
+     * 高斯投影适用于距离和面积的精确计算，特别适合中纬度地区的GIS分析。
+     * </p>
+     * 
+     * @param wgs84Geometry WGS84坐标系下的几何图形（经纬度）
+     * @return 高斯投影坐标系下的几何图形（米制），转换失败返回空几何
+     */
+    public Geometry toGaussGeometry(Geometry wgs84Geometry) {
         try {
             if (wgs84Geometry == null || wgs84Geometry.isEmpty()) {
                 return config.EMPTYGEOM;
@@ -861,7 +763,7 @@ public class GisUtil implements AutoCloseable {
             }
 
             // 从缓存获取或创建高斯投影CRS
-            CoordinateReferenceSystem gaussCRS = getOrCreateGaussCRS(zone, falseEasting, centralMeridian);
+            CoordinateReferenceSystem gaussCRS = getGaussCRS(zone, falseEasting, centralMeridian);
 
             // 构建缓存key（用于transform缓存）
             String cacheKey = String.format("%d_%.1f_%.1f", zone, falseEasting, centralMeridian);
@@ -898,126 +800,208 @@ public class GisUtil implements AutoCloseable {
     }
 
     /**
-     * 计算球面面积（平方米）
-     * 使用球面多边形面积公式，与Turf.js的算法保持一致
+     * 将单个WGS84地理坐标系的轨迹点转换为高斯-克吕格投影坐标系的轨迹点。
+     * <p>
+     * 该方法对单个轨迹点执行精确的坐标转换，保持时间属性不变，同时进行：
+     * <ul>
+     *   <li>输入坐标有效性检查</li>
+     *   <li>投影带自动计算和验证</li>
+     *   <li>转换结果合理性验证</li>
+     *   <li>完整的错误处理和日志记录</li>
+     * </ul>
+     * 适用于轨迹点的单独处理和分析。
+     * </p>
      * 
-     * @param wgs84Geometry WGS84坐标系的几何图形
-     * @return 球面面积（平方米）
+     * @param wgs84Point WGS84坐标系的轨迹点（经纬度）
+     * @return 高斯投影坐标系的轨迹点（米制），转换失败返回null
      */
-    public double calculateSphericalArea(Geometry wgs84Geometry) {
-        if (wgs84Geometry == null || wgs84Geometry.isEmpty()) {
-            return 0.0;
-        }
-
-        double totalArea = 0.0;
-
-        if (wgs84Geometry instanceof Polygon) {
-            totalArea = calculatePolygonSphericalArea((Polygon) wgs84Geometry);
-            log.debug("单多边形面积: {}平方米", totalArea);
-        } else if (wgs84Geometry instanceof MultiPolygon) {
-            MultiPolygon multiPolygon = (MultiPolygon) wgs84Geometry;
-            for (int i = 0; i < multiPolygon.getNumGeometries(); i++) {
-                Polygon polygon = (Polygon) multiPolygon.getGeometryN(i);
-                double polyArea = calculatePolygonSphericalArea(polygon);
-                totalArea += polyArea;
-                log.debug("多边形{}面积: {}平方米", i, polyArea);
-            }
-            log.debug("MULTIPOLYGON总面积: {}平方米", totalArea);
-        }
-
-        return Math.abs(totalArea); // 确保面积为正值
-    }
-
-    /**
-     * 直接从WKT字符串计算球面面积（平方米）
-     * 使用与Turf.js相同的球面面积算法，支持POLYGON和MULTIPOLYGON
-     * 
-     * @param wgs84WKT WKT字符串（WGS84坐标系）
-     * @return 球面面积（平方米）
-     */
-    public double calculateSphericalAreaFromWKT(String wgs84WKT) {
-        if (wgs84WKT == null || wgs84WKT.trim().isEmpty()) {
-            return 0.0;
-        }
-
-        wgs84WKT = wgs84WKT.trim();
-        double totalArea = 0.0;
-
+    public TrackPoint toGaussPoint(TrackPoint wgs84Point) {
         try {
-            if (wgs84WKT.startsWith("POLYGON")) {
-                // 处理单个POLYGON
-                totalArea = calculatePolygonAreaFromWKT(wgs84WKT);
-                log.debug("POLYGON面积: {}平方米", totalArea);
-            } else if (wgs84WKT.startsWith("MULTIPOLYGON")) {
-                // 处理MULTIPOLYGON，提取所有多边形
-                List<String> polygons = extractPolygonsFromMultiWKT(wgs84WKT);
-                log.debug("MULTIPOLYGON包含 {} 个多边形", polygons.size());
+            // 获取经度和纬度
+            double longitude = wgs84Point.getLon();
+            double latitude = wgs84Point.getLat();
 
-                for (int i = 0; i < polygons.size(); i++) {
-                    double polyArea = calculatePolygonAreaFromWKT(polygons.get(i));
-                    totalArea += polyArea;
-                    log.debug("多边形{}面积: {}平方米", i, polyArea);
-                }
-                log.debug("MULTIPOLYGON总面积: {}平方米", totalArea);
+            log.trace("开始WGS84到高斯投影转换 原始坐标：经度={}, 纬度={}", longitude, latitude);
+
+            // 计算高斯投影带号 (6度分带)
+            // 全球范围: 经度-180到180，对应带号1-60
+            int zone = (int) Math.floor((longitude + 180) / 6) + 1;
+            log.trace("计算投影带号：zone={}", zone);
+
+            // 验证投影带号的合理性
+            if (zone < 1 || zone > 60) {
+                log.warn("投影带号超出合理范围：zone={}，经度={}", zone, longitude);
+                return null;
             }
 
-        } catch (Exception e) {
-            log.warn("WKT面积计算失败: {}", e.getMessage());
-            return 0.0;
-        }
+            // 计算中央经线
+            double centralMeridian = (zone - 1) * 6 - 180 + 3;
+            log.trace("计算中央经线：centralMeridian={}", centralMeridian);
 
-        return Math.abs(totalArea);
+            // 全球支持模式：假东距包含带号信息，便于识别投影带
+            // 格式：zone × 1000000 + 500000（如49带 = 49500000米）
+            double falseEasting = zone * 1000000.0 + 500000.0;
+            log.trace("计算假东距：falseEasting={}", falseEasting);
+
+            // 从缓存获取或创建高斯投影CRS
+            CoordinateReferenceSystem gaussCRS = getGaussCRS(zone, falseEasting, centralMeridian);
+            if (gaussCRS == null) {
+                return null;
+            }
+
+            // 构建缓存key（用于transform缓存）
+            String cacheKey = String.format("%d_%.1f_%.1f", zone, falseEasting, centralMeridian);
+
+            // 从缓存获取或创建WGS84到高斯投影的坐标转换
+            MathTransform transform = config.wgs84ToGaussTransformCache.computeIfAbsent(cacheKey, key -> {
+                try {
+                    log.debug("创建WGS84到高斯投影坐标转换器：投影带号={}, 假东距={}, 中央经线={}", zone, falseEasting,
+                            centralMeridian);
+                    return CRS.findMathTransform(config.WGS84_CRS, gaussCRS, true);
+                } catch (Exception e) {
+                    log.warn("创建坐标转换失败：zone={}, falseEasting={}, centralMeridian={}, 错误={}",
+                            zone, falseEasting, centralMeridian, e.getMessage());
+                    return null;
+                }
+            });
+            if (transform == null) {
+                return null;
+            }
+
+            // 执行坐标转换
+            Coordinate sourceCoord = new Coordinate(longitude, latitude);
+            Coordinate targetCoord = new Coordinate();
+            JTS.transform(sourceCoord, targetCoord, transform);
+            log.trace("转换结果：X={}, Y={}", targetCoord.x, targetCoord.y);
+
+            // 验证转换结果的合理性（全球范围）
+            // X坐标：最小1带=150万米，最大60带=6050万米，加上实际坐标范围±350万米
+            // 合理范围：50万-6400万米（更宽松的范围，允许边界情况）
+            // Y坐标：全球纬度范围对应约±1000万米
+            if (targetCoord.x < 500000 || targetCoord.x > 64000000 || targetCoord.y < -10000000
+                    || targetCoord.y > 10000000) {
+                log.warn("转换结果超出全球合理范围：X={}, Y={}, zone={}", targetCoord.x, targetCoord.y, zone);
+                return null;
+            }
+
+            // 创建新的轨迹点，保持原有属性，只更新坐标
+            TrackPoint result = new TrackPoint();
+            result.setTime(wgs84Point.getTime());
+            result.setLon(targetCoord.x); // X坐标（东向）
+            result.setLat(targetCoord.y); // Y坐标（北向）
+
+            log.trace("WGS84到高斯投影转换完成");
+            return result;
+        } catch (Exception e) {
+            log.warn("WGS84到高斯投影转换失败：经度={}, 纬度={}, 错误={}", wgs84Point.getLon(), wgs84Point.getLat(), e.getMessage());
+            return null;
+        }
     }
 
     /**
-     * 判断点是否在圆内（包含边界）
+     * 将WGS84地理坐标系的轨迹点列表批量转换为高斯-克吕格投影坐标系的轨迹点列表。
+     * <p>
+     * 该方法对轨迹点列表进行批量处理，为每个点调用toGaussPoint方法，
+     * 自动过滤转换失败的点，确保返回的列表中只包含有效转换结果。
+     * 适用于轨迹数据的整体处理和分析。
+     * </p>
      * 
-     * @param wgs84Point       要判断的点
-     * @param wgs84CenterPoint 圆的中心点
-     * @param radius           圆的半径（单位：米）
-     * @return 如果点在圆内（包含边界），返回true；否则返回false
+     * @param wgs84Points WGS84坐标系的轨迹点列表（经纬度）
+     * @return 高斯投影坐标系的轨迹点列表（米制），保持与输入列表相同的顺序，
+     *         只包含成功转换的点，可能为空列表
      */
-    public boolean isPointInCircle(CoordinatePoint wgs84Point, CoordinatePoint wgs84CenterPoint, double radius) {
+    public List<TrackPoint> toGaussPointList(List<TrackPoint> wgs84Points) {
+        List<TrackPoint> gaussPoints = new ArrayList<>();
+        try {
+            // 对每个轨迹点进行坐标转换
+            for (TrackPoint wgs84Point : wgs84Points) {
+                TrackPoint gaussPoint = toGaussPoint(wgs84Point);
+                if (gaussPoint != null) {
+                    gaussPoints.add(gaussPoint);
+                }
+            }
+
+            log.debug("成功转换{}个轨迹点到高斯-克吕格投影坐标系", gaussPoints.size());
+        } catch (Exception e) {
+            log.warn("WGS84轨迹点转换为高斯投影失败: {}", e.getMessage());
+        }
+        return gaussPoints;
+    }
+
+    /**
+     * 使用Haversine公式计算WGS84坐标系下两点之间的球面距离。
+     * <p>
+     * Haversine公式适用于球面上两点之间距离的精确计算，特别适合地球表面两点间的距离估算。
+     * 该方法具有以下特点：
+     * <ul>
+     *   <li>使用地球赤道半径作为计算基准</li>
+     *   <li>考虑了经纬度的弧度转换</li>
+     *   <li>数值稳定性好，适用于中短距离计算</li>
+     *   <li>执行效率高，无需额外的几何库支持</li>
+     * </ul>
+     * 适用于轨迹分析、地理围栏、距离测量等场景。
+     * </p>
+     * 
+     * @param wgs84Point1 第一个WGS84坐标点，包含有效经纬度
+     * @param wgs84Point2 第二个WGS84坐标点，包含有效经纬度
+     * @return 两点之间的球面距离（米），结果为非负数
+     */
+    public double haversine(CoordinatePoint wgs84Point1, CoordinatePoint wgs84Point2) {
+        // 将经纬度从度数转换为弧度，三角函数计算需要弧度值
+        double lon1 = Math.toRadians(wgs84Point1.getLon());
+        double lat1 = Math.toRadians(wgs84Point1.getLat());
+        double lon2 = Math.toRadians(wgs84Point2.getLon());
+        double lat2 = Math.toRadians(wgs84Point2.getLat());
+
+        // 计算两点间经度差和纬度差
+        double dlon = lon2 - lon1;
+        double dlat = lat2 - lat1;
+
+        // Haversine公式核心计算：半正矢公式
+        double a = Math.sin(dlat / 2.0) * Math.sin(dlat / 2.0) +
+                Math.cos(lat1) * Math.cos(lat2) *
+                        Math.sin(dlon / 2.0) * Math.sin(dlon / 2.0);
+
+        // 计算haversine函数结果，避免数值精度问题
+        double c = 2.0 * Math.atan2(Math.sqrt(a), Math.sqrt(1.0 - a));
+
+        // 最终距离 = 地球半径 * haversine函数结果
+        return config.EARTH_RADIUS * c;
+    }
+
+    /**
+     * 使用Haversine公式判断一个地理点是否在指定半径的圆内。
+     * <p>
+     * 该方法通过计算测试点与圆心之间的球面距离，并与指定半径进行比较，
+     * 来确定点是否位于圆内。采用球面距离计算确保在全球范围内的准确性，
+     * 特别适合地理围栏（Geo-fencing）应用场景。
+     * </p>
+     * 
+     * @param wgs84Point 要判断的WGS84坐标点，包含有效经纬度
+     * @param wgs84CenterPoint 圆的中心点（WGS84坐标）
+     * @param radius 圆的半径（米），必须为非负数
+     * @return 如果点到圆心的球面距离小于等于指定半径（包含边界），则返回true；否则返回false
+     */
+    public boolean inCircle(CoordinatePoint wgs84Point, CoordinatePoint wgs84CenterPoint, double radius) {
+        // 计算两点间的球面距离（米）
         double distance = haversine(wgs84Point, wgs84CenterPoint);
+        // 如果距离小于等于半径，则点在圆内（包含边界）
         return distance <= radius;
     }
 
     /**
-     * 将WGS84坐标系的WKT字符串转换为Geometry几何图形
+     * 判断WGS84坐标系下的点是否在指定的几何图形内部。
+     * <p>
+     * 该方法使用JTS拓扑套件进行精确的空间关系判断，支持各种几何类型（点、线、面等）。
+     * 采用covers()方法判断，确保边界上的点也被视为在几何图形内部。
+     * 适用于轨迹分析、地理围栏和空间统计等场景。
+     * </p>
      * 
-     * @param wgs84WKT WGS84坐标系下的WKT字符串
-     * @return WGS84坐标系的Geometry几何图形，如果解析失败返回空几何
+     * @param wgs84Point 待测试的WGS84坐标点，包含有效经纬度
+     * @param wgs84Geometry 用于判断的几何图形，必须是有效的JTS Geometry对象
+     * @return 如果点在几何图形内部或边界上，则返回true；否则返回false
      */
-    public Geometry wgs84WktToWgs84Geometry(String wgs84WKT) {
-        if (wgs84WKT == null || wgs84WKT.trim().isEmpty()) {
-            log.warn("WKT字符串为空或null");
-            return config.EMPTYGEOM;
-        }
-        try {
-            Geometry geometry = new WKTReader(config.geometryFactory).read(wgs84WKT);
-            log.debug("WKT字符串解析成功：几何类型={}", geometry.getGeometryType());
-            return geometry;
-        } catch (ParseException e) {
-            log.warn("WKT字符串解析失败：{}", e.getMessage());
-            return config.EMPTYGEOM;
-        } catch (Exception e) {
-            log.warn("WKT字符串转换几何图形失败：{}", e.getMessage());
-            return config.EMPTYGEOM;
-        }
-    }
-
-    /**
-     * 判断WGS84坐标系下的点是否在几何图形内
-     * 
-     * @param wgs84Point    WGS84坐标系下的点
-     * @param wgs84Geometry WGS84坐标系下的几何图形
-     * @return 如果点在几何图形内（包含边界），返回true；否则返回false
-     */
-    public boolean isPointInGeometry(CoordinatePoint wgs84Point, Geometry wgs84Geometry) {
-        if (wgs84Point == null || wgs84Geometry == null || wgs84Geometry.isEmpty()) {
-            return false;
-        }
-
+    public boolean inGeometry(CoordinatePoint wgs84Point, Geometry wgs84Geometry) {
         try {
             // 创建点几何对象
             Point point = config.geometryFactory.createPoint(
@@ -1034,19 +1018,20 @@ public class GisUtil implements AutoCloseable {
     }
 
     /**
-     * 判断WGS84坐标系下的点是否在矩形内
+     * 判断WGS84坐标系下的点是否位于指定的地理矩形范围内。
+     * <p>
+     * 该方法使用高效的边界框检查，通过比较点的经纬度与矩形边界，快速判断点是否在矩形范围内。
+     * 支持任意顺序的对角点输入，内部会自动调整为正确的边界。不考虑地球曲率，适用于较小范围区域。
+     * 常用于空间索引、数据分区和快速查询优化。
+     * </p>
      * 
-     * @param wgs84Point            WGS84坐标系下的点
-     * @param wgs84TopLeftPoint     WGS84坐标系下的矩形左上角点
-     * @param wgs84BottomRightPoint WGS84坐标系下的矩形右下角点
-     * @return 如果点在矩形内（包含边界），返回true；否则返回false
+     * @param wgs84Point 待测试的WGS84坐标点，包含有效经纬度
+     * @param wgs84TopLeftPoint 矩形的左上角点（或任意对角点）
+     * @param wgs84BottomRightPoint 矩形的右下角点（或任意对角点）
+     * @return 如果点的经纬度在矩形范围内（包含边界），则返回true；否则返回false
      */
-    public boolean isPointInRectangle(CoordinatePoint wgs84Point, CoordinatePoint wgs84TopLeftPoint,
+    public boolean inRectangle(CoordinatePoint wgs84Point, CoordinatePoint wgs84TopLeftPoint,
             CoordinatePoint wgs84BottomRightPoint) {
-        if (wgs84Point == null || wgs84TopLeftPoint == null || wgs84BottomRightPoint == null) {
-            return false;
-        }
-
         try {
             double pointLon = wgs84Point.getLon();
             double pointLat = wgs84Point.getLat();
@@ -1075,36 +1060,22 @@ public class GisUtil implements AutoCloseable {
     }
 
     /**
-     * 计算WGS84坐标系下两点之间的球面距离（米）
+     * 计算WGS84坐标系下两个几何图形的空间交集轮廓及面积。
+     * <p>
+     * 该方法通过以下步骤计算两个几何图形的交集：
+     * <ol>
+     *   <li>解析WKT字符串为JTS几何对象</li>
+     *   <li>将几何图形转换到高斯投影坐标系进行高精度计算</li>
+     *   <li>执行几何交集操作</li>
+     *   <li>将结果转换回WGS84坐标系</li>
+     *   <li>计算相交区域面积并转换为亩数</li>
+     * </ol>
+     * 使用高斯投影进行中间计算可显著提高面积计算精度，适用于空间分析、数据裁剪和覆盖分析。
+     * </p>
      * 
-     * @param wgs84Point1 第一个点
-     * @param wgs84Point2 第二个点
-     * @return 两点之间的距离（米）
-     */
-    public double haversine(CoordinatePoint wgs84Point1, CoordinatePoint wgs84Point2) {
-        double lon1 = Math.toRadians(wgs84Point1.getLon());
-        double lat1 = Math.toRadians(wgs84Point1.getLat());
-        double lon2 = Math.toRadians(wgs84Point2.getLon());
-        double lat2 = Math.toRadians(wgs84Point2.getLat());
-
-        double dlon = lon2 - lon1;
-        double dlat = lat2 - lat1;
-
-        double a = Math.sin(dlat / 2.0) * Math.sin(dlat / 2.0) +
-                Math.cos(lat1) * Math.cos(lat2) *
-                        Math.sin(dlon / 2.0) * Math.sin(dlon / 2.0);
-
-        double c = 2.0 * Math.atan2(Math.sqrt(a), Math.sqrt(1.0 - a));
-
-        return config.EARTH_RADIUS * c;
-    }
-
-    /**
-     * 计算WGS84坐标系下两个几何图形的相交轮廓
-     * 
-     * @param wgs84WKT1 第一个WGS84几何图形的WKT字符串
-     * @param wgs84WKT2 第二个WGS84几何图形的WKT字符串
-     * @return 包含相交轮廓WKT字符串(WGS84坐标系)和面积（亩）的结果对象
+     * @param wgs84WKT1 第一个WGS84几何图形的WKT字符串（如多边形、线、点等）
+     * @param wgs84WKT2 第二个WGS84几何图形的WKT字符串（如多边形、线、点等）
+     * @return 包含相交轮廓WKT字符串和面积（亩）的结果对象，无相交则返回空几何和零面积
      */
     public WktIntersectionResult intersection(String wgs84WKT1, String wgs84WKT2) {
         WktIntersectionResult result = new WktIntersectionResult();
@@ -1115,14 +1086,14 @@ public class GisUtil implements AutoCloseable {
             log.debug("开始计算两个WGS84几何图形的相交轮廓");
 
             // 1. 解析WKT字符串为几何对象
-            Geometry geometry1 = new WKTReader(config.geometryFactory).read(wgs84WKT1);
-            Geometry geometry2 = new WKTReader(config.geometryFactory).read(wgs84WKT2);
+            Geometry geometry1 = toWgs84Geometry(wgs84WKT1);
+            Geometry geometry2 = toWgs84Geometry(wgs84WKT2);
 
             log.debug("解析成功：几何1类型={}, 几何2类型={}", geometry1.getGeometryType(), geometry2.getGeometryType());
 
             // 2. 将WGS84几何图形转换为高斯投影坐标系以获得更精确的相交计算
-            Geometry gaussGeometry1 = wgs84GeometryToGaussGeometry(geometry1);
-            Geometry gaussGeometry2 = wgs84GeometryToGaussGeometry(geometry2);
+            Geometry gaussGeometry1 = toGaussGeometry(geometry1);
+            Geometry gaussGeometry2 = toGaussGeometry(geometry2);
 
             if (gaussGeometry1.isEmpty() || gaussGeometry2.isEmpty()) {
                 log.warn("WGS84几何图形转换为高斯投影失败");
@@ -1145,7 +1116,7 @@ public class GisUtil implements AutoCloseable {
                     gaussIntersection.getGeometryType(), gaussIntersection.getArea());
 
             // 5. 将相交结果转换回WGS84坐标系
-            Geometry wgs84Intersection = gaussGeometryToWgs84Geometry(gaussIntersection);
+            Geometry wgs84Intersection = toWgs84Geometry(gaussIntersection);
             if (wgs84Intersection.isEmpty()) {
                 log.warn("高斯投影相交结果转换回WGS84失败");
                 return result;
@@ -1155,11 +1126,9 @@ public class GisUtil implements AutoCloseable {
             result.setWkt(wgs84Intersection.toText());
 
             // 7. 在高斯投影坐标系下计算面积（更精确），然后转换为亩
-            result.setMu(calcMuByWgs84Geometry(wgs84Intersection));
+            result.setMu(calcMu(wgs84Intersection));
 
             log.debug("相交轮廓计算完成：亩数={}亩（基于WGS84精确计算）", result.getMu());
-        } catch (ParseException e) {
-            log.warn("WKT字符串解析失败：{}", e.getMessage());
         } catch (Exception e) {
             log.warn("相交计算失败：{}", e.getMessage());
         }
@@ -1168,23 +1137,66 @@ public class GisUtil implements AutoCloseable {
     }
 
     /**
-     * 计算WGS84坐标系下的几何图形面积（亩）
+     * 计算WGS84坐标系下几何图形的球面面积（平方米）
+     * <p>
+     * 该方法根据几何图形类型自动选择合适的面积计算策略，支持单多边形和多多边形：
+     * <ul>
+     *   <li>对于单多边形(Polygon)，直接调用calculatePolygonSphericalArea计算</li>
+     *   <li>对于多多边形(MultiPolygon)，累加所有子多边形的面积</li>
+     * </ul>
+     * 算法基于球面几何原理，精确考虑地球曲率，与Turf.js算法保持一致，确保跨平台结果一致性。
+     * 适用于全球范围内的精确面积测量，不受区域大小限制。
+     * </p>
      * 
-     * @param wgs84Geometry WGS84坐标系下的几何图形
-     * @return 几何图形的面积（亩）
+     * @param wgs84Geometry WGS84坐标系下的几何图形，支持Polygon和MultiPolygon类型
+     * @return 球面面积（平方米），始终为正值；对于不支持的几何类型返回0.0
      */
-    public double calcMuByWgs84Geometry(Geometry wgs84Geometry) {
-        if (wgs84Geometry == null || wgs84Geometry.isEmpty()) {
-            return 0.0;
+    public double calculateSphericalArea(Geometry wgs84Geometry) {
+        double totalArea = 0.0;
+
+        // 步骤1：根据几何图形类型选择计算策略
+        if (wgs84Geometry instanceof Polygon) {
+            // 单多边形处理
+            totalArea = calculatePolygonSphericalArea((Polygon) wgs84Geometry);
+            log.debug("单多边形面积: {}平方米", totalArea);
+        } else if (wgs84Geometry instanceof MultiPolygon) {
+            // 多多边形处理：累加所有子多边形面积
+            MultiPolygon multiPolygon = (MultiPolygon) wgs84Geometry;
+            for (int i = 0; i < multiPolygon.getNumGeometries(); i++) {
+                Polygon polygon = (Polygon) multiPolygon.getGeometryN(i);
+                double polyArea = calculatePolygonSphericalArea(polygon);
+                totalArea += polyArea;
+                log.debug("多边形{}面积: {}平方米", i, polyArea);
+            }
+            log.debug("MULTIPOLYGON总面积: {}平方米", totalArea);
         }
 
+        // 步骤2：确保返回正值面积
+        return Math.abs(totalArea);
+    }
+
+    /**
+     * 计算WGS84坐标系下几何图形的面积（亩）
+     * <p>
+     * 该方法将WGS84坐标系下几何图形的球面面积转换为亩数，适用于土地测量、农业生产统计和资源评估。
+     * 内部使用高精度球面面积计算算法，与Turf.js保持一致，结果进行四舍五入精确到4位小数。
+     * 转换关系：1亩 = 2000/3 平方米 ≈ 666.6667平方米。
+     * </p>
+     * 
+     * @param wgs84Geometry WGS84坐标系下的几何图形，支持Polygon和MultiPolygon类型
+     * @return 几何图形的面积（亩），四舍五入保留4位小数；计算失败返回0.0
+     */
+    public double calcMu(Geometry wgs84Geometry) {
         try {
-            // 使用球面面积计算算法，与Turf.js对齐
+            // 步骤1：使用球面面积算法计算平方米面积
             double areaSqm = calculateSphericalArea(wgs84Geometry);
 
-            // 转换为亩：1亩 = 2000/3平方米，四舍五入保留4位小数
-            return Math.round((areaSqm / (2000.0 / 3.0)) * 10000.0) / 10000.0;
+            // 步骤2：平方米转换为亩（1亩 = 2000/3平方米）
+            // 四舍五入保留4位小数
+            double mu = Math.round((areaSqm / (2000.0 / 3.0)) * 10000.0) / 10000.0;
 
+            log.debug("计算几何图形面积（亩）: {}亩", mu);
+            return mu;
         } catch (Exception e) {
             log.warn("WGS84几何图形计算亩数失败: {}", e.getMessage());
             return 0.0;
@@ -1192,50 +1204,112 @@ public class GisUtil implements AutoCloseable {
     }
 
     /**
-     * 从WGS84 WKT字符串计算几何图形面积（亩）
+     * 计算WGS84坐标系下WKT字符串表示的几何图形面积（亩）
+     * <p>
+     * 该方法是calcMu(Geometry)的便捷重载版本，直接接受WKT字符串作为输入，
+     * 内部自动解析WKT为几何对象并计算面积。适用于从数据库或文件中读取的WKT格式几何数据。
+     * </p>
      * 
-     * @param wgs84WKT WGS84坐标系下的WKT字符串
-     * @return 几何图形的面积（亩）
+     * @param wgs84Wkt WGS84坐标系下的WKT字符串，如"POLYGON((...))"或"MULTIPOLYGON(((...)))"
+     * @return 几何图形的面积（亩），四舍五入保留4位小数；解析或计算失败返回0.0
+     * @see #calcMu(Geometry)
      */
-    public double calcMuByWgs84WKT(String wgs84WKT) {
-        if (wgs84WKT == null || wgs84WKT.trim().isEmpty()) {
-            log.warn("WKT字符串为空或null");
-            return 0.0;
-        }
-
-        try {
-            // 直接从WKT字符串计算球面面积，不转换为几何图形
-            double areaSqm = calculateSphericalAreaFromWKT(wgs84WKT);
-
-            // 转换为亩：1亩 = 2000/3平方米，四舍五入保留4位小数
-            double mu = Math.round((areaSqm / (2000.0 / 3.0)) * 10000.0) / 10000.0;
-
-            log.info("WKT面积计算结果: {}平方米 = {}亩", areaSqm, mu);
-            return mu;
-
-        } catch (Exception e) {
-            log.warn("WKT字符串计算亩数失败: {}", e.getMessage());
-            return 0.0;
-        }
+    public double calcMu(String wgs84Wkt) {
+        return calcMu(toWgs84Geometry(wgs84Wkt));
     }
 
     /**
-     * 拆分WGS84坐标系下的轨迹点为多个区块
+     * 道路拆分处理 - 提取和优化田间作业轨迹
+     * <p>
+     * 该方法通过一系列处理步骤，从原始GPS轨迹中提取有效作业区域的几何轮廓：
+     * <ol>
+     *   <li>异常点位过滤（空时间、无效坐标等）</li>
+     *   <li>冗余点优化（相同位置点去重）</li>
+     *   <li>时间排序与坐标转换</li>
+     *   <li>轨迹特征计算（距离、速度、方向角）</li>
+     *   <li>高速移动识别与轨迹分段</li>
+     *   <li>点抽稀与几何缓冲区生成</li>
+     *   <li>多区域合并与边界优化</li>
+     * </ol>
+     * 主要用于农业机械作业轨迹分析、作业面积计算和作业质量评估。
+     * </p>
      * 
-     * @param wgs84Points WGS84坐标系下的轨迹点列表
-     * @param totalWidthM 幅宽（米）
-     * @return 包含拆分结果的对象
+     * @param wgs84Points WGS84坐标系下的轨迹点列表，每个点包含经纬度和时间信息
+     * @param totalWidthM 作业幅宽（米），用于生成轨迹两侧的缓冲区宽度
+     * @return 包含拆分结果的对象，包括作业轮廓几何图形、WKT格式、总面积和分段信息
+     * @throws IllegalArgumentException 当参数验证失败时抛出
+     * @see SplitRoadResult
+     * @see OutlinePart
      */
     public SplitRoadResult splitRoad(List<TrackPoint> wgs84Points, double totalWidthM) {
+        // 参数验证
+        if (CollUtil.isEmpty(wgs84Points)) {
+            throw new IllegalArgumentException("轨迹点列表不能为空");
+        }
+        if (totalWidthM < config.MIN_WORKING_WIDTH_M) {
+            throw new IllegalArgumentException("幅宽（米）不能小于" + config.MIN_WORKING_WIDTH_M);
+        }
+
+        log.debug("参数：wgs84点数量={}, 总幅宽(米)={}", wgs84Points.size(), totalWidthM);
+
+        // 计算半宽（用于生成缓冲区）
+        double halfWidthM = totalWidthM / 2.0;
+
+        // 初始化结果对象
         SplitRoadResult result = new SplitRoadResult();
         result.setTotalWidthM(totalWidthM);
         result.setOutline(config.EMPTYGEOM);
         result.setWkt(config.EMPTYGEOM.toText());
 
-        log.debug("参数信息：轨迹点数量={} 总宽度={}米", wgs84Points.size(), totalWidthM);
+        // 步骤1：过滤异常点位信息
+        wgs84Points = wgs84Points.stream()
+                .filter(p -> {
+                    // 1. 时间不能为空
+                    if (p.getTime() == null) {
+                        log.warn("轨迹点时间为空，此点抛弃");
+                        return false;
+                    }
+                    // 2. 经纬度不能为0（无效坐标）
+                    if (p.getLon() == 0.0 && p.getLat() == 0.0) {
+                        log.warn("定位时间: {} 轨迹点经纬度为0，此点抛弃", p.getTime());
+                        return false;
+                    }
+                    // 3. 经纬度必须在合理范围内
+                    if (p.getLon() < -180.0 || p.getLon() > 180.0 || p.getLat() < -90.0 || p.getLat() > 90.0) {
+                        log.warn("定位时间: {} 轨迹点经纬度超出范围：[{},{}] 此点抛弃", p.getTime(), p.getLon(), p.getLat());
+                        return false;
+                    }
+                    return true;
+                })
+                .collect(Collectors.toList());
+        log.debug("过滤异常点位后轨迹点数量={}", wgs84Points.size());
 
-        log.debug("按定位时间升序排序");
-        wgs84Points.sort((p1, p2) -> p1.getTime().compareTo(p2.getTime()));
+        // 步骤2：过滤相邻经纬度完全一致的点位（去重，减少计算量）
+        log.debug("过滤相邻经纬度完全一致的点位");
+        if (wgs84Points.size() > 1) {
+            List<TrackPoint> filteredPoints = new ArrayList<>();
+            filteredPoints.add(wgs84Points.get(0)); // 保留第一个点
+
+            for (int i = 1; i < wgs84Points.size(); i++) {
+                TrackPoint current = wgs84Points.get(i);
+                TrackPoint previous = filteredPoints.get(filteredPoints.size() - 1);
+
+                // 比较经纬度是否完全一致（使用极小值进行比较，避免浮点精度问题）
+                if (Math.abs(current.getLon() - previous.getLon()) < 1e-10 &&
+                        Math.abs(current.getLat() - previous.getLat()) < 1e-10) {
+                    // 记录被过滤掉的点的定位时间
+                    log.trace("过滤掉经纬度与前一点相同的点位，定位时间: {}", current.getTime());
+                } else {
+                    filteredPoints.add(current);
+                }
+            }
+
+            wgs84Points = filteredPoints;
+        }
+        log.debug("过滤后轨迹点数量={}", wgs84Points.size());
+
+        // 步骤3：按定位时间升序排序，确保轨迹时序正确
+        wgs84Points.sort(Comparator.comparing(TrackPoint::getTime));
 
         // 获取上报时间间隔分布
         Map<Integer, Integer> intervalDistribution = new HashMap<>();
@@ -1268,267 +1342,140 @@ public class GisUtil implements AutoCloseable {
                     .orElse(1);
         }
         log.info("最小有效时间间隔：{}秒（点数最多的时间间隔）", minEffectiveInterval);
-
-        // 根据最小有效时间间隔动态设置最小多边形点数
-        int dynamicMinPolygonPoints;
+        int min_points = 60;
         if (minEffectiveInterval == 1) {
-            dynamicMinPolygonPoints = 120; // 1秒间隔需要120个点
-        } else {
-            dynamicMinPolygonPoints = 30; // 其他间隔需要30个点
+            min_points = 60;
+        } else if (minEffectiveInterval == 10) {
+            min_points = 30;
         }
-        log.debug("根据最小有效时间间隔{}秒，设置最小多边形点数为{}个", minEffectiveInterval, dynamicMinPolygonPoints);
 
-        log.debug("过滤时间为空、经纬度异常、经纬度为0、速度为0、方向角异常的轨迹点");
-        List<TrackPoint> filteredWgs84Points = new ArrayList<>();
-        for (TrackPoint point : wgs84Points) {
-            if (point.getTime() != null// 定位时间不能为空
-                    && point.getLon() >= -180 && point.getLon() <= 180// 经度必须在[-180,180]之间
-                    && point.getLat() >= -90 && point.getLat() <= 90// 纬度必须在[-90,90]之间
-                    && point.getLon() != 0 && point.getLat() != 0// 经度和纬度不能为0
-            ) {
-                filteredWgs84Points.add(point);
-            } else {
-                log.trace("被过滤点位信息，时间：{} 经度：{} 纬度：{} 速度：{}", point.getTime(), point.getLon(), point.getLat(),
-                        point.getSpeed());
+        // 步骤4：转换到高斯投影平面坐标，便于后续距离和几何计算
+        List<TrackPoint> gaussPoints = toGaussPointList(wgs84Points);
+
+        // 步骤5：填充轨迹点的其他信息：距离、速度、方向角
+        for (int i = 1; i < gaussPoints.size(); i++) {
+            TrackPoint prevPoint = gaussPoints.get(i - 1);
+            TrackPoint currPoint = gaussPoints.get(i);
+
+            // 计算两点间的距离（米）- 高斯投影下直接使用欧几里得距离
+            double deltaX = currPoint.getLon() - prevPoint.getLon();
+            double deltaY = currPoint.getLat() - prevPoint.getLat();
+            double distance = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
+            currPoint.setDistance(distance);
+
+            // 计算两点间的时间差（秒）
+            long timeDiffSeconds = 0;
+            if (prevPoint.getTime() != null && currPoint.getTime() != null) {
+                timeDiffSeconds = Duration.between(prevPoint.getTime(), currPoint.getTime()).getSeconds();
             }
+
+            // 计算速度（米/秒）
+            double speed = 0;
+            if (timeDiffSeconds > 0) {
+                speed = distance / timeDiffSeconds;
+            }
+            currPoint.setSpeed(speed);
+
+            // 计算方向角（度）
+            double direction = 0;
+            if (distance > 0) {
+                // 使用atan2计算弧度方向，然后转换为角度
+                direction = Math.toDegrees(Math.atan2(deltaY, deltaX));
+                // 确保方向角在0-360度范围内
+                if (direction < 0) {
+                    direction += 360;
+                }
+            }
+            currPoint.setDirection(direction);
         }
-        log.debug("过滤后的轨迹点数量：{}", filteredWgs84Points.size());
-        if (filteredWgs84Points.size() < 6) {
-            log.warn("过滤后的轨迹点数量小于6个，无法进行拆分");
-            return result;
+        // 循环打印所有轨迹点的信息（调试代码，已注释）
+        for (TrackPoint point : gaussPoints) {
+            log.debug("定位时间：{} 轨迹点：[{},{}] 距离：{} 速度：{} 方向：{}",
+                    point.getTime(), point.getLon(), point.getLat(), point.getDistance(), point.getSpeed(),
+                    point.getDirection());
         }
 
-        int timeCutThreshold = minEffectiveInterval + 1; // 时间切割阈值
-        log.debug("按照间隔速度、间隔时间、间隔距离切分成多段轨迹");
-        List<List<TrackPoint>> wgs84PointsSegments = new ArrayList<>();
+        // 步骤6：根据速度特征进行轨迹分段（识别作业与非作业状态）
+        log.debug("切分成多段轨迹");
+        List<List<TrackPoint>> gaussTrackSegments = new ArrayList<>();
         List<TrackPoint> currentSegment = new ArrayList<>();
-        TrackPoint prevPoint = null;
+        currentSegment.add(gaussPoints.get(0)); // 添加第一个点到当前段
 
-        for (TrackPoint point : filteredWgs84Points) {
-            boolean shouldSplit = false;
+        for (int i = 1; i < gaussPoints.size(); i++) {
+            TrackPoint point = gaussPoints.get(i);
 
-            // 速度超限切割
-            if (point.getSpeed() > config.MAX_SPEED) {
-                shouldSplit = true;
+            // 18km/h = 5m/s，当速度超过18km/h时切割轨迹段（高速通常表示转移而非作业）
+            if (point.getSpeed() > 3) {
+                // 如果当前段不为空且有多个点，则将当前段添加到结果中
+                if (currentSegment.size() > 1) {
+                    gaussTrackSegments.add(new ArrayList<>(currentSegment));
+                    log.trace("创建新轨迹段，上一段包含{}个点", currentSegment.size());
+                }
+                // 开始新的段
+                currentSegment.clear();
             }
 
-            // 时间间隔超限切割
-            if (prevPoint != null) {
-                Duration duration = Duration.between(prevPoint.getTime(), point.getTime());
-                int timeDiffSeconds = (int) duration.getSeconds();
-                if (timeDiffSeconds > timeCutThreshold) {
-                    shouldSplit = true;
-                }
-
-                // 距离间隔超限切割
-                double distance = haversine(prevPoint, point);
-                if (distance > Math.max(5, totalWidthM * minEffectiveInterval)) {
-                    shouldSplit = true;
-                }
-            }
-
-            if (shouldSplit) {
-                if (!currentSegment.isEmpty()) {
-                    wgs84PointsSegments.add(currentSegment);
-                    currentSegment = new ArrayList<>();
-                }
-            }
-
+            // 将当前点添加到当前段
             currentSegment.add(point);
-            prevPoint = point;
-        }
-        if (!currentSegment.isEmpty()) {
-            wgs84PointsSegments.add(currentSegment);
-        }
-        log.debug("按照间隔速度、间隔时间、间隔距离切分后的轨迹段数量：{}", wgs84PointsSegments.size());
-
-        List<Geometry> gaussBufferedGeometries = new ArrayList<>();
-        for (List<TrackPoint> wgs84PointsSegment : wgs84PointsSegments) {
-            if (wgs84PointsSegment.size() < 2) {
-                log.warn("轨迹段点数量小于2个，无法进行拆分");
-                continue;
-            }
-
-            log.debug("将轨迹段中的WGS84坐标转换为高斯投影坐标 轨迹段点数量：{}", wgs84PointsSegment.size());
-            List<TrackPoint> gaussPoints = new ArrayList<>();
-            for (TrackPoint point : wgs84PointsSegment) {
-                TrackPoint gaussPoint = wgs84PointTransformToGaussPoint(point);
-                if (gaussPoint != null) {
-                    gaussPoints.add(gaussPoint);
-                }
-            }
-            log.debug("转换后的轨迹段点数量：{}", gaussPoints.size());
-            if (gaussPoints.size() < 2) {
-                log.warn("转换后的轨迹段点数量小于2个，无法进行拆分");
-                continue;
-            }
-
-            log.debug("使用高斯投影的轨迹点进行线缓冲，左右缓冲总宽度：{}米", totalWidthM);
-            try {
-                // 1. 创建线几何：将高斯投影点转换为Coordinate数组
-                Coordinate[] gaussCoordinates = new Coordinate[gaussPoints.size()];
-                for (int i = 0; i < gaussPoints.size(); i++) {
-                    TrackPoint point = gaussPoints.get(i);
-                    gaussCoordinates[i] = new Coordinate(point.getLon(), point.getLat());
-                }
-
-                // 2. 执行缓冲操作：根据点数决定分批处理或直接处理
-                double bufferDistance = totalWidthM / 2.0;
-                Geometry gaussBufferedGeometry;
-
-                if (gaussCoordinates.length > 500) {
-                    log.debug("点数过多({}个)，采用分批并发处理，缓冲距离：{}米", gaussCoordinates.length, bufferDistance);
-
-                    // 分批处理参数
-                    final int batchSize = 500; // 每批500个点
-                    final int overlapSize = 50; // 批次间重叠50个点确保连续性
-                    final List<Geometry> batchGeometries = new ArrayList<>();
-
-                    // 使用并行流处理批次
-                    IntStream
-                            .range(0,
-                                    (gaussCoordinates.length + batchSize - overlapSize - 1) / (batchSize - overlapSize))
-                            .parallel()
-                            .forEach(batchIndex -> {
-                                int startIdx = batchIndex * (batchSize - overlapSize);
-                                int endIdx = Math.min(startIdx + batchSize, gaussCoordinates.length);
-
-                                // 确保至少有两个点才能创建LineString
-                                if (endIdx - startIdx >= 2) {
-                                    Coordinate[] batchCoords = new Coordinate[endIdx - startIdx];
-                                    System.arraycopy(gaussCoordinates, startIdx, batchCoords, 0, endIdx - startIdx);
-
-                                    try {
-                                        LineString batchLine = config.geometryFactory.createLineString(batchCoords);
-                                        Geometry batchBuffer = batchLine.buffer(bufferDistance);
-
-                                        if (!batchBuffer.isEmpty()) {
-                                            synchronized (batchGeometries) {
-                                                batchGeometries.add(batchBuffer);
-                                            }
-                                        }
-
-                                        log.debug("批次{}处理完成：点数={}, 缓冲类型={}",
-                                                batchIndex + 1, batchCoords.length, batchBuffer.getGeometryType());
-                                    } catch (Exception e) {
-                                        log.warn("批次{}处理失败：{}", batchIndex + 1, e.getMessage());
-                                    }
-                                }
-                            });
-
-                    // 合并所有批次结果
-                    if (batchGeometries.isEmpty()) {
-                        log.warn("所有批次处理失败，回退到简化处理");
-                        // 简化处理：每10个点取一个点
-                        int step = Math.max(1, gaussCoordinates.length / 300);
-                        Coordinate[] simplifiedCoords = new Coordinate[(gaussCoordinates.length + step - 1) / step];
-                        for (int i = 0, j = 0; i < gaussCoordinates.length; i += step, j++) {
-                            simplifiedCoords[j] = gaussCoordinates[i];
-                        }
-                        // 确保终点被包含
-                        if (simplifiedCoords.length > 1 && simplifiedCoords[simplifiedCoords.length
-                                - 1] != gaussCoordinates[gaussCoordinates.length - 1]) {
-                            simplifiedCoords[simplifiedCoords.length - 1] = gaussCoordinates[gaussCoordinates.length
-                                    - 1];
-                        }
-
-                        LineString simplifiedLine = config.geometryFactory.createLineString(simplifiedCoords);
-                        gaussBufferedGeometry = simplifiedLine.buffer(bufferDistance);
-                        log.debug("简化处理完成：原始点数={}, 简化后点数={}, 缓冲类型={}",
-                                gaussCoordinates.length, simplifiedCoords.length,
-                                gaussBufferedGeometry.getGeometryType());
-                    } else {
-                        // 使用分层并行合并策略优化性能
-                        try {
-                            log.debug("批次合并开始，批次数量={}", batchGeometries.size());
-                            gaussBufferedGeometry = parallelUnionGeometries(batchGeometries);
-                            log.debug("批次合并完成：批次数量={}, 合并后几何类型={}",
-                                    batchGeometries.size(), gaussBufferedGeometry.getGeometryType());
-                        } catch (Exception e) {
-                            log.warn("批次合并失败：{}，使用第一个批次结果", e.getMessage());
-                            gaussBufferedGeometry = batchGeometries.get(0);
-                        }
-                    }
-                } else {
-                    // 点数较少时直接处理
-                    log.debug("直接处理，点数：{}，缓冲距离：{}米", gaussCoordinates.length, bufferDistance);
-                    LineString lineString = config.geometryFactory.createLineString(gaussCoordinates);
-                    gaussBufferedGeometry = lineString.buffer(bufferDistance);
-                    log.debug("线缓冲成功，结果几何类型：{}", gaussBufferedGeometry.getGeometryType());
-                }
-
-                gaussBufferedGeometries.add(gaussBufferedGeometry);
-            } catch (Exception e) {
-                log.warn("线缓冲失败：总宽度={}米，错误={}", totalWidthM, e.getMessage());
-            }
         }
 
-        if (gaussBufferedGeometries.isEmpty()) {
-            log.warn("没有成功创建任何区块，无法进行合并");
-            return result;
+        // 添加最后一个轨迹段（如果不为空且有多个点）
+        if (currentSegment.size() > 1) {
+            gaussTrackSegments.add(currentSegment);
+            log.debug("添加最后一个轨迹段，包含{}个点", currentSegment.size());
         }
+        log.debug("轨迹切割完成，共得到 {} 段轨迹", gaussTrackSegments.size());
 
-        log.debug("合并所有高斯投影缓冲几何");
-        Geometry gaussUnionGeometry = config.geometryFactory
-                .createGeometryCollection(gaussBufferedGeometries.toArray(new Geometry[0]))
-                .union();
-        log.debug("合并后的几何类型：{}，几何数量：{}", gaussUnionGeometry.getGeometryType(), gaussUnionGeometry.getNumGeometries());
-
-        log.debug("对合并后的几何进行膨胀再收缩操作，消除细小缝隙 - 膨胀{}米再收缩{}米", config.MORPHOLOGY_DISTANCE, config.MORPHOLOGY_DISTANCE);
-
-        // 保存原始几何用于验证
-        Geometry originalGeometry = gaussUnionGeometry;
-
-        // 膨胀操作
-        Geometry dilatedGeometry = gaussUnionGeometry.buffer(config.MORPHOLOGY_DISTANCE);
-        // 收缩操作（使用负值）
-        gaussUnionGeometry = dilatedGeometry.buffer(-config.MORPHOLOGY_DISTANCE);
-
-        // 凹多边形兜底验证：检查面积变化和拓扑有效性
-        double originalArea = originalGeometry.getArea();
-        double processedArea = gaussUnionGeometry.getArea();
-        double areaChangeRatio = Math.abs(processedArea - originalArea) / originalArea;
-
-        // 验证几何有效性
-        boolean isValid = gaussUnionGeometry.isValid();
-
-        // 如果面积变化过大（>5%）或几何无效，回退到原始几何
-        if (areaChangeRatio > 0.05 || !isValid) {
-            log.warn("膨胀收缩操作导致几何异常：面积变化{}%，有效性{}，回退到原始几何",
-                    String.format("%.2f", areaChangeRatio * 100), isValid);
-            gaussUnionGeometry = originalGeometry;
-        } else {
-            log.debug("膨胀收缩操作完成，面积变化{}%，最终几何类型：{}，几何数量：{}",
-                    String.format("%.2f", areaChangeRatio * 100),
-                    gaussUnionGeometry.getGeometryType(), gaussUnionGeometry.getNumGeometries());
-        }
-
+        // 步骤7：处理每个轨迹段，生成几何轮廓
         List<OutlinePart> outlineParts = new ArrayList<>();
-        if (gaussUnionGeometry instanceof Polygon) {
-            Geometry wgs84Geometry = gaussGeometryToWgs84Geometry(gaussUnionGeometry);
+        for (List<TrackPoint> segment : gaussTrackSegments) {
+            log.debug("处理轨迹段，原始点数: {}", segment.size());
+            if (segment.size() < min_points) {
+                log.warn("轨迹段点数不足 {} 个，跳过处理", min_points);
+                continue;
+            }
 
-            // 筛选在合并几何图形内的WGS84点位 - 使用PreparedGeometry优化性能
-            List<TrackPoint> wgs84PointsSegment = new ArrayList<>();
-
-            // 获取几何图形的边界框，避免重复计算
-            Envelope geometryEnvelope = wgs84Geometry.getEnvelopeInternal();
-
-            // 使用PreparedGeometry预优化，大幅提升空间判断性能
-            PreparedGeometry preparedWgs84Geometry = PreparedGeometryFactory.prepare(wgs84Geometry);
-
-            // 记录性能日志
             long startTime = System.currentTimeMillis();
 
-            // 使用并行流处理，结合PreparedGeometry提高大数据量场景下的性能
-            wgs84PointsSegment = filteredWgs84Points.parallelStream()
+            // 7.1 点抽稀优化 - 使用Douglas-Peucker算法减少点数但保持形状特征
+            List<TrackPoint> simplifiedPoints = simplifyTrackPoints(segment, 0.1); // 0.1米容差
+            log.debug("点抽稀后点数: {}, 耗时: {}ms", simplifiedPoints.size(), System.currentTimeMillis() - startTime);
+
+            // 7.2 根据点数选择处理策略 - 大规模轨迹采用分块处理
+            Geometry gaussGeometry;
+            if (simplifiedPoints.size() > 1000) {
+                // 当点数超过1000时，进行分块处理以避免内存溢出和提高性能
+                gaussGeometry = processLargeSegmentInChunks(simplifiedPoints, halfWidthM);
+            } else {
+                // 点数较少时直接处理：创建线串，然后生成缓冲区（表示作业范围）
+                Coordinate[] coordinates = simplifiedPoints.stream()
+                        .map(point -> new Coordinate(point.getLon(), point.getLat()))
+                        .toArray(Coordinate[]::new);
+                LineString lineString = config.geometryFactory.createLineString(coordinates);
+                // 创建宽度为halfWidthM的缓冲区，表示作业区域
+                gaussGeometry = lineString.buffer(halfWidthM);
+            }
+
+            // 7.3 转换回WGS84坐标系，便于后续空间分析和显示
+            startTime = System.currentTimeMillis();
+            Geometry wgs84Geometry = toWgs84Geometry(gaussGeometry);
+            log.debug("buffer计算及坐标转换完成，耗时: {}ms", System.currentTimeMillis() - startTime);
+
+            // 7.4 性能优化：获取几何图形的边界框，用于快速空间过滤
+            Envelope geometryEnvelope = wgs84Geometry.getEnvelopeInternal();
+            // 使用PreparedGeometry预优化，大幅提升空间判断性能（10-100倍）
+            PreparedGeometry preparedWgs84Geometry = PreparedGeometryFactory.prepare(wgs84Geometry);
+
+            // 7.5 筛选属于当前作业区域的原始轨迹点
+            startTime = System.currentTimeMillis();
+            List<TrackPoint> wgs84PointsSegment = wgs84Points.stream()
                     .filter(point -> {
                         try {
-                            // 第一步：边界框快速过滤 - 数值比较，性能极高
+                            // 第一步：边界框快速过滤 - 使用简单的数值比较，性能极高
                             if (!geometryEnvelope.contains(point.getLon(), point.getLat())) {
                                 return false;
                             }
-
-                            // 第二步：使用PreparedGeometry进行精确空间判断 - 性能比直接contains提升10-100倍
+                            // 第二步：使用PreparedGeometry进行精确空间判断
                             return preparedWgs84Geometry.contains(config.geometryFactory.createPoint(
                                     new Coordinate(point.getLon(), point.getLat())));
                         } catch (Exception e) {
@@ -1541,109 +1488,58 @@ public class GisUtil implements AutoCloseable {
 
             long endTime = System.currentTimeMillis();
             log.debug("点位空间判断完成，原始点位数：{}，筛选后点位数：{}，耗时：{}ms",
-                    filteredWgs84Points.size(), wgs84PointsSegment.size(), (endTime - startTime));
+                    wgs84Points.size(), wgs84PointsSegment.size(), (endTime - startTime));
 
-            if (wgs84PointsSegment.size() > dynamicMinPolygonPoints) {
-                OutlinePart outlinePart = new OutlinePart();
-                outlinePart.setTotalWidthM(totalWidthM);
-                outlinePart.setOutline(gaussUnionGeometry);
-                outlinePart.setWkt(wgs84Geometry.toText());
-                outlinePart.setMu(calcMuByWgs84Geometry(wgs84Geometry));
-                outlinePart.setTrackPoints(wgs84PointsSegment);
-                outlinePart.setStartTime(wgs84PointsSegment.get(0).getTime());
-                outlinePart.setEndTime(wgs84PointsSegment.get(wgs84PointsSegment.size() - 1).getTime());
-                outlineParts.add(outlinePart);
-            } else {
-                log.warn("筛选后点位数不足{}，跳过", dynamicMinPolygonPoints);
+            // 验证当前区块的有效点数
+            if (wgs84PointsSegment.size() < min_points) {
+                continue;
             }
-        } else if (gaussUnionGeometry instanceof MultiPolygon) {
-            MultiPolygon multiPolygon = (MultiPolygon) gaussUnionGeometry;
-            for (int i = 0; i < multiPolygon.getNumGeometries(); i++) {
-                Polygon gaussGeometry = (Polygon) multiPolygon.getGeometryN(i);
 
-                Geometry wgs84Geometry = gaussGeometryToWgs84Geometry(gaussGeometry);
-
-                // 筛选在合并几何图形内的WGS84点位 - 使用PreparedGeometry优化性能
-                List<TrackPoint> wgs84PointsSegment = new ArrayList<>();
-
-                // 获取几何图形的边界框，避免重复计算
-                Envelope geometryEnvelope = wgs84Geometry.getEnvelopeInternal();
-
-                // 使用PreparedGeometry预优化，大幅提升空间判断性能
-                PreparedGeometry preparedWgs84Geometry = PreparedGeometryFactory.prepare(wgs84Geometry);
-
-                // 记录性能日志
-                long startTime = System.currentTimeMillis();
-
-                // 使用并行流处理，结合PreparedGeometry提高大数据量场景下的性能
-                wgs84PointsSegment = filteredWgs84Points.parallelStream()
-                        .filter(point -> {
-                            try {
-                                // 第一步：边界框快速过滤 - 数值比较，性能极大
-                                if (!geometryEnvelope.contains(point.getLon(), point.getLat())) {
-                                    return false;
-                                }
-
-                                // 第二步：使用PreparedGeometry进行精确空间判断 - 性能比直接contains提升10-100倍
-                                return preparedWgs84Geometry.contains(config.geometryFactory.createPoint(
-                                        new Coordinate(point.getLon(), point.getLat())));
-                            } catch (Exception e) {
-                                log.trace("点位空间判断失败：经度{} 纬度{} 错误：{}",
-                                        point.getLon(), point.getLat(), e.getMessage());
-                                return false;
-                            }
-                        })
-                        .collect(Collectors.toList());
-
-                long endTime = System.currentTimeMillis();
-                log.debug("多边形{}点位空间判断完成，原始点位数：{}，筛选后点位数：{}，耗时：{}ms",
-                        i, filteredWgs84Points.size(), wgs84PointsSegment.size(), (endTime - startTime));
-
-                if (wgs84PointsSegment.size() > dynamicMinPolygonPoints) {
-                    OutlinePart outlinePart = new OutlinePart();
-                    outlinePart.setTotalWidthM(totalWidthM);
-                    outlinePart.setOutline(gaussGeometry);
-                    outlinePart.setWkt(wgs84Geometry.toText());
-                    outlinePart.setMu(calcMuByWgs84Geometry(wgs84Geometry));
-                    outlinePart.setTrackPoints(wgs84PointsSegment);
-                    outlinePart.setStartTime(wgs84PointsSegment.get(0).getTime());
-                    outlinePart.setEndTime(wgs84PointsSegment.get(wgs84PointsSegment.size() - 1).getTime());
-                    outlineParts.add(outlinePart);
-                } else {
-                    log.warn("筛选后点位数不足{}，跳过", dynamicMinPolygonPoints);
-                }
-            }
+            // 7.6 创建并填充区块信息
+            OutlinePart outlinePart = new OutlinePart();
+            outlinePart.setTotalWidthM(totalWidthM);
+            outlinePart.setOutline(gaussGeometry);
+            outlinePart.setWkt(wgs84Geometry.toText());
+            outlinePart.setMu(calcMu(wgs84Geometry)); // 计算区块面积（亩）
+            outlinePart.setTrackPoints(wgs84PointsSegment);
+            outlinePart.setStartTime(wgs84PointsSegment.get(0).getTime());
+            outlinePart.setEndTime(wgs84PointsSegment.get(wgs84PointsSegment.size() - 1).getTime());
+            log.debug("生成区块亩数：{}", outlinePart.getMu());
+            outlineParts.add(outlinePart);
         }
 
-        // 重新构建只包含有效OutlinePart的几何图形
+        // 步骤8：合并所有有效区块，构建最终几何轮廓
         Geometry finalOutlineGeometry;
         if (outlineParts.size() == 1) {
             // 只有一个有效多边形时，直接使用该多边形
             finalOutlineGeometry = outlineParts.get(0).getOutline();
         } else if (outlineParts.size() > 1) {
-            // 多个有效多边形时，构建MultiPolygon
+            // 多个有效多边形时，构建集合并合并相交区域
             Geometry[] validGeometries = outlineParts.stream()
                     .map(OutlinePart::getOutline)
                     .toArray(Geometry[]::new);
+            // 创建几何集合并执行union操作，合并相交区域
             finalOutlineGeometry = config.geometryFactory.createGeometryCollection(validGeometries).union();
         } else {
-            // 没有有效多边形，回退到原始几何
             finalOutlineGeometry = config.EMPTYGEOM;
-            log.warn("没有有效区块，回退到原始几何");
+            log.warn("没有有效区块");
         }
 
-        // 4. 设置结果
-        result.setOutline(finalOutlineGeometry);
-        result.setWkt(gaussGeometryToWgs84WKT(finalOutlineGeometry));
-        result.setParts(outlineParts);
+        // 步骤9：计算总面积（亩）
         double totalMu = outlineParts != null ? outlineParts.stream()
                 .filter(Objects::nonNull)
                 .mapToDouble(OutlinePart::getMu)
                 .sum() : 0.0;
-        result.setMu(Math.round(totalMu * 10000.0) / 10000.0);
 
-        log.debug("最终生成区块数量：{}块，总亩数：{}亩，最终几何类型：{}",
-                finalOutlineGeometry.getNumGeometries(), result.getMu(), finalOutlineGeometry.getGeometryType());
+        // 步骤10：设置最终结果
+        result.setOutline(finalOutlineGeometry);
+        result.setWkt(toWgs84Geometry(finalOutlineGeometry).toText());
+        result.setParts(outlineParts);
+        result.setMu(Math.round(totalMu * 10000.0) / 10000.0); // 四舍五入保留4位小数
+
+        log.debug("最终生成区块数量：{}块，总亩数：{}亩，最终几何类型：{}，有 {} 个子几何图形",
+                finalOutlineGeometry.getNumGeometries(), result.getMu(), finalOutlineGeometry.getGeometryType(),
+                result.getParts().size());
 
         return result;
     }

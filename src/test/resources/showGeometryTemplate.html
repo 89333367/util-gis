@@ -1852,13 +1852,16 @@
                 const el = document.createElement('div');
                 el.id = 'playbackDomMarker';
                 el.style.position = 'absolute';
-                el.style.width = '16px';
-                el.style.height = '16px';
-                el.style.borderRadius = '50%';
-                el.style.background = '#2C64A7';
-                el.style.border = '2px solid #fff';
-                el.style.boxShadow = '0 0 0 1px rgba(0,0,0,.25)';
+                el.style.width = '0';
+                el.style.height = '0';
+                el.style.borderLeft = '3px solid transparent';
+                el.style.borderRight = '3px solid transparent';
+                el.style.borderBottom = '4px solid #2C64A7';
+                el.style.borderTop = '0';
+                el.style.transform = 'translate(-50%, -50%)';
                 el.style.zIndex = '9999';
+                // 添加伪元素来增强箭头效果
+                el.style.clipPath = 'polygon(50% 0, 100% 100%, 0 100%)';
                 pane.appendChild(el);
                 playbackDom.el = el;
                 console.log('[Playback] 创建DOM标记，父节点=', pane === document.getElementById('mapContainer') ? '#mapContainer' : 'overlayPane');

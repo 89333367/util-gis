@@ -83,7 +83,7 @@ public class TestGisUtil {
         CoordinatePoint p = new CoordinatePoint(116.55470301, 40.21296700);
         CoordinatePoint center = new CoordinatePoint(116.55560000, 40.21296700); // 向东偏移约100米
         double radius = 10.0;
-        boolean isIn = gisUtil.isPointInCircle(p, center, radius);
+        boolean isIn = gisUtil.inCircle(p, center, radius);
         log.info("点是否在圆中: {}", isIn);
     }
 
@@ -92,66 +92,37 @@ public class TestGisUtil {
         CoordinatePoint p = new CoordinatePoint(116.55470301, 40.21296700);
         CoordinatePoint p1 = new CoordinatePoint(116.55560000, 40.21296700); // 向东偏移约100米
         CoordinatePoint p2 = new CoordinatePoint(116.55560000, 40.21364248); // 向北偏移约100米
-        boolean isIn = gisUtil.isPointInRectangle(p, p1, p2);
+        boolean isIn = gisUtil.inRectangle(p, p1, p2);
         log.info("点是否在矩形中: {}", isIn);
     }
 
     @Test
     void 测试点是否在多边形中() {
-        Geometry geom = gisUtil.wgs84WktToWgs84Geometry(
+        Geometry geom = gisUtil.toWgs84Geometry(
                 "POLYGON((116.55470301 40.21296700, 116.55560000 40.21296700, 116.55560000 40.21364248, 116.55470301 40.21364248, 116.55470301 40.21296700))");
 
         // 测试多边形内部的点
         CoordinatePoint p1 = new CoordinatePoint(116.55515000, 40.21330000);
-        boolean isIn1 = gisUtil.isPointInGeometry(p1, geom);
+        boolean isIn1 = gisUtil.inGeometry(p1, geom);
         log.info("内部点[116.55515000, 40.21330000]是否在多边形中: {}", isIn1);
 
         // 测试多边形顶点（边界点）
         CoordinatePoint p2 = new CoordinatePoint(116.55560000, 40.21364248);
-        boolean isIn2 = gisUtil.isPointInGeometry(p2, geom);
+        boolean isIn2 = gisUtil.inGeometry(p2, geom);
         log.info("顶点[116.55560000, 40.21364248]是否在多边形中: {}", isIn2);
 
         // 测试多边形外部的点
         CoordinatePoint p3 = new CoordinatePoint(116.55600000, 40.21400000);
-        boolean isIn3 = gisUtil.isPointInGeometry(p3, geom);
+        boolean isIn3 = gisUtil.inGeometry(p3, geom);
         log.info("外部点[116.55600000, 40.21400000]是否在多边形中: {}", isIn3);
     }
 
     @Test
     void 测试两点距离() {
-        CoordinatePoint p1 = new CoordinatePoint(124.501848, 45.380130);
-        CoordinatePoint p2 = new CoordinatePoint(124.501972, 45.380305);
+        CoordinatePoint p1 = new CoordinatePoint(116.55470301, 40.21296700);
+        CoordinatePoint p2 = new CoordinatePoint(116.55473883, 40.21364248);
         double distance = gisUtil.haversine(p1, p2);
         log.info("{} 米", distance);
-    }
-
-    @Test
-    void 测试轨迹段距离() {
-        String did = "EC73BD2506050018";
-        String startTime = "20251029161721";
-        String endTime = "20251029161856";
-        读取一段轨迹数据(did, startTime, endTime);
-        List<String> lines = FileUtil
-                .readUtf8Lines(path + StrUtil.format("/{}_{}_{}_trace.txt", did, startTime,
-                        endTime));
-        double total = 0.0;
-        CoordinatePoint prev = null;
-        for (String line : lines) {
-            if (StrUtil.isBlank(line)) {
-                continue;
-            }
-            String[] ss = line.split(",");
-            if (ss.length < 2) {
-                continue;
-            }
-            CoordinatePoint p = new CoordinatePoint(Convert.toDouble(ss[1]),
-                    Convert.toDouble(ss[2]));
-            if (prev != null) {
-                total += gisUtil.haversine(prev, p);
-            }
-            prev = p;
-        }
-        log.info("轨迹点数={} 总距离={} 米", lines.size(), total);
     }
 
     @Test
@@ -415,9 +386,8 @@ public class TestGisUtil {
                         continue;
                     }
                 }
-                // {定位时间yyyyMMddHHmmss},{经度},{纬度},{速度km/h},{方向角度0-360}
-                l.add(StrUtil.format("{},{},{},{},{}", protocol.get("3014"), protocol.get("2602"), protocol.get("2603"),
-                        protocol.get("2204"), protocol.get("3012")));
+                // {定位时间yyyyMMddHHmmss},{经度},{纬度}
+                l.add(StrUtil.format("{},{},{}", protocol.get("3014"), protocol.get("2602"), protocol.get("2603")));
             }
             FileUtil.writeUtf8Lines(l, path + StrUtil.format("/{}_{}_{}_trace.txt", did, startTime, endTime));
         }
@@ -455,9 +425,8 @@ public class TestGisUtil {
                         continue;
                     }
                 }
-                // {定位时间yyyyMMddHHmmss},{经度},{纬度},{速度km/h}
-                l.add(StrUtil.format("{},{},{},{}", protocol.get("3014"), protocol.get("2602"), protocol.get("2603"),
-                        protocol.get("2204")));
+                // {定位时间yyyyMMddHHmmss},{经度},{纬度}
+                l.add(StrUtil.format("{},{},{}", protocol.get("3014"), protocol.get("2602"), protocol.get("2603")));
             }
             if (CollUtil.isNotEmpty(l)) {
                 FileUtil.writeUtf8Lines(l, path + StrUtil.format("/{}_{}_trace.txt", did, yyyyMMdd));
@@ -478,7 +447,6 @@ public class TestGisUtil {
             trackPoint.setTime(LocalDateTimeUtil.parse(split[0], "yyyyMMddHHmmss"));
             trackPoint.setLon(Double.parseDouble(split[1]));
             trackPoint.setLat(Double.parseDouble(split[2]));
-            trackPoint.setSpeed(Double.parseDouble(split[3]));
             l.add(trackPoint);
         }
         try {
@@ -538,7 +506,6 @@ public class TestGisUtil {
             trackPoint.setTime(LocalDateTimeUtil.parse(split[0], "yyyyMMddHHmmss"));
             trackPoint.setLon(Double.parseDouble(split[1]));
             trackPoint.setLat(Double.parseDouble(split[2]));
-            trackPoint.setSpeed(Double.parseDouble(split[3]));
             l.add(trackPoint);
         }
         try {

@@ -14,7 +14,7 @@ import cn.hutool.core.collection.CollUtil;
  */
 public class SplitRoadResult {
     /**
-     * 整体轮廓的几何图形（高斯投影）
+     * 整体轮廓的几何图形（平面投影，可能是高斯投影或者是UTM投影）
      */
     private Geometry outline;
     /**
