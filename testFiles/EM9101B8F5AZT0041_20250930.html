@@ -1,0 +1,2129 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>展示轮廓</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+        }
+
+        #mapContainer {
+            width: 100vw;
+            height: 100vh;
+            position: relative;
+        }
+
+        #mapLoading {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(255, 255, 255, 0.8);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 999;
+            transition: opacity 0.3s;
+        }
+
+        .loading-text {
+            font-size: 16px;
+            color: #333;
+            padding: 10px 20px;
+            background: white;
+            border-radius: 4px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+        }
+
+        .wkt-input-container {
+            position: absolute;
+            top: 20px;
+            right: 10px;
+            z-index: 1000;
+            background: white;
+            padding: 12px;
+            border-radius: 6px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+            width: min(320px, 90vw);
+            box-sizing: border-box;
+            transition: all 0.3s;
+        }
+
+        .minimize-btn {
+            position: absolute;
+            top: -5px;
+            right: -4px;
+            width: 24px;
+            height: 24px;
+            border-radius: 50%;
+            background: #f0f0f0;
+            border: none;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 16px;
+            color: #666;
+            z-index: 1001;
+            transition: background 0.2s;
+        }
+
+        .minimize-btn:hover {
+            background: #e0e0e0;
+        }
+
+        .content-wrapper {
+            transition: all 0.3s;
+        }
+
+        .wkt-input-container.minimized {
+            width: 40px;
+            height: 40px;
+            padding: 0;
+        }
+
+        .wkt-input-container.minimized .content-wrapper {
+            display: none;
+        }
+
+        .wkt-input-container.minimized .min-icon {
+            display: none;
+        }
+
+        .wkt-input-container.minimized .restore-icon {
+            display: inline;
+        }
+
+        #wktTextarea {
+            width: 100%;
+            height: 120px;
+            margin-bottom: 10px;
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-family: monospace;
+            resize: vertical;
+            box-sizing: border-box;
+        }
+
+        .button-group {
+            display: flex;
+            gap: 10px;
+        }
+
+        /* 页签样式 */
+        .tabs-header {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 8px;
+        }
+        .tab-btn {
+            flex: 1;
+            padding: 6px 0;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 13px;
+            background: #f5f5f5;
+            color: #333;
+            transition: background 0.2s;
+        }
+        .tab-btn.active { background: #337AFF; color: #fff; }
+        .tab-pane { display: none; }
+        .tab-pane.active { display: block; }
+
+        /* Multi → Polygons 分割器样式 */
+        .split-section {
+            margin-top: 10px;
+            padding: 10px;
+            background: #fafafa;
+            border: 1px solid #eee;
+            border-radius: 6px;
+        }
+        .split-section .title {
+            font-size: 13px;
+            font-weight: 600;
+            color: #333;
+            margin-bottom: 6px;
+        }
+        .split-section .desc {
+            font-size: 12px;
+            color: #666;
+            margin-bottom: 8px;
+        }
+        #multiInput, #polyOutput {
+            width: 100%;
+            height: 90px;
+            margin-bottom: 8px;
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-family: monospace;
+            resize: vertical;
+            box-sizing: border-box;
+        }
+        .split-actions {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 8px;
+        }
+        .split-actions button {
+            flex: 1;
+            padding: 6px 0;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 13px;
+            transition: background 0.2s;
+        }
+        #splitMultiBtn { background: #337AFF; color: #fff; }
+        #splitMultiBtn:hover { background: #2860E0; }
+        #copyPolysBtn { background: #f5f5f5; color: #333; }
+        #copyPolysBtn:hover { background: #e0e0e0; }
+        #drawButton,
+        #clearButton,
+        #drawTrackButton,
+        #clearTrackButton {
+            width: 50%;
+            padding: 8px 0;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: background 0.2s;
+        }
+
+        #drawButton,
+        #drawTrackButton {
+            background: #337AFF;
+            color: white;
+        }
+
+        #drawButton:hover,
+        #drawTrackButton:hover {
+            background: #2860E0;
+        }
+
+        #clearButton,
+        #clearTrackButton {
+            background: #f5f5f5;
+            color: #333;
+        }
+
+        #clearButton:hover,
+        #clearTrackButton:hover {
+            background: #e0e0e0;
+        }
+
+        #drawButton:disabled,
+        #clearButton:disabled,
+        #drawTrackButton:disabled,
+        #clearTrackButton:disabled {
+            background: #e0e0e0;
+            color: #999;
+            cursor: not-allowed;
+        }
+
+        .tip {
+            font-size: 12px;
+            color: #666;
+            margin-bottom: 8px;
+            line-height: 1.4;
+        }
+
+        .area-label {
+             position: absolute;
+             background: rgba(255, 0, 0, 0.85);
+             border: 1px solid #000;
+             border-radius: 3px;
+             padding: 4px 6px;
+             font-size: 12px;
+             color: #fff;
+             font-weight: 600;
+             box-shadow: 0 2px 6px rgba(0, 0, 0, 0.25);
+             white-space: nowrap;
+             z-index: 9999;
+             pointer-events: none;
+         }
+         /* 默认隐藏标签容器下的标签 */
+          .labels-hidden .area-label { display: none; }
+
+          /* Batch → Generator 样式 */
+          .batch-section { margin-top: 10px; padding: 10px; background: #fafafa; border: 1px solid #eee; border-radius: 6px; }
+          .batch-section .title { font-size: 13px; font-weight: 600; color: #333; margin-bottom: 6px; }
+          .batch-section .desc { font-size: 12px; color: #666; margin-bottom: 8px; }
+          #batchInput, #multiOutput { width: 100%; height: 90px; margin-bottom: 8px; padding: 8px; border: 1px solid #ddd; border-radius: 4px; font-family: monospace; resize: vertical; box-sizing: border-box; }
+          .batch-actions { display: flex; gap: 8px; margin-bottom: 8px; }
+          .batch-actions button { flex: 1; padding: 6px 0; border: none; border-radius: 4px; cursor: pointer; font-size: 13px; transition: background 0.2s; }
+          #generateMultiBtn { background: #337AFF; color: #fff; }
+          #generateMultiBtn:hover { background: #2860E0; }
+          #copyMultiBtn { background: #f5f5f5; color: #333; }
+          #copyMultiBtn:hover { background: #e0e0e0; }
+      </style>
+    <script src="https://api.tianditu.gov.cn/api?v=4.0&tk=648f621977051d0199ff0f965d3fd322"></script>
+    <script src="https://cdn.bootcdn.net/ajax/libs/Turf.js/6.5.0/turf.min.js"></script>
+    <script src="https://lib.baomitu.com/terraformer/1.0.12/terraformer.min.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+    <script src="https://unpkg.com/terraformer-wkt-parser@1.2.1/terraformer-wkt-parser.min.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+    <!-- 已移除动态备用加载器 ensureTerraformer：改为仅使用静态脚本标签加载 Terraformer 核心库与 WKT 解析器 -->
+    <script>
+        // 检查Turf.js是否加载成功
+        window.addEventListener('load', function () {
+            if (typeof turf === 'undefined') {
+                console.warn('Turf.js加载失败，已启用备用面积算法');
+            } else {
+                console.log('Turf.js加载成功');
+            }
+        });
+    </script>
+</head>
+
+<body>
+<div id="mapContainer">
+    <div id="mapLoading">
+        <div class="loading-text">地图正在加载中...</div>
+    </div>
+</div>
+
+<div class="wkt-input-container">
+    <div class="minimize-btn" id="minimizeBtn">
+        <span class="min-icon">−</span>
+        <span class="restore-icon" style="display:none;">+</span>
+    </div>
+
+    <div class="content-wrapper">
+        <div class="tabs-header">
+            <button class="tab-btn active" id="tabDrawBtn">轮廓</button>
+            <button class="tab-btn" id="tabTrackBtn">轨迹</button>
+            <button class="tab-btn" id="tabSplitBtn">分割器</button>
+            <button class="tab-btn" id="tabBatchBtn">合并器</button>
+        </div>
+        <div class="tab-pane active" id="tabDraw">
+            <div class="tip">请输入WKT字符串（支持POLYGON/MULTIPOLYGON）：</div>
+            <textarea id="wktTextarea">POLYGON ((124.49888287867029 45.34558798364903, 124.49886149707908 45.34559748657533, 124.49885888427255 45.345598936769, 124.49885675472463 45.34560073751342, 124.49885520101788 45.34560281052086, 124.49885429070028 45.34560506566685, 124.49885406334803 45.3456074049084, 124.49886106330968 45.345744404909865, 124.4988611332741 45.34574512712457, 124.49886497224847 45.34577199999812, 124.498862133261 45.345791872871246, 124.49886212630595 45.34579407733341, 124.49886272936817 45.34579624039424, 124.49886391927237 45.34579827892854, 124.49886565029124 45.34580011459654, 124.49886785590265 45.34580167685455, 124.49887045134615 45.34580290566583, 124.49887333688052 45.34580375380783, 124.49887640161604 45.34580418868691, 124.49887952777655 45.34580419359091, 124.49888259522555 45.34580376833136, 124.49888548608253 45.345802929250766, 124.49888808925341 45.34580170859455, 124.49889030469974 45.34580015327185, 124.49889204728336 45.34579832305287, 124.49889325003753 45.34579628827195, 124.4988938667413 45.34579412712457, 124.49889686673549 45.345773127124225, 124.49889686673463 45.3457708728706, 124.49889291820023 45.34574323318423, 124.4988862671148 45.345613062672676, 124.49891030842863 45.34560237764289, 124.49896204733827 45.34560385590718, 124.49902758607907 45.345613984607525, 124.49903023614493 45.34561423240792, 124.49903290767617 45.34561416456351, 124.4990661618593 45.3456113390625, 124.49916170704849 45.34562112846347, 124.49916256593659 45.3456211997536, 124.49942956598893 45.345638199756245, 124.4994326736011 45.34563818321529, 124.49943571765485 45.34563774196959, 124.49943858254636 45.34563689277626, 124.49944115947557 45.34563566788517, 124.49944335057853 45.34563411381396, 124.49944507264372 45.345632289581594, 124.49944626027249 45.345630264466905, 124.4994468683621 45.34562811537764, 124.49944687381947 45.34562592392971, 124.49944627643725 45.34562377334769, 124.49944509890238 45.34562174530412, 124.499443385934 45.34561991681798, 124.49944120258553 45.345618357329606, 124.49943863177404 45.34561712606361, 124.49943577113098 45.34561626977973, 124.49943272929495 45.34561582099703, 124.4994204844596 45.345614879097354, 124.49947863833246 45.3456132363021, 124.49948182209012 45.34561291755054, 124.49948485043352 45.34561215486848, 124.499487600224 45.34561097926819, 124.49948995964911 45.34560943855203, 124.49949183276983 45.34560759536879, 124.4994931434211 45.345605524666155, 124.49949383830923 45.34560331064323, 124.49949388917865 45.34560104332681, 124.49949329396098 45.34559881491074, 124.49949207685914 45.345596716007016, 124.49949028736295 45.34559483196144, 124.4994879982373 45.34559323938322, 124.49948530256256 45.34559200302988, 124.49948230995065 45.34559117317409, 124.49947914208727 45.345590783559494, 124.49940057181213 45.34558680531767, 124.49934218223424 45.34558160352533, 124.49936971413689 45.34557926590146, 124.49943706577021 45.34558071433037, 124.49948897558068 45.34558487179583, 124.4995061592337 45.34558706545123, 124.49950801862646 45.34558722400066, 124.49953101863105 45.345588224000785, 124.49953409180705 45.34558814815011, 124.49953708720247 45.34558765777296, 124.49953989343827 45.34558677110324, 124.49954240616886 45.345585521110394, 124.49954453196243 45.345583954273444, 124.4995461917745 45.34558212885279, 124.49954732388782 45.345580112723795, 124.49954788620651 45.3455779808531, 124.49954785782175 45.345575812510916, 124.49954723978894 45.34557368832367, 124.49954605508873 45.34557168727584, 124.49954434777253 45.34556988377326, 124.49954218132402 45.34556834487627, 124.49953963629936 45.345567127806326, 124.49953680733105 45.34556627781823, 124.49953379960989 45.34556582651742, 124.49949362102515 45.34556260862464, 124.49946484077583 45.345558934547746, 124.49946248609695 45.3455587599087, 124.49943935540239 45.34555826248145, 124.4993916438205 45.345554441230625, 124.4994807962953 45.34555524439731, 124.49948400797774 45.34555504345517, 124.49948709669313 45.345554391053355, 124.49948993617397 45.34555331386223, 124.4994924103413 45.345551855917726, 124.49949441805056 45.34555007682103, 124.49949587722595 45.34554804930213, 124.49949672821604 45.34554585624661, 124.49949693623228 45.34554358730722, 124.49949649277079 45.34554133523882, 124.4994954159608 45.3455391921066, 124.49949374982226 45.34553724552239, 124.49949156246775 45.34553557506308, 124.49948894331673 45.345534249017504, 124.49948599944094 45.34553332159473, 124.49948285118671 45.34553283070805, 124.49911885125759 45.34550283071301, 124.49911753179924 45.345502760936824, 124.49903324869366 45.345500777804965, 124.49904013593208 45.34548804291076, 124.49907920695735 45.34549672535965, 124.49908287210101 45.34549721715346, 124.49922240287866 45.34550419369224, 124.49938493643783 45.3455191507675, 124.4995146029641 45.345527202079644, 124.49951772894576 45.345527179027584, 124.49952078848503 45.345526726371645, 124.49952366400541 45.345525861507134, 124.49952624500217 45.345524617670364, 124.49952843228922 45.34552304266128, 124.49953014181015 45.34552119700661, 124.4995313078692 45.34551915163389, 124.49953188565529 45.345516985145636, 124.49953185296465 45.34551478079878, 124.49953121105341 45.34551262330517, 124.49952998459015 45.34551059557601, 124.49952822070715 45.34550877553581, 124.4995259871894 45.345507233127684, 124.49952336986973 45.34550602762545, 124.49952046933026 45.345505205355884, 124.49951739703714 45.34550479791834, 124.49938873107794 45.34549681863389, 124.4992260635948 45.34548184923296, 124.49922512787268 45.34548178284352, 124.49908700154448 45.34547487652791, 124.49905797809986 45.34546842687547, 124.4990705064027 45.34543162494961, 124.49907093732051 45.345429390615244, 124.49907072743072 45.34542714057502, 124.49906988517274 45.345424965298534, 124.49906844441206 45.34542295224923, 124.49906646307898 45.34542118236777, 124.49906402083883 45.34541972681749, 124.49906121588907 45.34541864412311, 124.49905816101108 45.34541797781754, 124.49905497903536 45.3454177546916, 124.4990517979026 45.34541798371673, 124.49904874551973 45.34541865568427, 124.49904594461678 45.3454197435758, 124.49904350781239 45.34542120364943, 124.4990415330856 45.34542297719852, 124.4990400998361 45.34542499291229, 124.49902334769585 45.34545596859108, 124.49903865695043 45.345400134776874, 124.49903894677726 45.34539794992737, 124.49903862937002 45.345395766984566, 124.49903771681505 45.34539366907233, 124.49903624386154 45.34539173607662, 124.49903426659782 45.3453900416036, 124.49903186031564 45.34538865017674, 124.49902911664357 45.345387614779895, 124.49902614005705 45.34538697483972, 124.49902304390118 45.345386754724345, 124.49901994607347 45.345386962815525, 124.49901696453567 45.345387591189365, 124.49901421282104 45.34538861591819, 124.49901179571155 45.34538999798155, 124.4990098052478 45.345391684752165, 124.49900831722434 45.345393611999825, 124.49900738830341 45.34539570633728, 124.49898941333848 45.34545654465182, 124.4989797999903 45.34546484708803, 124.49895172331634 45.345443376683995, 124.49894941179606 45.34544192208885, 124.49894674505208 45.34544081011597, 124.49894382373357 45.345440082733845, 124.49894075809829 45.34543976739563, 124.49893766385057 45.34543987600296, 124.49893465777487 45.345440404456724, 124.49893185332746 45.3454413328118, 124.4989293563551 45.34544262602988, 124.49892726109941 45.345444235301755, 124.49892564664061 45.34544609988967, 124.49892457391216 45.345448149419596, 124.49892408340156 45.345450306537295, 124.49892419362182 45.34545248982798, 124.49892490041321 45.34545461688893, 124.49892617709959 45.345456607439736, 124.49896999941876 45.34551032516225, 124.49896665486555 45.345518184855074, 124.49896481931378 45.345516738724854, 124.49896241050166 45.3455154458154, 124.49895969861439 45.345514497194294, 124.4989567813755 45.345513927045424, 124.49895376390896 45.34551375591426, 124.49895075495003 45.34551398996763, 124.49894786292766 45.34551462077129, 124.49894519205667 45.345515625594054, 124.49894283858298 45.34551696822678, 124.49894088731476 45.34551860028724, 124.49892704753432 45.34553270120435, 124.49892651797038 45.34553222257398, 124.49892406667645 45.345530749064906, 124.49892124547989 45.34552965297611, 124.49891816947977 45.345528979025886, 124.49891496417114 45.34552875471011, 124.49891176032428 45.34552898918044, 124.49890868864996 45.3455296728709, 124.49890587446643 45.34553077788828, 124.49890343258703 45.34553225915002, 124.49890146263567 45.3455340562235, 124.49890004498268 45.3455360957916, 124.49887904497344 45.34557609578901, 124.49887823370298 45.34557831197611, 124.49887807558576 45.34558059809329, 124.49887857717212 45.34558285943315, 124.49887971768305 45.34558500231475, 124.49888144987024 45.345586937964505, 124.49888287867029 45.34558798364903), (124.49901516561695 45.345533297825625, 124.49901543126776 45.345533062281795, 124.49901583878112 45.34553249212364, 124.49902396907164 45.345529782025125, 124.4990643430684 45.34552439882554, 124.49912754935102 45.345530881523786, 124.49912884883862 45.34553137507836, 124.49913183369458 45.34553202142499, 124.4991458336972 45.34553402142533, 124.4991469700762 45.345534153838024, 124.49921337564616 45.34554016343824, 124.49909679969514 45.34553082652315, 124.49909427707212 45.34553076624331, 124.49901516561695 45.345533297825625), (124.49925760188943 45.345566340851036, 124.49922713599821 45.34557135423205, 124.49919857006378 45.345568809318046, 124.49901317992556 45.34555587514643, 124.49909445822482 45.34555327422595, 124.49925760188943 45.345566340851036), (124.49906593290575 45.34558626776004, 124.49905381583052 45.345585482393304, 124.49905886972968 45.34558530059546, 124.49906593290575 45.34558626776004))</textarea>
+            <div class="coord-settings" style="margin-bottom:8px;font-size:12px;color:#333;">
+                <label>WKT坐标系：
+                    <select id="coordSysSelect" style="margin-left:6px;">
+                        <option value="wgs84" selected>WGS84</option>
+                        <option value="gcj02">GCJ-02（国测局）</option>
+                        <option value="bd09">BD-09（百度）</option>
+                        <option value="cgcs2000">CGCS2000</option>
+                    </select>
+                </label>
+                <!-- 已移除“不进行绘制坐标转换”选项，统一使用WGS84绘制 -->
+            </div>
+
+            <div class="button-group">
+                <button id="drawButton" disabled>绘制轮廓</button>
+                <button id="clearButton" disabled>清空轮廓</button>
+            </div>
+            <!-- 显示开关：仅保留显示亩数 -->
+            <div class="display-toggles" style="margin-top:8px;font-size:12px;color:#333;">
+                <label><input type="checkbox" id="toggleLabelsCheckbox"> 显示亩数</label>
+            </div>
+        </div>
+
+        <div class="tab-pane" id="tabSplit">
+            <!-- MultiPolygon → 多个 Polygon 分割器 -->
+            <div class="split-section">
+                <div class="title">MultiPolygon → 多个 Polygon 分割器</div>
+                <div class="desc">输入一个 MULTIPOLYGON WKT，分割为多行 POLYGON WKT。</div>
+                <textarea id="multiInput"></textarea>
+                <div class="split-actions">
+                    <button id="splitMultiBtn">分割为多个 POLYGON</button>
+                    <button id="copyPolysBtn">复制结果</button>
+                </div>
+                <textarea id="polyOutput" readonly></textarea>
+            </div>
+        </div>
+
+        <div class="tab-pane" id="tabBatch">
+            <!-- 批量POLYGON → MULTIPOLYGON 生成器 -->
+            <div class="batch-section">
+                <div class="title">批量POLYGON → MULTIPOLYGON 合并器</div>
+                <div class="desc">每行一个 POLYGON WKT（或用分号分隔）。生成后可一键填充到上方并绘制。</div>
+                <textarea id="batchInput"></textarea>
+                <div class="batch-actions">
+                    <button id="generateMultiBtn">生成 MULTIPOLYGON</button>
+                    <button id="copyMultiBtn">复制结果</button>
+                </div>
+                <textarea id="multiOutput" readonly></textarea>
+            </div>
+        </div>
+        <div class="tab-pane" id="tabTrack">
+            <div class="tip">请粘贴轨迹文本（支持两种格式：1）每行一条：定位时间yyyyMMddHHmmss, 经度, 纬度；2）单行#分隔：经度,纬度,定位时间yyyyMMddHHmmss#经度,纬度,定位时间yyyyMMddHHmmss#…）。</div>
+            <div class="coord-settings" style="margin-bottom:8px;font-size:12px;color:#333;">
+                <label>轨迹坐标系：
+                    <select id="trackCoordSysSelect" style="margin-left:6px;">
+                        <option value="wgs84" selected>WGS84</option>
+                        <option value="gcj02">GCJ-02（国测局）</option>
+                        <option value="bd09">BD-09（百度）</option>
+                        <option value="cgcs2000">CGCS2000</option>
+                    </select>
+                </label>
+            </div>
+            <textarea id="trackTextarea" style="width:100%;height:120px;margin-bottom:10px;padding:8px;border:1px solid #ddd;border-radius:4px;font-family:monospace;resize:vertical;box-sizing:border-box;">20250930125620,124.504461,45.342159
+20250930125630,124.504449,45.342141
+20250930125640,124.504459,45.342098
+20250930125650,124.504503,45.342061
+20250930130711,124.504509,45.342037
+20250930130721,124.504532,45.342030
+20250930130731,124.504532,45.342030
+20250930130741,124.504344,45.342010
+20250930130751,124.504155,45.341996
+20250930130801,124.504155,45.341996
+20250930130811,124.504155,45.341996
+20250930130821,124.504155,45.341996
+20250930130831,124.504155,45.341996
+20250930130841,124.504155,45.341996
+20250930130851,124.504155,45.341996
+20250930130901,124.504155,45.341996
+20250930130911,124.504155,45.341996
+20250930130921,124.504155,45.341996
+20250930130931,124.504155,45.341996
+20250930130941,124.504155,45.341996
+20250930130951,124.504075,45.341975
+20250930131001,124.503665,45.341870
+20250930131011,124.503287,45.341748
+20250930131021,124.502906,45.341643
+20250930131031,124.502588,45.341997
+20250930131041,124.502381,45.342301
+20250930131051,124.502120,45.342415
+20250930131101,124.501898,45.342589
+20250930131111,124.501417,45.342698
+20250930131121,124.501102,45.342806
+20250930131131,124.500656,45.343304
+20250930131141,124.500362,45.343601
+20250930131151,124.499969,45.344033
+20250930131201,124.499654,45.344349
+20250930131211,124.499237,45.344797
+20250930131221,124.498825,45.345273
+20250930131231,124.498543,45.345623
+20250930131241,124.498450,45.345856
+20250930131251,124.498572,45.345871
+20250930131301,124.498878,45.345793
+20250930131311,124.498881,45.345772
+20250930131321,124.498881,45.345772
+20250930131331,124.498881,45.345772
+20250930131341,124.498881,45.345772
+20250930131351,124.498881,45.345772
+20250930131401,124.498881,45.345772
+20250930131411,124.498881,45.345772
+20250930131421,124.498881,45.345772
+20250930131431,124.498877,45.345744
+20250930131441,124.498870,45.345607
+20250930131555,124.498870,45.345607
+20250930131605,124.498870,45.345607
+20250930131615,124.498870,45.345607
+20250930131625,124.498906,45.345591
+20250930131635,124.499011,45.345594
+20250930131645,124.499119,45.345601
+20250930131655,124.499223,45.345611
+20250930131705,124.499280,45.345615
+20250930131715,124.499409,45.345625
+20250930131725,124.499431,45.345627
+20250930131735,124.499164,45.345610
+20250930131745,124.498920,45.345585
+20250930131755,124.498959,45.345592
+20250930131805,124.498902,45.345575
+20250930131815,124.498902,45.345575
+20250930131825,124.498894,45.345580
+20250930131835,124.498915,45.345540
+20250930131845,124.498901,45.345579
+20250930131855,124.498954,45.345525
+20250930131905,124.498929,45.345579
+20250930131915,124.498929,45.345579
+20250930131925,124.498982,45.345565
+20250930131935,124.499106,45.345573
+20250930131945,124.499197,45.345580
+20250930131955,124.499292,45.345589
+20250930132005,124.499399,45.345598
+20250930132015,124.499478,45.345602
+20250930132025,124.499301,45.345607
+20250930132035,124.499060,45.345574
+20250930132045,124.498921,45.345579
+20250930132055,124.498957,45.345552
+20250930132105,124.498957,45.345552
+20250930132115,124.498957,45.345552
+20250930132125,124.498970,45.345546
+20250930132135,124.499095,45.345542
+20250930132146,124.499137,45.345545
+20250930132156,124.499137,45.345545
+20250930132206,124.499137,45.345545
+20250930132216,124.499156,45.345547
+20250930132226,124.499168,45.345548
+20250930132236,124.499260,45.345556
+20250930132246,124.499365,45.345564
+20250930132256,124.499476,45.345573
+20250930132306,124.499532,45.345577
+20250930132316,124.499509,45.345576
+20250930132326,124.499509,45.345576
+20250930132336,124.499462,45.345570
+20250930132346,124.499369,45.345568
+20250930132356,124.499263,45.345577
+20250930132406,124.499184,45.345590
+20250930132416,124.499031,45.345603
+20250930132426,124.498921,45.345586
+20250930132436,124.498935,45.345563
+20250930132446,124.498935,45.345563
+20250930143758,124.498991,45.345520
+20250930143808,124.499032,45.345512
+20250930143818,124.499066,45.345512
+20250930143828,124.499064,45.345513
+20250930143838,124.499086,45.345513
+20250930143848,124.499117,45.345514
+20250930143858,124.499212,45.345522
+20250930143908,124.499349,45.345533
+20250930143918,124.499481,45.345544
+20250930143928,124.499370,45.345543
+20250930143938,124.499149,45.345523
+20250930143948,124.499135,45.345521
+20250930143958,124.499142,45.345521
+20250930144008,124.499064,45.345513
+20250930144018,124.499019,45.345519
+20250930144028,124.498977,45.345533
+20250930144038,124.498994,45.345493
+20250930144048,124.498997,45.345486
+20250930144058,124.498997,45.345486
+20250930144108,124.499005,45.345460
+20250930144118,124.499023,45.345398
+20250930144128,124.499006,45.345460
+20250930144138,124.498984,45.345479
+20250930144148,124.498991,45.345490
+20250930144158,124.498940,45.345451
+20250930144208,124.499002,45.345527
+20250930144218,124.499055,45.345429
+20250930144228,124.499039,45.345476
+20250930144238,124.499084,45.345486
+20250930144248,124.499224,45.345493
+20250930144258,124.499387,45.345508
+20250930144308,124.499516,45.345516
+20250930144318,124.499122,45.345495
+20250930144328,124.499079,45.345493
+20250930144338,124.499035,45.345489
+20250930144349,124.499066,45.345467
+20250930144359,124.499196,45.345464
+20250930144409,124.499367,45.345478
+20250930144419,124.499532,45.345490
+20250930144429,124.499200,45.345476
+20250930144439,124.499040,45.345488
+20250930144449,124.499078,45.345444
+20250930144459,124.499126,45.345434
+20250930144509,124.499271,45.345441
+20250930144519,124.499431,45.345453
+20250930144529,124.499464,45.345455
+20250930144539,124.499168,45.345438
+20250930144549,124.499061,45.345435
+20250930144559,124.499111,45.345410
+20250930144609,124.499235,45.345411
+20250930144619,124.499412,45.345424
+20250930144629,124.499507,45.345430
+20250930144639,124.499218,45.345422
+20250930144649,124.499056,45.345428
+20250930144659,124.499069,45.345411
+20250930144709,124.499093,45.345399
+20250930144719,124.499202,45.345396
+20250930144729,124.499402,45.345410
+20250930144739,124.499491,45.345417
+20250930144749,124.499330,45.345432
+20250930144759,124.499361,45.345532
+20250930144809,124.499341,45.345625
+20250930144819,124.499279,45.345740
+20250930144829,124.499099,45.345872
+20250930144839,124.498980,45.345921
+20250930145119,124.498970,45.345908
+20250930145129,124.498967,45.345906
+20250930145139,124.498965,45.345906
+20250930145149,124.498915,45.345899
+20250930145159,124.498609,45.345922
+20250930145209,124.498546,45.345900
+20250930145219,124.498484,45.345880
+20250930145229,124.498416,45.345836
+20250930145239,124.498444,45.345744
+20250930145249,124.498735,45.345392
+20250930145259,124.499128,45.344941
+20250930145309,124.499532,45.344476
+20250930145319,124.499820,45.344178
+20250930145329,124.500166,45.343821
+20250930145339,124.500391,45.343557
+20250930145349,124.500837,45.343101
+20250930145359,124.501129,45.342775
+20250930145409,124.501415,45.342702
+20250930145419,124.501836,45.342651
+20250930145429,124.502118,45.342423
+20250930145439,124.502344,45.342354
+20250930145449,124.502545,45.342073
+20250930145459,124.502815,45.341705
+20250930145509,124.503013,45.341655
+20250930145519,124.503502,45.341822
+20250930145529,124.504184,45.341975
+20250930145539,124.504547,45.341988
+20250930145549,124.504500,45.342051
+20250930145559,124.504448,45.342116
+20250930145609,124.504460,45.342167
+20250930145619,124.504525,45.342199</textarea>
+            <div class="button-group">
+                <button id="drawTrackButton" disabled style="flex: 1;">绘制轨迹</button>
+                <button id="showTrackPointsButton" disabled style="flex: 1;" class="btn-warning">打点</button>
+                <button id="clearTrackButton" disabled style="flex: 1;">清空轨迹</button>
+            </div>
+            <!-- 回放控制 -->
+            <div class="split-section" style="margin-top:8px;">
+                <div class="title">轨迹回放</div>
+                <div class="playback-actions" style="display:flex;gap:8px;margin-bottom:8px;">
+                    <button id="playbackStartBtn" disabled>开始</button>
+                    <button id="playbackPauseBtn" disabled>继续</button>
+                    <button id="playbackStopBtn" disabled>结束</button>
+                </div>
+                <div class="playback-speed" style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+                    <label>速度：
+                        <select id="playbackSpeedSelect" disabled>
+                            <option value="1" selected>1×</option>
+                            <option value="2">2×</option>
+                            <option value="4">4×</option>
+                            <option value="8">8×</option>
+                            <option value="16">16×</option>
+                            <option value="32">32×</option>
+                            <option value="64">64×</option>
+                            <option value="128">128×</option>
+                            <option value="256">256×</option>
+                            <option value="512">512×</option>
+                            <option value="1024">1024×</option>
+                        </select>
+                    </label>
+                    <span id="playbackTimeLabel" style="font-size:12px;color:#666;">时间：—</span>
+                </div>
+                <div class="playback-time" style="display:flex;flex-direction:column;gap:4px;margin-bottom:8px;">
+                    <label class="playback-time-label" style="display:flex;align-items:center;gap:8px;flex:1 1 auto;min-width:0;">
+                        <span class="playback-time-text" style="white-space:nowrap;">起始时间：</span>
+                        <input type="range" id="playbackTimeSlider" disabled min="0" max="0" step="1000" value="0" style="flex:1 1 auto;min-width:0;max-width:100%;vertical-align:middle;">
+                    </label>
+                    <span id="playbackTimeCursor" style="font-size:12px;color:#666;align-self:flex-end;">—</span>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    let map;
+    let currentPolygons = []; // 存储多边形和其标签
+    let currentTracks = []; // 存储轨迹折线及相关覆盖物
+    let mapLoaded = false;
+    let mapLabelHandlers = []; // 存储地图事件处理器
+    let labelsEnabled = false; // 标签显示开关（默认关闭）
+    let isDrawing = false; // 绘制进行中防止重复点击
+
+    window.onload = function () {
+        if (typeof T === 'undefined') {
+            alert("天地图API加载失败，请检查网络或密钥！");
+            return;
+        }
+        initMap();
+        bindDrawEvent();
+        bindMinimizeEvent();
+        bindTabs();
+        bindBatchGenerator();
+        bindMultiSplitter();
+        bindLabelsToggle(); // 绑定标签显示开关
+        bindTrackEvents();  // 绑定轨迹绘制与清空
+        bindPlaybackControls(); // 绑定轨迹回放
+    };
+
+    function initMap() {
+        showLoading();
+        disableButtons(true);
+
+        try {
+            map = new T.Map("mapContainer", {
+                zoom: 12,
+                center: new T.LngLat(116.40769, 39.90403)
+            });
+
+            // 已移除测试标签
+            map.enableScrollWheelZoom();
+
+            // 添加地图类型控件
+            const mapTypeCtrl = new T.Control.MapType({
+                mapTypes: [TMAP_NORMAL_MAP, TMAP_SATELLITE_MAP, TMAP_TERRAIN_MAP],
+                position: T_ANCHOR_TOP_LEFT
+            });
+            map.addControl(mapTypeCtrl);
+
+            // 加载影像底图（卫星）
+            const tk = "648f621977051d0199ff0f965d3fd322";
+
+            // 方案1：使用默认地图类型（作为备选）
+            map.setMapType(TMAP_SATELLITE_MAP);
+
+            // 方案2：手动添加影像图层（底图 + 标注）
+            const vecLayer = new T.TileLayer(`https://t0.tianditu.gov.cn/img_w/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=img&STYLE=default&TILEMATRIXSET=w&FORMAT=tiles&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}&tk=${tk}`);
+            const cvaLayer = new T.TileLayer(`https://t0.tianditu.gov.cn/cia_w/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=cia&STYLE=default&TILEMATRIXSET=w&FORMAT=tiles&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}&tk=${tk}`);
+
+            // 添加图层并监听加载状态
+            vecLayer.addEventListener("load", function () {
+                console.log("影像底图加载完成");
+            });
+
+            vecLayer.addEventListener("error", function (e) {
+                console.error("影像底图加载错误:", e);
+                alert("影像底图加载错误，将使用默认地图类型");
+            });
+
+            map.addLayer(vecLayer);
+            map.addLayer(cvaLayer);
+
+            // 监听地图加载事件
+            map.addEventListener("loaded", function () {
+                console.log("地图加载完成");
+                markMapLoaded();
+            });
+            map.addEventListener("load", function () {
+                console.log("地图load事件触发");
+                markMapLoaded();
+            });
+            map.addEventListener("tilesloaded", function () {
+                console.log("地图瓦片加载完成");
+                markMapLoaded();
+            });
+            // 监听地图加载失败事件
+            map.addEventListener("error", function (e) {
+                console.error("地图加载错误:", e);
+                alert("地图加载错误: " + e.message);
+                hideLoading();
+            });
+
+            // 监听地图移动事件，用于更新标签位置
+            const moveHandler = function () {
+                updateAllLabelsPosition();
+            };
+            map.addEventListener("move", moveHandler);
+            map.addEventListener("zoom", moveHandler);
+
+            // 存储事件处理器，用于清理
+            mapLabelHandlers.push({ event: "move", handler: moveHandler });
+            mapLabelHandlers.push({ event: "zoom", handler: moveHandler });
+
+            // 超时容错
+            setTimeout(() => {
+                if (!mapLoaded) markMapLoaded();
+            }, 8000);
+
+        } catch (error) {
+            alert("地图初始化失败：" + error.message);
+            console.error(error);
+            hideLoading();
+        }
+    }
+
+    function markMapLoaded() {
+        if (!mapLoaded) {
+            mapLoaded = true;
+            hideLoading();
+            disableButtons(false);
+            disableTrackButtons(false);
+            // 仅开启速度选择，回放按钮按状态控制
+            const speedSel = document.getElementById('playbackSpeedSelect');
+            if (speedSel) speedSel.disabled = false;
+            updatePlaybackButtonsState('idle');
+        }
+    }
+
+    function showLoading() {
+        const loading = document.getElementById("mapLoading");
+        loading.style.display = "flex";
+        loading.style.opacity = "1";
+    }
+
+    function hideLoading() {
+        const loading = document.getElementById("mapLoading");
+        loading.style.opacity = "0";
+        setTimeout(() => loading.style.display = "none", 300);
+    }
+
+    function disableButtons(disabled) {
+        document.getElementById("drawButton").disabled = disabled;
+        document.getElementById("clearButton").disabled = disabled;
+    }
+
+    function disableTrackButtons(disabled) {
+        const drawTrackBtn = document.getElementById("drawTrackButton");
+        const showTrackPointsBtn = document.getElementById("showTrackPointsButton");
+        const clearTrackBtn = document.getElementById("clearTrackButton");
+        if (drawTrackBtn) drawTrackBtn.disabled = disabled;
+        if (showTrackPointsBtn) showTrackPointsBtn.disabled = disabled;
+        if (clearTrackBtn) clearTrackBtn.disabled = disabled;
+    }
+    // 回放控件的禁用/启用
+    function disablePlaybackButtons(disabled) {
+        ["playbackStartBtn","playbackPauseBtn","playbackStopBtn","playbackSpeedSelect","playbackTimeSlider"].forEach(id=>{
+            const el = document.getElementById(id);
+            if (el) el.disabled = disabled;
+        });
+    }
+
+    // 回放按钮状态管理：空闲/播放/暂停
+    function updatePlaybackButtonsState(state){
+        try {
+            const startBtn = document.getElementById('playbackStartBtn');
+            const pauseBtn = document.getElementById('playbackPauseBtn');
+            const stopBtn = document.getElementById('playbackStopBtn');
+            if (!startBtn || !pauseBtn || !stopBtn) return;
+            if (state === 'idle') {
+                startBtn.disabled = false;
+                pauseBtn.disabled = true;
+                stopBtn.disabled = true;
+                pauseBtn.textContent = '继续';
+            } else if (state === 'playing') {
+                startBtn.disabled = true;
+                pauseBtn.disabled = false;
+                stopBtn.disabled = false;
+                pauseBtn.textContent = '暂停';
+            } else if (state === 'paused') {
+                startBtn.disabled = true;
+                pauseBtn.disabled = false;
+                stopBtn.disabled = false;
+                pauseBtn.textContent = '继续';
+            }
+        } catch(e) { console.warn('更新按钮状态失败:', e); }
+    }
+
+    function bindDrawEvent() {
+        document.getElementById("drawButton").addEventListener("click", function () {
+            if (isDrawing) { console.log('绘制进行中，忽略重复点击'); return; }
+            isDrawing = true;
+            disableButtons(true);
+            showLoading();
+            try {
+                const wktStr = document.getElementById("wktTextarea").value.trim();
+                if (!wktStr) { alert("请输入WKT字符串！"); return; }
+                clearOverlays();
+                const geojson = parseWkt(wktStr);
+    
+                const polygonData = [];
+                if (geojson.type === "Polygon") {
+                    polygonData.push({ index: 1, coordinates: geojson.coordinates });
+                } else if (geojson.type === "MultiPolygon") {
+                    geojson.coordinates.forEach((polygon, index) => {
+                        polygonData.push({ index: index + 1, coordinates: polygon });
+                    });
+                }
+    
+                // 重置并绘制
+                polygonInfoList = [];
+                polygonData.forEach(pd => processPolygon(pd.index, pd.coordinates));
+    
+                // 视图居中到所有已绘制轮廓
+                try { fitViewportToPolygons(); } catch (e) { console.warn('视图居中失败', e); }
+    
+                // 在视图稳定后再创建/更新标签
+                setTimeout(() => {
+                    if (labelsEnabled) {
+                        try {
+                            createAllLabels();
+                            updateAllLabelsPosition();
+                        } catch (e) {
+                            console.warn('创建或更新标签失败:', e);
+                        }
+                    }
+                }, 150);
+            } catch (e) {
+                alert('绘制失败：' + (e && e.message ? e.message : e));
+                console.error('绘制异常:', e);
+            } finally {
+                hideLoading();
+                isDrawing = false;
+                disableButtons(false);
+            }
+        });
+
+        document.getElementById("clearButton").addEventListener("click", function () {
+            if (isDrawing) { console.log('绘制进行中，暂不清空'); return; }
+            clearOverlays();
+            console.log("已清空所有轮廓");
+        });
+    }
+
+    // 存储多边形数据，用于后续标签创建
+    let polygonInfoList = [];
+
+    // 处理单个多边形的绘制和面积计算
+    function processPolygon(actualPolygonIndex, polygonCoords) {
+        console.log('开始处理多边形', actualPolygonIndex);
+
+        // 坐标系选择（绘制始终使用WGS84坐标）
+        const coordSys = (document.getElementById('coordSysSelect') && document.getElementById('coordSysSelect').value) || 'wgs84';
+
+        // 统一转换为WGS84用于绘制与面积计算
+        function toWgs(point){
+            const lng = point[0], lat = point[1];
+            if (coordSys === 'wgs84' || coordSys === 'cgcs2000') {
+                return [lng, lat];
+            } else if (coordSys === 'gcj02') {
+                const w = gcj02ToWgs84(lng, lat);
+                return [w.lng, w.lat];
+            } else if (coordSys === 'bd09') {
+                const gcj = bd09ToGcj02(lng, lat);
+                const w = gcj02ToWgs84(gcj.lng, gcj.lat);
+                return [w.lng, w.lat];
+            }
+            return [lng, lat];
+        }
+        const coordsWGS84 = polygonCoords.map(ring => ring.map(toWgs));
+        let outerRingWGS = coordsWGS84[0] || [];
+
+        // 生成用于绘制的坐标（直接使用WGS84坐标）
+        const rings = coordsWGS84.map(ring => ring.map(([lng, lat]) => new T.LngLat(lng, lat)));
+
+
+         // 创建半透明填充的多边形（无边框）
+          const polygon = new T.Polygon(rings, {
+              color: "#FFD700",
+              weight: 1,
+              opacity: 1,
+              fillColor: "#FFFF00",
+              fillOpacity: 0.35
+          });
+ 
+          // 使用WGS84坐标计算面积（更准确的面积计算）
+         let areaSqm;
+         let areaMu;
+
+
+
+         try {
+             // 检查Turf.js是否可用
+             if (typeof turf !== 'undefined' && turf.area) {
+                 // 使用Turf.js计算多边形面积
+                // 构造GeoJSON格式的多边形
+                const geoJsonPolygon = {
+                    type: "Polygon",
+                    coordinates: coordsWGS84
+                };
+
+
+                 // 使用Turf.js计算面积（平方米）
+                 areaSqm = turf.area(geoJsonPolygon);
+                 areaMu = (areaSqm / 666.6667).toFixed(4); // 转换为亩
+                 console.log(`多边形${actualPolygonIndex}面积计算结果(Turf.js): ${areaSqm}平方米 = ${areaMu}亩`);
+             } else {
+                 // 如果Turf.js不可用，回退到之前的计算方法
+                 console.warn('Turf.js不可用，使用备用计算方法');
+                 // 计算带孔洞的多边形面积
+                 areaSqm = 0;
+                 // 计算外环面积
+                 outerRingWGS = coordsWGS84[0] || [];
+                 areaSqm += calculatePolygonArea(outerRingWGS);
+
+                 // 减去内环（孔洞）面积
+                 for (let i = 1; i < coordsWGS84.length; i++) {
+                     const innerRingArea = calculatePolygonArea(coordsWGS84[i]);
+                     areaSqm -= innerRingArea;
+                 }
+
+                  areaMu = (areaSqm / 666.6667).toFixed(4); // 使用更精确的转换系数
+                  console.log(`多边形${actualPolygonIndex}面积计算结果(备用): ${areaSqm}平方米 = ${areaMu}亩`);
+              }
+          } catch (error) {
+              console.error(`面积计算失败:`, error);
+              areaSqm = 0;
+              areaMu = '0.0000';
+          }
+
+          // 计算多边形的中心点和底部中心点（WGS84）
+          const centerPoint = calculatePolygonCenter(outerRingWGS);
+          const bottomCenterPoint = calculatePolygonBottomCenter(outerRingWGS);
+
+          // 添加多边形到地图
+          if (map) {
+              map.addOverLay(polygon);
+              console.log(`多边形${actualPolygonIndex}已添加到地图`);
+          } else {
+              console.error('地图对象不存在');
+          }
+
+          // 存储多边形信息，用于后续标签创建
+          polygonInfoList.push({
+              index: actualPolygonIndex,
+              polygon: polygon,
+              area: areaMu,
+              bottomCenter: { lng: bottomCenterPoint.lng, lat: bottomCenterPoint.lat },
+              ringPoints: rings
+          });
+      }
+
+    // 视图居中：根据已绘制的GCJ-02点
+    function fitViewportToPolygons() {
+        const points = [];
+        try {
+            if (!map || !map.setViewport) return;
+            polygonInfoList.forEach(info => {
+                if (!info || !info.ringPoints) return;
+                info.ringPoints.forEach(ring => {
+                    ring.forEach(ll => points.push(ll));
+                });
+            });
+            if (!points.length) return;
+            map.setViewport(points);
+        } catch (e) {
+            try {
+                const lngs = points.map(p => p.lng);
+                const lats = points.map(p => p.lat);
+                const center = new T.LngLat(
+                    (Math.min(...lngs) + Math.max(...lngs)) / 2,
+                    (Math.min(...lats) + Math.max(...lats)) / 2
+                );
+                if (map && map.panTo) map.panTo(center);
+            } catch (e2) {
+                console.warn('视图居中失败:', e2);
+            }
+        }
+    }
+
+    // 统一创建所有多边形的标签
+    function createAllLabels() {
+        const mapContainer = document.getElementById('mapContainer');
+        if (!mapContainer || !map) return;
+
+        polygonInfoList.forEach(info => {
+            if (!info) return;
+            // 防止重复创建
+            if (info.labelRef) return;
+            // 创建标签元素
+            const labelDiv = document.createElement('div');
+            labelDiv.className = 'area-label';
+            labelDiv.innerHTML = `多边形${info.index}：${info.area}亩`;
+
+            // 添加到地图容器并根据屏幕边界定位到轮廓下方
+            mapContainer.appendChild(labelDiv);
+            positionLabelForPolygon(labelDiv, info);
+
+            // 记录引用，避免重复创建
+            info.labelRef = labelDiv;
+
+            // 存储到 currentPolygons 以复用现有定位/清理逻辑
+            const labelObj = {
+                domElement: labelDiv,
+                isDomLabel: true,
+                polygonInfo: info
+            };
+            currentPolygons.push({ polygon: info.polygon, label: labelObj });
+        });
+
+        // 不清空 polygonInfoList，便于开关随时创建/隐藏标签
+    }
+
+    // 根据多边形屏幕边界定位标签，保证始终在轮廓下方
+    function positionLabelForPolygon(labelDiv, info) {
+        if (!map || !info || !info.ringPoints) return;
+        const points = [];
+        info.ringPoints.forEach(ring => {
+            ring.forEach(ll => {
+                const p = map.lngLatToContainerPoint(ll);
+                points.push(p);
+            });
+        });
+        if (!points.length) return;
+        const minX = Math.min(...points.map(p => p.x));
+        const maxX = Math.max(...points.map(p => p.x));
+        const maxY = Math.max(...points.map(p => p.y));
+        const container = document.getElementById('mapContainer');
+        const labelWidth = labelDiv.offsetWidth;
+        const labelHeight = labelDiv.offsetHeight;
+        const targetLeft = Math.round((minX + maxX) / 2 - labelWidth / 2);
+        const targetTop = Math.round(maxY + 6);
+        const clampedLeft = Math.max(0, Math.min(targetLeft, container.clientWidth - labelWidth));
+        const clampedTop = Math.max(0, Math.min(targetTop, container.clientHeight - labelHeight));
+        labelDiv.style.left = clampedLeft + 'px';
+        labelDiv.style.top = clampedTop + 'px';
+    }
+
+    // 更新所有标签位置（地图move/zoom时调用）
+    function updateAllLabelsPosition() {
+        try {
+            if (!map) return;
+            const container = document.getElementById('mapContainer');
+            if (!container) return;
+            currentPolygons.forEach(item => {
+                if (!item || !item.label) return;
+                const labelObj = item.label;
+                if (labelObj.isDomLabel && labelObj.domElement && labelObj.polygonInfo) {
+                    // 确保标签在容器中
+                    if (!labelObj.domElement.parentNode) {
+                        container.appendChild(labelObj.domElement);
+                    }
+                    positionLabelForPolygon(labelObj.domElement, labelObj.polygonInfo);
+                }
+            });
+        } catch (e) {
+            console.warn('更新标签位置时出错:', e);
+        }
+    }
+    // 确保在全局可用（处理第三方库事件回调作用域差异）
+    window.updateAllLabelsPosition = updateAllLabelsPosition;
+
+    // 绑定“显示亩数标签”开关（默认隐藏）
+    function bindLabelsToggle() {
+        const cb = document.getElementById('toggleLabelsCheckbox');
+        const container = document.getElementById('mapContainer');
+        if (!cb || !container) return;
+        // 默认隐藏标签
+        container.classList.add('labels-hidden');
+        cb.addEventListener('change', () => {
+            labelsEnabled = cb.checked;
+            if (labelsEnabled) {
+                container.classList.remove('labels-hidden');
+                const hasAnyLabel = currentPolygons.some(item => item && item.label && item.label.domElement);
+                if (!hasAnyLabel) {
+                    try { createAllLabels(); } catch (e) { console.warn('创建标签失败:', e); }
+                }
+                updateAllLabelsPosition();
+            } else {
+                container.classList.add('labels-hidden');
+            }
+        });
+    }
+
+    /**
+     * 计算多边形中心点（比底部中心更适合显示标签）
+     */
+    function calculatePolygonCenter(outerRing) {
+        let sumLng = 0, sumLat = 0;
+        const len = outerRing.length;
+
+        for (let i = 0; i < len; i++) {
+            sumLng += outerRing[i][0];
+            sumLat += outerRing[i][1];
+        }
+
+        return {
+            lng: sumLng / len,
+            lat: sumLat / len
+        };
+    }
+
+    /**
+     * 计算多边形面积（球面多边形面积计算）
+     * 使用更准确的球面坐标面积计算方法，确保面积与视觉大小一致
+     */
+    function calculatePolygonArea(coordinates) {
+        // 地球半径（米）- 使用更精确的值
+        const R = 6371000.8;
+        const n = coordinates.length;
+
+        // 将所有坐标转换为弧度
+        const coordsRad = coordinates.map(point => [
+            point[0] * Math.PI / 180,
+            point[1] * Math.PI / 180
+        ]);
+
+        let areaRad = 0;
+
+        // 使用更准确的球面多边形面积公式（Girard定理）
+        for (let i = 0; i < n; i++) {
+            const j = (i + 1) % n;
+            const lon1 = coordsRad[i][0];
+            const lat1 = coordsRad[i][1];
+            const lon2 = coordsRad[j][0];
+            const lat2 = coordsRad[j][1];
+
+            // 计算球面多边形面积增量
+            const dlon = lon2 - lon1;
+            const sinLat1 = Math.sin(lat1);
+            const sinLat2 = Math.sin(lat2);
+            const cosLat1 = Math.cos(lat1);
+            const cosLat2 = Math.cos(lat2);
+
+            // 使用更精确的公式
+            areaRad += dlon * (sinLat1 * cosLat2 * Math.cos(dlon / 2) + sinLat2 * cosLat1);
+        }
+
+        // 计算总面积（平方米）
+        const areaSqm = Math.abs(areaRad) * R * R * 0.5;
+
+        return areaSqm;
+    }
+
+    /**
+     * 清空所有多边形和标签（同时处理 polygonInfoList 与 currentPolygons）
+     */
+    function clearOverlays() {
+        try {
+            // 先移除 polygonInfoList 中记录的多边形与其DOM标签
+            polygonInfoList.forEach(info => {
+                if (info && info.polygon && map && map.removeOverLay) {
+                    try { map.removeOverLay(info.polygon); } catch (e) { console.warn('移除多边形失败:', e); }
+                }
+                if (info && info.labelRef && info.labelRef.parentNode) {
+                    try { info.labelRef.parentNode.removeChild(info.labelRef); } catch (e) { console.warn('移除DOM标签失败:', e); }
+                    info.labelRef = null;
+                }
+            });
+
+            // 再处理 currentPolygons（兼容旧路径与标签对象）
+            currentPolygons.forEach(item => {
+                if (item.polygon && map && map.removeOverLay) {
+                    try { map.removeOverLay(item.polygon); } catch (e) { console.warn('移除多边形失败:', e); }
+                }
+                if (item.label) {
+                    if (item.label.domElement && item.label.domElement.parentNode) {
+                        try { item.label.domElement.parentNode.removeChild(item.label.domElement); } catch (e) { console.warn('移除DOM标签失败:', e); }
+                    } else if (map && map.removeOverLay && !item.label.isDomLabel) {
+                        try { map.removeOverLay(item.label); } catch (e) { console.warn('移除地图覆盖物标签失败:', e); }
+                    }
+                }
+            });
+
+            // 清空记录数组
+            currentPolygons = [];
+            polygonInfoList = [];
+
+            console.log('已清空所有多边形和标签（保留事件监听器）');
+        } catch (error) {
+            console.error('清空覆盖物时出错:', error);
+        }
+    }
+
+    // 其他辅助函数（保持不变）
+    function bindMinimizeEvent() {
+        const container = document.querySelector(".wkt-input-container");
+        const btn = document.getElementById("minimizeBtn");
+        const minIcon = btn?.querySelector(".min-icon");
+        const restoreIcon = btn?.querySelector(".restore-icon");
+
+        btn?.addEventListener("click", () => {
+            const minimized = container.classList.toggle("minimized");
+            if (minIcon && restoreIcon) {
+                if (minimized) {
+                    minIcon.style.display = "none";
+                    restoreIcon.style.display = "";
+                } else {
+                    minIcon.style.display = "";
+                    restoreIcon.style.display = "none";
+                }
+            }
+        });
+    }
+
+    // 在脚本内部补充：页签切换（3个页签）
+     function bindTabs() {
+         const tabs = [
+             { btn: document.getElementById('tabDrawBtn'), pane: document.getElementById('tabDraw'), key: 'draw' },
+             { btn: document.getElementById('tabTrackBtn'), pane: document.getElementById('tabTrack'), key: 'track' },
+             { btn: document.getElementById('tabSplitBtn'), pane: document.getElementById('tabSplit'), key: 'split' },
+             { btn: document.getElementById('tabBatchBtn'), pane: document.getElementById('tabBatch'), key: 'batch' },
+         ];
+         if (tabs.some(t => !t.btn || !t.pane)) return;
+         function activate(key) {
+             tabs.forEach(t => {
+                 const active = t.key === key;
+                 t.btn.classList.toggle('active', active);
+                 t.pane.classList.toggle('active', active);
+             });
+         }
+         tabs.forEach(t => t.btn.addEventListener('click', () => activate(t.key)));
+         activate('draw');
+     }
+    function updateParserStatus() {
+        const el = document.getElementById('parserStatus');
+        if (!el) return;
+        const ok = (typeof Terraformer !== 'undefined' && Terraformer.WKT && typeof Terraformer.WKT.parse === 'function');
+        if (ok) {
+            el.textContent = 'Terraformer WKT Parser';
+            el.style.color = '#2f8f2f';
+        } else {
+            el.textContent = '本地回退解析（仅支持POLYGON/MULTIPOLYGON）';
+            el.style.color = '#c77d1e';
+        }
+    }
+     function parseWkt(wkt) {
+         wkt = wkt.trim();
+         // 优先使用成熟库（Terraformer WKT Parser）
+         if (typeof Terraformer !== 'undefined' && Terraformer.WKT && Terraformer.WKT.parse) {
+             try {
+                 return Terraformer.WKT.parse(wkt);
+             } catch (e) {
+                 console.warn('Terraformer解析失败，尝试本地回退解析:', e);
+             }
+         } else {
+             // 不再提示“未加载”，由状态栏展示回退信息
+         }
+         // 回退解析：仅支持 POLYGON / MULTIPOLYGON
+         const typeMatch = wkt.match(/^\s*(POLYGON|MULTIPOLYGON)\s*\(/i);
+         if (!typeMatch) throw new Error('仅支持POLYGON/MULTIPOLYGON');
+         const type = typeMatch[1].toUpperCase();
+         const inner = wkt.substring(wkt.indexOf('('));
+         if (type === 'POLYGON') {
+             const coords = parsePolygonCoords(inner.replace(/^\(/, '').replace(/\)$/, ''));
+             return { type: 'Polygon', coordinates: coords };
+         } else {
+             const trimmed = inner.replace(/^\(\(/, '').replace(/\)\)$/, '');
+             const coords = parseMultiPolygonCoords(trimmed);
+             return { type: 'MultiPolygon', coordinates: coords };
+         }
+     }
+
+     function bindMultiSplitter() {
+         const input = document.getElementById('multiInput');
+         const output = document.getElementById('polyOutput');
+         const splitBtn = document.getElementById('splitMultiBtn');
+         const copyBtn = document.getElementById('copyPolysBtn');
+         if (!input || !output || !splitBtn || !copyBtn) return;
+
+         // 本地WKT序列化辅助
+         function ringToText(ring) {
+             if (!ring || !ring.length) return '()';
+             const first = ring[0];
+             const last = ring[ring.length - 1];
+             const closed = (first[0] === last[0] && first[1] === last[1]) ? ring : ring.concat([[first[0], first[1]]]);
+             return '(' + closed.map(pt => pt[0] + ' ' + pt[1]).join(', ') + ')';
+         }
+         function toWktPolygonCoords(coords) {
+             return 'POLYGON(' + coords.map(ringToText).join(', ') + ')';
+         }
+         function toWktMulti(coords) {
+             return 'MULTIPOLYGON(' + coords.map(poly => '(' + poly.map(ringToText).join(', ') + ')').join(', ') + ')';
+         }
+
+         function polygonsFromMulti(text) {
+             const geo = parseWkt(text.trim());
+             if (geo.type !== 'MultiPolygon') throw new Error('请输入有效的 MULTIPOLYGON WKT');
+             const polys = geo.coordinates.map(rings => toWktPolygonCoords(rings));
+             return polys;
+         }
+         splitBtn.addEventListener('click', () => {
+             try {
+                 const list = polygonsFromMulti(input.value.trim());
+                 output.value = list.join('\n');
+             } catch (e) {
+                 alert('分割失败：' + e.message);
+             }
+         });
+         copyBtn.addEventListener('click', async () => {
+             const val = output.value.trim();
+             if (!val) { alert('没有可复制的结果'); return; }
+             try { await navigator.clipboard.writeText(val); alert('已复制到剪贴板'); } catch (e) { console.warn('复制失败', e); }
+         });
+     }
+
+     function bindBatchGenerator() {
+         const batchInput = document.getElementById('batchInput');
+         const output = document.getElementById('multiOutput');
+         const genBtn = document.getElementById('generateMultiBtn');
+         const copyBtn = document.getElementById('copyMultiBtn');
+
+         // 本地WKT序列化辅助（与分割器保持一致）
+         function ringToText(ring) {
+             if (!ring || !ring.length) return '()';
+             const first = ring[0];
+             const last = ring[ring.length - 1];
+             const closed = (first[0] === last[0] && first[1] === last[1]) ? ring : ring.concat([[first[0], first[1]]]);
+             return '(' + closed.map(pt => pt[0] + ' ' + pt[1]).join(', ') + ')';
+         }
+         function toWktMulti(coords) {
+             return 'MULTIPOLYGON(' + coords.map(poly => '(' + poly.map(ringToText).join(', ') + ')').join(', ') + ')';
+         }
+
+         genBtn.addEventListener('click', () => {
+             try {
+                 const lines = batchInput.value.trim().split(/\n|;/).map(s => s.trim()).filter(Boolean);
+                 if (lines.length === 0) throw new Error('请按每行或分号输入至少一个POLYGON');
+                 const polygons = lines.map((line, idx) => {
+                     const g = parseWkt(line);
+                     if (g.type !== 'Polygon') throw new Error(`第${idx + 1}行不是有效的POLYGON WKT`);
+                     return g;
+                 });
+                 const multiGeo = { type: 'MultiPolygon', coordinates: polygons.map(p => p.coordinates) };
+                 output.value = toWktMulti(multiGeo.coordinates);
+             } catch (e) {
+                 alert('生成失败：' + e.message);
+             }
+         });
+
+         copyBtn.addEventListener('click', async () => {
+             const val = output.value.trim();
+             if (!val) { alert('没有可复制的结果'); return; }
+             try { await navigator.clipboard.writeText(val); alert('已复制到剪贴板'); } catch (e) { console.warn('复制失败', e); }
+         });
+
+     }
+
+     function setExampleWkt() {
+         const exampleWkt = "MULTIPOLYGON(" +
+             "(" +
+             "(116.35 39.93, 116.39 39.93, 116.39 39.90, 116.35 39.90, 116.35 39.93)," + // 外环
+             "(116.36 39.92, 116.38 39.92, 116.38 39.91, 116.36 39.91, 116.36 39.92)" +  // 内环
+             ")," +
+             "(" +
+             "(116.40 39.95, 116.43 39.97, 116.46 39.96, 116.49 39.98, 116.52 39.95, 116.55 39.93, 116.58 39.94, 116.61 39.92, 116.64 39.95, 116.40 39.95)" +
+             ")" +
+             ")";
+         document.getElementById("wktTextarea").value = exampleWkt;
+     }
+
+     function parsePolygonCoords(coordStr) {
+         const ringStrs = coordStr.split(/\)\s*,\s*\(/).map(s => s.replace(/[()]/g, '').trim());
+         const rings = [];
+         ringStrs.forEach(ringStr => {
+             const pts = ringStr.split(/,\s*/).map(pointStr => {
+                 const [lng, lat] = pointStr.split(/\s+/).map(Number);
+                 if (isNaN(lng) || isNaN(lat)) throw new Error("坐标格式错误：" + pointStr);
+                 return [lng, lat];
+             });
+             // 自动拆分：如果一个ring中包含多次回到起点（闭合），则拆分为多个环
+             // 兼容用户将外环与内环错误地写在同一对括号中的情况
+             let start = 0;
+             while (start < pts.length) {
+                 const startPt = pts[start];
+                 let closeIdx = -1;
+                 for (let i = start + 1; i < pts.length; i++) {
+                     if (pts[i][0] === startPt[0] && pts[i][1] === startPt[1]) {
+                         closeIdx = i;
+                         break;
+                     }
+                 }
+                 if (closeIdx === -1) {
+                     // 未找到闭合：将剩余点视为一个环，并强制闭合
+                     const ring = pts.slice(start);
+                     if (ring.length && (ring[0][0] !== ring[ring.length - 1][0] || ring[0][1] !== ring[ring.length - 1][1])) {
+                         ring.push([ring[0][0], ring[0][1]]);
+                     }
+                     rings.push(ring);
+                     break;
+                 } else {
+                     const ring = pts.slice(start, closeIdx + 1);
+                     rings.push(ring);
+                     start = closeIdx + 1;
+                 }
+             }
+         });
+         return rings;
+     }
+
+     function parseMultiPolygonCoords(coordStr) {
+         const polygonStrs = coordStr.split(/\)\s*\)\s*,\s*\(\s*\(/).map(s => s.replace(/[()]/g, '').trim());
+         return polygonStrs.map(polygonStr => parsePolygonCoords(polygonStr));
+     }
+
+     function wgs84ToGcj02(lng, lat) {
+         const x_PI = 3.14159265358979324 * 3000.0 / 180.0;
+         const PI = 3.1415926535897932384626;
+         const a = 6378245.0;
+         const ee = 0.00669342162296594323;
+
+         if (outOfChina(lng, lat)) return { lng, lat };
+
+         let dlat = transformLat(lng - 105.0, lat - 35.0);
+         let dlng = transformLng(lng - 105.0, lat - 35.0);
+         const radlat = lat / 180.0 * PI;
+         let magic = Math.sin(radlat);
+         magic = 1 - ee * magic * magic;
+         const sqrtmagic = Math.sqrt(magic);
+         dlat = (dlat * 180.0) / ((a * (1 - ee)) / (magic * sqrtmagic) * PI);
+         dlng = (dlng * 180.0) / (a / sqrtmagic * Math.cos(radlat) * PI);
+
+         return { lng: lng + dlng, lat: lat + dlat };
+
+         function outOfChina(lng, lat) {
+             return (lng < 72.004 || lng > 137.8347) || (lat < 0.8293 || lat > 55.8271);
+         }
+
+         function transformLat(x, y) {
+             let ret = -100.0 + 2.0 * x + 3.0 * y + 0.2 * y * y + 0.1 * x * y + 0.2 * Math.sqrt(Math.abs(x));
+             ret += (20.0 * Math.sin(6.0 * x * PI) + 20.0 * Math.sin(2.0 * x * PI)) * 2.0 / 3.0;
+             ret += (20.0 * Math.sin(y * PI) + 40.0 * Math.sin(y / 3.0 * PI)) * 2.0 / 3.0;
+             ret += (160.0 * Math.sin(y / 12.0 * PI) + 320 * Math.sin(y * PI / 30.0)) * 2.0 / 3.0;
+             return ret;
+         }
+
+         function transformLng(x, y) {
+             let ret = 300.0 + x + 2.0 * y + 0.1 * x * x + 0.1 * x * y + 0.1 * Math.sqrt(Math.abs(x));
+             ret += (20.0 * Math.sin(6.0 * x * PI) + 20.0 * Math.sin(2.0 * x * PI)) * 2.0 / 3.0;
+             ret += (20.0 * Math.sin(x * PI) + 40.0 * Math.sin(x / 3.0 * PI)) * 2.0 / 3.0;
+             ret += (150.0 * Math.sin(x / 12.0 * PI) + 300.0 * Math.sin(x / 30.0 * PI)) * 2.0 / 3.0;
+             return ret;
+         }
+     }
+
+     function gcj02ToWgs84(lng, lat) {
+         const g = wgs84ToGcj02(lng, lat);
+         return { lng: lng * 2 - g.lng, lat: lat * 2 - g.lat };
+     }
+
+     function bd09ToGcj02(bdLng, bdLat) {
+         const x_PI = 3.14159265358979324 * 3000.0 / 180.0;
+         const x = bdLng - 0.0065;
+         const y = bdLat - 0.006;
+         const z = Math.sqrt(x * x + y * y) - 0.00002 * Math.sin(y * x_PI);
+         const theta = Math.atan2(y, x) - 0.000003 * Math.cos(x * x_PI);
+         const ggLng = z * Math.cos(theta);
+         const ggLat = z * Math.sin(theta);
+         return { lng: ggLng, lat: ggLat };
+     }
+
+     function calculatePolygonBottomCenter(outerRing) {
+         let minLat = Infinity;
+         let bottomPoints = [];
+         outerRing.forEach(point => {
+             const lat = point[1];
+             if (lat < minLat) {
+                 minLat = lat;
+                 bottomPoints = [point];
+             } else if (lat === minLat) {
+                 bottomPoints.push(point);
+             }
+         });
+
+         const sumLng = bottomPoints.reduce((sum, point) => sum + point[0], 0);
+         const centerLng = sumLng / bottomPoints.length;
+
+         return { lng: centerLng, lat: minLat };
+     }
+
+     function fitBounds(geojson) {
+         try {
+             const allPoints = [];
+             function collectPoints(coords) {
+                 if (typeof coords[0] === 'number') {
+                     allPoints.push(coords);
+                 } else {
+                     coords.forEach(coord => collectPoints(coord));
+                 }
+             }
+             collectPoints(geojson.coordinates);
+
+             if (allPoints.length === 0) return;
+
+             const lats = allPoints.map(p => p[1]);
+             const lngs = allPoints.map(p => p[0]);
+             const minLng = Math.min(...lngs);
+             const maxLng = Math.max(...lngs);
+             const minLat = Math.min(...lats);
+             const maxLat = Math.max(...lats);
+
+             const sw = wgs84ToGcj02(minLng, minLat);
+             const ne = wgs84ToGcj02(maxLng, maxLat);
+
+             // 修复setViewport方法的使用，确保参数格式正确
+             if (map && map.setViewport) {
+                 map.setViewport([
+                     new T.LngLat(sw.lng, sw.lat),
+                     new T.LngLat(ne.lng, ne.lat)
+                 ], { padding: [50, 50] });
+             } else {
+                 console.warn('地图对象或setViewport方法不可用');
+             }
+         } catch (error) {
+             console.error('调整视图范围时出错:', error);
+         }
+     }
+// 轨迹绘制与解析
+    function bindTrackEvents() {
+        const drawBtn = document.getElementById('drawTrackButton');
+        const showPointsBtn = document.getElementById('showTrackPointsButton');
+        const clearBtn = document.getElementById('clearTrackButton');
+        const ta = document.getElementById('trackTextarea');
+        if (!drawBtn || !showPointsBtn || !clearBtn || !ta) return;
+
+        drawBtn.addEventListener('click', function(){
+            try {
+                const text = ta.value.trim();
+                if (!text) { alert('请粘贴轨迹文本（时间戳,经度,纬度）'); return; }
+                const points = parseTrackText(text);
+                if (points.length < 2) { alert('有效轨迹点不足，至少需要两点'); return; }
+                drawTrackFromPoints(points);
+                fitViewportToTrack(points);
+            } catch (e) {
+                alert('绘制轨迹失败：' + (e && e.message ? e.message : e));
+                console.error('绘制轨迹异常:', e);
+            }
+        });
+
+        showPointsBtn.addEventListener('click', function(){
+            try {
+                const text = ta.value.trim();
+                if (!text) { alert('请粘贴轨迹文本（时间戳,经度,纬度）'); return; }
+                const points = parseTrackText(text);
+                if (points.length === 0) { alert('未找到有效轨迹点'); return; }
+                showTrackPoints(points);
+                fitViewportToTrack(points);
+            } catch (e) {
+                alert('显示轨迹点失败：' + (e && e.message ? e.message : e));
+                console.error('显示轨迹点异常:', e);
+            }
+        });
+
+        clearBtn.addEventListener('click', function(){
+            clearTrackOverlays();
+            console.log('已清空轨迹');
+        });
+    }
+
+    function showTrackPoints(points) {
+        // 先移除旧轨迹（不影响轮廓）
+        clearTrackOverlays(false);
+        
+        if (!map || !points || points.length === 0) {
+            console.log('无轨迹点可显示');
+            return;
+        }
+        
+        console.log(`准备显示${points.length}个轨迹点`);
+        
+        // 使用批量处理和更小的图标来提高性能
+        // 创建一个更小的红点SVG图标
+        const smallRedDotIcon = new T.Icon({
+            iconUrl: 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="1" height="1"><circle cx="0.5" cy="0.5" r="0.3" fill="%23FF0000"/></svg>',
+            iconSize: new T.Point(1, 1),
+            iconAnchor: new T.Point(0.5, 0.5)
+        });
+        
+        // 优化批量添加点的速度
+        const batchSize = 2000; // 增加每批处理的点数
+        const concurrentBatches = 4; // 并发批次数量
+        
+        // 预创建点击事件处理函数，避免重复创建
+        function createClickHandler(point, index) {
+            return function() {
+                const infoWindow = new T.InfoWindow({
+                    content: `点${index + 1}<br/>经度: ${point.lng.toFixed(6)}<br/>纬度: ${point.lat.toFixed(6)}`,
+                    offset: new T.Point(0, -20)
+                });
+                infoWindow.open(map, point);
+            };
+        }
+        
+        // 使用setTimeout实现更高效的批量添加，避免阻塞UI
+        let currentIndex = 0;
+        
+        function addBatch() {
+            if (currentIndex >= points.length) {
+                console.log(`已显示${points.length}个轨迹点`);
+                return;
+            }
+            
+            // 添加当前批次的点
+            const endIndex = Math.min(currentIndex + batchSize, points.length);
+            const markersToAdd = [];
+            
+            // 先创建所有标记
+            for (let i = currentIndex; i < endIndex; i++) {
+                const point = points[i];
+                const index = i;
+                
+                const marker = new T.Marker(point, {
+                    icon: smallRedDotIcon
+                });
+                
+                // 添加点击事件
+                marker.addEventListener('click', createClickHandler(point, index));
+                
+                markersToAdd.push(marker);
+            }
+            
+            // 批量添加到地图和数组
+            markersToAdd.forEach(marker => {
+                map.addOverLay(marker);
+                currentTracks.push(marker);
+            });
+            
+            currentIndex = endIndex;
+            
+            // 使用setTimeout而不是requestAnimationFrame，减少对渲染周期的依赖
+            // 设置为0，将任务放入微任务队列，但允许UI有短暂的呼吸空间
+            setTimeout(addBatch, 0);
+        }
+        
+        // 启动批量添加
+        addBatch();
+    }
+    
+    // 恢复原始的clearTrackOverlays函数
+    function clearTrackOverlays(resetArray = true){        
+        try {
+            currentTracks.forEach(pl => {
+                if (pl && map && map.removeOverLay) {
+                    try { map.removeOverLay(pl); } catch (e) { console.warn('移除轨迹失败:', e); }
+                }
+            });
+            if (resetArray) currentTracks = [];
+        } catch (e) {
+            console.warn('清空轨迹时出错:', e);
+        }
+    }
+
+    function parseTrackText(text){
+        // 选择输入坐标系（优先使用轨迹页签专属选择器，若未设置则回退到绘制页签选择器）
+        const coordSysEl = document.getElementById('trackCoordSysSelect') || document.getElementById('coordSysSelect');
+        const coordSys = (coordSysEl && coordSysEl.value) || 'wgs84';
+        const isHash = text.indexOf('#') !== -1;
+        const items = isHash ? text.split('#') : text.split(/\r?\n/);
+        const pts = [];
+        for (let i=0;i<items.length;i++){
+            const raw = items[i];
+            if (!raw) continue;
+            const line = raw.trim();
+            if (!line) continue;
+            const parts = line.split(',');
+            if (parts.length < 3) continue;
+            let lng = parseFloat((parts[isHash ? 0 : 1] || '').trim());
+            let lat = parseFloat((parts[isHash ? 1 : 2] || '').trim());
+            // 初步过滤：数值合法性与正常范围
+            if (!isFinite(lng) || !isFinite(lat)) continue;
+            if (lng === 0 || lat === 0) continue; // 丢弃0.0异常点
+            if (lng < -180 || lng > 180 || lat < -90 || lat > 90) continue; // 超出经纬度范围丢弃
+
+            // 将输入坐标转换为WGS84
+            let w;
+            if (coordSys === 'wgs84' || coordSys === 'cgcs2000') {
+                w = { lng, lat };
+            } else if (coordSys === 'gcj02') {
+                w = gcj02ToWgs84(lng, lat);
+            } else if (coordSys === 'bd09') {
+                const g = bd09ToGcj02(lng, lat);
+                w = gcj02ToWgs84(g.lng, g.lat);
+            } else {
+                w = { lng, lat };
+            }
+            // 转换结果兜底检查
+            if (!isFinite(w.lng) || !isFinite(w.lat)) continue;
+            if (w.lng < -180 || w.lng > 180 || w.lat < -90 || w.lat > 90) continue;
+
+            // 使用WGS84坐标绘制到地图
+            pts.push(new T.LngLat(w.lng, w.lat));
+        }
+        return pts;
+    }
+
+    function drawTrackFromPoints(points){
+        // 先移除旧轨迹（不影响轮廓）
+        clearTrackOverlays(false);
+        const polyline = new T.Polyline(points, {
+            color: '#FF3B30',
+            weight: 1,
+            opacity: 0.9
+        });
+        if (map) {
+            map.addOverLay(polyline);
+        }
+        currentTracks.push(polyline);
+    }
+
+    function clearTrackOverlays(resetArray = true){
+        try {
+            currentTracks.forEach(pl => {
+                if (pl && map && map.removeOverLay) {
+                    try { map.removeOverLay(pl); } catch (e) { console.warn('移除轨迹失败:', e); }
+                }
+            });
+            if (resetArray) currentTracks = [];
+        } catch (e) {
+            console.warn('清空轨迹时出错:', e);
+        }
+    }
+
+
+    function fitViewportToTrack(points){
+        try {
+            if (!map || !map.setViewport || !points || !points.length) return;
+            map.setViewport(points);
+        } catch (e) {
+            console.warn('轨迹视图居中失败:', e);
+        }
+    }
+
+    // ========= 轨迹回放功能 =========
+    let playbackState = { points: [], idx: 0, speed: 1, timer: null, running: false, marker: null, line: null, path: [] };
+
+    function bindPlaybackControls(){
+        const startBtn = document.getElementById('playbackStartBtn');
+        const pauseBtn = document.getElementById('playbackPauseBtn');
+        const stopBtn = document.getElementById('playbackStopBtn');
+        const speedSel = document.getElementById('playbackSpeedSelect');
+        const timeSlider = document.getElementById('playbackTimeSlider');
+        const timeCursor = document.getElementById('playbackTimeCursor');
+        const ta = document.getElementById('trackTextarea');
+        if (!startBtn || !pauseBtn || !stopBtn || !speedSel) return;
+
+        // 初始按钮状态
+        updatePlaybackButtonsState('idle');
+
+        startBtn.addEventListener('click', function(){
+            try {
+                const text = (ta && ta.value || '').trim();
+                if (!text) { alert('请粘贴轨迹文本（时间戳,经度,纬度）'); return; }
+                const pts = parseTrackTextWithTime(text);
+                if (pts.length < 2) { alert('有效轨迹点不足，至少需要两点'); return; }
+                startPlayback(pts);
+                // 状态在startPlayback中已设置为playing
+            } catch (e) {
+                alert('开始回放失败：' + (e && e.message ? e.message : e));
+                console.error('开始回放异常:', e);
+            }
+        });
+
+        pauseBtn.addEventListener('click', function(){
+            if (!playbackState.running) {
+                // 继续
+                playbackState.running = true;
+                scheduleNext();
+                updatePlaybackButtonsState('playing');
+            } else {
+                // 暂停
+                if (playbackState.timer) { clearTimeout(playbackState.timer); playbackState.timer = null; }
+                playbackState.running = false;
+                updatePlaybackButtonsState('paused');
+            }
+        });
+
+        stopBtn.addEventListener('click', function(){ 
+            stopPlayback(); 
+            updatePlaybackButtonsState('idle');
+        });
+
+        speedSel.addEventListener('change', function(){
+            const v = parseFloat(speedSel.value);
+            playbackState.speed = (isFinite(v) && v > 0) ? v : 1;
+        });
+
+        if (timeSlider) {
+            timeSlider.addEventListener('input', function(){
+                const ms = parseInt(timeSlider.value, 10);
+                const txt = formatTimeForLabel(ms);
+                if (timeCursor) timeCursor.textContent = txt;
+            });
+            timeSlider.addEventListener('change', function(){
+                jumpToSliderTime();
+            });
+        }
+    }
+
+    function parseTrackTextWithTime(text){
+        const coordSysEl = document.getElementById('trackCoordSysSelect') || document.getElementById('coordSysSelect');
+        const coordSys = (coordSysEl && coordSysEl.value) || 'wgs84';
+        const isHash = text.indexOf('#') !== -1;
+        const items = isHash ? text.split('#') : text.split(/\r?\n/);
+        const out = [];
+        for (let i=0;i<items.length;i++){
+            const raw = items[i];
+            if (!raw) continue;
+            const line = raw.trim();
+            if (!line) continue;
+            const parts = line.split(',');
+            if (parts.length < 3) continue;
+            const tsRaw = (parts[isHash ? 2 : 0] || '').trim();
+            const ts = (tsRaw || '').replace(/\D/g,'');
+            let lng = parseFloat((parts[isHash ? 0 : 1] || '').trim());
+            let lat = parseFloat((parts[isHash ? 1 : 2] || '').trim());
+            if (!isFinite(lng) || !isFinite(lat)) continue;
+            if (lng === 0 || lat === 0) continue;
+            if (lng < -180 || lng > 180 || lat < -90 || lat > 90) continue;
+            const t = parseTimestamp(ts);
+            if (!t) continue;
+            let w;
+            if (coordSys === 'wgs84' || coordSys === 'cgcs2000') {
+                w = { lng, lat };
+            } else if (coordSys === 'gcj02') {
+                w = gcj02ToWgs84(lng, lat);
+            } else if (coordSys === 'bd09') {
+                const g = bd09ToGcj02(lng, lat);
+                w = gcj02ToWgs84(g.lng, g.lat);
+            } else { w = { lng, lat }; }
+            if (!isFinite(w.lng) || !isFinite(w.lat)) continue;
+            if (w.lng < -180 || w.lng > 180 || w.lat < -90 || w.lat > 90) continue;
+            out.push({ ll: new T.LngLat(w.lng, w.lat), time: t, ts });
+        }
+        out.sort((a,b)=>a.time - b.time);
+        return out;
+    }
+
+    function parseTimestamp(ts){
+        const tstr = (ts || '').replace(/\D/g,'');
+        const m = tstr && tstr.match(/^\d{14}$/);
+        if (!m) return null;
+        const y = parseInt(tstr.slice(0,4),10);
+        const M = parseInt(tstr.slice(4,6),10) - 1;
+        const d = parseInt(tstr.slice(6,8),10);
+        const h = parseInt(tstr.slice(8,10),10);
+        const m2 = parseInt(tstr.slice(10,12),10);
+        const s = parseInt(tstr.slice(12,14),10);
+        const dt = new Date(y,M,d,h,m2,s);
+        return isNaN(dt.getTime()) ? null : dt;
+    }
+
+    function startPlayback(points){
+        console.log('[Playback] startPlayback: 点数=', points && points.length);
+        stopPlayback();
+        playbackState.points = points;
+        playbackState.idx = 0;
+        playbackState.speed = playbackState.speed || 1;
+        playbackState.running = true;
+        // 配置时间滑动条，并尊重现有滑块位置作为起始
+        configureTimeSlider(points);
+        // 启用滑块
+        const slider = document.getElementById('playbackTimeSlider');
+        if (slider) slider.disabled = false;
+        let initIdx = 0;
+        if (slider && slider.min && slider.max) {
+            const ms = parseInt(slider.value, 10);
+            if (isFinite(ms)) initIdx = findIndexByTime(points, ms);
+        }
+        playbackState.idx = initIdx;
+        const first = points[initIdx];
+        console.log('[Playback] 首点:', first && first.ts, first && first.ll, 'initIdx=', initIdx);
+        playbackState.path = points.slice(0, initIdx+1).map(p=>p.ll);
+        playbackState.line = new T.Polyline(playbackState.path, { color: '#00FFFF', weight: 1, opacity: 0.9 });
+        if (map) {
+            map.addOverLay(playbackState.line);
+        }
+        currentTracks.push(playbackState.line);
+        // 创建并定位DOM标记以保证可见移动
+        ensurePlaybackDom(first.ll);
+        updatePlaybackDom(first.ll);
+        updatePlaybackTimeLabel(first.ts);
+        try { fitViewportToTrack(points.map(p=>p.ll)); } catch(e){}
+        // 更新按钮状态
+        updatePlaybackButtonsState('playing');
+        scheduleNext();
+    }
+
+    function scheduleNext(){
+        if (!playbackState.running) return;
+        if (!playbackState.points || playbackState.idx >= playbackState.points.length - 1) {
+            playbackState.running = false;
+            console.log('[Playback] 回放结束：idx=', playbackState.idx, '点数=', playbackState.points ? playbackState.points.length : 0);
+            updatePlaybackButtonsState('idle'); // 播放结束后按钮回到初始状态：开始可点，继续/结束灰化
+            return;
+        }
+        const next = playbackState.points[playbackState.idx+1];
+        const speed = playbackState.speed || 1;
+        const delay = Math.max(4, Math.round(1000 / speed)); // 1x=1000ms/点，2x=500ms/点...
+        console.log('[Playback] scheduleNext: idx=', playbackState.idx, '->', playbackState.idx+1, 'delay=', delay, 'speed=', speed);
+        playbackState.timer = setTimeout(()=>{
+            playbackState.idx++;
+            const nextLL = next.ll;
+            console.log('[Playback] 下一点:', next && next.ts, nextLL);
+            try {
+                // 维护路径数组
+                playbackState.path = playbackState.path || [];
+                playbackState.path.push(nextLL);
+                console.log('[Playback] 路径长度=', playbackState.path.length);
+                // 使用DOM标记进行移动（容器/图层坐标）
+                if (!playbackDom.el) console.log('[Playback] DOM标记不存在，将尝试创建');
+                updatePlaybackDom(nextLL);
+                // 折线更新：优先setLngLats，兜底重建
+                if (playbackState.line && typeof playbackState.line.setLngLats === 'function') {
+                    try { playbackState.line.setLngLats(playbackState.path); }
+                    catch(e){
+                        console.warn('[Playback] setLngLats失败，重建折线', e);
+                        if (map) { try { map.removeOverLay(playbackState.line); } catch(e){} }
+                        playbackState.line = new T.Polyline(playbackState.path, { color: '#00FFFF', weight: 1, opacity: 0.9 });
+                        if (map) map.addOverLay(playbackState.line);
+                    }
+                } else {
+                    console.log('[Playback] 折线不支持setLngLats，重建');
+                    if (playbackState.line && map) { try { map.removeOverLay(playbackState.line); } catch(e){} }
+                    playbackState.line = new T.Polyline(playbackState.path, { color: '#00FFFF', weight: 1, opacity: 0.9 });
+                    if (map) map.addOverLay(playbackState.line);
+                }
+            } catch(e) { console.warn('更新回放覆盖物失败:', e); }
+            updatePlaybackTimeLabel(next.ts);
+            scheduleNext();
+        }, delay);
+    }
+
+    function stopPlayback(){
+        if (playbackState.timer) { clearTimeout(playbackState.timer); playbackState.timer = null; }
+        playbackState.running = false;
+        playbackState.idx = 0;
+        try {
+            // 移除DOM标记
+            removePlaybackDom();
+            if (playbackState.marker && map) map.removeOverLay(playbackState.marker);
+            if (playbackState.line && map) map.removeOverLay(playbackState.line);
+        } catch(e){}
+        playbackState.marker = null;
+        playbackState.line = null;
+        updatePlaybackTimeLabel('—');
+        // 按钮回到初始状态
+        updatePlaybackButtonsState('idle');
+    }
+
+    function updatePlaybackTimeLabel(text){
+        const el = document.getElementById('playbackTimeLabel');
+        if (el) el.textContent = '时间：' + (text || '—');
+    }
+
+    // 时间滑动条：配置与跳转
+    function configureTimeSlider(points){
+        try {
+            const slider = document.getElementById('playbackTimeSlider');
+            const cursor = document.getElementById('playbackTimeCursor');
+            if (!slider || !points || !points.length) return;
+            const minMs = points[0].time.getTime();
+            const maxMs = points[points.length - 1].time.getTime();
+            const prev = parseInt(slider.value, 10);
+            slider.min = String(minMs);
+            slider.max = String(maxMs);
+            slider.step = '1000'; // 以秒为步进
+            let val = (isFinite(prev) && prev >= minMs && prev <= maxMs) ? prev : minMs;
+            slider.value = String(val);
+            if (cursor) cursor.textContent = formatTimeForLabel(val);
+        } catch(e) { console.warn('配置时间滑动条失败:', e); }
+    }
+    function formatTimeForLabel(ms){
+        if (!isFinite(ms)) return '—';
+        const d = new Date(ms);
+        const pad = n => String(n).padStart(2,'0');
+        const y = d.getFullYear();
+        const M = pad(d.getMonth()+1);
+        const da = pad(d.getDate());
+        const h = pad(d.getHours());
+        const m = pad(d.getMinutes());
+        const s = pad(d.getSeconds());
+        return `${y}-${M}-${da} ${h}:${m}:${s}`;
+    }
+    function findIndexByTime(points, ms){
+        try {
+            if (!points || !points.length) return 0;
+            const n = points.length;
+            const minMs = points[0].time.getTime();
+            const maxMs = points[n-1].time.getTime();
+            if (!isFinite(ms)) return 0;
+            if (ms <= minMs) return 0;
+            if (ms >= maxMs) return n-1;
+            let lo = 0, hi = n - 1, ans = 0;
+            while (lo <= hi) {
+                const mid = (lo + hi) >> 1;
+                const t = points[mid].time.getTime();
+                if (t < ms) { lo = mid + 1; ans = lo; }
+                else { hi = mid - 1; ans = mid; }
+            }
+            return Math.max(0, Math.min(n-1, ans));
+        } catch(e){ console.warn('findIndexByTime失败:', e); return 0; }
+    }
+    function jumpToSliderTime(){
+        try {
+            const slider = document.getElementById('playbackTimeSlider');
+            if (!slider || !playbackState.points || !playbackState.points.length) return;
+            const ms = parseInt(slider.value, 10);
+            if (!isFinite(ms)) return;
+            const idx = findIndexByTime(playbackState.points, ms);
+            playbackState.idx = idx;
+            const pts = playbackState.points;
+            const ll = pts[idx].ll;
+            playbackState.path = pts.slice(0, idx+1).map(p=>p.ll);
+            // 更新折线
+            try {
+                if (playbackState.line && typeof playbackState.line.setLngLats === 'function') {
+                    playbackState.line.setLngLats(playbackState.path);
+                } else {
+                    if (playbackState.line && map) { try { map.removeOverLay(playbackState.line); } catch(e){} }
+                    playbackState.line = new T.Polyline(playbackState.path, { color: '#00FFFF', weight: 1, opacity: 0.9 });
+                    if (map) map.addOverLay(playbackState.line);
+                }
+            } catch(e){ console.warn('滑块更新折线失败:', e); }
+            // 更新标记与时间
+            ensurePlaybackDom(ll);
+            updatePlaybackDom(ll);
+            updatePlaybackTimeLabel(pts[idx].ts);
+            // 若正在播放，立即按新位置继续
+            if (playbackState.running) {
+                if (playbackState.timer) { clearTimeout(playbackState.timer); playbackState.timer = null; }
+                scheduleNext();
+            }
+        } catch(e) { console.warn('滑块跳转失败:', e); }
+    }
+
+    // DOM标记：使用容器坐标实现可见移动
+    let playbackDom = { el: null, lastLL: null, bound: false };
+
+    function ensurePlaybackDom(ll){
+        try {
+            playbackDom.lastLL = ll;
+            const pane = (map && map.getPanes && map.getPanes().overlayPane) || document.getElementById('mapContainer');
+            if (!pane) { console.warn('未找到overlayPane或mapContainer'); return; }
+            if (!playbackDom.el) {
+                const el = document.createElement('div');
+                el.id = 'playbackDomMarker';
+                el.style.position = 'absolute';
+                el.style.width = '0';
+                el.style.height = '0';
+                el.style.borderLeft = '3px solid transparent';
+                el.style.borderRight = '3px solid transparent';
+                el.style.borderBottom = '4px solid #2C64A7';
+                el.style.borderTop = '0';
+                el.style.transform = 'translate(-50%, -50%)';
+                el.style.zIndex = '9999';
+                // 添加伪元素来增强箭头效果
+                el.style.clipPath = 'polygon(50% 0, 100% 100%, 0 100%)';
+                pane.appendChild(el);
+                playbackDom.el = el;
+                console.log('[Playback] 创建DOM标记，父节点=', pane === document.getElementById('mapContainer') ? '#mapContainer' : 'overlayPane');
+                bindPlaybackDomEvents();
+            }
+            updatePlaybackDom(ll);
+        } catch(e) { console.warn('创建DOM标记失败:', e); }
+    }
+
+    function updatePlaybackDom(ll){
+        try {
+            playbackDom.lastLL = ll;
+            if (!map || !playbackDom.el || !ll) { console.log('[Playback] update取消：map/el/ll缺失'); return; }
+            let p;
+            if (typeof map.lngLatToLayerPoint === 'function') {
+                p = map.lngLatToLayerPoint(ll);
+                console.log('[Playback] 使用layerPoint定位:', ll && ll.lng, ll && ll.lat, '=>', p && p.x, p && p.y);
+            } else if (typeof map.lngLatToContainerPoint === 'function') {
+                p = map.lngLatToContainerPoint(ll);
+                console.log('[Playback] 使用containerPoint定位:', ll && ll.lng, ll && ll.lat, '=>', p && p.x, p && p.y);
+            } else {
+                console.warn('地图对象不支持lngLat到像素坐标转换');
+                return;
+            }
+            playbackDom.el.style.left = p.x + 'px';
+            playbackDom.el.style.top = p.y + 'px';
+        } catch(e) { console.warn('更新DOM标记位置失败:', e); }
+    }
+
+    function bindPlaybackDomEvents(){
+        if (playbackDom.bound) return;
+        const updater = function(){
+            try {
+                if (!map || !playbackDom.el || !playbackDom.lastLL) return;
+                let p;
+                if (typeof map.lngLatToLayerPoint === 'function') {
+                    p = map.lngLatToLayerPoint(playbackDom.lastLL);
+                } else if (typeof map.lngLatToContainerPoint === 'function') {
+                    p = map.lngLatToContainerPoint(playbackDom.lastLL);
+                }
+                if (!p) return;
+                playbackDom.el.style.left = p.x + 'px';
+                playbackDom.el.style.top = p.y + 'px';
+            } catch(e){}
+        };
+        try {
+            map.addEventListener('move', updater);
+            map.addEventListener('zoom', updater);
+            playbackDom.bound = true;
+        } catch(e){}
+    }
+
+    function removePlaybackDom(){
+        try {
+            const el = playbackDom.el;
+            playbackDom.lastLL = null;
+            if (el && el.parentNode) el.parentNode.removeChild(el);
+        } catch(e){}
+        playbackDom.el = null;
+        playbackDom.bound = false;
+    }
+
+</script>
+</body>
+
+</html>

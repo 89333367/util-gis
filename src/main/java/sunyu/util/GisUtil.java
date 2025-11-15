@@ -160,6 +160,9 @@ public class GisUtil implements AutoCloseable {
 
         /** 最小作业幅宽阈值（米），低于此值认为参数无效，用于农业轨迹处理 */
         private final double MIN_WORKING_WIDTH_M = 1.0;
+
+        /** 最大作业速度(km/h) */
+        private final double MAX_WORK_SPEED = 8.0;
     }
 
     /**
@@ -1395,7 +1398,7 @@ public class GisUtil implements AutoCloseable {
                     point.getDirection());
         }
 
-        // 步骤6：根据速度特征进行轨迹分段（识别作业与非作业状态）
+        // 步骤6：根据策略进行轨迹分段（识别作业与非作业状态）
         log.debug("切分成多段轨迹");
         List<List<TrackPoint>> gaussTrackSegments = new ArrayList<>();
         List<TrackPoint> currentSegment = new ArrayList<>();
@@ -1404,8 +1407,9 @@ public class GisUtil implements AutoCloseable {
         for (int i = 1; i < gaussPoints.size(); i++) {
             TrackPoint point = gaussPoints.get(i);
 
-            // 18km/h = 5m/s，当速度超过18km/h时切割轨迹段（高速通常表示转移而非作业）
-            if (point.getSpeed() > 3) {
+            // 高速通常表示转移而非作业，或者时间间隔过大也表示可能有中断
+            // km/h 转换为 m/s 的公式：kmh / 3.6 = m/s
+            if (point.getSpeed() > config.MAX_WORK_SPEED / 3.6) {
                 // 如果当前段不为空且有多个点，则将当前段添加到结果中
                 if (currentSegment.size() > 1) {
                     gaussTrackSegments.add(new ArrayList<>(currentSegment));
