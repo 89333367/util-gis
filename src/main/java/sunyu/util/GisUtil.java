@@ -162,7 +162,8 @@ public class GisUtil implements AutoCloseable {
         private final double MIN_WORKING_WIDTH_M = 1.0;
 
         /** 最大作业速度(km/h) */
-        private final double MAX_WORK_SPEED = 11.83;
+        private final double MAX_WORK_SPEED_1s = 8;
+        private final double MAX_WORK_SPEED_10s = 11.83;
     }
 
     /**
@@ -573,43 +574,40 @@ public class GisUtil implements AutoCloseable {
     }
 
     /**
-     * 判断几何图形是否为细长条（通常表示在路上行驶）
-     * 使用面积与长度比例来判断细长条特征，避免边界框异常导致的误判
+     * 校验多边形内点位数量与面积的合理性
+     * <p>
+     * 当多边形内的点位数量过少但面积过大时，认为多边形不合理，可能是由异常点或错误的缓冲区生成导致的
+     * </p>
      * 
-     * @param gaussGeometry 高斯投影坐标系的几何图形（必须使用高斯投影，因为距离计算需要是米制单位）
-     * @param totalWidth 总幅宽（米）
-     * @return 是否为细长条（线形成的缓冲区）
+     * @param pointCount 多边形内的点位数量
+     * @param areaMu 多边形面积（亩）
+     * @return 多边形是否合理（true表示合理，false表示不合理）
      */
-    private boolean isThinStripGeometry(Geometry gaussGeometry, double totalWidth) {
-        if (gaussGeometry == null || gaussGeometry.isEmpty()) {
+    private boolean isPolygonReasonable(int pointCount, double areaMu) {
+        // 如果点数或面积为0，直接返回false
+        if (pointCount <= 0 || areaMu <= 0) {
+            log.warn("多边形点位数量或面积为0，判定为不合理");
             return false;
         }
 
-        // 获取几何图形的边界框
-        Envelope envelope = gaussGeometry.getEnvelopeInternal();
-        double width = envelope.getWidth(); // 边界框宽度
-        double height = envelope.getHeight(); // 边界框高度
-        log.debug("几何图形边界框宽度：{}，高度：{}", width, height);
+        // 计算每亩的点数（点密度）
+        double pointsPerMu = pointCount / areaMu;
+        log.debug("多边形点位数量：{}，面积：{}亩，点密度：{}点/亩", pointCount, areaMu, pointsPerMu);
 
-        // 计算几何图形的面积
-        double area = gaussGeometry.getArea();
-        // 计算几何图形的近似长度（取边界框对角线作为近似长度）
-        double length = Math.sqrt(width * width + height * height);
+        // 设定每亩的最小点数阈值
+        // 这个阈值可以根据实际情况调整，这里设置为每亩至少0.1个点
+        // 例如：如果一个多边形面积为100亩，但只有5个点，那么点密度为0.05点/亩，低于阈值
+        double minPointsPerMu = 0.1;
 
-        // 计算细长比：面积/长度 应该接近总幅宽
-        // 如果是理想的细长条，面积/长度 ≈ 总幅宽
-        double ratio = length > 0 ? area / length : 0;
-        log.debug("几何图形面积：{}，近似长度：{}，面积/长度比：{}，总幅宽：{}",
-                area, length, ratio, totalWidth);
+        // 同时考虑绝对点数，如果面积很小但点数也很少，可能是正常的
+        // 例如：面积小于0.1亩的小区域，可能只有几个点也是合理的
+        boolean hasEnoughPoints = pointsPerMu >= minPointsPerMu || (areaMu < 0.1 && pointCount >= 2);
 
-        // 判断面积/长度比是否接近总幅宽（允许±50%的误差范围，这个阈值可以根据实际情况调整）
-        double threshold = totalWidth * 0.5; // 50%的误差阈值
-        boolean isThinByRatio = Math.abs(ratio - totalWidth) <= threshold;
+        if (!hasEnoughPoints) {
+            log.warn("多边形点密度过低（{}点/亩），判定为不合理多边形", pointsPerMu);
+        }
 
-        // 同时考虑边界框长宽比：如果高度明显大于宽度，也可能是细长条
-        boolean isLongAndThin = height > width && height / width > 3; // 高度是宽度的3倍以上
-
-        return isThinByRatio || isLongAndThin;
+        return hasEnoughPoints;
     }
 
     /**
@@ -1448,7 +1446,13 @@ public class GisUtil implements AutoCloseable {
             // 高速通常表示转移而非作业，或者时间间隔过大也表示可能有中断
             // km/h 转换为 m/s 的公式：kmh / 3.6 = m/s
             // 增加条件：如果时间间隔超过minEffectiveInterval的3倍，也切割新段
-            if (point.getSpeed() > config.MAX_WORK_SPEED / 3.6
+            double max_work_speed;
+            if (minEffectiveInterval < 5) {
+                max_work_speed = config.MAX_WORK_SPEED_1s / 3.6;
+            } else {
+                max_work_speed = config.MAX_WORK_SPEED_10s / 3.6;
+            }
+            if (point.getSpeed() > max_work_speed
                     || timeInterval > minEffectiveInterval * 3) {
                 // 如果当前段不为空且有多个点，则将当前段添加到结果中
                 if (currentSegment.size() > 1) {
@@ -1535,19 +1539,18 @@ public class GisUtil implements AutoCloseable {
             outlinePart.setTotalWidthM(totalWidthM);
             outlinePart.setOutline(gaussGeometry);
             outlinePart.setWkt(wgs84Geometry.toText());
-            outlinePart.setMu(calcMu(wgs84Geometry)); // 计算区块面积（亩）
+            outlinePart.setMu(calcMu(wgs84Geometry));
             outlinePart.setTrackPoints(wgs84PointsSegment);
             outlinePart.setStartTime(wgs84PointsSegment.get(0).getTime());
             outlinePart.setEndTime(wgs84PointsSegment.get(wgs84PointsSegment.size() - 1).getTime());
             log.debug("生成区块亩数：{}", outlinePart.getMu());
 
-            // 检查是否为细长条，如果是则认为是在路上行驶，不添加到outlineParts
-            // 注意：必须使用高斯投影坐标系的几何图形，因为只有在高斯投影中边界框宽度才是米制单位
-            if (!isThinStripGeometry(gaussGeometry, totalWidthM)) {
+            // 校验多边形内点位数量与面积的合理性
+            if (isPolygonReasonable(wgs84PointsSegment.size(), outlinePart.getMu())) {
                 outlineParts.add(outlinePart);
                 log.debug("区块添加到轮廓列表");
             } else {
-                log.warn("区块被识别为路上行驶轨迹，未添加到轮廓列表");
+                log.warn("区块点位数量与面积不匹配，判定为不合理多边形，未添加到轮廓列表");
             }
         }
 
@@ -1562,7 +1565,9 @@ public class GisUtil implements AutoCloseable {
                     .map(OutlinePart::getOutline)
                     .toArray(Geometry[]::new);
             // 创建几何集合并执行union操作，合并相交区域
-            finalOutlineGeometry = config.geometryFactory.createGeometryCollection(validGeometries).union();
+            finalOutlineGeometry = config.geometryFactory.createGeometryCollection(validGeometries)
+                    .union()
+                    .buffer(0.03).buffer(-0.03);
         } else {
             finalOutlineGeometry = config.EMPTYGEOM;
             log.warn("没有有效区块");

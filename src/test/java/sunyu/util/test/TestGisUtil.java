@@ -387,7 +387,6 @@ public class TestGisUtil {
             for (Map<String, Object> row : rows) {
                 Map<String, String> protocol = protocolSdk.parseProtocolString(row.get("protocol").toString());
                 if (!protocol.containsKey("2601") || !protocol.containsKey("2602") || !protocol.containsKey("2603")
-                        || !protocol.containsKey("2204") || !protocol.containsKey("3012")
                         || !protocol.containsKey("3014")) {
                     continue;
                 }
