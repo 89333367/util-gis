@@ -1440,10 +1440,16 @@ public class GisUtil implements AutoCloseable {
 
         for (int i = 1; i < gaussPoints.size(); i++) {
             TrackPoint point = gaussPoints.get(i);
+            TrackPoint prevPoint = gaussPoints.get(i - 1);
+
+            // 计算时间间隔（秒）
+            long timeInterval = Duration.between(prevPoint.getTime(), point.getTime()).getSeconds();
 
             // 高速通常表示转移而非作业，或者时间间隔过大也表示可能有中断
             // km/h 转换为 m/s 的公式：kmh / 3.6 = m/s
-            if (point.getSpeed() > config.MAX_WORK_SPEED / 3.6) {
+            // 增加条件：如果时间间隔超过minEffectiveInterval的3倍，也切割新段
+            if (point.getSpeed() > config.MAX_WORK_SPEED / 3.6
+                    || timeInterval > minEffectiveInterval * 3) {
                 // 如果当前段不为空且有多个点，则将当前段添加到结果中
                 if (currentSegment.size() > 1) {
                     gaussTrackSegments.add(new ArrayList<>(currentSegment));
