@@ -1,6 +1,6 @@
 type: Polygon
 Parts: 1
-mu: 0.629
+mu: 0.6283
 totalWidthM: 2.8
 startTime: 2025-11-04T10:06:06
 endTime: 2025-11-04T10:13:39
