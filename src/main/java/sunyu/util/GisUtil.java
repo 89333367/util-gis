@@ -162,7 +162,7 @@ public class GisUtil implements AutoCloseable {
         private final double MIN_WORKING_WIDTH_M = 1.0;
 
         /** 最大作业速度(km/h) */
-        private final double MAX_WORK_SPEED = 8.0;
+        private final double MAX_WORK_SPEED = 11.83;
     }
 
     /**
@@ -570,6 +570,46 @@ public class GisUtil implements AutoCloseable {
                 return null;
             }
         });
+    }
+
+    /**
+     * 判断几何图形是否为细长条（通常表示在路上行驶）
+     * 使用面积与长度比例来判断细长条特征，避免边界框异常导致的误判
+     * 
+     * @param gaussGeometry 高斯投影坐标系的几何图形（必须使用高斯投影，因为距离计算需要是米制单位）
+     * @param totalWidth 总幅宽（米）
+     * @return 是否为细长条（线形成的缓冲区）
+     */
+    private boolean isThinStripGeometry(Geometry gaussGeometry, double totalWidth) {
+        if (gaussGeometry == null || gaussGeometry.isEmpty()) {
+            return false;
+        }
+
+        // 获取几何图形的边界框
+        Envelope envelope = gaussGeometry.getEnvelopeInternal();
+        double width = envelope.getWidth(); // 边界框宽度
+        double height = envelope.getHeight(); // 边界框高度
+        log.debug("几何图形边界框宽度：{}，高度：{}", width, height);
+
+        // 计算几何图形的面积
+        double area = gaussGeometry.getArea();
+        // 计算几何图形的近似长度（取边界框对角线作为近似长度）
+        double length = Math.sqrt(width * width + height * height);
+
+        // 计算细长比：面积/长度 应该接近总幅宽
+        // 如果是理想的细长条，面积/长度 ≈ 总幅宽
+        double ratio = length > 0 ? area / length : 0;
+        log.debug("几何图形面积：{}，近似长度：{}，面积/长度比：{}，总幅宽：{}",
+                area, length, ratio, totalWidth);
+
+        // 判断面积/长度比是否接近总幅宽（允许±50%的误差范围，这个阈值可以根据实际情况调整）
+        double threshold = totalWidth * 0.5; // 50%的误差阈值
+        boolean isThinByRatio = Math.abs(ratio - totalWidth) <= threshold;
+
+        // 同时考虑边界框长宽比：如果高度明显大于宽度，也可能是细长条
+        boolean isLongAndThin = height > width && height / width > 3; // 高度是宽度的3倍以上
+
+        return isThinByRatio || isLongAndThin;
     }
 
     /**
@@ -1345,12 +1385,6 @@ public class GisUtil implements AutoCloseable {
                     .orElse(1);
         }
         log.info("最小有效时间间隔：{}秒（点数最多的时间间隔）", minEffectiveInterval);
-        int min_points = 60;
-        if (minEffectiveInterval == 1) {
-            min_points = 60;
-        } else if (minEffectiveInterval == 10) {
-            min_points = 30;
-        }
 
         // 步骤4：转换到高斯投影平面坐标，便于后续距离和几何计算
         List<TrackPoint> gaussPoints = toGaussPointList(wgs84Points);
@@ -1434,10 +1468,6 @@ public class GisUtil implements AutoCloseable {
         List<OutlinePart> outlineParts = new ArrayList<>();
         for (List<TrackPoint> segment : gaussTrackSegments) {
             log.debug("处理轨迹段，原始点数: {}", segment.size());
-            if (segment.size() < min_points) {
-                log.warn("轨迹段点数不足 {} 个，跳过处理", min_points);
-                continue;
-            }
 
             long startTime = System.currentTimeMillis();
 
@@ -1494,11 +1524,6 @@ public class GisUtil implements AutoCloseable {
             log.debug("点位空间判断完成，原始点位数：{}，筛选后点位数：{}，耗时：{}ms",
                     wgs84Points.size(), wgs84PointsSegment.size(), (endTime - startTime));
 
-            // 验证当前区块的有效点数
-            if (wgs84PointsSegment.size() < min_points) {
-                continue;
-            }
-
             // 7.6 创建并填充区块信息
             OutlinePart outlinePart = new OutlinePart();
             outlinePart.setTotalWidthM(totalWidthM);
@@ -1509,7 +1534,15 @@ public class GisUtil implements AutoCloseable {
             outlinePart.setStartTime(wgs84PointsSegment.get(0).getTime());
             outlinePart.setEndTime(wgs84PointsSegment.get(wgs84PointsSegment.size() - 1).getTime());
             log.debug("生成区块亩数：{}", outlinePart.getMu());
-            outlineParts.add(outlinePart);
+
+            // 检查是否为细长条，如果是则认为是在路上行驶，不添加到outlineParts
+            // 注意：必须使用高斯投影坐标系的几何图形，因为只有在高斯投影中边界框宽度才是米制单位
+            if (!isThinStripGeometry(gaussGeometry, totalWidthM)) {
+                outlineParts.add(outlinePart);
+                log.debug("区块添加到轮廓列表");
+            } else {
+                log.warn("区块被识别为路上行驶轨迹，未添加到轮廓列表");
+            }
         }
 
         // 步骤8：合并所有有效区块，构建最终几何轮廓
