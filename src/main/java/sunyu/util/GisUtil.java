@@ -1358,6 +1358,9 @@ public class GisUtil implements AutoCloseable {
         }
         log.info("最小有效时间间隔：{}秒", minEffectiveInterval);
 
+        // 创建final变量供lambda表达式使用
+        final int finalMinEffectiveInterval = minEffectiveInterval;
+
         // 步骤4：转换到高斯投影平面坐标，便于后续距离和几何计算
         List<TrackPoint> gaussPoints = toGaussPointList(wgs84Points);
 
@@ -1580,7 +1583,8 @@ public class GisUtil implements AutoCloseable {
         if (outlineParts.size() > 1) {
             OutlinePart bak = outlineParts.get(0);
             outlineParts = outlineParts.stream()
-                    .filter(part -> part.getMu() >= config.MIN_MU_1s)
+                    .filter(part -> part
+                            .getMu() >= (finalMinEffectiveInterval < 5 ? config.MIN_MU_1s : config.MIN_MU_10s))
                     .collect(Collectors.toList());
             if (outlineParts.isEmpty()) {
                 outlineParts.add(bak);
