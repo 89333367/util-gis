@@ -264,6 +264,52 @@
           #generateMultiBtn:hover { background: #2860E0; }
           #copyMultiBtn { background: #f5f5f5; color: #333; }
           #copyMultiBtn:hover { background: #e0e0e0; }
+          
+          /* 左侧工具条样式 */
+          #leftToolbar {
+              position: absolute;
+              bottom: 20px;
+              left: 20px;
+              z-index: 1000;
+              background: white;
+              border-radius: 4px;
+              box-shadow: 0 1px 4px rgba(0, 0, 0, 0.15);
+              padding: 6px 0;
+              display: flex;
+              flex-direction: column;
+              gap: 2px;
+              width: 40px;
+          }
+          
+          .toolbar-btn {
+              width: 100%;
+              padding: 6px 0;
+              border: none;
+              background: transparent;
+              cursor: pointer;
+              font-size: 12px;
+              color: #333;
+              transition: background 0.2s;
+              display: flex;
+              flex-direction: column;
+              align-items: center;
+              justify-content: center;
+          }
+          
+          .toolbar-btn:hover {
+              background: #f5f5f5;
+          }
+          
+          .toolbar-btn span {
+              font-size: 12px;
+              margin-top: 4px;
+          }
+          
+          .toolbar-divider {
+              height: 1px;
+              background-color: #e0e0e0;
+              margin: 2px 4px;
+          }
       </style>
     <script src="https://api.tianditu.gov.cn/api?v=4.0&tk=648f621977051d0199ff0f965d3fd322"></script>
     <script src="https://cdn.bootcdn.net/ajax/libs/Turf.js/6.5.0/turf.min.js"></script>
@@ -283,6 +329,21 @@
 </head>
 
 <body>
+<!-- 左侧工具条 -->
+<div id="leftToolbar">
+    <button class="toolbar-btn" id="measureDistanceBtn" title="测距">
+        <span>测距</span>
+    </button>
+    <div class="toolbar-divider"></div>
+    <button class="toolbar-btn" id="measureAreaBtn" title="测面">
+        <span>测面</span>
+    </button>
+    <div class="toolbar-divider"></div>
+    <button class="toolbar-btn" id="mapTypeBtn" title="切换地图类型">
+        <span>地图</span>
+    </button>
+</div>
+
 <div id="mapContainer">
     <div id="mapLoading">
         <div class="loading-text">地图正在加载中...</div>
@@ -318,8 +379,8 @@
             </div>
 
             <div class="button-group">
-                <button id="drawButton" disabled>绘制轮廓</button>
-                <button id="clearButton" disabled>清空轮廓</button>
+                <button id="drawButton">绘制轮廓</button>
+                <button id="clearButton">清空轮廓</button>
             </div>
             <!-- 显示开关：仅保留显示亩数 -->
             <div class="display-toggles" style="margin-top:8px;font-size:12px;color:#333;">
@@ -4211,6 +4272,7 @@
     let mapLabelHandlers = []; // 存储地图事件处理器
     let labelsEnabled = false; // 标签显示开关（默认关闭）
     let isDrawing = false; // 绘制进行中防止重复点击
+    let currentMapType = 'satellite'; // 当前地图类型：'satellite'（卫星图）或'street'（街道图）
 
     window.onload = function () {
         if (typeof T === 'undefined') {
@@ -4226,6 +4288,8 @@
         bindLabelsToggle(); // 绑定标签显示开关
         bindTrackEvents();  // 绑定轨迹绘制与清空
         bindPlaybackControls(); // 绑定轨迹回放
+        bindMeasureEvents(); // 绑定测量功能
+        bindMapTypeEvent(); // 绑定地图类型切换功能
     };
 
     function initMap() {
@@ -4241,18 +4305,20 @@
             // 已移除测试标签
             map.enableScrollWheelZoom();
 
-            // 添加地图类型控件
-            const mapTypeCtrl = new T.Control.MapType({
-                mapTypes: [TMAP_NORMAL_MAP, TMAP_SATELLITE_MAP, TMAP_TERRAIN_MAP],
-                position: T_ANCHOR_TOP_LEFT
-            });
-            map.addControl(mapTypeCtrl);
+            // 不再添加地图类型控件到地图，改为使用左侧工具条按钮切换
+            // const mapTypeCtrl = new T.Control.MapType({
+            //     mapTypes: [TMAP_NORMAL_MAP, TMAP_SATELLITE_MAP, TMAP_TERRAIN_MAP],
+            //     position: T_ANCHOR_TOP_LEFT
+            // });
+            // map.addControl(mapTypeCtrl);
 
             // 加载影像底图（卫星）
             const tk = "648f621977051d0199ff0f965d3fd322";
 
             // 方案1：使用默认地图类型（作为备选）
             map.setMapType(TMAP_SATELLITE_MAP);
+            currentMapType = 'satellite';
+            updateMapTypeButton('卫星图');
 
             // 方案2：手动添加影像图层（底图 + 标注）
             const vecLayer = new T.TileLayer(`https://t0.tianditu.gov.cn/img_w/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=img&STYLE=default&TILEMATRIXSET=w&FORMAT=tiles&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}&tk=${tk}`);
@@ -4318,7 +4384,8 @@
         if (!mapLoaded) {
             mapLoaded = true;
             hideLoading();
-            disableButtons(false);
+            // 不再禁用按钮，保持按钮始终可用
+            // disableButtons(false);
             disableTrackButtons(false);
             // 仅开启速度选择，回放按钮按状态控制
             const speedSel = document.getElementById('playbackSpeedSelect');
@@ -4340,8 +4407,9 @@
     }
 
     function disableButtons(disabled) {
-        document.getElementById("drawButton").disabled = disabled;
-        document.getElementById("clearButton").disabled = disabled;
+        // 不再禁用按钮，保持按钮始终可用
+        // document.getElementById("drawButton").disabled = disabled;
+        // document.getElementById("clearButton").disabled = disabled;
     }
 
     function disableTrackButtons(disabled) {
@@ -4390,7 +4458,6 @@
         document.getElementById("drawButton").addEventListener("click", function () {
             if (isDrawing) { console.log('绘制进行中，忽略重复点击'); return; }
             isDrawing = true;
-            disableButtons(true);
             showLoading();
             try {
                 const wktStr = document.getElementById("wktTextarea").value.trim();
@@ -4431,7 +4498,8 @@
             } finally {
                 hideLoading();
                 isDrawing = false;
-                disableButtons(false);
+                // 不再禁用按钮，保持按钮始终可用
+                // disableButtons(false);
             }
         });
 
@@ -5716,6 +5784,691 @@
         playbackDom.el = null;
         playbackDom.bound = false;
     }
+
+    // 测量功能相关变量
+    let measureState = {
+        isActive: false,
+        mode: '', // 'distance' or 'area'
+        points: [],
+        tempLine: null,
+        lines: [],
+        markers: [],
+        labels: [],
+        polygon: null,
+        areaLabel: null
+    };
+
+    // 绑定测量按钮事件
+    function bindMeasureEvents() {
+        const distanceBtn = document.getElementById('measureDistanceBtn');
+        const areaBtn = document.getElementById('measureAreaBtn');
+        
+        if (distanceBtn) {
+            distanceBtn.addEventListener('click', function() {
+                startMeasureDistance();
+            });
+        }
+        
+        if (areaBtn) {
+            areaBtn.addEventListener('click', function() {
+                startMeasureArea();
+            });
+        }
+    }
+
+    // 绑定地图类型切换按钮事件
+    function bindMapTypeEvent() {
+        const mapTypeBtn = document.getElementById('mapTypeBtn');
+        
+        if (mapTypeBtn) {
+            mapTypeBtn.addEventListener('click', function() {
+                toggleMapType();
+            });
+        }
+    }
+
+    // 切换地图类型
+    function toggleMapType() {
+        if (!map) {
+            alert('地图未初始化');
+            return;
+        }
+        
+        // 切换地图类型
+        if (currentMapType === 'satellite') {
+            // 切换到街道地图
+            map.setMapType(TMAP_NORMAL_MAP);
+            currentMapType = 'street';
+            updateMapTypeButton('街道图');
+        } else {
+            // 切换到卫星地图
+            map.setMapType(TMAP_SATELLITE_MAP);
+            currentMapType = 'satellite';
+            updateMapTypeButton('卫星图');
+        }
+    }
+
+    // 更新地图类型按钮显示
+    function updateMapTypeButton(typeName) {
+        const mapTypeBtn = document.getElementById('mapTypeBtn');
+        if (mapTypeBtn) {
+            mapTypeBtn.innerHTML = `<span>${typeName}</span>`;
+            mapTypeBtn.title = `当前：${typeName}，点击切换`;
+        }
+    }
+
+    // 开始测距
+    function startMeasureDistance() {
+        if (!map) {
+            alert('地图未初始化');
+            return;
+        }
+        
+        // 先移除所有可能存在的事件监听器
+        try {
+            map.removeEventListener('click', handleMapClick);
+            map.removeEventListener('click', handleAreaMapClick);
+            map.removeEventListener('mousemove', handleMouseMove);
+            map.removeEventListener('mousemove', handleAreaMouseMove);
+            map.removeEventListener('dblclick', finishMeasure);
+            map.removeEventListener('dblclick', finishAreaMeasure);
+        } catch(e) {
+            console.log('移除事件监听器时出错:', e);
+        }
+        
+        // 重置测量状态
+        clearMeasureResult();
+        
+        // 设置测量状态为激活
+        measureState.isActive = true;
+        measureState.mode = 'distance'; // 设置为距离测量模式
+        
+        // 禁用其他按钮
+        disableButtons(true);
+        
+        // 添加地图点击事件监听器
+        map.addEventListener('click', handleMapClick);
+        
+        // 添加鼠标移动事件监听器
+        map.addEventListener('mousemove', handleMouseMove);
+        
+        // 添加双击事件监听器结束测量
+        map.addEventListener('dblclick', finishMeasure);
+        
+        console.log('测距功能已启动');
+    }
+
+    // 开始测面
+    function startMeasureArea() {
+        if (!map) {
+            alert('地图未初始化');
+            return;
+        }
+        
+        // 先移除所有可能存在的事件监听器
+        try {
+            map.removeEventListener('click', handleMapClick);
+            map.removeEventListener('click', handleAreaMapClick);
+            map.removeEventListener('mousemove', handleMouseMove);
+            map.removeEventListener('mousemove', handleAreaMouseMove);
+            map.removeEventListener('dblclick', finishMeasure);
+            map.removeEventListener('dblclick', finishAreaMeasure);
+        } catch(e) {
+            console.log('移除事件监听器时出错:', e);
+        }
+        
+        // 重置测量状态
+        clearMeasureResult();
+        
+        // 设置测量状态为激活
+        measureState.isActive = true;
+        measureState.mode = 'area'; // 设置为面积测量模式
+        
+        // 禁用其他按钮
+        disableButtons(true);
+        
+        // 添加地图点击事件监听器
+        map.addEventListener('click', handleAreaMapClick);
+        
+        // 添加鼠标移动事件监听器
+        map.addEventListener('mousemove', handleAreaMouseMove);
+        
+        // 添加双击事件监听器结束测量
+        map.addEventListener('dblclick', finishAreaMeasure);
+        
+        console.log('测面功能已启动');
+    }
+
+    // 处理地图点击事件
+    function handleMapClick(event) {
+        if (!measureState.isActive || measureState.mode !== 'distance') return;
+        
+        const point = event.lnglat;
+        measureState.points.push(point);
+        
+        // 创建小圆点图标
+        const smallDotIcon = new T.Icon({
+            iconUrl: 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="8" height="8"><circle cx="4" cy="4" r="3" fill="%23FF0000" stroke="%23FFFFFF" stroke-width="1"/></svg>',
+            iconSize: new T.Point(8, 8),
+            iconAnchor: new T.Point(4, 4)
+        });
+        
+        // 创建点标记
+        const marker = new T.Marker(point, {icon: smallDotIcon});
+        map.addOverLay(marker);
+        measureState.markers.push(marker);
+        
+        // 如果不是第一个点，创建线段
+        if (measureState.points.length > 1) {
+            const prevPoint = measureState.points[measureState.points.length - 2];
+            const line = new T.Polyline([prevPoint, point], {
+                color: '#FF0000',
+                weight: 3,
+                opacity: 0.8
+            });
+            map.addOverLay(line);
+            measureState.lines.push(line);
+            
+            // 计算距离并显示标签
+            const distance = calculateDistance(prevPoint, point);
+            showDistanceLabel(point, distance);
+        }
+        
+        // 移除临时线
+        if (measureState.tempLine) {
+            map.removeOverLay(measureState.tempLine);
+            measureState.tempLine = null;
+        }
+    }
+
+    // 处理测面地图点击事件
+    function handleAreaMapClick(event) {
+        if (!measureState.isActive || measureState.mode !== 'area') return;
+        
+        const point = event.lnglat;
+        measureState.points.push(point);
+        
+        // 创建小圆点图标（与测距功能一致）
+        const smallDotIcon = new T.Icon({
+            iconUrl: 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="8" height="8"><circle cx="4" cy="4" r="3" fill="%23FF0000" stroke="%23FFFFFF" stroke-width="1"/></svg>',
+            iconSize: new T.Point(8, 8),
+            iconAnchor: new T.Point(4, 4)
+        });
+        
+        // 创建点标记
+        const marker = new T.Marker(point, {icon: smallDotIcon});
+        map.addOverLay(marker);
+        measureState.markers.push(marker);
+        
+        // 移除之前的多边形
+        if (measureState.polygon) {
+            map.removeOverLay(measureState.polygon);
+        }
+        
+        // 如果点数大于2，创建多边形
+        if (measureState.points.length >= 3) {
+            const polygon = new T.Polygon(measureState.points, {
+                color: '#FF0000',
+                weight: 3,
+                opacity: 0.8,
+                fillColor: '#FF0000',
+                fillOpacity: 0.3
+            });
+            map.addOverLay(polygon);
+            measureState.polygon = polygon;
+            
+            // 计算面积并显示标签
+            const area = calculatePolygonArea(measureState.points);
+            showAreaLabel(getPolygonCenter(measureState.points), area);
+        }
+        
+        // 移除临时线
+        if (measureState.tempLine) {
+            map.removeOverLay(measureState.tempLine);
+            measureState.tempLine = null;
+        }
+    }
+
+    // 处理鼠标移动事件
+    function handleMouseMove(event) {
+        if (!measureState.isActive || measureState.mode !== 'distance' || measureState.points.length === 0) return;
+        
+        const lastPoint = measureState.points[measureState.points.length - 1];
+        const currentPoint = event.lnglat;
+        
+        // 移除之前的临时线
+        if (measureState.tempLine) {
+            map.removeOverLay(measureState.tempLine);
+        }
+        
+        // 创建新的临时线
+        measureState.tempLine = new T.Polyline([lastPoint, currentPoint], {
+            color: '#0000FF',
+            weight: 2,
+            opacity: 0.6,
+            dashArray: [5, 5]
+        });
+        map.addOverLay(measureState.tempLine);
+    }
+
+    // 处理测面鼠标移动事件
+    function handleAreaMouseMove(event) {
+        if (!measureState.isActive || measureState.mode !== 'area' || measureState.points.length === 0) return;
+        
+        const firstPoint = measureState.points[0];
+        const lastPoint = measureState.points[measureState.points.length - 1];
+        const currentPoint = event.lnglat;
+        
+        // 移除之前的临时线
+        if (measureState.tempLine) {
+            map.removeOverLay(measureState.tempLine);
+        }
+        
+        // 创建新的临时线（从最后一个点到当前点，再到第一个点形成闭合效果）
+        const tempPoints = [lastPoint, currentPoint];
+        if (measureState.points.length >= 2) {
+            tempPoints.push(firstPoint);
+        }
+        
+        measureState.tempLine = new T.Polyline(tempPoints, {
+            color: '#0000FF',
+            weight: 2,
+            opacity: 0.6,
+            dashArray: [5, 5]
+        });
+        map.addOverLay(measureState.tempLine);
+    }
+
+    // 结束测量
+    function finishMeasure() {
+        if (!measureState.isActive || measureState.mode !== 'distance') return;
+        
+        // 移除事件监听器
+        map.removeEventListener('click', handleMapClick);
+        map.removeEventListener('mousemove', handleMouseMove);
+        map.removeEventListener('dblclick', finishMeasure);
+        
+        // 移除临时线
+        if (measureState.tempLine) {
+            map.removeOverLay(measureState.tempLine);
+            measureState.tempLine = null;
+        }
+        
+        // 显示总距离
+        if (measureState.points.length > 1) {
+            const totalDistance = calculateTotalDistance();
+            showTotalDistanceLabel(totalDistance);
+        }
+        
+        // 重置测量状态
+        measureState.isActive = false;
+        measureState.mode = '';
+        
+        // 恢复其他按钮
+        disableButtons(false);
+        
+        console.log('测距功能已完成');
+    }
+
+    // 结束测面测量
+    function finishAreaMeasure() {
+        if (!measureState.isActive || measureState.mode !== 'area') return;
+        
+        // 移除事件监听器
+        map.removeEventListener('click', handleAreaMapClick);
+        map.removeEventListener('mousemove', handleAreaMouseMove);
+        map.removeEventListener('dblclick', finishAreaMeasure);
+        
+        // 移除临时线
+        if (measureState.tempLine) {
+            map.removeOverLay(measureState.tempLine);
+            measureState.tempLine = null;
+        }
+        
+        // 如果点数大于等于3，创建最终多边形
+        if (measureState.points.length >= 3) {
+            // 移除之前的多边形
+            if (measureState.polygon) {
+                map.removeOverLay(measureState.polygon);
+            }
+            
+            const polygon = new T.Polygon(measureState.points, {
+                color: '#FF0000',
+                weight: 3,
+                opacity: 0.8,
+                fillColor: '#FF0000',
+                fillOpacity: 0.3
+            });
+            map.addOverLay(polygon);
+            measureState.polygon = polygon;
+            
+            // 计算并显示总面积
+            const area = calculatePolygonArea(measureState.points);
+            showTotalAreaLabel(getPolygonCenter(measureState.points), area);
+        } else {
+            // 点数不足3个，移除所有标记
+            clearMeasureResult();
+        }
+        
+        // 重置测量状态
+        measureState.isActive = false;
+        measureState.mode = '';
+        
+        // 恢复其他按钮
+        disableButtons(false);
+        
+        console.log('测面功能已完成');
+    }
+
+    // 计算两点间距离（米）
+    function calculateDistance(point1, point2) {
+        // 使用天地图提供的距离计算方法
+        if (T.CRS && T.CRS.EPSG4326 && T.CRS.EPSG4326.distance) {
+            return T.CRS.EPSG4326.distance(point1, point2);
+        }
+        
+        // 如果没有提供，则使用球面距离公式
+        const R = 6371000; // 地球半径（米）
+        const dLat = (point2.lat - point1.lat) * Math.PI / 180;
+        const dLon = (point2.lng - point1.lng) * Math.PI / 180;
+        const a = 
+            Math.sin(dLat/2) * Math.sin(dLat/2) +
+            Math.cos(point1.lat * Math.PI / 180) * Math.cos(point2.lat * Math.PI / 180) * 
+            Math.sin(dLon/2) * Math.sin(dLon/2);
+        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+        return R * c;
+    }
+
+    // 计算多边形面积（平方米）
+    function calculatePolygonArea(points) {
+        // 使用天地图提供的面积计算方法（如果可用）
+        if (T.GeometryUtils && T.GeometryUtils.computeArea) {
+            return T.GeometryUtils.computeArea(points);
+        }
+        
+        // 如果没有提供，则使用球面多边形面积计算公式
+        // 这里使用简单的平面近似计算，对于小面积比较准确
+        if (points.length < 3) return 0;
+        
+        let area = 0;
+        const n = points.length;
+        
+        for (let i = 0; i < n; i++) {
+            const j = (i + 1) % n;
+            area += points[i].lng * points[j].lat;
+            area -= points[j].lng * points[i].lat;
+        }
+        
+        area = Math.abs(area) / 2.0;
+        
+        // 转换为平方米（这是一个简化的近似值）
+        // 更精确的计算需要考虑地球曲率
+        const earthRadius = 6371000; // 地球半径（米）
+        const degreeToMeter = (2 * Math.PI * earthRadius) / 360; // 每度对应的米数
+        
+        // 这个转换只是一个粗略的近似
+        return area * degreeToMeter * degreeToMeter;
+    }
+
+    // 获取多边形中心点
+    function getPolygonCenter(points) {
+        if (points.length === 0) return null;
+        
+        let x = 0, y = 0;
+        for (let i = 0; i < points.length; i++) {
+            x += points[i].lng;
+            y += points[i].lat;
+        }
+        
+        return new T.LngLat(x / points.length, y / points.length);
+    }
+
+    // 计算总距离
+    function calculateTotalDistance() {
+        let total = 0;
+        for (let i = 1; i < measureState.points.length; i++) {
+            const distance = calculateDistance(measureState.points[i-1], measureState.points[i]);
+            total += distance;
+        }
+        return total;
+    }
+
+    // 显示两点间距离标签
+    function showDistanceLabel(point, distance) {
+        const label = document.createElement('div');
+        label.className = 'distance-label';
+        label.innerHTML = distance.toFixed(2) + ' 米';
+        label.style.position = 'absolute';
+        label.style.backgroundColor = 'rgba(255, 255, 255, 0.9)';
+        label.style.padding = '2px 6px';
+        label.style.borderRadius = '3px';
+        label.style.fontSize = '12px';
+        label.style.boxShadow = '0 1px 2px rgba(0,0,0,0.3)';
+        label.style.zIndex = '1000';
+        label.style.transform = 'translate(-50%, -50%)';
+        
+        // 添加删除按钮
+        const closeBtn = document.createElement('span');
+        closeBtn.innerHTML = '×';
+        closeBtn.style.marginLeft = '5px';
+        closeBtn.style.cursor = 'pointer';
+        closeBtn.style.fontWeight = 'bold';
+        closeBtn.onclick = function() {
+            if (label.parentNode) {
+                label.parentNode.removeChild(label);
+            }
+        };
+        label.appendChild(closeBtn);
+        
+        document.getElementById('mapContainer').appendChild(label);
+        
+        // 定位标签（向上偏移20像素）
+        const pixel = map.lngLatToContainerPoint(point);
+        label.style.left = pixel.x + 'px';
+        label.style.top = (pixel.y - 20) + 'px';
+        
+        measureState.labels.push(label);
+    }
+
+    // 显示面积标签
+    function showAreaLabel(point, area) {
+        // 如果已存在面积标签，先移除它
+        if (measureState.areaLabel) {
+            if (measureState.areaLabel.parentNode) {
+                measureState.areaLabel.parentNode.removeChild(measureState.areaLabel);
+            }
+        }
+        
+        const label = document.createElement('div');
+        label.className = 'area-label';
+        label.innerHTML = area.toFixed(2) + ' 平方米';
+        label.style.position = 'absolute';
+        label.style.backgroundColor = 'rgba(255, 255, 255, 0.9)';
+        label.style.padding = '2px 6px';
+        label.style.borderRadius = '3px';
+        label.style.fontSize = '12px';
+        label.style.boxShadow = '0 1px 2px rgba(0,0,0,0.3)';
+        label.style.zIndex = '1000';
+        label.style.transform = 'translate(-50%, -50%)';
+        
+        // 添加删除按钮
+        const closeBtn = document.createElement('span');
+        closeBtn.innerHTML = '×';
+        closeBtn.style.marginLeft = '5px';
+        closeBtn.style.cursor = 'pointer';
+        closeBtn.style.fontWeight = 'bold';
+        closeBtn.onclick = function() {
+            if (label.parentNode) {
+                label.parentNode.removeChild(label);
+            }
+        };
+        label.appendChild(closeBtn);
+        
+        document.getElementById('mapContainer').appendChild(label);
+        
+        // 定位标签
+        const pixel = map.lngLatToContainerPoint(point);
+        label.style.left = pixel.x + 'px';
+        label.style.top = (pixel.y - 20) + 'px';
+        
+        measureState.areaLabel = label;
+        measureState.labels.push(label);
+    }
+
+    // 显示总面积标签
+    function showTotalAreaLabel(point, area) {
+        // 如果已存在面积标签，先移除它
+        if (measureState.areaLabel) {
+            if (measureState.areaLabel.parentNode) {
+                measureState.areaLabel.parentNode.removeChild(measureState.areaLabel);
+            }
+        }
+        
+        // 计算亩数（1亩 ≈ 666.6667平方米）
+        const areaInMu = area / 666.6667;
+        
+        const label = document.createElement('div');
+        label.className = 'total-area-label';
+        label.innerHTML = '总面积: ' + area.toFixed(2) + ' 平方米<br>' + areaInMu.toFixed(2) + ' 亩';
+        label.style.position = 'absolute';
+        label.style.backgroundColor = 'rgba(0, 0, 0, 0.7)';
+        label.style.color = 'white';
+        label.style.padding = '4px 8px';
+        label.style.borderRadius = '4px';
+        label.style.fontSize = '14px';
+        label.style.fontWeight = 'bold';
+        label.style.boxShadow = '0 2px 4px rgba(0,0,0,0.3)';
+        label.style.zIndex = '1000';
+        label.style.transform = 'translate(-50%, -50%)';
+        label.style.lineHeight = '1.4';
+        
+        // 添加删除按钮
+        const closeBtn = document.createElement('span');
+        closeBtn.innerHTML = ' ×';
+        closeBtn.style.cursor = 'pointer';
+        closeBtn.style.fontWeight = 'bold';
+        closeBtn.onclick = function() {
+            if (label.parentNode) {
+                label.parentNode.removeChild(label);
+            }
+        };
+        label.appendChild(closeBtn);
+        
+        document.getElementById('mapContainer').appendChild(label);
+        
+        // 定位标签
+        const pixel = map.lngLatToContainerPoint(point);
+        label.style.left = pixel.x + 'px';
+        label.style.top = (pixel.y - 40) + 'px';
+        
+        measureState.areaLabel = label;
+        measureState.labels.push(label);
+    }
+
+    // 显示总距离标签
+    function showTotalDistanceLabel(totalDistance) {
+        const lastPoint = measureState.points[measureState.points.length - 1];
+        const label = document.createElement('div');
+        label.className = 'total-distance-label';
+        label.innerHTML = '总距离: ' + totalDistance.toFixed(2) + ' 米';
+        label.style.position = 'absolute';
+        label.style.backgroundColor = 'rgba(0, 0, 0, 0.7)';
+        label.style.color = 'white';
+        label.style.padding = '4px 8px';
+        label.style.borderRadius = '4px';
+        label.style.fontSize = '14px';
+        label.style.fontWeight = 'bold';
+        label.style.boxShadow = '0 2px 4px rgba(0,0,0,0.3)';
+        label.style.zIndex = '1000';
+        label.style.transform = 'translate(-50%, -50%)';
+        
+        // 添加删除按钮
+        const closeBtn = document.createElement('span');
+        closeBtn.innerHTML = ' ×';
+        closeBtn.style.cursor = 'pointer';
+        closeBtn.style.fontWeight = 'bold';
+        closeBtn.onclick = function() {
+            if (label.parentNode) {
+                label.parentNode.removeChild(label);
+            }
+        };
+        label.appendChild(closeBtn);
+        
+        document.getElementById('mapContainer').appendChild(label);
+        
+        // 定位标签（向上偏移40像素，比段距离标签更高）
+        const pixel = map.lngLatToContainerPoint(lastPoint);
+        label.style.left = pixel.x + 'px';
+        label.style.top = (pixel.y - 60) + 'px';  // 从-40改为-60，增加间距
+        
+        measureState.labels.push(label);
+    }
+
+    // 清除测量结果
+    function clearMeasureResult() {
+        // 移除所有线条
+        measureState.lines.forEach(line => {
+            if (map && map.removeOverLay) {
+                try { map.removeOverLay(line); } catch(e) {}
+            }
+        });
+        
+        // 移除所有标记
+        measureState.markers.forEach(marker => {
+            if (map && map.removeOverLay) {
+                try { map.removeOverLay(marker); } catch(e) {}
+            }
+        });
+        
+        // 移除所有标签
+        measureState.labels.forEach(label => {
+            if (label.parentNode) {
+                try { label.parentNode.removeChild(label); } catch(e) {}
+            }
+        });
+        
+        // 移除临时线
+        if (measureState.tempLine) {
+            if (map && map.removeOverLay) {
+                try { map.removeOverLay(measureState.tempLine); } catch(e) {}
+            }
+            measureState.tempLine = null;
+        }
+        
+        // 移除多边形
+        if (measureState.polygon) {
+            if (map && map.removeOverLay) {
+                try { map.removeOverLay(measureState.polygon); } catch(e) {}
+            }
+            measureState.polygon = null;
+        }
+        
+        // 移除面积标签
+        if (measureState.areaLabel) {
+            if (measureState.areaLabel.parentNode) {
+                try { measureState.areaLabel.parentNode.removeChild(measureState.areaLabel); } catch(e) {}
+            }
+            measureState.areaLabel = null;
+        }
+        
+        // 重置状态
+        measureState.points = [];
+        measureState.lines = [];
+        measureState.markers = [];
+        measureState.labels = [];
+        measureState.isActive = false;
+        measureState.mode = '';
+    }
+
+    // 添加CSS样式用于距离标签
+    const style = document.createElement('style');
+    style.innerHTML = `
+        .distance-label, .total-distance-label {
+            font-family: Arial, sans-serif;
+            pointer-events: auto;
+        }
+    `;
+    document.head.appendChild(style);
 
 </script>
 </body>

@@ -166,14 +166,15 @@ public class GisUtil implements AutoCloseable {
 
         /** 最大作业速度(km/h) */
         private final double MAX_WORK_SPEED_1s = 8;
-        private final double MAX_WORK_SPEED_10s = 11.83;
+        private final double MAX_WORK_SPEED_10s = 13;
 
         /** 最小作业点阈值 */
         private final int MIN_WORK_POINTS_1s = 60;
         private final int MIN_WORK_POINTS_10s = 30;
 
         /** 最小亩数阈值 */
-        private final double MIN_MU = 0.3;
+        private final double MIN_MU_1s = 0.3;
+        private final double MIN_MU_10s = 0.5;
     }
 
     /**
@@ -1579,7 +1580,7 @@ public class GisUtil implements AutoCloseable {
         if (outlineParts.size() > 1) {
             OutlinePart bak = outlineParts.get(0);
             outlineParts = outlineParts.stream()
-                    .filter(part -> part.getMu() >= config.MIN_MU)
+                    .filter(part -> part.getMu() >= config.MIN_MU_1s)
                     .collect(Collectors.toList());
             if (outlineParts.isEmpty()) {
                 outlineParts.add(bak);

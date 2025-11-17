@@ -324,9 +324,46 @@ public class TestGisUtil {
     }
 
     @Test
-    void 循环金大丰() {
+    void t013() {
+        String did = "EM9101B8F5AZT0041";
+        String yyyyMMdd = "20251023";
+        读取一天轨迹数据(did, yyyyMMdd);
+        测试一天拆分数据(did, yyyyMMdd, 2.5);
+        输出一天HTML(did, yyyyMMdd);
+    }
+
+    @Test
+    void t014() {
+        String did = "EM9101B8F4AZR0296";
+        String yyyyMMdd = "20251101";
+        读取一天轨迹数据(did, yyyyMMdd);
+        测试一天拆分数据(did, yyyyMMdd, 2.5);
+        输出一天HTML(did, yyyyMMdd);
+    }
+
+    @Test
+    void 循环金大丰1() {
+        List<String> l = new ArrayList<>();
         String did = "EM9101B8F5AZT0041";
         String startTime = "20250903000000";
+        String endTime = "20251028000000";
+        List<DateTime> dates = DateUtil.rangeToList(DateUtil.parse(startTime, "yyyyMMddHHmmss"),
+                DateUtil.parse(endTime, "yyyyMMddHHmmss"), DateField.DAY_OF_YEAR);
+        for (DateTime date : dates) {
+            String yyyyMMdd = DateUtil.format(date, "yyyyMMdd");
+            log.info("{}", yyyyMMdd);
+            读取一天轨迹数据(did, yyyyMMdd);
+            l.add(测试一天拆分数据(did, yyyyMMdd, 2.5));
+            输出一天HTML(did, yyyyMMdd);
+        }
+        FileUtil.writeUtf8Lines(l, path + "/" + did + "_mu.txt");
+    }
+
+    @Test
+    void 循环金大丰2() {
+        List<String> l = new ArrayList<>();
+        String did = "EM9101B8F4AZR0296";
+        String startTime = "20251028000000";
         String endTime = "20251105000000";
         List<DateTime> dates = DateUtil.rangeToList(DateUtil.parse(startTime, "yyyyMMddHHmmss"),
                 DateUtil.parse(endTime, "yyyyMMddHHmmss"), DateField.DAY_OF_YEAR);
@@ -334,9 +371,10 @@ public class TestGisUtil {
             String yyyyMMdd = DateUtil.format(date, "yyyyMMdd");
             log.info("{}", yyyyMMdd);
             读取一天轨迹数据(did, yyyyMMdd);
-            测试一天拆分数据(did, yyyyMMdd, 2.5);
+            l.add(测试一天拆分数据(did, yyyyMMdd, 2.5));
             输出一天HTML(did, yyyyMMdd);
         }
+        FileUtil.writeUtf8Lines(l, path + "/" + did + "_mu.txt");
     }
 
     @Test
@@ -451,10 +489,10 @@ public class TestGisUtil {
         }
     }
 
-    void 测试一天拆分数据(String did, String yyyyMMdd, double jobWidth) {
+    String 测试一天拆分数据(String did, String yyyyMMdd, double jobWidth) {
         String fileName = path + StrUtil.format("/{}_{}_trace.txt", did, yyyyMMdd);
         if (!FileUtil.exist(fileName)) {
-            return;
+            return null;
         }
         List<TrackPoint> l = new ArrayList<>();
         DateTime jobEndTime = DateUtil.parse(yyyyMMdd + "235959", "yyyyMMddHHmmss");
@@ -505,9 +543,12 @@ public class TestGisUtil {
             FileUtil.writeUtf8String(pb.toString(), partsFile);
 
             log.info("结果文件已生成：outline={}, parts={}", outlineFile, partsFile);
+
+            return StrUtil.format("{} {} {}", did, yyyyMMdd, res.getMu());
         } catch (Exception e) {
             log.error(e);
         }
+        return null;
     }
 
     void 测试一段拆分数据(String did, String startTime, String endTime, double jobWidth) {
