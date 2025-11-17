@@ -325,6 +325,12 @@
             <div class="display-toggles" style="margin-top:8px;font-size:12px;color:#333;">
                 <label><input type="checkbox" id="toggleLabelsCheckbox"> 显示亩数</label>
             </div>
+            
+            <!-- 测距工具控制 -->
+            <div class="measure-controls" style="margin-top:8px;display:flex;gap:8px;">
+                <button id="startMeasureButton" style="padding:6px 8px;border:none;border-radius:4px;cursor:pointer;font-size:12px;background:#4CAF50;color:white;">开启测距</button>
+                <button id="stopMeasureButton" style="padding:6px 8px;border:none;border-radius:4px;cursor:pointer;font-size:12px;background:#f5f5f5;color:#333;" disabled>关闭测距</button>
+            </div>
         </div>
 
         <div class="tab-pane" id="tabSplit">
@@ -1717,6 +1723,7 @@
     let mapLabelHandlers = []; // 存储地图事件处理器
     let labelsEnabled = false; // 标签显示开关（默认关闭）
     let isDrawing = false; // 绘制进行中防止重复点击
+    let lineTool; // 测距工具对象
 
     window.onload = function () {
         if (typeof T === 'undefined') {
@@ -1730,6 +1737,7 @@
         bindBatchGenerator();
         bindMultiSplitter();
         bindLabelsToggle(); // 绑定标签显示开关
+        bindMeasureToolEvents(); // 绑定测距工具控制按钮事件
         bindTrackEvents();  // 绑定轨迹绘制与清空
         bindPlaybackControls(); // 绑定轨迹回放
     };
@@ -1796,6 +1804,12 @@
                 alert("地图加载错误: " + e.message);
                 hideLoading();
             });
+            
+            // 初始化测距工具
+            const lineToolConfig = {
+                showLabel: true // 显示测距结果标签
+            };
+            lineTool = new T.PolylineTool(map, lineToolConfig);
 
             // 监听地图移动事件，用于更新标签位置
             const moveHandler = function () {
@@ -2167,6 +2181,42 @@
     window.updateAllLabelsPosition = updateAllLabelsPosition;
 
     // 绑定“显示亩数标签”开关（默认隐藏）
+    // 绑定测距工具控制按钮事件
+    function bindMeasureToolEvents() {
+        const startMeasureBtn = document.getElementById('startMeasureButton');
+        const stopMeasureBtn = document.getElementById('stopMeasureButton');
+        
+        // 开启测距按钮点击事件
+        startMeasureBtn.addEventListener('click', function() {
+            if (lineTool) {
+                // 开启测距功能
+                lineTool.open();
+                // 更新按钮状态
+                startMeasureBtn.disabled = true;
+                startMeasureBtn.style.backgroundColor = '#f5f5f5';
+                startMeasureBtn.style.color = '#333';
+                stopMeasureBtn.disabled = false;
+                stopMeasureBtn.style.backgroundColor = '#ff5722';
+                stopMeasureBtn.style.color = 'white';
+            }
+        });
+        
+        // 关闭测距按钮点击事件
+        stopMeasureBtn.addEventListener('click', function() {
+            if (lineTool) {
+                // 关闭测距功能
+                lineTool.close();
+                // 更新按钮状态
+                stopMeasureBtn.disabled = true;
+                stopMeasureBtn.style.backgroundColor = '#f5f5f5';
+                stopMeasureBtn.style.color = '#333';
+                startMeasureBtn.disabled = false;
+                startMeasureBtn.style.backgroundColor = '#4CAF50';
+                startMeasureBtn.style.color = 'white';
+            }
+        });
+    }
+    
     function bindLabelsToggle() {
         const cb = document.getElementById('toggleLabelsCheckbox');
         const container = document.getElementById('mapContainer');
