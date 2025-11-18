@@ -231,14 +231,6 @@ public class GisUtil implements AutoCloseable {
      * 该类实现了Builder设计模式，允许在创建GisUtil对象前灵活配置各项参数。
      * 构建器模式确保对象创建的一致性和完整性，避免了构造函数参数膨胀问题。
      * </p>
-     * <p>
-     * 使用示例：
-     * <pre>
-     * try (GisUtil gisUtil = GisUtil.builder().build()) {
-     *     // 使用gisUtil进行GIS操作
-     * }
-     * </pre>
-     * </p>
      */
     public static class Builder {
         /** 配置对象，包含GisUtil所需的常量、默认值和缓存实例 */
@@ -276,11 +268,27 @@ public class GisUtil implements AutoCloseable {
     }
 
     /**
-     * 使用Douglas-Peucker算法对轨迹点进行抽稀
+     * 使用Douglas-Peucker算法对轨迹点进行抽稀优化，减少数据量同时保持形状特征
      * 
-     * @param points    原始轨迹点列表
-     * @param tolerance 容差（米）
-     * @return 抽稀后的轨迹点列表
+     * <p>该方法实现了经典的Douglas-Peucker抽稀算法，通过递归方式找到偏离直线最远的点，
+     * 并以指定容差值进行点筛选。在轨迹处理中，这种方法能够有效减少GPS轨迹的点数，
+     * 提高后续几何计算的效率，同时保持轨迹的整体形状特征。
+     * 
+     * <p>算法原理：
+     * <ol>
+     *   <li>连接轨迹的首尾点，形成基线</li>
+     *   <li>计算中间每个点到基线的垂直距离</li>
+     *   <li>找到距离基线最远的点，如果距离超过容差阈值，则保留该点</li>
+     *   <li>递归处理被保留点分割的子轨迹段</li>
+     *   <li>最终得到满足精度要求的抽稀轨迹</li>
+     * </ol>
+     * 
+     * <p>性能优化：使用JTS库的DouglasPeuckerSimplifier进行实现，相比手工实现有更好的性能表现
+     * 
+     * @param points    原始轨迹点列表，按时间顺序排列，不能为null或空列表
+     * @param tolerance 抽稀容差值（单位：米），建议值0.1-1.0，值越大抽稀效果越明显
+     * @return 抽稀后的轨迹点列表，保证包含首尾点，可能减少中间点数量
+     * @throws IllegalArgumentException 如果轨迹点列表为空或容差值小于0
      */
     private List<TrackPoint> simplifyTrackPoints(List<TrackPoint> points, double tolerance) {
         if (points.size() <= 2) {
@@ -330,7 +338,18 @@ public class GisUtil implements AutoCloseable {
     }
 
     /**
-     * 查找最接近给定坐标的轨迹点
+     * 查找最接近给定坐标的轨迹点，用于Douglas-Peucker抽稀算法的点匹配
+     * 
+     * <p>在轨迹点抽稀过程中，抽稀后的坐标可能与原始轨迹点不完全匹配，
+     * 需要找到最接近的原始轨迹点来保留时间、速度等重要属性信息。
+     * 
+     * <p>该方法使用欧几里得距离计算方法，对于小范围内的坐标比较效率很高。
+     * 考虑到GPS轨迹点的空间相关性，这种简单距离计算方法已经能够满足精度要求。
+     * 
+     * @param coord 目标坐标点，经纬度坐标
+     * @param points 候选轨迹点列表，从中查找最接近的点
+     * @return 最接近的轨迹点，如果输入列表为空则返回null
+     * @throws IllegalArgumentException 如果坐标参数为null
      */
     private TrackPoint findClosestPoint(Coordinate coord, List<TrackPoint> points) {
         TrackPoint closest = null;
@@ -412,7 +431,35 @@ public class GisUtil implements AutoCloseable {
     }
 
     /**
-     * 处理单个轨迹块，提取为单独方法以提高可读性和可维护性
+     * 处理单个轨迹块，从大型轨迹段中提取指定范围的点并生成缓冲区几何图形
+     * 
+     * <p>该方法是分块处理策略的核心组件，负责处理轨迹数据的一个连续片段。
+     * 通过将大型轨迹段分解为较小的块来处理，可以有效避免内存溢出和计算超时问题。
+     * 
+     * <p>处理流程：
+     * <ol>
+     *   <li>从原始轨迹点列表中提取指定索引范围的子列表</li>
+     *   <li>将轨迹点转换为JTS坐标数组以提高几何计算性能</li>
+     *   <li>创建线串几何对象表示轨迹路径</li>
+     *   <li>使用优化的缓冲区参数生成指定宽度的缓冲区</li>
+     *   <li>对复杂几何图形进行轻微简化以提高后续处理效率</li>
+     * </ol>
+     * 
+     * <p>性能优化策略：
+     * <ul>
+     *   <li>使用数组直接转换而非中间集合，减少内存分配</li>
+     *   <li>采用低精度缓冲区参数（quadrantSegments=4）提升计算速度</li>
+     *   <li>对复杂几何图形进行条件性简化，避免过度处理</li>
+     * </ul>
+     * 
+     * @param points      完整的轨迹点列表，作为数据源
+     * @param startIndex  块的起始索引（包含），不能超过列表大小
+     * @param chunkSize   块的大小（点数），实际处理点数可能少于该值
+     * @param totalPoints 轨迹点总数，用于边界检查
+     * @param bufferWidth 缓冲区宽度（米），表示作业范围的半宽
+     * @return 轨迹块的缓冲区几何图形，永不为null，可能为空几何图形
+     * @throws IllegalArgumentException 如果参数无效（如负索引、超出范围等）
+     * @see Geometry#buffer(double, int, int) JTS缓冲区生成方法
      */
     private Geometry processChunk(List<TrackPoint> points, int startIndex, int chunkSize,
             int totalPoints, double bufferWidth) {
