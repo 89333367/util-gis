@@ -2,25 +2,12 @@
 
 ## 功能特点
 
-1. 拓扑关系判断：相交、相等、脱节、接触、交叉、内含、包含、重叠（WGS84，支持 `POLYGON/MULTIPOLYGON`）
-2. 电子围栏：点是否在多边形内（含边界），支持快速裁剪与拓扑修复
-3. WKT 解析与转换：统一 WGS84 输出，支持坐标识别与高斯-克吕格分带投影转换
-4. 面积与度量：球面公式面积（亩数换算）、两点 Haversine 距离（米）
-5. 相交计算：两 WKT 求交并返回相交几何与亩数
-6. 轨迹轮廓：根据轨迹点和总宽度生成轮廓（Polygon），含形态学处理
-7. 道路分段：按总宽度对轨迹分段，支持最大段数控制
-8. 示例页面：`src/test/resources/showGeometry.html` 在浏览器中展示几何图形关系示例
-
-## 还可以判断如下几何图形关系（DE-9IM 拓扑语义）
-
-- 相等（Equals）：两几何拓扑结构相等（`equalsTopo`）
-- 脱节（Disjoint）：没有任何公共点（`disjoint`）
-- 相交（Intersects）：至少有一个公共点（`intersects`）
-- 接触（Touches）：存在公共边界点但没有内部公共点（`touches`）
-- 交叉（Crosses）：共享部分内部点，交集既非包含也非相等（`crosses`）
-- 内含（Within）：A 完全在 B 内（`within`）
-- 包含（Contains）：B 完全在 A 内（`contains`）
-- 重叠（Overlaps）：同维几何部分重合，交集既不是包含也不是相等（`overlaps`）
+1. 坐标系统转换：WGS84与高斯-克吕格投影坐标系双向转换，支持批量点转换和几何图形转换
+2. 空间几何分析：点-几何关系判断（点是否在圆内、矩形内、多边形内），支持多边形交集计算
+3. 距离与面积计算：基于球面公式的精确距离计算（Haversine算法）和面积计算，支持亩数换算
+4. 轨迹处理：智能轨迹分段处理，包含数据预处理、速度过滤、Douglas-Peucker抽稀优化、分块处理
+5. 高性能优化：多级缓存机制、并行分块处理、智能空间索引优化，适合大数据量场景
+6. 几何构建：基于轨迹点和作业宽度生成缓冲区轮廓，支持复杂轨迹的智能分段和合并
 
 ## 环境
 
@@ -39,45 +26,113 @@
 </dependency>
 ```
 
-### 使用示例，更多调用方法请看 `GisUtil.java` 源码
+### 使用示例
 
 ```java
-// 拓扑关系与电子围栏
+import java.time.LocalDateTime;
+import java.util.Arrays;
+import java.util.List;
+import sunyu.util.GisUtil;
+import sunyu.util.pojo.TrackPoint;
+import sunyu.util.pojo.CoordinatePoint;
+import sunyu.util.pojo.SplitRoadResult;
+import sunyu.util.pojo.OutlinePart;
+import sunyu.util.pojo.WktIntersectionResult;
+import org.locationtech.jts.geom.Geometry;
+
 GisUtil gis = GisUtil.builder().build();
 
+// 1) 坐标转换示例
+TrackPoint wgs84Point = new TrackPoint(LocalDateTime.now(), 120.0, 30.0);
+TrackPoint gaussPoint = gis.toGaussPoint(wgs84Point); // WGS84转高斯投影
+System.out.println("WGS84: lon=" + wgs84Point.getLon() + ", lat=" + wgs84Point.getLat());
+System.out.println("Gauss: x=" + gaussPoint.getLon() + ", y=" + gaussPoint.getLat());
+
+// 2) 批量坐标转换
+List<TrackPoint> wgs84Points = Arrays.asList(
+    new TrackPoint(LocalDateTime.now(), 120.0, 30.0),
+    new TrackPoint(LocalDateTime.now(), 120.01, 30.01)
+);
+List<TrackPoint> gaussPoints = gis.toGaussPointList(wgs84Points);
+System.out.println("converted " + gaussPoints.size() + " points");
+
+// 3) WKT字符串转几何对象
+String wktPolygon = "POLYGON((120 30, 120.01 30, 120.01 30.01, 120 30.01, 120 30))";
+Geometry geometry = gis.toWgs84Geometry(wktPolygon);
+System.out.println("Geometry type: " + geometry.getGeometryType());
+
+// 4) 距离计算（Haversine算法）
+CoordinatePoint point1 = new CoordinatePoint(120.0, 30.0);
+CoordinatePoint point2 = new CoordinatePoint(120.01, 30.02);
+double distance = gis.haversine(point1, point2);
+System.out.println("distance(m)=" + distance);
+
+// 5) 点与几何关系判断
+CoordinatePoint testPoint = new CoordinatePoint(120.005, 30.005);
+boolean inPolygon = gis.inGeometry(testPoint, geometry);
+System.out.println("point in polygon=" + inPolygon);
+
+// 6) 圆形区域判断
+CoordinatePoint center = new CoordinatePoint(120.0, 30.0);
+boolean inCircle = gis.inCircle(testPoint, center, 1000.0); // 1公里半径
+System.out.println("point in circle=" + inCircle);
+
+// 7) 矩形区域判断
+CoordinatePoint topLeft = new CoordinatePoint(119.99, 30.01);
+CoordinatePoint bottomRight = new CoordinatePoint(120.01, 29.99);
+boolean inRectangle = gis.inRectangle(testPoint, topLeft, bottomRight);
+System.out.println("point in rectangle=" + inRectangle);
+```
+
+```java
+// 面积计算与轨迹处理
+GisUtil gis = GisUtil.builder().build();
+
+// 1) 几何面积计算（亩数）
 String wktA = "POLYGON((120 30, 120.01 30, 120.01 30.01, 120 30.01, 120 30))";
+double mu = gis.calcMu(wktA);
+System.out.println("area(mu)=" + mu);
+
+// 2) 球面面积计算（平方米）
+Geometry geometryA = gis.toWgs84Geometry(wktA);
+double area = gis.calculateSphericalArea(geometryA);
+System.out.println("area(sqm)=" + area);
+
+// 3) 多边形交集计算
 String wktB = "POLYGON((120.005 30.005, 120.015 30.005, 120.015 30.015, 120.005 30.015, 120.005 30.005))";
+WktIntersectionResult intersection = gis.intersection(wktA, wktB);
+System.out.println("intersection WKT=" + intersection.getWkt());
+System.out.println("intersection mu=" + intersection.getMu());
 
-boolean intersects = gis.intersects(wktA, wktB);
-boolean equalsTopo = gis.equalsWkt(wktA, wktB);
-boolean disjoint = gis.disjoint(wktA, wktB);
-boolean touches = gis.touches(wktA, wktB);
-boolean crosses = gis.crosses(wktA, wktB);
-boolean within = gis.within(wktA, wktB);
-boolean contains = gis.contains(wktA, wktB);
-boolean overlaps = gis.overlaps(wktA, wktB);
+// 4) 坐标系统转换 - 高斯转WGS84
+Geometry gaussGeometry = gis.toGaussGeometry(geometryA);
+Geometry backToWgs84 = gis.toWgs84Geometry(gaussGeometry);
+System.out.println("converted back to WGS84: " + backToWgs84.getGeometryType());
 
-boolean inFence = gis.pointInPolygon(new CoordinatePoint(120.008, 30.008), wktA);
-System.out.printf("intersects=%s, inFence=%s\n", intersects, inFence);
+// 5) 轨迹分段处理（农业作业轨迹）
+List<TrackPoint> trackPoints = Arrays.asList(
+    new TrackPoint(LocalDateTime.parse("2024-05-01T08:00:00"), 120.0000, 30.0000),
+    new TrackPoint(LocalDateTime.parse("2024-05-01T08:05:00"), 120.0010, 30.0005),
+    new TrackPoint(LocalDateTime.parse("2024-05-01T08:10:00"), 120.0020, 30.0010),
+    new TrackPoint(LocalDateTime.parse("2024-05-01T08:15:00"), 120.0030, 30.0015)
+);
+
+// 智能轨迹分段，作业宽度12米
+SplitRoadResult splitResult = gis.splitRoad(trackPoints, 12.0);
+System.out.println("total area(mu)=" + splitResult.getMu());
+System.out.println("total segments=" + splitResult.getParts().size());
+
+for (OutlinePart part : splitResult.getParts()) {
+    System.out.println("segment: " + part.getStartTime() + " ~ " + part.getEndTime() + 
+                       ", area=" + String.format("%.2f", part.getMu()) + "mu");
+    System.out.println("  WKT=" + part.getWkt());
+}
+
+// 6) 资源管理 - 释放GisUtil占用的资源
+gis.close();
 ```
 
-```java
-// 相交计算与面积、几何转换
-GisUtil gis = GisUtil.builder().build();
-
-WktIntersectionResult res = gis.intersection(wktA, wktB);
-System.out.println("inter WKT=" + res.getWkt());
-System.out.println("inter mu=" + res.getMu());
-
-Geometry g = gis.fromWkt(wktA); // 解析并转换到高斯-克吕格米制坐标
-String wkt = gis.toWkt(g);      // 统一输出为 WGS84 WKT
-
-// 两点大圆距离（米）
-double d = gis.haversine(new CoordinatePoint(120.0, 30.0), new CoordinatePoint(120.01, 30.02));
-System.out.println("distance(m)=" + d);
-```
-
-## 轨迹轮廓与分段示例
+## 轨迹处理示例
 
 ```java
 import java.time.LocalDateTime;
@@ -89,27 +144,25 @@ import sunyu.util.pojo.OutlinePart;
 import sunyu.util.pojo.SplitRoadResult;
 
 // 准备轨迹点（WGS84，经纬度，时间）
-List<TrackPoint> seg = Arrays.asList(
+List<TrackPoint> trackPoints = Arrays.asList(
     new TrackPoint(LocalDateTime.parse("2024-05-01T08:00:00"), 120.0000, 30.0000),
     new TrackPoint(LocalDateTime.parse("2024-05-01T08:05:00"), 120.0010, 30.0005),
     new TrackPoint(LocalDateTime.parse("2024-05-01T08:10:00"), 120.0020, 30.0010),
-    new TrackPoint(LocalDateTime.parse("2024-05-01T08:15:00"), 120.0030, 30.0015)
+    new TrackPoint(LocalDateTime.parse("2024-05-01T08:15:00"), 120.0030, 30.0015),
+    new TrackPoint(LocalDateTime.parse("2024-05-01T08:20:00"), 120.0040, 30.0020)
 );
 
 GisUtil gis = GisUtil.builder().build();
 
-// 1) 单体轮廓（不拆分）：总宽度（米，左右合计）
-OutlinePart outline = gis.getOutline(seg, 12.0);
-System.out.println("mu=" + outline.getMu());
-System.out.println("wkt=" + outline.getWkt());
-System.out.println("start=" + outline.getStartTime() + ", end=" + outline.getEndTime());
-System.out.println("trackStr=" + outline.getTrackStr()); // "lon,lat,yyyyMMddHHmmss#..."
+// 智能轨迹分段处理：作业宽度12米
+SplitRoadResult splitResult = gis.splitRoad(trackPoints, 12.0);
+System.out.println("total area(mu)=" + splitResult.getMu());
+System.out.println("total segments=" + splitResult.getParts().size());
 
-// 2) 分段轮廓（保留面积 Top-N）
-SplitRoadResult split = gis.splitRoad(seg, 12.0, 5); // 最多保留5段
-System.out.println("outlineWkt=" + split.getWkt());
-for (OutlinePart part : split.getParts()) {
-    System.out.println("part mu=" + part.getMu() + ", start=" + part.getStartTime() + ", end=" + part.getEndTime());
+for (OutlinePart part : splitResult.getParts()) {
+    System.out.println("segment: " + part.getStartTime() + " ~ " + part.getEndTime() + 
+                       ", area=" + String.format("%.2f", part.getMu()) + "mu");
+    System.out.println("  WKT=" + part.getWkt());
 }
 ```
 
@@ -124,16 +177,28 @@ for (OutlinePart part : split.getParts()) {
 
 ## API速查
 
-- `toWkt(Geometry)`：几何转 WKT（统一 WGS84，坐标合法性识别与修复）。
-- `fromWkt(String)`：WKT 解析为 `Geometry` 并转换到高斯-克吕格米制坐标（按首点经度分带）。
-- `haversine(CoordinatePoint, CoordinatePoint)`：两点大圆距离，单位米（WGS84）。
-- `calcMu(Geometry)` / `calcMu(String)`：几何面积换算为亩（球面公式，半径 6378137）。
-- `intersection(String, String)`：两段 WKT 求交，返回 `WktIntersectionResult`（包含 `wkt` 与 `mu`）。
-- 拓扑判断（WKT，支持 `POLYGON/MULTIPOLYGON`）：
-  - `intersects`、`equalsWkt`、`disjoint`、`touches`、`crosses`、`within`、`contains`、`overlaps`。
-- 轨迹轮廓：
-  - `getOutline(List<TrackPoint>, double totalWidthM)`：线缓冲构建单体轮廓并返回 `OutlinePart`。
-  - `splitRoad(List<TrackPoint>, double totalWidthM[, Integer maxSegments])`：保留面积 Top-N 的分段结果，返回 `SplitRoadResult`。
+- 坐标系统转换：
+  - `toGaussPoint(TrackPoint)`：单个WGS84坐标点转高斯投影坐标
+  - `toGaussPointList(List<TrackPoint>)`：批量WGS84坐标点转高斯投影坐标
+  - `toWgs84Geometry(Geometry)`：高斯投影几何图形转WGS84几何图形
+  - `toWgs84Geometry(String)`：WGS84 WKT字符串转几何对象
+  - `toGaussGeometry(Geometry)`：WGS84几何图形转高斯投影几何图形
+
+- 距离与面积计算：
+  - `haversine(CoordinatePoint, CoordinatePoint)`：两点大圆距离，单位米（WGS84）
+  - `calcMu(Geometry)` / `calcMu(String)`：几何面积换算为亩（球面公式，半径 6378137）
+  - `calculateSphericalArea(Geometry)`：计算几何图形的球面面积（平方米）
+
+- 空间几何关系判断：
+  - `inCircle(CoordinatePoint, CoordinatePoint, double)`：点是否在指定半径的圆形区域内
+  - `inGeometry(CoordinatePoint, Geometry)`：点是否在多边形内（含边界）
+  - `inRectangle(CoordinatePoint, CoordinatePoint, CoordinatePoint)`：点是否在矩形区域内
+
+- 相交计算：
+  - `intersection(String, String)`：两段WKT求交，返回 `WktIntersectionResult`（包含 `wkt` 与 `mu`）
+
+- 轨迹处理：
+  - `splitRoad(List<TrackPoint>, double totalWidthM)`：智能轨迹分段处理，返回 `SplitRoadResult`
 
 ## 坐标系与单位
 
@@ -145,7 +210,7 @@ for (OutlinePart part : split.getParts()) {
 
 - 轨迹预处理：
   - 排除越界与 `(0,0)` 点并按时间升序；`splitRoad` 会额外按速度过滤（默认范围 `[1, 20] km/h`）。
-  - 单体轮廓 `getOutline` 不做道路拆分、不平滑；如生成 `MultiPolygon`，仅做轻微开运算保留缝隙并选面积最大面。
+  - 单体轮廓处理不做道路拆分、不平滑；如生成 `MultiPolygon`，仅做轻微开运算保留缝隙并选面积最大面。
 - 合法性修复：
   - 拓扑判断在发现非法坐标时会先执行 `buffer(0)` 修复（自相交等问题）。
 - 可配置项：
@@ -168,5 +233,5 @@ for (OutlinePart part : split.getParts()) {
 
 - WKT 自相交或坐标不合法：内部会尝试 `buffer(0)` 修复；建议输入合法几何。
 - `POINT/LINESTRING` 支持：拓扑谓词以 `POLYGON/MULTIPOLYGON` 为主；其他类型用于展示与转换。
-- 轨迹点最少数量：`getOutline/splitRoad` 最少需要 3 个有效点。
-- 结果为 `MultiPolygon`：`splitRoad` 根据面积裁剪保留不超过 `maxSegments` 的区块；`getOutline` 返回单体面。
+- 轨迹点最少数量：`splitRoad` 最少需要 3 个有效点。
+- 结果为 `MultiPolygon`：`splitRoad` 根据面积裁剪保留不超过 `maxSegments` 的区块。
