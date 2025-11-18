@@ -306,10 +306,76 @@
           }
           
           .toolbar-divider {
-              height: 1px;
-              background-color: #e0e0e0;
-              margin: 2px 4px;
-          }
+            height: 1px;
+            background-color: #e0e0e0;
+            margin: 2px 4px;
+        }
+        
+        /* 颜色选择器样式 */
+        .color-picker-container {
+            margin-top: 10px;
+            padding: 10px;
+            background-color: #f9f9f9;
+            border-radius: 4px;
+            border: 1px solid #e0e0e0;
+        }
+        
+        .color-picker-title {
+            font-size: 13px;
+            font-weight: 600;
+            color: #333;
+            margin-bottom: 8px;
+        }
+        
+        .color-picker-row {
+            display: flex;
+            align-items: center;
+            margin-bottom: 8px;
+        }
+        
+        .color-picker-label {
+            font-size: 12px;
+            color: #555;
+            width: 60px;
+            flex-shrink: 0;
+        }
+        
+        .color-picker {
+            width: 30px;
+            height: 30px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            cursor: pointer;
+            margin-right: 8px;
+            flex-shrink: 0;
+        }
+        
+        .color-input {
+            flex: 1;
+            padding: 4px 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 12px;
+            font-family: monospace;
+        }
+        
+        .opacity-slider-container {
+            display: flex;
+            align-items: center;
+            margin-top: 8px;
+        }
+        
+        .opacity-slider {
+            flex: 1;
+            margin-right: 8px;
+        }
+        
+        .opacity-value {
+            font-size: 12px;
+            color: #555;
+            width: 40px;
+            text-align: right;
+        }
       </style>
     <script src="https://api.tianditu.gov.cn/api?v=4.0&tk=648f621977051d0199ff0f965d3fd322"></script>
     <script src="https://cdn.bootcdn.net/ajax/libs/Turf.js/6.5.0/turf.min.js"></script>
@@ -385,6 +451,27 @@
             <!-- 显示开关：仅保留显示亩数 -->
             <div class="display-toggles" style="margin-top:8px;font-size:12px;color:#333;">
                 <label><input type="checkbox" id="toggleLabelsCheckbox"> 显示亩数</label>
+            </div>
+            <!-- 颜色选择器 -->
+            <div class="color-picker-container" style="margin-top:8px;">
+                <div style="margin-bottom:6px;font-size:12px;color:#333;">轮廓颜色设置：</div>
+                <div style="display:flex;align-items:center;gap:8px;">
+                    <div style="display:flex;align-items:center;gap:4px;">
+                        <label style="font-size:12px;">边框颜色:</label>
+                        <div id="outlineColorPicker" class="color-picker" style="width:24px;height:24px;border:1px solid #ccc;cursor:pointer;background-color:#FFD700;"></div>
+                        <input type="color" id="outlineColorInput" value="#FFD700" style="display:none;">
+                    </div>
+                    <div style="display:flex;align-items:center;gap:4px;">
+                        <label style="font-size:12px;">填充颜色:</label>
+                        <div id="fillColorPicker" class="color-picker" style="width:24px;height:24px;border:1px solid #ccc;cursor:pointer;background-color:#FFFF00;"></div>
+                        <input type="color" id="fillColorInput" value="#FFFF00" style="display:none;">
+                    </div>
+                    <div style="display:flex;align-items:center;gap:4px;">
+                        <label style="font-size:12px;">透明度:</label>
+                        <input type="range" id="fillOpacitySlider" min="0" max="100" value="35" style="width:60px;">
+                        <span id="fillOpacityValue" style="font-size:12px;">35%</span>
+                    </div>
+                </div>
             </div>
         </div>
 
@@ -30912,6 +30999,22 @@
                 <button id="showTrackPointsButton" disabled style="flex: 1;" class="btn-warning">打点</button>
                 <button id="clearTrackButton" disabled style="flex: 1;">清空轨迹</button>
             </div>
+            <!-- 轨迹颜色选择器 -->
+            <div class="color-picker-container" style="margin-top:8px;">
+                <div style="margin-bottom:6px;font-size:12px;color:#333;">轨迹颜色设置：</div>
+                <div style="display:flex;align-items:center;gap:8px;">
+                    <div style="display:flex;align-items:center;gap:4px;">
+                        <label style="font-size:12px;">轨迹线颜色:</label>
+                        <div id="trackLineColorPicker" class="color-picker" style="width:24px;height:24px;border:1px solid #ccc;cursor:pointer;background-color:#FF0000;"></div>
+                        <input type="color" id="trackLineColorInput" value="#FF0000" style="display:none;">
+                    </div>
+                    <div style="display:flex;align-items:center;gap:4px;">
+                        <label style="font-size:12px;">轨迹点颜色:</label>
+                        <div id="trackPointColorPicker" class="color-picker" style="width:24px;height:24px;border:1px solid #ccc;cursor:pointer;background-color:#68EAF3;"></div>
+                        <input type="color" id="trackPointColorInput" value="#68EAF3" style="display:none;">
+                    </div>
+                </div>
+            </div>
             <!-- 回放控制 -->
             <div class="split-section" style="margin-top:8px;">
                 <div class="title">轨迹回放</div>
@@ -30976,6 +31079,7 @@
         bindPlaybackControls(); // 绑定轨迹回放
         bindMeasureEvents(); // 绑定测量功能
         bindMapTypeEvent(); // 绑定地图类型切换功能
+        initColorPickers(); // 初始化颜色选择器
     };
 
     function initMap() {
@@ -31230,11 +31334,11 @@
 
          // 创建半透明填充的多边形（无边框）
           const polygon = new T.Polygon(rings, {
-              color: "#FFD700",
+              color: currentOutlineColor,
               weight: 1,
               opacity: 1,
-              fillColor: "#FFFF00",
-              fillOpacity: 0.35
+              fillColor: currentFillColor,
+              fillOpacity: currentFillOpacity
           });
  
           // 使用WGS84坐标计算面积（更准确的面积计算）
@@ -31923,9 +32027,9 @@
         console.log(`准备显示${points.length}个轨迹点`);
         
         // 使用批量处理和更小的图标来提高性能
-        // 创建一个更小的红点SVG图标
-        const smallRedDotIcon = new T.Icon({
-            iconUrl: 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="1" height="1"><circle cx="0.5" cy="0.5" r="0.3" fill="%23FF0000"/></svg>',
+        // 创建一个更小的自定义颜色点SVG图标
+        const smallColoredDotIcon = new T.Icon({
+            iconUrl: `data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="1" height="1"><circle cx="0.5" cy="0.5" r="0.3" fill="%23${currentTrackPointColor.substring(1)}"/></svg>`,
             iconSize: new T.Point(1, 1),
             iconAnchor: new T.Point(0.5, 0.5)
         });
@@ -31964,7 +32068,7 @@
                 const index = i;
                 
                 const marker = new T.Marker(point, {
-                    icon: smallRedDotIcon
+                    icon: smallColoredDotIcon
                 });
                 
                 // 添加点击事件
@@ -32051,7 +32155,7 @@
         // 先移除旧轨迹（不影响轮廓）
         clearTrackOverlays(false);
         const polyline = new T.Polyline(points, {
-            color: '#FF3B30',
+            color: currentTrackLineColor,
             weight: 1,
             opacity: 0.9
         });
@@ -32224,7 +32328,7 @@
         const first = points[initIdx];
         console.log('[Playback] 首点:', first && first.ts, first && first.ll, 'initIdx=', initIdx);
         playbackState.path = points.slice(0, initIdx+1).map(p=>p.ll);
-        playbackState.line = new T.Polyline(playbackState.path, { color: '#00FFFF', weight: 1, opacity: 0.9 });
+        playbackState.line = new T.Polyline(playbackState.path, { color: currentTrackLineColor, weight: 1, opacity: 0.9 });
         if (map) {
             map.addOverLay(playbackState.line);
         }
@@ -32269,13 +32373,13 @@
                     catch(e){
                         console.warn('[Playback] setLngLats失败，重建折线', e);
                         if (map) { try { map.removeOverLay(playbackState.line); } catch(e){} }
-                        playbackState.line = new T.Polyline(playbackState.path, { color: '#00FFFF', weight: 1, opacity: 0.9 });
+                        playbackState.line = new T.Polyline(playbackState.path, { color: currentTrackLineColor, weight: 1, opacity: 0.9 });
                         if (map) map.addOverLay(playbackState.line);
                     }
                 } else {
                     console.log('[Playback] 折线不支持setLngLats，重建');
                     if (playbackState.line && map) { try { map.removeOverLay(playbackState.line); } catch(e){} }
-                    playbackState.line = new T.Polyline(playbackState.path, { color: '#00FFFF', weight: 1, opacity: 0.9 });
+                    playbackState.line = new T.Polyline(playbackState.path, { color: currentTrackLineColor, weight: 1, opacity: 0.9 });
                     if (map) map.addOverLay(playbackState.line);
                 }
             } catch(e) { console.warn('更新回放覆盖物失败:', e); }
@@ -32371,7 +32475,7 @@
                     playbackState.line.setLngLats(playbackState.path);
                 } else {
                     if (playbackState.line && map) { try { map.removeOverLay(playbackState.line); } catch(e){} }
-                    playbackState.line = new T.Polyline(playbackState.path, { color: '#00FFFF', weight: 1, opacity: 0.9 });
+                    playbackState.line = new T.Polyline(playbackState.path, { color: currentTrackLineColor, weight: 1, opacity: 0.9 });
                     if (map) map.addOverLay(playbackState.line);
                 }
             } catch(e){ console.warn('滑块更新折线失败:', e); }
@@ -32694,11 +32798,11 @@
         // 如果点数大于2，创建多边形
         if (measureState.points.length >= 3) {
             const polygon = new T.Polygon(measureState.points, {
-                color: '#FF0000',
+                color: currentOutlineColor,
                 weight: 3,
                 opacity: 0.8,
-                fillColor: '#FF0000',
-                fillOpacity: 0.3
+                fillColor: currentFillColor,
+                fillOpacity: currentFillOpacity
             });
             map.addOverLay(polygon);
             measureState.polygon = polygon;
@@ -32819,11 +32923,11 @@
             }
             
             const polygon = new T.Polygon(measureState.points, {
-                color: '#FF0000',
+                color: currentOutlineColor,
                 weight: 3,
                 opacity: 0.8,
-                fillColor: '#FF0000',
-                fillOpacity: 0.3
+                fillColor: currentFillColor,
+                fillOpacity: currentFillOpacity
             });
             map.addOverLay(polygon);
             measureState.polygon = polygon;
@@ -33155,6 +33259,86 @@
         }
     `;
     document.head.appendChild(style);
+
+    // 颜色选择器相关变量和函数
+    let currentOutlineColor = "#FFD700"; // 默认边框颜色
+    let currentFillColor = "#FFFF00";   // 默认填充颜色
+    let currentFillOpacity = 0.35;       // 默认透明度
+    
+    // 轨迹颜色相关变量
+    let currentTrackLineColor = "#FF0000"; // 默认轨迹线颜色
+    let currentTrackPointColor = "#68EAF3"; // 默认轨迹点颜色
+
+    // 初始化颜色选择器
+    function initColorPickers() {
+        // 边框颜色选择器
+        const outlineColorPicker = document.getElementById('outlineColorPicker');
+        const outlineColorInput = document.getElementById('outlineColorInput');
+        
+        outlineColorPicker.addEventListener('click', function() {
+            outlineColorInput.click();
+        });
+        
+        outlineColorInput.addEventListener('change', function() {
+            currentOutlineColor = this.value;
+            outlineColorPicker.style.backgroundColor = currentOutlineColor;
+        });
+        
+        // 填充颜色选择器
+        const fillColorPicker = document.getElementById('fillColorPicker');
+        const fillColorInput = document.getElementById('fillColorInput');
+        
+        fillColorPicker.addEventListener('click', function() {
+            fillColorInput.click();
+        });
+        
+        fillColorInput.addEventListener('change', function() {
+            currentFillColor = this.value;
+            fillColorPicker.style.backgroundColor = currentFillColor;
+        });
+        
+        // 透明度滑块
+        const fillOpacitySlider = document.getElementById('fillOpacitySlider');
+        const fillOpacityValue = document.getElementById('fillOpacityValue');
+        
+        fillOpacitySlider.addEventListener('input', function() {
+            currentFillOpacity = this.value / 100;
+            fillOpacityValue.textContent = this.value + '%';
+        });
+        
+        // 轨迹线颜色选择器
+        const trackLineColorPicker = document.getElementById('trackLineColorPicker');
+        const trackLineColorInput = document.getElementById('trackLineColorInput');
+        
+        if (trackLineColorPicker && trackLineColorInput) {
+            trackLineColorPicker.addEventListener('click', function() {
+                trackLineColorInput.click();
+            });
+            
+            trackLineColorInput.addEventListener('change', function() {
+                currentTrackLineColor = this.value;
+                trackLineColorPicker.style.backgroundColor = currentTrackLineColor;
+            });
+        }
+        
+        // 轨迹点颜色选择器
+        const trackPointColorPicker = document.getElementById('trackPointColorPicker');
+        const trackPointColorInput = document.getElementById('trackPointColorInput');
+        
+        if (trackPointColorPicker && trackPointColorInput) {
+            // 设置初始背景色
+            trackPointColorPicker.style.backgroundColor = currentTrackPointColor;
+            
+            trackPointColorPicker.addEventListener('click', function() {
+                trackPointColorInput.click();
+            });
+            
+            trackPointColorInput.addEventListener('change', function() {
+                currentTrackPointColor = this.value;
+                trackPointColorPicker.style.backgroundColor = currentTrackPointColor;
+            });
+        }
+    }
 
 </script>
 </body>
