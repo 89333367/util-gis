@@ -90,7 +90,8 @@ import sunyu.util.pojo.WktIntersectionResult;
  * <strong>应用场景：</strong>
  * <ul>
  *   <li><strong>精准农业</strong>：农机轨迹分析、作业面积统计、作业质量评估</li>
- *   <li><strong>地理信息系统</strong>：空间数据处理、地理围栏、位置服务</li *   <li><strong>测绘工程</strong>：高精度面积测量、距离计算、坐标转换</li>
+ *   <li><strong>地理信息系统</strong>：空间数据处理、地理围栏、位置服务</li>
+ *   <li><strong>测绘工程</strong>：高精度面积测量、距离计算、坐标转换</li>
  *   <li><strong>数据分析</strong>：轨迹数据清洗、模式识别、行为分析</li>
  *   <li><strong>移动应用</strong>：GPS轨迹记录、运动轨迹分析、位置追踪</li>
  * </ul>
@@ -1652,7 +1653,8 @@ public class GisUtil implements AutoCloseable {
             }
         }
 
-        // 按outlineParts里的亩数降序排序，然后只保留亩数最高的10个多边形
+        // 步骤8：几何图形后处理与优化
+        // 8.1 按亩数降序排序，保留亩数最高的若干个多边形
         log.trace("按亩数降序排序");
         outlineParts.sort(Comparator.comparingDouble(OutlinePart::getMu).reversed());
 
@@ -1661,6 +1663,7 @@ public class GisUtil implements AutoCloseable {
             outlineParts = outlineParts.subList(0, Math.min(config.MAX_GEOMETRY, outlineParts.size()));
         }
 
+        // 8.2 过滤最小点位数量，确保多边形有足够的轨迹点支撑
         if (outlineParts.size() > 1) {
             if (minEffectiveInterval < 5) {
                 outlineParts = outlineParts.stream()
@@ -1674,7 +1677,7 @@ public class GisUtil implements AutoCloseable {
             log.debug("过滤最小点位，剩余 {} 个多边形", outlineParts.size());
         }
 
-        // 过滤掉亩数低于MIN_MU的多边形
+        // 8.3 过滤最小亩数，去除面积过小的噪声多边形
         if (outlineParts.size() > 1) {
             OutlinePart bak = outlineParts.get(0);
             outlineParts = outlineParts.stream()
@@ -1687,7 +1690,7 @@ public class GisUtil implements AutoCloseable {
             log.debug("过滤最小亩数，剩余 {} 个多边形", outlineParts.size());
         }
 
-        // 合并outlineParts中的所有outline几何图形
+        // 8.4 合并所有outline几何图形为最终结果
         unionGaussGeometry = config.geometryFactory
                 .createGeometryCollection(outlineParts.stream()
                         .map(OutlinePart::getOutline)
