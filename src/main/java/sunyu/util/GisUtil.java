@@ -233,7 +233,7 @@ public class GisUtil implements AutoCloseable {
         private final double MAX_WORK_SPEED_10s = 13;
 
         /** 最小作业点阈值 */
-        private final int MIN_WORK_POINTS_1s = 60;
+        private final int MIN_WORK_POINTS_1s = 30;
         private final int MIN_WORK_POINTS_10s = 30;
 
         /** 最小亩数阈值 */
@@ -2031,30 +2031,6 @@ public class GisUtil implements AutoCloseable {
                 .collect(Collectors.toList());
         log.debug("过滤异常点位后轨迹点数量={}", wgs84Points.size());
 
-        // 步骤2：过滤相邻经纬度完全一致的点位（去重，减少计算量）
-        log.debug("过滤相邻经纬度完全一致的点位");
-        if (wgs84Points.size() > 1) {
-            List<TrackPoint> filteredPoints = new ArrayList<>();
-            filteredPoints.add(wgs84Points.get(0)); // 保留第一个点
-
-            for (int i = 1; i < wgs84Points.size(); i++) {
-                TrackPoint current = wgs84Points.get(i);
-                TrackPoint previous = filteredPoints.get(filteredPoints.size() - 1);
-
-                // 比较经纬度是否完全一致（使用极小值进行比较，避免浮点精度问题）
-                if (Math.abs(current.getLon() - previous.getLon()) < 1e-10 &&
-                        Math.abs(current.getLat() - previous.getLat()) < 1e-10) {
-                    // 记录被过滤掉的点的定位时间
-                    log.trace("过滤掉经纬度与前一点相同的点位，定位时间: {}", current.getTime());
-                } else {
-                    filteredPoints.add(current);
-                }
-            }
-
-            wgs84Points = filteredPoints;
-        }
-        log.debug("过滤后轨迹点数量={}", wgs84Points.size());
-
         // 步骤3：按定位时间升序排序，确保轨迹时序正确
         wgs84Points.sort(Comparator.comparing(TrackPoint::getTime));
 
@@ -2126,7 +2102,12 @@ public class GisUtil implements AutoCloseable {
             List<List<TrackPoint>> gaussTimeSegments = new ArrayList<>();
 
             // 计算时间分割阈值
-            int timeThreshold = minEffectiveInterval * 3;
+            int timeThreshold;
+            if (minEffectiveInterval < 5) {
+                timeThreshold = 5;
+            } else {
+                timeThreshold = 30;
+            }
             if (gaussPointsInCluster.size() > 1) {
                 // 创建第一个时间段
                 List<TrackPoint> currentSegment = new ArrayList<>();
@@ -2186,7 +2167,7 @@ public class GisUtil implements AutoCloseable {
         Geometry unionGaussGeometry = config.geometryFactory
                 .createGeometryCollection(gaussGeometries.toArray(new Geometry[0]))
                 .union()
-                .buffer(0);
+                .buffer(0.3).buffer(-0.3);
 
         List<OutlinePart> outlineParts = new ArrayList<>();
         if (unionGaussGeometry instanceof Polygon) {
