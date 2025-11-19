@@ -1943,7 +1943,7 @@ public class GisUtil implements AutoCloseable {
         for (Cluster<TrackPoint> cluster : clusters) {
             List<TrackPoint> gaussPointsInCluster = cluster.getPoints();
             gaussPointsInCluster.sort(Comparator.comparing(TrackPoint::getTime));
-            log.debug("聚类包含{}个点", gaussPointsInCluster.size());
+            log.trace("聚类包含{}个点", gaussPointsInCluster.size());
             if (minEffectiveInterval < 5) {
                 if (gaussPointsInCluster.size() < config.MIN_WORK_POINTS_1s) {
                     log.debug("点数少于{}个，跳过", config.MIN_WORK_POINTS_1s);
@@ -1956,23 +1956,65 @@ public class GisUtil implements AutoCloseable {
                 }
             }
 
-            List<TrackPoint> simplifiedPoints = simplifyTrackPoints(gaussPointsInCluster, 0.1); // 0.1米容差
+            // 再次进行按时间切割
+            List<List<TrackPoint>> gaussTimeSegments = new ArrayList<>();
 
-            // 7.2 根据点数选择处理策略 - 大规模轨迹采用分块处理
-            Geometry gaussGeometry;
-            if (simplifiedPoints.size() > 1000) {
-                // 当点数超过1000时，进行分块处理以避免内存溢出和提高性能
-                gaussGeometry = processLargeSegmentInChunks(simplifiedPoints, halfWidthM);
-            } else {
-                // 点数较少时直接处理：创建线串，然后生成缓冲区（表示作业范围）
-                Coordinate[] coordinates = simplifiedPoints.stream()
-                        .map(point -> new Coordinate(point.getLon(), point.getLat()))
-                        .toArray(Coordinate[]::new);
-                LineString lineString = config.geometryFactory.createLineString(coordinates);
-                // 创建宽度为halfWidthM的缓冲区，表示作业区域
-                gaussGeometry = lineString.buffer(halfWidthM);
+            // 计算时间分割阈值
+            int timeThreshold = minEffectiveInterval * 3;
+            if (gaussPointsInCluster.size() > 1) {
+                // 创建第一个时间段
+                List<TrackPoint> currentSegment = new ArrayList<>();
+                currentSegment.add(gaussPointsInCluster.get(0));
+
+                // 遍历剩余点，检查时间间隔
+                for (int i = 1; i < gaussPointsInCluster.size(); i++) {
+                    TrackPoint currentPoint = gaussPointsInCluster.get(i);
+                    TrackPoint prevPoint = gaussPointsInCluster.get(i - 1);
+
+                    // 计算时间间隔（秒）
+                    Duration timeDuration = Duration.between(prevPoint.getTime(), currentPoint.getTime());
+                    long timeDiff = timeDuration.getSeconds();
+                    if (timeDiff > timeThreshold) {
+                        // 时间间隔过大，结束当前时间段，开始新的时间段
+                        gaussTimeSegments.add(currentSegment);
+                        currentSegment = new ArrayList<>();
+                    }
+                    currentSegment.add(currentPoint);
+                }
+
+                // 添加最后一个时间段
+                if (!currentSegment.isEmpty()) {
+                    gaussTimeSegments.add(currentSegment);
+                }
+            } else if (gaussPointsInCluster.size() == 1) {
+                // 只有一个点，单独作为一个时间段
+                gaussTimeSegments.add(new ArrayList<>(gaussPointsInCluster));
             }
-            gaussGeometries.add(gaussGeometry);
+
+            log.trace("按时间切割后，共{}个时间段", gaussTimeSegments.size());
+
+            for (List<TrackPoint> gaussTimeSegment : gaussTimeSegments) {
+                if (gaussTimeSegment.size() < 2) {
+                    continue;
+                }
+                List<TrackPoint> simplifiedPoints = simplifyTrackPoints(gaussTimeSegment, 0.1); // 0.1米容差
+
+                // 7.2 根据点数选择处理策略 - 大规模轨迹采用分块处理
+                Geometry gaussGeometry;
+                if (simplifiedPoints.size() > 1000) {
+                    // 当点数超过1000时，进行分块处理以避免内存溢出和提高性能
+                    gaussGeometry = processLargeSegmentInChunks(simplifiedPoints, halfWidthM);
+                } else {
+                    // 点数较少时直接处理：创建线串，然后生成缓冲区（表示作业范围）
+                    Coordinate[] coordinates = simplifiedPoints.stream()
+                            .map(point -> new Coordinate(point.getLon(), point.getLat()))
+                            .toArray(Coordinate[]::new);
+                    LineString lineString = config.geometryFactory.createLineString(coordinates);
+                    // 创建宽度为halfWidthM的缓冲区，表示作业区域
+                    gaussGeometry = lineString.buffer(halfWidthM);
+                }
+                gaussGeometries.add(gaussGeometry);
+            }
         }
 
         Geometry unionGaussGeometry = config.geometryFactory
