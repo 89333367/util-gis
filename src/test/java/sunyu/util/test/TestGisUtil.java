@@ -381,8 +381,9 @@ public class TestGisUtil {
     }
 
     @Test
-    void 导出csv(){
-        List<String> lines = FileUtil.readUtf8Lines("D:\\GitLab\\util-gis\\testFiles\\EM9101B8F5AZT0041_20251026_trace.txt");
+    void 导出csv() {
+        List<String> lines = FileUtil
+                .readUtf8Lines("D:\\GitLab\\util-gis\\testFiles\\EM9101B8F5AZT0041_20251026_trace.txt");
         List<List<String>> rows = new ArrayList<>();
         rows.add(Arrays.asList("lon", "lat", "timestamp"));
         rows.addAll(lines.stream().map(line -> StrUtil.split(line, ",")).collect(Collectors.toList()));

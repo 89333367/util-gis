@@ -1988,7 +1988,7 @@ public class GisUtil implements AutoCloseable {
         return result;
     }
 
-    public SplitRoadResult splitRoad(List<TrackPoint> wgs84Points, double totalWidthM) {
+    public SplitRoadResult splitRoad3(List<TrackPoint> wgs84Points, double totalWidthM) {
         // 参数验证
         if (CollUtil.isEmpty(wgs84Points)) {
             throw new IllegalArgumentException("轨迹点列表不能为空");
@@ -2070,83 +2070,102 @@ public class GisUtil implements AutoCloseable {
         // 步骤4：转换到高斯投影平面坐标，便于后续距离和几何计算
         List<TrackPoint> gaussPoints = toGaussPointList(wgs84Points);
 
-        // 使用 Apache Commons Math 的空间聚类
-        DBSCANClusterer<TrackPoint> clusterer = new DBSCANClusterer<>(config.MAX_WORK_DISTANCE_M * minEffectiveInterval,
-                config.DBSCAN_MIN_POINTS, config.euclideanDistance);
-        List<Cluster<TrackPoint>> clusters = clusterer.cluster(gaussPoints);
-        log.debug("聚类结果：共{}个聚类", clusters.size());
-        if (clusters.size() == 0) {
-            log.warn("聚类结果为空");
-            return result;
+        // 步骤5：填充轨迹点的其他信息：距离、速度、方向角
+        for (int i = 1; i < gaussPoints.size(); i++) {
+            TrackPoint prevPoint = gaussPoints.get(i - 1);
+            TrackPoint currPoint = gaussPoints.get(i);
+
+            // 计算两点间的距离（米）- 高斯投影下直接使用欧几里得距离
+            double deltaX = currPoint.getLon() - prevPoint.getLon();
+            double deltaY = currPoint.getLat() - prevPoint.getLat();
+            double distance = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
+            currPoint.setDistance(distance);
+
+            // 计算两点间的时间差（秒）
+            long timeDiffSeconds = 0;
+            if (prevPoint.getTime() != null && currPoint.getTime() != null) {
+                timeDiffSeconds = Duration.between(prevPoint.getTime(), currPoint.getTime()).getSeconds();
+            }
+
+            // 计算速度（米/秒）
+            double speed = 0;
+            if (timeDiffSeconds > 0) {
+                speed = distance / timeDiffSeconds;
+            }
+            currPoint.setSpeed(speed);
+
+            // 计算方向角（度）
+            double direction = 0;
+            if (distance > 0) {
+                // 使用atan2计算弧度方向，然后转换为角度
+                direction = Math.toDegrees(Math.atan2(deltaY, deltaX));
+                // 确保方向角在0-360度范围内
+                if (direction < 0) {
+                    direction += 360;
+                }
+            }
+            currPoint.setDirection(direction);
         }
 
-        // 处理每个聚类
-        List<Geometry> gaussGeometries = new ArrayList<>();
-        for (Cluster<TrackPoint> cluster : clusters) {
-            List<TrackPoint> gaussPointsInCluster = cluster.getPoints();
-            gaussPointsInCluster.sort(Comparator.comparing(TrackPoint::getTime));
-            log.trace("聚类包含{}个点", gaussPointsInCluster.size());
+        log.debug("切割成多段轨迹");
+        List<List<TrackPoint>> gaussTrackSegments = new ArrayList<>();
+        List<TrackPoint> currentSegment = new ArrayList<>();
+        currentSegment.add(gaussPoints.get(0)); // 添加第一个点到当前段
+        for (int i = 1; i < gaussPoints.size(); i++) {
+            TrackPoint point = gaussPoints.get(i);
+            TrackPoint prevPoint = gaussPoints.get(i - 1);
+            // 计算时间间隔（秒）
+            long timeInterval = Duration.between(prevPoint.getTime(), point.getTime()).getSeconds();
+            long maxTimeInterval;
             if (minEffectiveInterval < 5) {
-                if (gaussPointsInCluster.size() < config.MIN_WORK_POINTS_1s) {
-                    log.debug("点数少于{}个，跳过", config.MIN_WORK_POINTS_1s);
-                    continue;
-                }
+                maxTimeInterval = 3;
             } else {
-                if (gaussPointsInCluster.size() < config.MIN_WORK_POINTS_10s) {
-                    log.debug("点数少于{}个，跳过", config.MIN_WORK_POINTS_10s);
+                maxTimeInterval = 30;
+            }
+            if (point.getSpeed() > config.MAX_WORK_DISTANCE_M
+                    || timeInterval > maxTimeInterval) {
+                // 如果当前段不为空且有多个点，则将当前段添加到结果中
+                if (currentSegment.size() > 1) {
+                    gaussTrackSegments.add(new ArrayList<>(currentSegment));
+                    log.trace("创建新轨迹段，上一段包含{}个点", currentSegment.size());
+                }
+                // 开始新的段
+                currentSegment.clear();
+            }
+
+            // 将当前点添加到当前段
+            currentSegment.add(point);
+        }
+        // 添加最后一个轨迹段（如果不为空且有多个点）
+        if (currentSegment.size() > 1) {
+            gaussTrackSegments.add(currentSegment);
+            log.trace("添加最后一个轨迹段，包含{}个点", currentSegment.size());
+        }
+        log.debug("轨迹切割完成，共得到 {} 段轨迹", gaussTrackSegments.size());
+
+        List<Geometry> gaussGeometriesSegments = new ArrayList<>();
+        // 循环所有轨迹段
+        for (List<TrackPoint> gaussSegment : gaussTrackSegments) {
+            if (gaussSegment.size() < 2) {
+                continue;
+            }
+            // 使用 Apache Commons Math 的空间聚类
+            DBSCANClusterer<TrackPoint> clusterer = new DBSCANClusterer<>(
+                    config.MAX_WORK_DISTANCE_M * minEffectiveInterval, config.DBSCAN_MIN_POINTS,
+                    config.euclideanDistance);
+            List<Cluster<TrackPoint>> clusters = clusterer.cluster(gaussSegment);
+            log.debug("聚类结果：共{}个聚类", clusters.size());
+
+            List<Geometry> gaussGeometriesSegment = new ArrayList<>();
+            // 循环所有聚类
+            for (Cluster<TrackPoint> cluster : clusters) {
+                List<TrackPoint> clusterPoints = cluster.getPoints();
+                if (clusterPoints.size() < 2) {
                     continue;
                 }
-            }
-
-            // 再次进行按时间切割
-            List<List<TrackPoint>> gaussTimeSegments = new ArrayList<>();
-
-            // 计算时间分割阈值
-            int timeThreshold;
-            if (minEffectiveInterval < 5) {
-                timeThreshold = 5;
-            } else {
-                timeThreshold = 30;
-            }
-            if (gaussPointsInCluster.size() > 1) {
-                // 创建第一个时间段
-                List<TrackPoint> currentSegment = new ArrayList<>();
-                currentSegment.add(gaussPointsInCluster.get(0));
-
-                // 遍历剩余点，检查时间间隔
-                for (int i = 1; i < gaussPointsInCluster.size(); i++) {
-                    TrackPoint currentPoint = gaussPointsInCluster.get(i);
-                    TrackPoint prevPoint = gaussPointsInCluster.get(i - 1);
-
-                    // 计算时间间隔（秒）
-                    Duration timeDuration = Duration.between(prevPoint.getTime(), currentPoint.getTime());
-                    long timeDiff = timeDuration.getSeconds();
-                    if (timeDiff > timeThreshold) {
-                        // 时间间隔过大，结束当前时间段，开始新的时间段
-                        gaussTimeSegments.add(currentSegment);
-                        currentSegment = new ArrayList<>();
-                    }
-                    currentSegment.add(currentPoint);
-                }
-
-                // 添加最后一个时间段
-                if (!currentSegment.isEmpty()) {
-                    gaussTimeSegments.add(currentSegment);
-                }
-            } else if (gaussPointsInCluster.size() == 1) {
-                // 只有一个点，单独作为一个时间段
-                gaussTimeSegments.add(new ArrayList<>(gaussPointsInCluster));
-            }
-
-            log.debug("按时间切割后，共{}个时间段", gaussTimeSegments.size());
-
-            for (List<TrackPoint> gaussTimeSegment : gaussTimeSegments) {
-                if (gaussTimeSegment.size() < 2) {
-                    continue;
-                }
-                List<TrackPoint> simplifiedPoints = simplifyTrackPoints(gaussTimeSegment, 0.1); // 0.1米容差
-
-                // 7.2 根据点数选择处理策略 - 大规模轨迹采用分块处理
+                //这里必须按时间排序，因为密度聚类后是无序的
+                clusterPoints.sort(Comparator.comparing(TrackPoint::getTime));
+                List<TrackPoint> simplifiedPoints = simplifyTrackPoints(clusterPoints, 0.1); // 0.1米容差
                 Geometry gaussGeometry;
                 if (simplifiedPoints.size() > 1000) {
                     // 当点数超过1000时，进行分块处理以避免内存溢出和提高性能
@@ -2160,48 +2179,46 @@ public class GisUtil implements AutoCloseable {
                     // 创建宽度为halfWidthM的缓冲区，表示作业区域
                     gaussGeometry = lineString.buffer(halfWidthM);
                 }
-                gaussGeometries.add(gaussGeometry);
+                gaussGeometriesSegment.add(gaussGeometry);
             }
+            Geometry unionGaussGeometrySegment = config.geometryFactory
+                    .createGeometryCollection(gaussGeometriesSegment.toArray(new Geometry[0]))
+                    .union()
+                    //.buffer(0.3).buffer(-0.3);
+                    .buffer(0);
+            gaussGeometriesSegments.add(unionGaussGeometrySegment);
         }
 
         Geometry unionGaussGeometry = config.geometryFactory
-                .createGeometryCollection(gaussGeometries.toArray(new Geometry[0]))
+                .createGeometryCollection(gaussGeometriesSegments.toArray(new Geometry[0]))
                 .union()
-                .buffer(0.3).buffer(-0.3);
+                .buffer(0);
 
         List<OutlinePart> outlineParts = new ArrayList<>();
         if (unionGaussGeometry instanceof Polygon) {
             Geometry wgs84Geometry = toWgs84Geometry(unionGaussGeometry);
             // 7.4 性能优化：获取几何图形的边界框，用于快速空间过滤
             Envelope geometryEnvelope = wgs84Geometry.getEnvelopeInternal();
-            // 使用PreparedGeometry进行精确空间判断
+            // 使用PreparedGeometry预优化，大幅提升空间判断性能（10-100倍）
             PreparedGeometry preparedWgs84Geometry = PreparedGeometryFactory.prepare(wgs84Geometry);
-
-            // 使用空间索引快速查找可能包含的点位
-            List<Integer> candidatePointIndices = new ArrayList<>();
-            for (int j = 0; j < wgs84Points.size(); j++) {
-                TrackPoint point = wgs84Points.get(j);
-                if (geometryEnvelope.contains(point.getLon(), point.getLat())) {
-                    candidatePointIndices.add(j);
-                }
-            }
-
-            List<TrackPoint> wgs84PointsSegment = new ArrayList<>();
-            for (Integer index : candidatePointIndices) {
-                TrackPoint point = wgs84Points.get(index);
-                try {
-                    // 精确空间判断
-                    if (preparedWgs84Geometry.contains(config.geometryFactory.createPoint(
-                            new Coordinate(point.getLon(), point.getLat())))) {
-                        wgs84PointsSegment.add(point);
-                    }
-                } catch (Exception e) {
-                    log.debug("点位空间判断失败：经度{} 纬度{} 错误：{}",
-                            point.getLon(), point.getLat(), e.getMessage());
-                }
-            }
-            log.debug("Polygon点位空间判断完成，候选点位数：{}，筛选后点位数：{}",
-                    candidatePointIndices.size(), wgs84PointsSegment.size());
+            List<TrackPoint> wgs84PointsSegment = wgs84Points.stream()
+                    .filter(point -> {
+                        try {
+                            // 第一步：边界框快速过滤 - 使用简单的数值比较，性能极高
+                            if (!geometryEnvelope.contains(point.getLon(), point.getLat())) {
+                                return false;
+                            }
+                            // 第二步：使用PreparedGeometry进行精确空间判断
+                            return preparedWgs84Geometry.contains(config.geometryFactory.createPoint(
+                                    new Coordinate(point.getLon(), point.getLat())));
+                        } catch (Exception e) {
+                            log.trace("点位空间判断失败：经度{} 纬度{} 错误：{}",
+                                    point.getLon(), point.getLat(), e.getMessage());
+                            return false;
+                        }
+                    })
+                    .collect(Collectors.toList());
+            log.trace("点位空间判断完成，原始点位数：{}，筛选后点位数：{}", wgs84Points.size(), wgs84PointsSegment.size());
 
             OutlinePart outlinePart = new OutlinePart();
             outlinePart.setTotalWidthM(totalWidthM);
@@ -2218,31 +2235,24 @@ public class GisUtil implements AutoCloseable {
                 Geometry wgs84GeometryPart = toWgs84Geometry(partGaussGeometry);
                 Envelope geometryEnvelopePart = wgs84GeometryPart.getEnvelopeInternal();
                 PreparedGeometry preparedWgs84GeometryPart = PreparedGeometryFactory.prepare(wgs84GeometryPart);
-                // 使用空间索引快速查找可能包含的点位
-                List<Integer> candidatePointIndices = new ArrayList<>();
-                for (int j = 0; j < wgs84Points.size(); j++) {
-                    TrackPoint point = wgs84Points.get(j);
-                    if (geometryEnvelopePart.contains(point.getLon(), point.getLat())) {
-                        candidatePointIndices.add(j);
-                    }
-                }
-
-                List<TrackPoint> wgs84PointsSegmentPart = new ArrayList<>();
-                for (Integer index : candidatePointIndices) {
-                    TrackPoint point = wgs84Points.get(index);
-                    try {
-                        // 精确空间判断
-                        if (preparedWgs84GeometryPart.contains(config.geometryFactory.createPoint(
-                                new Coordinate(point.getLon(), point.getLat())))) {
-                            wgs84PointsSegmentPart.add(point);
-                        }
-                    } catch (Exception e) {
-                        log.debug("点位空间判断失败：经度{} 纬度{} 错误：{}",
-                                point.getLon(), point.getLat(), e.getMessage());
-                    }
-                }
-                log.debug("多边形{}点位空间判断完成，候选点位数：{}，筛选后点位数：{}",
-                        i, candidatePointIndices.size(), wgs84PointsSegmentPart.size());
+                List<TrackPoint> wgs84PointsSegmentPart = wgs84Points.stream()
+                        .filter(point -> {
+                            try {
+                                // 第一步：边界框快速过滤 - 使用简单的数值比较，性能极高
+                                if (!geometryEnvelopePart.contains(point.getLon(), point.getLat())) {
+                                    return false;
+                                }
+                                // 第二步：使用PreparedGeometry进行精确空间判断
+                                return preparedWgs84GeometryPart.contains(config.geometryFactory.createPoint(
+                                        new Coordinate(point.getLon(), point.getLat())));
+                            } catch (Exception e) {
+                                log.trace("点位空间判断失败：经度{} 纬度{} 错误：{}",
+                                        point.getLon(), point.getLat(), e.getMessage());
+                                return false;
+                            }
+                        })
+                        .collect(Collectors.toList());
+                log.trace("点位空间判断完成，原始点位数：{}，筛选后点位数：{}", wgs84Points.size(), wgs84PointsSegmentPart.size());
 
                 OutlinePart outlinePart = new OutlinePart();
                 outlinePart.setTotalWidthM(totalWidthM);
@@ -2258,7 +2268,7 @@ public class GisUtil implements AutoCloseable {
 
         // 步骤8：几何图形后处理与优化
         // 8.1 按亩数降序排序，保留亩数最高的若干个多边形
-        log.debug("按亩数降序排序");
+        log.trace("按亩数降序排序");
         outlineParts.sort(Comparator.comparingDouble(OutlinePart::getMu).reversed());
 
         if (outlineParts.size() > config.MAX_GEOMETRY) {
@@ -2298,7 +2308,8 @@ public class GisUtil implements AutoCloseable {
                 .createGeometryCollection(outlineParts.stream()
                         .map(OutlinePart::getOutline)
                         .toArray(Geometry[]::new))
-                .union();
+                .union()
+                .buffer(0);
 
         // 步骤9：计算总面积（亩）
         double totalMu = outlineParts != null ? outlineParts.stream()
@@ -2313,6 +2324,343 @@ public class GisUtil implements AutoCloseable {
         result.setMu(Math.round(totalMu * 10000.0) / 10000.0); // 四舍五入保留4位小数
 
         log.debug("最终生成区块数量：{}块，总亩数：{}亩，最终几何类型：{}",
+                unionGaussGeometry.getNumGeometries(), result.getMu(), unionGaussGeometry.getGeometryType());
+
+        return result;
+    }
+
+    public SplitRoadResult splitRoad(List<TrackPoint> wgs84Points, double totalWidthM) {
+        // 参数验证
+        if (CollUtil.isEmpty(wgs84Points)) {
+            throw new IllegalArgumentException("轨迹点列表不能为空");
+        }
+        if (totalWidthM < config.MIN_WORKING_WIDTH_M) {
+            throw new IllegalArgumentException("幅宽（米）不能小于" + config.MIN_WORKING_WIDTH_M);
+        }
+
+        log.debug("参数：wgs84点数量 {}, 总幅宽(米) {}", wgs84Points.size(), totalWidthM);
+
+        // 计算半宽（用于生成缓冲区）
+        double halfWidthM = totalWidthM / 2.0;
+
+        // 初始化结果对象
+        SplitRoadResult result = new SplitRoadResult();
+        result.setTotalWidthM(totalWidthM);
+        result.setOutline(config.EMPTYGEOM);
+        result.setWkt(config.EMPTYGEOM.toText());
+
+        // 步骤1：过滤异常点位信息
+        wgs84Points = wgs84Points.stream()
+                .filter(p -> {
+                    // 1. 时间不能为空
+                    if (p.getTime() == null) {
+                        log.warn("轨迹点时间为空，真恶心，抛弃");
+                        return false;
+                    }
+                    // 2. 经纬度不能为0（无效坐标）
+                    if (p.getLon() == 0.0 && p.getLat() == 0.0) {
+                        log.warn("定位时间: {} 轨迹点经纬度为 0 ，真恶心，抛弃", p.getTime());
+                        return false;
+                    }
+                    // 3. 经纬度必须在合理范围内
+                    if (p.getLon() < -180.0 || p.getLon() > 180.0 || p.getLat() < -90.0 || p.getLat() > 90.0) {
+                        log.warn("定位时间: {} 轨迹点经纬度超出范围：[{},{}] 真恶心，抛弃", p.getTime(), p.getLon(), p.getLat());
+                        return false;
+                    }
+                    return true;
+                })
+                .collect(Collectors.toList());
+        log.debug("过滤异常点位后轨迹点数量 {}", wgs84Points.size());
+
+        // 步骤3：按定位时间升序排序，确保轨迹时序正确
+        wgs84Points.sort(Comparator.comparing(TrackPoint::getTime));
+
+        // 获取上报时间间隔分布
+        Map<Integer, Integer> intervalDistribution = new HashMap<>();
+        for (int i = 1; i < wgs84Points.size(); i++) {
+            TrackPoint prevPoint = wgs84Points.get(i - 1);
+            TrackPoint currPoint = wgs84Points.get(i);
+
+            // 计算时间间隔（秒）- LocalDateTime使用Duration
+            Duration duration = Duration.between(prevPoint.getTime(), currPoint.getTime());
+            int timeDiffSeconds = (int) duration.getSeconds();
+            if (timeDiffSeconds < 12) {
+                // 统计每个间隔的出现次数
+                intervalDistribution.put(timeDiffSeconds, intervalDistribution.getOrDefault(timeDiffSeconds, 0) + 1);
+            }
+        }
+        // 获取最小有效时间间隔
+        int minEffectiveInterval = 1; // 默认值
+        if (!intervalDistribution.isEmpty()) {
+            // 找到点数最多的时间间隔，如果点数相同则选择时间间隔更小的
+            minEffectiveInterval = intervalDistribution.entrySet().stream()
+                    .max((e1, e2) -> {
+                        int countCompare = Integer.compare(e1.getValue(), e2.getValue());
+                        if (countCompare != 0) {
+                            return countCompare; // 点数多的优先
+                        }
+                        return Integer.compare(e2.getKey(), e1.getKey()); // 点数相同时，时间间隔小的优先（降序比较）
+                    })
+                    .map(Map.Entry::getKey)
+                    .orElse(1);
+        }
+        log.debug("最小有效时间间隔 {} 秒", minEffectiveInterval);
+        final int finalMinEffectiveInterval = minEffectiveInterval;
+
+        // 步骤4：转换到高斯投影平面坐标，便于后续距离和几何计算
+        List<TrackPoint> gaussPoints = toGaussPointList(wgs84Points);
+
+        // 步骤5：填充轨迹点的其他信息：距离、速度、方向角
+        for (int i = 1; i < gaussPoints.size(); i++) {
+            TrackPoint prevPoint = gaussPoints.get(i - 1);
+            TrackPoint currPoint = gaussPoints.get(i);
+
+            // 计算两点间的距离（米）- 高斯投影下直接使用欧几里得距离
+            double deltaX = currPoint.getLon() - prevPoint.getLon();
+            double deltaY = currPoint.getLat() - prevPoint.getLat();
+            double distance = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
+            currPoint.setDistance(distance);
+
+            // 计算两点间的时间差（秒）
+            long timeDiffSeconds = 0;
+            if (prevPoint.getTime() != null && currPoint.getTime() != null) {
+                timeDiffSeconds = Duration.between(prevPoint.getTime(), currPoint.getTime()).getSeconds();
+            }
+
+            // 计算速度（米/秒）
+            double speed = 0;
+            if (timeDiffSeconds > 0) {
+                speed = distance / timeDiffSeconds;
+            }
+            currPoint.setSpeed(speed);
+
+            // 计算方向角（度）
+            double direction = 0;
+            if (distance > 0) {
+                // 使用atan2计算弧度方向，然后转换为角度
+                direction = Math.toDegrees(Math.atan2(deltaY, deltaX));
+                // 确保方向角在0-360度范围内
+                if (direction < 0) {
+                    direction += 360;
+                }
+            }
+            currPoint.setDirection(direction);
+        }
+
+        // 空间密集聚类分割
+        DBSCANClusterer<TrackPoint> clusterer = new DBSCANClusterer<>(
+                config.MAX_WORK_DISTANCE_M * minEffectiveInterval, config.DBSCAN_MIN_POINTS,
+                config.euclideanDistance);
+        List<Cluster<TrackPoint>> clusters = clusterer.cluster(gaussPoints);
+        log.debug("聚类结果：共 {} 个聚类", clusters.size());
+
+        List<Geometry> gaussGeometriesCluster = new ArrayList<>();
+        int clusterIndex = 1;
+        for (Cluster<TrackPoint> cluster : clusters) {
+            List<TrackPoint> points = cluster.getPoints();
+            if (points.size() < 2) {
+                continue;
+            }
+            // 密集聚类后，点位是乱序的，这里要重新排序
+            points.sort(Comparator.comparing(TrackPoint::getTime));
+            log.debug("按两点最大距离 {} 米分割聚类 {}", config.MAX_WORK_DISTANCE_M, clusterIndex);
+            // 按速度分割轨迹点
+            List<List<TrackPoint>> speedSegments = new ArrayList<>();
+            List<TrackPoint> currentSegment = new ArrayList<>();
+            // 添加第一个点到当前段
+            if (!points.isEmpty()) {
+                currentSegment.add(points.get(0));
+            }
+            // 遍历剩余点，检查速度是否超过阈值
+            for (int i = 1; i < points.size(); i++) {
+                TrackPoint currentPoint = points.get(i);
+                currentSegment.add(currentPoint);
+                // 如果当前点的速度超过阈值，结束当前段并开始新段
+                if (currentPoint.getSpeed() > config.MAX_WORK_DISTANCE_M) {
+                    speedSegments.add(new ArrayList<>(currentSegment));
+                    currentSegment.clear();
+                    currentSegment.add(currentPoint); // 当前点作为新段的起点
+                }
+            }
+            // 添加最后一段
+            if (!currentSegment.isEmpty()) {
+                speedSegments.add(currentSegment);
+            }
+            log.debug("聚类 {} 分割后得到 {} 个子段", clusterIndex, speedSegments.size());
+            // 处理每个子段
+            List<Geometry> gaussGeometriesSegment = new ArrayList<>();
+            for (List<TrackPoint> segment : speedSegments) {
+                if (segment.size() < 2) {
+                    continue; // 忽略点数过少的段
+                }
+                // 循环打印所有轨迹点的信息（调试代码，已注释）
+                for (TrackPoint point : segment) {
+                    log.debug("定位时间：{} 轨迹点：[{},{}] 距离：{} 速度：{} 方向：{}",
+                            point.getTime(), point.getLon(), point.getLat(), point.getDistance(), point.getSpeed(),
+                            point.getDirection());
+                }
+                List<TrackPoint> simplifiedPoints = simplifyTrackPoints(segment, 0.1); // 0.1米容差
+                Geometry gaussGeometry;
+                if (simplifiedPoints.size() > 1000) {
+                    // 当点数超过1000时，进行分块处理以避免内存溢出和提高性能
+                    gaussGeometry = processLargeSegmentInChunks(simplifiedPoints, halfWidthM);
+                } else {
+                    // 点数较少时直接处理：创建线串，然后生成缓冲区（表示作业范围）
+                    Coordinate[] coordinates = simplifiedPoints.stream()
+                            .map(point -> new Coordinate(point.getLon(), point.getLat()))
+                            .toArray(Coordinate[]::new);
+                    LineString lineString = config.geometryFactory.createLineString(coordinates);
+                    // 创建宽度为halfWidthM的缓冲区，表示作业区域
+                    gaussGeometry = lineString.buffer(halfWidthM);
+                }
+                gaussGeometriesSegment.add(gaussGeometry);
+            }
+            log.debug("合并聚类 {} 所有子段", clusterIndex);
+            Geometry unionGaussSegmentsGeometry = config.geometryFactory
+                    .createGeometryCollection(gaussGeometriesSegment.toArray(new Geometry[0]))
+                    .union()
+                    .buffer(0);
+            gaussGeometriesCluster.add(unionGaussSegmentsGeometry);
+            clusterIndex++;
+        }
+        log.debug("所有聚类膨胀 0.3 米再收缩 0.3 米后合并");
+        Geometry unionGaussGeometry = config.geometryFactory
+                .createGeometryCollection(gaussGeometriesCluster.toArray(new Geometry[0]))
+                .union()
+                .buffer(0.3).buffer(-0.3);
+
+        log.debug("拼装outlineParts");
+        List<OutlinePart> outlineParts = new ArrayList<>();
+        if (unionGaussGeometry instanceof Polygon) {
+            Geometry wgs84Geometry = toWgs84Geometry(unionGaussGeometry);
+            // 7.4 性能优化：获取几何图形的边界框，用于快速空间过滤
+            Envelope geometryEnvelope = wgs84Geometry.getEnvelopeInternal();
+            // 使用PreparedGeometry预优化，大幅提升空间判断性能（10-100倍）
+            PreparedGeometry preparedWgs84Geometry = PreparedGeometryFactory.prepare(wgs84Geometry);
+            List<TrackPoint> wgs84PointsSegment = wgs84Points.stream()
+                    .filter(point -> {
+                        try {
+                            // 第一步：边界框快速过滤 - 使用简单的数值比较，性能极高
+                            if (!geometryEnvelope.contains(point.getLon(), point.getLat())) {
+                                return false;
+                            }
+                            // 第二步：使用PreparedGeometry进行精确空间判断
+                            return preparedWgs84Geometry.contains(config.geometryFactory.createPoint(
+                                    new Coordinate(point.getLon(), point.getLat())));
+                        } catch (Exception e) {
+                            log.trace("点位空间判断失败：经度{} 纬度{} 错误：{}",
+                                    point.getLon(), point.getLat(), e.getMessage());
+                            return false;
+                        }
+                    })
+                    .collect(Collectors.toList());
+            log.trace("点位空间判断完成，原始点位数：{}，筛选后点位数：{}", wgs84Points.size(), wgs84PointsSegment.size());
+
+            OutlinePart outlinePart = new OutlinePart();
+            outlinePart.setTotalWidthM(totalWidthM);
+            outlinePart.setOutline(unionGaussGeometry);
+            outlinePart.setWkt(wgs84Geometry.toText());
+            outlinePart.setMu(calcMu(wgs84Geometry));
+            outlinePart.setTrackPoints(wgs84PointsSegment);
+            outlinePart.setStartTime(wgs84PointsSegment.get(0).getTime());
+            outlinePart.setEndTime(wgs84PointsSegment.get(wgs84PointsSegment.size() - 1).getTime());
+            outlineParts.add(outlinePart);
+        } else if (unionGaussGeometry instanceof MultiPolygon) {
+            for (int i = 0; i < unionGaussGeometry.getNumGeometries(); i++) {
+                Geometry partGaussGeometry = unionGaussGeometry.getGeometryN(i);
+                Geometry wgs84GeometryPart = toWgs84Geometry(partGaussGeometry);
+                Envelope geometryEnvelopePart = wgs84GeometryPart.getEnvelopeInternal();
+                PreparedGeometry preparedWgs84GeometryPart = PreparedGeometryFactory.prepare(wgs84GeometryPart);
+                List<TrackPoint> wgs84PointsSegmentPart = wgs84Points.stream()
+                        .filter(point -> {
+                            try {
+                                // 第一步：边界框快速过滤 - 使用简单的数值比较，性能极高
+                                if (!geometryEnvelopePart.contains(point.getLon(), point.getLat())) {
+                                    return false;
+                                }
+                                // 第二步：使用PreparedGeometry进行精确空间判断
+                                return preparedWgs84GeometryPart.contains(config.geometryFactory.createPoint(
+                                        new Coordinate(point.getLon(), point.getLat())));
+                            } catch (Exception e) {
+                                log.trace("点位空间判断失败：经度{} 纬度{} 错误：{}",
+                                        point.getLon(), point.getLat(), e.getMessage());
+                                return false;
+                            }
+                        })
+                        .collect(Collectors.toList());
+                log.trace("点位空间判断完成，原始点位数：{}，筛选后点位数：{}", wgs84Points.size(), wgs84PointsSegmentPart.size());
+
+                OutlinePart outlinePart = new OutlinePart();
+                outlinePart.setTotalWidthM(totalWidthM);
+                outlinePart.setOutline(partGaussGeometry);
+                outlinePart.setWkt(wgs84GeometryPart.toText());
+                outlinePart.setMu(calcMu(wgs84GeometryPart));
+                outlinePart.setTrackPoints(wgs84PointsSegmentPart);
+                outlinePart.setStartTime(wgs84PointsSegmentPart.get(0).getTime());
+                outlinePart.setEndTime(wgs84PointsSegmentPart.get(wgs84PointsSegmentPart.size() - 1).getTime());
+                outlineParts.add(outlinePart);
+            }
+        }
+
+        // 步骤8：几何图形后处理与优化
+        // 8.1 按亩数降序排序，保留亩数最高的若干个多边形
+        log.trace("按亩数降序排序");
+        outlineParts.sort(Comparator.comparingDouble(OutlinePart::getMu).reversed());
+
+        if (outlineParts.size() > config.MAX_GEOMETRY) {
+            log.debug("截取前有 {} 个多边形，只保留亩数最大的 {} 个", outlineParts.size(), config.MAX_GEOMETRY);
+            outlineParts = outlineParts.subList(0, Math.min(config.MAX_GEOMETRY, outlineParts.size()));
+        }
+
+        // 8.2 过滤最小点位数量，确保多边形有足够的轨迹点支撑
+        /* if (outlineParts.size() > 1) {
+            if (minEffectiveInterval < 5) {
+                outlineParts = outlineParts.stream()
+                        .filter(part -> part.getTrackPoints().size() >= config.MIN_WORK_POINTS_1s)
+                        .collect(Collectors.toList());
+            } else {
+                outlineParts = outlineParts.stream()
+                        .filter(part -> part.getTrackPoints().size() >= config.MIN_WORK_POINTS_10s)
+                        .collect(Collectors.toList());
+            }
+            log.debug("过滤最小点位，剩余 {} 个多边形", outlineParts.size());
+        } */
+
+        // 8.3 过滤最小亩数，去除面积过小的噪声多边形
+        /* if (outlineParts.size() > 1) {
+            OutlinePart bak = outlineParts.get(0);
+            outlineParts = outlineParts.stream()
+                    .filter(part -> part
+                            .getMu() >= (finalMinEffectiveInterval < 5 ? config.MIN_MU_1s : config.MIN_MU_10s))
+                    .collect(Collectors.toList());
+            if (outlineParts.isEmpty()) {
+                outlineParts.add(bak);
+            }
+            log.debug("过滤最小亩数，剩余 {} 个多边形", outlineParts.size());
+        } */
+
+        // 8.4 合并所有outline几何图形为最终结果
+        log.debug("合并所有outline几何图形为最终结果");
+        unionGaussGeometry = config.geometryFactory
+                .createGeometryCollection(outlineParts.stream()
+                        .map(OutlinePart::getOutline)
+                        .toArray(Geometry[]::new))
+                .union()
+                .buffer(0);
+
+        // 步骤9：计算总面积（亩）
+        double totalMu = outlineParts != null ? outlineParts.stream()
+                .filter(Objects::nonNull)
+                .mapToDouble(OutlinePart::getMu)
+                .sum() : 0.0;
+
+        // 步骤10：设置最终结果
+        result.setOutline(unionGaussGeometry);
+        result.setWkt(toWgs84Geometry(unionGaussGeometry).toText());
+        result.setParts(outlineParts);
+        result.setMu(Math.round(totalMu * 10000.0) / 10000.0); // 四舍五入保留4位小数
+
+        log.debug("最终生成区块数量：{} 块，总亩数：{} 亩，最终几何类型：{}",
                 unionGaussGeometry.getNumGeometries(), result.getMu(), unionGaussGeometry.getGeometryType());
 
         return result;
