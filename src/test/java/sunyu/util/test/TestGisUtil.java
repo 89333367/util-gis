@@ -2,9 +2,11 @@ package sunyu.util.test;
 
 import java.sql.SQLException;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Date;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 import javax.sql.DataSource;
 
@@ -22,6 +24,7 @@ import cn.hutool.core.date.DateUtil;
 import cn.hutool.core.date.LocalDateTimeUtil;
 import cn.hutool.core.io.FileUtil;
 import cn.hutool.core.io.resource.ResourceUtil;
+import cn.hutool.core.text.csv.CsvUtil;
 import cn.hutool.core.util.StrUtil;
 import cn.hutool.db.Db;
 import cn.hutool.db.DbUtil;
@@ -375,6 +378,15 @@ public class TestGisUtil {
             输出一天HTML(did, yyyyMMdd);
         }
         FileUtil.writeUtf8Lines(l, path + "/" + did + "_mu.txt");
+    }
+
+    @Test
+    void 导出csv(){
+        List<String> lines = FileUtil.readUtf8Lines("D:\\GitLab\\util-gis\\testFiles\\EM9101B8F5AZT0041_20251026_trace.txt");
+        List<List<String>> rows = new ArrayList<>();
+        rows.add(Arrays.asList("lon", "lat", "timestamp"));
+        rows.addAll(lines.stream().map(line -> StrUtil.split(line, ",")).collect(Collectors.toList()));
+        CsvUtil.getWriter("d:/tmp/EM9101B8F5AZT0041_20251026_trace.csv", null).write(rows);
     }
 
     @Test

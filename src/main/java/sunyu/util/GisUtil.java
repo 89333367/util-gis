@@ -180,6 +180,9 @@ public class GisUtil implements AutoCloseable {
         /** WGS84坐标参考系统，使用默认地理CRS，避免重复创建 */
         private final CoordinateReferenceSystem WGS84_CRS = DefaultGeographicCRS.WGS84;
 
+        /** 欧几里得距离计算器，用于空间聚类和距离测量 */
+        private final EuclideanDistance euclideanDistance = new EuclideanDistance();
+
         /**
          * 高斯投影CRS缓存（线程安全）
          * <p>
@@ -215,6 +218,12 @@ public class GisUtil implements AutoCloseable {
 
         /** 最大返回多边形数量 */
         private final int MAX_GEOMETRY = 10;
+
+        /** 两点间最大作业距离(米) */
+        private final double MAX_WORK_DISTANCE_M = 18 / 3.6;
+
+        /** DBSCAN算法最小点阈值 */
+        private final int DBSCAN_MIN_POINTS = 23;
 
         /** 最大作业速度(km/h) */
         private final double MAX_WORK_SPEED_1s = 8;
@@ -1924,12 +1933,8 @@ public class GisUtil implements AutoCloseable {
         List<TrackPoint> gaussPoints = toGaussPointList(wgs84Points);
 
         // 使用 Apache Commons Math 的空间聚类
-        DBSCANClusterer<TrackPoint> clusterer;
-        if (minEffectiveInterval < 5) {
-            clusterer = new DBSCANClusterer<>(totalWidthM * 1.5, 6, new EuclideanDistance());
-        } else {
-            clusterer = new DBSCANClusterer<>(totalWidthM * minEffectiveInterval, 6, new EuclideanDistance());
-        }
+        DBSCANClusterer<TrackPoint> clusterer = new DBSCANClusterer<>(config.MAX_WORK_DISTANCE_M * minEffectiveInterval,
+                config.DBSCAN_MIN_POINTS, config.euclideanDistance);
         List<Cluster<TrackPoint>> clusters = clusterer.cluster(gaussPoints);
         log.debug("聚类结果：共{}个聚类", clusters.size());
 
@@ -2072,7 +2077,7 @@ public class GisUtil implements AutoCloseable {
         } */
 
         // 8.3 过滤最小亩数，去除面积过小的噪声多边形
-        if (outlineParts.size() > 1) {
+        /* if (outlineParts.size() > 1) {
             OutlinePart bak = outlineParts.get(0);
             outlineParts = outlineParts.stream()
                     .filter(part -> part
@@ -2082,7 +2087,7 @@ public class GisUtil implements AutoCloseable {
                 outlineParts.add(bak);
             }
             log.debug("过滤最小亩数，剩余 {} 个多边形", outlineParts.size());
-        }
+        } */
 
         // 8.4 合并所有outline几何图形为最终结果
         unionGaussGeometry = config.geometryFactory
