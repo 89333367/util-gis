@@ -2463,42 +2463,52 @@ public class GisUtil implements AutoCloseable {
             }
             // 密集聚类后，点位是乱序的，这里要重新排序
             points.sort(Comparator.comparing(TrackPoint::getTime));
-            log.debug("按两点最大距离 {} 米分割聚类 {}", config.MAX_WORK_DISTANCE_M, clusterIndex);
+            log.debug("按两点最大距离 {} 米分割聚类 {}", config.MAX_WORK_DISTANCE_M * minEffectiveInterval, clusterIndex);
             // 按速度分割轨迹点
-            List<List<TrackPoint>> speedSegments = new ArrayList<>();
+            List<List<TrackPoint>> segments = new ArrayList<>();
             List<TrackPoint> currentSegment = new ArrayList<>();
             // 添加第一个点到当前段
-            if (!points.isEmpty()) {
-                currentSegment.add(points.get(0));
-            }
+            currentSegment.add(points.get(0));
             // 遍历剩余点，检查速度是否超过阈值
             for (int i = 1; i < points.size(); i++) {
                 TrackPoint currentPoint = points.get(i);
                 currentSegment.add(currentPoint);
-                // 如果当前点的速度超过阈值，结束当前段并开始新段
-                if (currentPoint.getSpeed() > config.MAX_WORK_DISTANCE_M) {
-                    speedSegments.add(new ArrayList<>(currentSegment));
+                TrackPoint prevPoint = points.get(i - 1);
+                // 计算时间间隔（秒）
+                long timeInterval = Duration.between(prevPoint.getTime(), currentPoint.getTime()).getSeconds();
+                // 根据策略进行轨迹分段
+                if (currentPoint.getSpeed() > config.MAX_WORK_DISTANCE_M
+                        || timeInterval > minEffectiveInterval * 3) {
+                    if (currentPoint.getSpeed() > config.MAX_WORK_DISTANCE_M) {
+                        log.debug("速度 {} 米/秒 超出阈值 {} 米/秒，当前点：{}", currentPoint.getSpeed(), config.MAX_WORK_DISTANCE_M,
+                                currentPoint.getTime());
+                    }
+                    if (timeInterval > minEffectiveInterval * 3) {
+                        log.debug("时间间隔 {} 秒 超出阈值 {} 秒，当前点：{}", timeInterval, minEffectiveInterval * 3,
+                                currentPoint.getTime());
+                    }
+                    segments.add(new ArrayList<>(currentSegment));
                     currentSegment.clear();
                     currentSegment.add(currentPoint); // 当前点作为新段的起点
                 }
             }
             // 添加最后一段
             if (!currentSegment.isEmpty()) {
-                speedSegments.add(currentSegment);
+                segments.add(currentSegment);
             }
-            log.debug("聚类 {} 分割后得到 {} 个子段", clusterIndex, speedSegments.size());
+            log.debug("聚类 {} 分割后得到 {} 个子段", clusterIndex, segments.size());
             // 处理每个子段
             List<Geometry> gaussGeometriesSegment = new ArrayList<>();
-            for (List<TrackPoint> segment : speedSegments) {
+            for (List<TrackPoint> segment : segments) {
                 if (segment.size() < 2) {
                     continue; // 忽略点数过少的段
                 }
                 // 循环打印所有轨迹点的信息（调试代码，已注释）
-                for (TrackPoint point : segment) {
+                /* for (TrackPoint point : segment) {
                     log.debug("定位时间：{} 轨迹点：[{},{}] 距离：{} 速度：{} 方向：{}",
                             point.getTime(), point.getLon(), point.getLat(), point.getDistance(), point.getSpeed(),
                             point.getDirection());
-                }
+                } */
                 List<TrackPoint> simplifiedPoints = simplifyTrackPoints(segment, 0.1); // 0.1米容差
                 Geometry gaussGeometry;
                 if (simplifiedPoints.size() > 1000) {
