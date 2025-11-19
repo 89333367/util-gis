@@ -2072,7 +2072,7 @@ public class GisUtil implements AutoCloseable {
         } */
 
         // 8.3 过滤最小亩数，去除面积过小的噪声多边形
-        /* if (outlineParts.size() > 1) {
+        if (outlineParts.size() > 1) {
             OutlinePart bak = outlineParts.get(0);
             outlineParts = outlineParts.stream()
                     .filter(part -> part
@@ -2082,7 +2082,7 @@ public class GisUtil implements AutoCloseable {
                 outlineParts.add(bak);
             }
             log.debug("过滤最小亩数，剩余 {} 个多边形", outlineParts.size());
-        } */
+        }
 
         // 8.4 合并所有outline几何图形为最终结果
         unionGaussGeometry = config.geometryFactory
