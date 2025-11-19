@@ -563,7 +563,13 @@ public class GisUtil implements AutoCloseable {
             }
 
             // 查找与当前几何图形相交的其他几何图形
-            List<Geometry> nearbyGeoms = index.query(geom.getEnvelopeInternal());
+            List<Geometry> nearbyGeoms = new ArrayList<>();
+            List<?> rawResults = index.query(geom.getEnvelopeInternal());
+            for (Object item : rawResults) {
+                if (item instanceof Geometry) {
+                    nearbyGeoms.add((Geometry) item);
+                }
+            }
             Geometry current = geom;
             processed.add(current);
 
@@ -897,7 +903,6 @@ public class GisUtil implements AutoCloseable {
             // 获取几何图形的边界信息来确定高斯投影参数
             Envelope env = wgs84Geometry.getEnvelopeInternal();
             double centerLon = (env.getMinX() + env.getMaxX()) / 2.0;
-            double centerLat = (env.getMinY() + env.getMaxY()) / 2.0;
 
             // 验证WGS84坐标的合理性
             if (env.getMinX() < -180 || env.getMaxX() > 180 ||
@@ -1801,9 +1806,15 @@ public class GisUtil implements AutoCloseable {
             // 优化2：使用PreparedGeometry进行精确空间判断
             PreparedGeometry preparedWgs84Geometry = PreparedGeometryFactory.prepare(wgs84Geometry);
 
-            // 优化3：使用空间索引快速查找可能包含的点位
+            // 使用空间索引快速查找可能包含的点位
             List<TrackPoint> wgs84PointsSegment = new ArrayList<>();
-            List<Integer> candidatePointIndices = pointIndex.query(wgs84Geometry.getEnvelopeInternal());
+            List<Integer> candidatePointIndices = new ArrayList<>();
+            List<?> rawResults = pointIndex.query(wgs84Geometry.getEnvelopeInternal());
+            for (Object item : rawResults) {
+                if (item instanceof Integer) {
+                    candidatePointIndices.add((Integer) item);
+                }
+            }
 
             for (Integer index : candidatePointIndices) {
                 TrackPoint point = pointMap.get(index);
@@ -1874,7 +1885,13 @@ public class GisUtil implements AutoCloseable {
 
                 // 使用空间索引快速查找可能包含的点位
                 List<TrackPoint> wgs84PointsSegmentPart = new ArrayList<>();
-                List<Integer> candidatePointIndices = pointIndex.query(wgs84GeometryPart.getEnvelopeInternal());
+                List<Integer> candidatePointIndices = new ArrayList<>();
+                List<?> rawResults = pointIndex.query(wgs84GeometryPart.getEnvelopeInternal());
+                for (Object item : rawResults) {
+                    if (item instanceof Integer) {
+                        candidatePointIndices.add((Integer) item);
+                    }
+                }
 
                 for (Integer index : candidatePointIndices) {
                     TrackPoint point = pointMap.get(index);
@@ -2072,7 +2089,6 @@ public class GisUtil implements AutoCloseable {
                     .orElse(1);
         }
         log.info("最小有效时间间隔：{}秒", minEffectiveInterval);
-        final int finalMinEffectiveInterval = minEffectiveInterval;
 
         // 步骤4：转换到高斯投影平面坐标，便于后续距离和几何计算
         List<TrackPoint> gaussPoints = toGaussPointList(wgs84Points);
