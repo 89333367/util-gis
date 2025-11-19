@@ -238,7 +238,7 @@ public class GisUtil implements AutoCloseable {
 
         /** 最小亩数阈值 */
         private final double MIN_MU_1s = 0.3;
-        private final double MIN_MU_10s = 0.5;
+        private final double MIN_MU_10s = 0.6;
     }
 
     /**
@@ -2089,6 +2089,7 @@ public class GisUtil implements AutoCloseable {
                     .orElse(1);
         }
         log.info("最小有效时间间隔：{}秒", minEffectiveInterval);
+        final int finalMinEffectiveInterval = minEffectiveInterval;
 
         // 步骤4：转换到高斯投影平面坐标，便于后续距离和几何计算
         List<TrackPoint> gaussPoints = toGaussPointList(wgs84Points);
@@ -2098,6 +2099,10 @@ public class GisUtil implements AutoCloseable {
                 config.DBSCAN_MIN_POINTS, config.euclideanDistance);
         List<Cluster<TrackPoint>> clusters = clusterer.cluster(gaussPoints);
         log.debug("聚类结果：共{}个聚类", clusters.size());
+        if (clusters.size() == 0) {
+            log.warn("聚类结果为空");
+            return result;
+        }
 
         // 处理每个聚类
         List<Geometry> gaussGeometries = new ArrayList<>();
@@ -2295,7 +2300,7 @@ public class GisUtil implements AutoCloseable {
         }
 
         // 8.3 过滤最小亩数，去除面积过小的噪声多边形
-        /* if (outlineParts.size() > 1) {
+        if (outlineParts.size() > 1) {
             OutlinePart bak = outlineParts.get(0);
             outlineParts = outlineParts.stream()
                     .filter(part -> part
@@ -2305,7 +2310,7 @@ public class GisUtil implements AutoCloseable {
                 outlineParts.add(bak);
             }
             log.debug("过滤最小亩数，剩余 {} 个多边形", outlineParts.size());
-        } */
+        }
 
         // 8.4 合并所有outline几何图形为最终结果
         unionGaussGeometry = config.geometryFactory
