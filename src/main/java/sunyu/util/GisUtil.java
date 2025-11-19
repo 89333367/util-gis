@@ -34,9 +34,6 @@ import org.opengis.referencing.crs.CoordinateReferenceSystem;
 import org.opengis.referencing.operation.MathTransform;
 
 import cn.hutool.core.collection.CollUtil;
-import cn.hutool.core.date.LocalDateTimeUtil;
-import cn.hutool.core.io.FileUtil;
-import cn.hutool.core.util.StrUtil;
 import cn.hutool.log.Log;
 import cn.hutool.log.LogFactory;
 import sunyu.util.pojo.CoordinatePoint;
@@ -1921,33 +1918,193 @@ public class GisUtil implements AutoCloseable {
                     .orElse(1);
         }
         log.info("最小有效时间间隔：{}秒", minEffectiveInterval);
+        final int finalMinEffectiveInterval = minEffectiveInterval;
 
         // 步骤4：转换到高斯投影平面坐标，便于后续距离和几何计算
         List<TrackPoint> gaussPoints = toGaussPointList(wgs84Points);
 
         // 使用 Apache Commons Math 的空间聚类
-        DBSCANClusterer<TrackPoint> clusterer = new DBSCANClusterer<>(totalWidthM * 2 * minEffectiveInterval, 6,
-                new EuclideanDistance());
+        DBSCANClusterer<TrackPoint> clusterer;
+        if (minEffectiveInterval < 5) {
+            clusterer = new DBSCANClusterer<>(totalWidthM * 1.5, 6, new EuclideanDistance());
+        } else {
+            clusterer = new DBSCANClusterer<>(totalWidthM * minEffectiveInterval, 6, new EuclideanDistance());
+        }
         List<Cluster<TrackPoint>> clusters = clusterer.cluster(gaussPoints);
-
         log.debug("聚类结果：共{}个聚类", clusters.size());
 
         // 处理每个聚类
-        List<String> l = new ArrayList<>();
+        List<Geometry> gaussGeometries = new ArrayList<>();
         for (Cluster<TrackPoint> cluster : clusters) {
-            List<TrackPoint> pointsInCluster = cluster.getPoints();
-            pointsInCluster.sort(Comparator.comparing(TrackPoint::getTime));
-            log.debug("聚类包含{}个点", pointsInCluster.size());
-
-            List<String> l2 = new ArrayList<>();
-            for (TrackPoint p : pointsInCluster) {
-                TrackPoint wgs84Point = toWgs84Point(p);
-                l2.add(StrUtil.format("{},{},{}", wgs84Point.getLon(), wgs84Point.getLat(),
-                        LocalDateTimeUtil.format(wgs84Point.getTime(), "yyyyMMddHHmmss")));
+            List<TrackPoint> gaussPointsInCluster = cluster.getPoints();
+            gaussPointsInCluster.sort(Comparator.comparing(TrackPoint::getTime));
+            log.debug("聚类包含{}个点", gaussPointsInCluster.size());
+            if (minEffectiveInterval < 5) {
+                if (gaussPointsInCluster.size() < config.MIN_WORK_POINTS_1s) {
+                    log.debug("点数少于{}个，跳过", config.MIN_WORK_POINTS_1s);
+                    continue;
+                }
+            } else {
+                if (gaussPointsInCluster.size() < config.MIN_WORK_POINTS_10s) {
+                    log.debug("点数少于{}个，跳过", config.MIN_WORK_POINTS_10s);
+                    continue;
+                }
             }
-            l.add(CollUtil.join(l2, "#"));
+
+            List<TrackPoint> simplifiedPoints = simplifyTrackPoints(gaussPointsInCluster, 0.1); // 0.1米容差
+
+            // 7.2 根据点数选择处理策略 - 大规模轨迹采用分块处理
+            Geometry gaussGeometry;
+            if (simplifiedPoints.size() > 1000) {
+                // 当点数超过1000时，进行分块处理以避免内存溢出和提高性能
+                gaussGeometry = processLargeSegmentInChunks(simplifiedPoints, halfWidthM);
+            } else {
+                // 点数较少时直接处理：创建线串，然后生成缓冲区（表示作业范围）
+                Coordinate[] coordinates = simplifiedPoints.stream()
+                        .map(point -> new Coordinate(point.getLon(), point.getLat()))
+                        .toArray(Coordinate[]::new);
+                LineString lineString = config.geometryFactory.createLineString(coordinates);
+                // 创建宽度为halfWidthM的缓冲区，表示作业区域
+                gaussGeometry = lineString.buffer(halfWidthM);
+            }
+            gaussGeometries.add(gaussGeometry);
         }
-        FileUtil.writeUtf8Lines(l, "d:/tmp/1.txt");
+
+        Geometry unionGaussGeometry = config.geometryFactory
+                .createGeometryCollection(gaussGeometries.toArray(new Geometry[0]))
+                .union()
+                .buffer(0);
+
+        List<OutlinePart> outlineParts = new ArrayList<>();
+        if (unionGaussGeometry instanceof Polygon) {
+            Geometry wgs84Geometry = toWgs84Geometry(unionGaussGeometry);
+            // 7.4 性能优化：获取几何图形的边界框，用于快速空间过滤
+            Envelope geometryEnvelope = wgs84Geometry.getEnvelopeInternal();
+            // 使用PreparedGeometry预优化，大幅提升空间判断性能（10-100倍）
+            PreparedGeometry preparedWgs84Geometry = PreparedGeometryFactory.prepare(wgs84Geometry);
+            List<TrackPoint> wgs84PointsSegment = wgs84Points.stream()
+                    .filter(point -> {
+                        try {
+                            // 第一步：边界框快速过滤 - 使用简单的数值比较，性能极高
+                            if (!geometryEnvelope.contains(point.getLon(), point.getLat())) {
+                                return false;
+                            }
+                            // 第二步：使用PreparedGeometry进行精确空间判断
+                            return preparedWgs84Geometry.contains(config.geometryFactory.createPoint(
+                                    new Coordinate(point.getLon(), point.getLat())));
+                        } catch (Exception e) {
+                            log.trace("点位空间判断失败：经度{} 纬度{} 错误：{}",
+                                    point.getLon(), point.getLat(), e.getMessage());
+                            return false;
+                        }
+                    })
+                    .collect(Collectors.toList());
+            log.trace("点位空间判断完成，原始点位数：{}，筛选后点位数：{}", wgs84Points.size(), wgs84PointsSegment.size());
+
+            OutlinePart outlinePart = new OutlinePart();
+            outlinePart.setTotalWidthM(totalWidthM);
+            outlinePart.setOutline(unionGaussGeometry);
+            outlinePart.setWkt(wgs84Geometry.toText());
+            outlinePart.setMu(calcMu(wgs84Geometry));
+            outlinePart.setTrackPoints(wgs84PointsSegment);
+            outlinePart.setStartTime(wgs84PointsSegment.get(0).getTime());
+            outlinePart.setEndTime(wgs84PointsSegment.get(wgs84PointsSegment.size() - 1).getTime());
+            outlineParts.add(outlinePart);
+        } else if (unionGaussGeometry instanceof MultiPolygon) {
+            for (int i = 0; i < unionGaussGeometry.getNumGeometries(); i++) {
+                Geometry partGaussGeometry = unionGaussGeometry.getGeometryN(i);
+                Geometry wgs84GeometryPart = toWgs84Geometry(partGaussGeometry);
+                Envelope geometryEnvelopePart = wgs84GeometryPart.getEnvelopeInternal();
+                PreparedGeometry preparedWgs84GeometryPart = PreparedGeometryFactory.prepare(wgs84GeometryPart);
+                List<TrackPoint> wgs84PointsSegmentPart = wgs84Points.stream()
+                        .filter(point -> {
+                            try {
+                                // 第一步：边界框快速过滤 - 使用简单的数值比较，性能极高
+                                if (!geometryEnvelopePart.contains(point.getLon(), point.getLat())) {
+                                    return false;
+                                }
+                                // 第二步：使用PreparedGeometry进行精确空间判断
+                                return preparedWgs84GeometryPart.contains(config.geometryFactory.createPoint(
+                                        new Coordinate(point.getLon(), point.getLat())));
+                            } catch (Exception e) {
+                                log.trace("点位空间判断失败：经度{} 纬度{} 错误：{}",
+                                        point.getLon(), point.getLat(), e.getMessage());
+                                return false;
+                            }
+                        })
+                        .collect(Collectors.toList());
+                log.trace("点位空间判断完成，原始点位数：{}，筛选后点位数：{}", wgs84Points.size(), wgs84PointsSegmentPart.size());
+
+                OutlinePart outlinePart = new OutlinePart();
+                outlinePart.setTotalWidthM(totalWidthM);
+                outlinePart.setOutline(partGaussGeometry);
+                outlinePart.setWkt(wgs84GeometryPart.toText());
+                outlinePart.setMu(calcMu(wgs84GeometryPart));
+                outlinePart.setTrackPoints(wgs84PointsSegmentPart);
+                outlinePart.setStartTime(wgs84PointsSegmentPart.get(0).getTime());
+                outlinePart.setEndTime(wgs84PointsSegmentPart.get(wgs84PointsSegmentPart.size() - 1).getTime());
+                outlineParts.add(outlinePart);
+            }
+        }
+
+        // 步骤8：几何图形后处理与优化
+        // 8.1 按亩数降序排序，保留亩数最高的若干个多边形
+        log.trace("按亩数降序排序");
+        outlineParts.sort(Comparator.comparingDouble(OutlinePart::getMu).reversed());
+
+        if (outlineParts.size() > config.MAX_GEOMETRY) {
+            log.debug("截取前有 {} 个多边形，只保留亩数最大的{}个", outlineParts.size(), config.MAX_GEOMETRY);
+            outlineParts = outlineParts.subList(0, Math.min(config.MAX_GEOMETRY, outlineParts.size()));
+        }
+
+        // 8.2 过滤最小点位数量，确保多边形有足够的轨迹点支撑
+        /* if (outlineParts.size() > 1) {
+            if (minEffectiveInterval < 5) {
+                outlineParts = outlineParts.stream()
+                        .filter(part -> part.getTrackPoints().size() >= config.MIN_WORK_POINTS_1s)
+                        .collect(Collectors.toList());
+            } else {
+                outlineParts = outlineParts.stream()
+                        .filter(part -> part.getTrackPoints().size() >= config.MIN_WORK_POINTS_10s)
+                        .collect(Collectors.toList());
+            }
+            log.debug("过滤最小点位，剩余 {} 个多边形", outlineParts.size());
+        } */
+
+        // 8.3 过滤最小亩数，去除面积过小的噪声多边形
+        /* if (outlineParts.size() > 1) {
+            OutlinePart bak = outlineParts.get(0);
+            outlineParts = outlineParts.stream()
+                    .filter(part -> part
+                            .getMu() >= (finalMinEffectiveInterval < 5 ? config.MIN_MU_1s : config.MIN_MU_10s))
+                    .collect(Collectors.toList());
+            if (outlineParts.isEmpty()) {
+                outlineParts.add(bak);
+            }
+            log.debug("过滤最小亩数，剩余 {} 个多边形", outlineParts.size());
+        } */
+
+        // 8.4 合并所有outline几何图形为最终结果
+        unionGaussGeometry = config.geometryFactory
+                .createGeometryCollection(outlineParts.stream()
+                        .map(OutlinePart::getOutline)
+                        .toArray(Geometry[]::new))
+                .union();
+
+        // 步骤9：计算总面积（亩）
+        double totalMu = outlineParts != null ? outlineParts.stream()
+                .filter(Objects::nonNull)
+                .mapToDouble(OutlinePart::getMu)
+                .sum() : 0.0;
+
+        // 步骤10：设置最终结果
+        result.setOutline(unionGaussGeometry);
+        result.setWkt(toWgs84Geometry(unionGaussGeometry).toText());
+        result.setParts(outlineParts);
+        result.setMu(Math.round(totalMu * 10000.0) / 10000.0); // 四舍五入保留4位小数
+
+        log.debug("最终生成区块数量：{}块，总亩数：{}亩，最终几何类型：{}",
+                unionGaussGeometry.getNumGeometries(), result.getMu(), unionGaussGeometry.getGeometryType());
 
         return result;
     }
