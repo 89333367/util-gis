@@ -87,7 +87,12 @@
             <artifactId>geoapi</artifactId>
             <version>3.0.2</version>
         </dependency>
-
+        <!-- https://central.sonatype.com/artifact/org.apache.commons/commons-math3/versions -->
+        <dependency>
+            <groupId>org.apache.commons</groupId>
+            <artifactId>commons-math3</artifactId>
+            <version>3.6.1</version>
+        </dependency>
 
         <!-- https://central.sonatype.com/artifact/org.junit.jupiter/junit-jupiter/versions -->
         <dependency>

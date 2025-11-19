@@ -1,13 +1,14 @@
 package sunyu.util.pojo;
 
 import java.time.LocalDateTime;
+import org.apache.commons.math3.ml.clustering.Clusterable;
 
 /**
- * 轨迹点数据类，继承自CoordinatePoint
+ * 轨迹点数据类，继承自CoordinatePoint，实现Clusterable接口以支持Apache Commons Math聚类
  *
  * @author SunYu
  */
-public class TrackPoint extends CoordinatePoint {
+public class TrackPoint extends CoordinatePoint implements Clusterable {
     /**
      * 定位时间
      */
@@ -111,6 +112,16 @@ public class TrackPoint extends CoordinatePoint {
      */
     public void setDirection(double direction) {
         this.direction = direction;
+    }
+
+    /**
+     * 实现Clusterable接口，返回用于聚类的点坐标
+     * 
+     * @return 包含经度和纬度的双精度数组
+     */
+    @Override
+    public double[] getPoint() {
+        return new double[]{getLon(), getLat()};
     }
 
 }
