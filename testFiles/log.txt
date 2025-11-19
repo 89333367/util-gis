@@ -1,0 +1,31 @@
+[2025-11-19 14:45:19] [DEBUG] cn.hutool.log.LogFactory: Use [Hutool Console Logging] Logger As Default.
+[2025-11-19 14:45:19] [INFO] sunyu.util.GisUtil: [构建GisUtil] 开始
+[2025-11-19 14:45:19] [INFO] sunyu.util.GisUtil: [构建GisUtil] 结束
+[2025-11-19 14:45:19] [INFO] sunyu.util.test.ProtocolSdk: 初始化内部协议工具
+[2025-11-19 14:45:20] [INFO] sunyu.util.test.ProtocolSdk: 配置信息加载完毕
+[2025-11-19 14:45:20] [DEBUG] sunyu.util.GisUtil: 参数：wgs84点数量=3851, 总幅宽(米)=2.5
+[2025-11-19 14:45:20] [DEBUG] sunyu.util.GisUtil: 过滤异常点位后轨迹点数量=3851
+[2025-11-19 14:45:20] [DEBUG] sunyu.util.GisUtil: 过滤相邻经纬度完全一致的点位
+[2025-11-19 14:45:20] [DEBUG] sunyu.util.GisUtil: 过滤后轨迹点数量=3021
+[2025-11-19 14:45:20] [INFO] sunyu.util.GisUtil: 最小有效时间间隔：10秒
+[2025-11-19 14:45:20] [DEBUG] sunyu.util.GisUtil: 创建高斯投影CRS：投影带号=51, 假东距=5.15E7, 中央经线=123.0
+[2025-11-19 14:45:20] [DEBUG] sunyu.util.GisUtil: 成功转换3021个轨迹点到高斯-克吕格投影坐标系
+[2025-11-19 14:45:20] [DEBUG] sunyu.util.GisUtil: 聚类结果：共7个聚类
+[2025-11-19 14:45:20] [DEBUG] sunyu.util.GisUtil: 点数少于30个，跳过
+[2025-11-19 14:45:20] [DEBUG] sunyu.util.GisUtil: 按时间切割后，共11个时间段
+[2025-11-19 14:45:20] [DEBUG] sunyu.util.GisUtil: 按时间切割后，共24个时间段
+[2025-11-19 14:45:20] [DEBUG] sunyu.util.GisUtil: 按时间切割后，共12个时间段
+[2025-11-19 14:45:20] [DEBUG] sunyu.util.GisUtil: 按时间切割后，共5个时间段
+[2025-11-19 14:45:20] [DEBUG] sunyu.util.GisUtil: 按时间切割后，共31个时间段
+[2025-11-19 14:45:20] [DEBUG] sunyu.util.GisUtil: 按时间切割后，共22个时间段
+[2025-11-19 14:45:35] [DEBUG] sunyu.util.GisUtil: 点位空间判断完成，原始点位数：3021，筛选后点位数：650
+[2025-11-19 14:45:35] [DEBUG] sunyu.util.GisUtil: 点位空间判断完成，原始点位数：3021，筛选后点位数：288
+[2025-11-19 14:45:35] [DEBUG] sunyu.util.GisUtil: 点位空间判断完成，原始点位数：3021，筛选后点位数：11
+[2025-11-19 14:45:35] [DEBUG] sunyu.util.GisUtil: 点位空间判断完成，原始点位数：3021，筛选后点位数：662
+[2025-11-19 14:45:35] [DEBUG] sunyu.util.GisUtil: 点位空间判断完成，原始点位数：3021，筛选后点位数：5
+[2025-11-19 14:45:35] [DEBUG] sunyu.util.GisUtil: 点位空间判断完成，原始点位数：3021，筛选后点位数：273
+[2025-11-19 14:45:35] [DEBUG] sunyu.util.GisUtil: 点位空间判断完成，原始点位数：3021，筛选后点位数：42
+[2025-11-19 14:45:35] [DEBUG] sunyu.util.GisUtil: 点位空间判断完成，原始点位数：3021，筛选后点位数：878
+[2025-11-19 14:45:35] [DEBUG] sunyu.util.GisUtil: 按亩数降序排序
+[2025-11-19 14:45:35] [DEBUG] sunyu.util.GisUtil: 最终生成区块数量：8块，总亩数：85.4818亩，最终几何类型：MultiPolygon
+[2025-11-19 14:45:35] [INFO] sunyu.util.test.TestGisUtil: 结果文件已生成：outline=D:/GitLab/util-gis/testFiles/EM9101B8F5AZT0041_20251023_outline.txt, parts=D:/GitLab/util-gis/testFiles/EM9101B8F5AZT0041_20251023_parts.txt
