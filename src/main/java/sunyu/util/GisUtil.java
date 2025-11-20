@@ -1752,6 +1752,10 @@ public class GisUtil implements AutoCloseable {
                     .buffer(0);
             gaussGeometriesCluster.add(unionGaussSegmentsGeometry);
         }
+        if (gaussGeometriesCluster.size() == 0) {
+            log.warn("聚类结果为空");
+            return result;
+        }
         log.debug("所有聚类合并");
         Geometry unionGaussGeometry = config.geometryFactory
                 .createGeometryCollection(gaussGeometriesCluster.toArray(new Geometry[0]))
