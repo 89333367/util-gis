@@ -232,7 +232,7 @@ public class GisUtil implements AutoCloseable {
         private final int MIN_WORK_POINTS = 30;
 
         /** 最小亩数阈值 */
-        private final double MIN_MU = 0.3;
+        private final double MIN_MU = 0.6;
     }
 
     /**
@@ -1822,17 +1822,16 @@ public class GisUtil implements AutoCloseable {
         }
 
         // 8.3 过滤最小亩数，去除面积过小的噪声多边形
-        /* if (outlineParts.size() > 1) {
+        if (outlineParts.size() > 1) {
             OutlinePart bak = outlineParts.get(0);
             outlineParts = outlineParts.stream()
-                    .filter(part -> part
-                            .getMu() >= (finalMinEffectiveInterval < 5 ? config.MIN_MU_1s : config.MIN_MU_10s))
+                    .filter(part -> part.getMu() >= config.MIN_MU)
                     .collect(Collectors.toList());
             if (outlineParts.isEmpty()) {
                 outlineParts.add(bak);
             }
             log.debug("过滤最小亩数，剩余 {} 个多边形", outlineParts.size());
-        } */
+        }
 
         // 8.4 合并所有outline几何图形为最终结果
         log.debug("合并所有outline几何图形为最终结果");
