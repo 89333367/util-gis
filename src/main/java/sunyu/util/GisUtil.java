@@ -226,7 +226,7 @@ public class GisUtil implements AutoCloseable {
         private final double MAX_WORK_DISTANCE_M = 18 / 3.6;
 
         /** DBSCAN算法最小点阈值 */
-        private final int DBSCAN_MIN_POINTS = 5;
+        private final int DBSCAN_MIN_POINTS = 4;
 
         /** 最大作业速度(km/h) */
         private final double MAX_WORK_SPEED_1s = 8;
@@ -2449,7 +2449,7 @@ public class GisUtil implements AutoCloseable {
 
         // 空间密集聚类分割
         DBSCANClusterer<TrackPoint> clusterer = new DBSCANClusterer<>(
-                config.MAX_WORK_DISTANCE_M * minEffectiveInterval, config.DBSCAN_MIN_POINTS,
+                config.MAX_WORK_DISTANCE_M * minEffectiveInterval, config.DBSCAN_MIN_POINTS * minEffectiveInterval,
                 config.euclideanDistance);
         List<Cluster<TrackPoint>> clusters = clusterer.cluster(gaussPoints);
         log.debug("聚类结果：共 {} 个聚类", clusters.size());
