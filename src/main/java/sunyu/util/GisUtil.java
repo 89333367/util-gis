@@ -226,7 +226,7 @@ public class GisUtil implements AutoCloseable {
         private final double MAX_WORK_DISTANCE_M = 18 / 3.6;
 
         /** DBSCAN算法最小点阈值 */
-        private final int DBSCAN_MIN_POINTS = 23;
+        private final int DBSCAN_MIN_POINTS = 5;
 
         /** 最大作业速度(km/h) */
         private final double MAX_WORK_SPEED_1s = 8;
@@ -2480,7 +2480,8 @@ public class GisUtil implements AutoCloseable {
                 TrackPoint prePoint = openList.get(openList.size() - 1);
                 long timeInterval = Duration.between(prePoint.getTime(), currentPoint.getTime()).getSeconds();
                 // 根据策略进行轨迹分段
-                if (currentPoint.getSpeed() > config.MAX_WORK_DISTANCE_M || timeInterval > minEffectiveInterval * 5) {
+                // minEffectiveInterval * 5 是为了考虑到轨迹点之间的时间间隔可能会有一些误差，比如 EC73BD2509060248_20251023 示例
+                if (currentPoint.getSpeed() > config.MAX_WORK_DISTANCE_M || timeInterval > minEffectiveInterval * 3) {
                     List<TrackPoint> newList = new ArrayList<>();
                     newList.add(currentPoint);
                     segments.add(newList);
@@ -2527,11 +2528,11 @@ public class GisUtil implements AutoCloseable {
             gaussGeometriesCluster.add(unionGaussSegmentsGeometry);
             clusterIndex++;
         }
-        log.debug("所有聚类膨胀 0.3 米再收缩 0.3 米后合并");
+        log.debug("所有聚类合并");
         Geometry unionGaussGeometry = config.geometryFactory
                 .createGeometryCollection(gaussGeometriesCluster.toArray(new Geometry[0]))
                 .union()
-                .buffer(0.3).buffer(-0.3);
+                .buffer(0.025).buffer(-0.025);
 
         log.debug("拼装outlineParts");
         List<OutlinePart> outlineParts = new ArrayList<>();
