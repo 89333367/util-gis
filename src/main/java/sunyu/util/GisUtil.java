@@ -1644,10 +1644,11 @@ public class GisUtil implements AutoCloseable {
             currPoint.setDirection(direction);
         }
 
-        // 空间密集聚类分割
-        DBSCANClusterer<TrackPoint> clusterer = new DBSCANClusterer<>(
-                config.MAX_WORK_DISTANCE_M * minEffectiveInterval, config.DBSCAN_MIN_POINTS * minEffectiveInterval,
-                config.euclideanDistance);
+        // 空间密集聚类
+        double eps = config.MAX_WORK_DISTANCE_M * minEffectiveInterval;
+        int minPts = config.DBSCAN_MIN_POINTS * minEffectiveInterval;
+        log.debug("开始进行空间密集聚类，聚类参数：聚类范围 {} 米，最小点数 {}", eps, minPts);
+        DBSCANClusterer<TrackPoint> clusterer = new DBSCANClusterer<>(eps, minPts, config.euclideanDistance);
         List<Cluster<TrackPoint>> clusters = clusterer.cluster(gaussPoints);
         log.debug("聚类结果：共 {} 个聚类", clusters.size());
 
