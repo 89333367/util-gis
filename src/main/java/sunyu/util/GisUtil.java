@@ -220,13 +220,10 @@ public class GisUtil implements AutoCloseable {
         private final double MIN_WORKING_WIDTH_M = 1.0;
 
         /** 最大返回多边形数量 */
-        private final int MAX_GEOMETRY = 8;
+        private final int MAX_GEOMETRY = 10;
 
         /** 两点间最大作业距离(米) */
         private final double MAX_WORK_DISTANCE_M = 18 / 3.6;
-
-        /** DBSCAN算法最小点阈值 */
-        private final int DBSCAN_MIN_POINTS = 4;
 
         /** 最小作业点阈值 */
         private final int MIN_WORK_POINTS = 30;
@@ -1854,16 +1851,48 @@ public class GisUtil implements AutoCloseable {
         } */
 
         // 8.3 过滤最小亩数，去除面积过小的噪声多边形
-        /* if (outlineParts.size() > 1) {
-            OutlinePart bak = outlineParts.get(0);
+        if (outlineParts.size() > 1) {
+            // 记录过滤前的数量和原始列表
+            int originalSize = outlineParts.size();
+            OutlinePart maxMuPart = outlineParts.stream()
+                    .max(Comparator.comparingDouble(OutlinePart::getMu))
+                    .orElse(outlineParts.get(0));
+
+            // 过滤小于最小亩数的outlinePart，并记录被过滤的项
+            List<OutlinePart> filteredParts = new ArrayList<>();
             outlineParts = outlineParts.stream()
-                    .filter(part -> part.getMu() >= config.MIN_MU)
+                    .filter(part -> {
+                        if (part.getMu() >= config.MIN_MU) {
+                            return true;
+                        } else {
+                            filteredParts.add(part);
+                            return false;
+                        }
+                    })
                     .collect(Collectors.toList());
-            if (outlineParts.isEmpty()) {
-                outlineParts.add(bak);
+
+            // 如果有被过滤的项，打印详细过滤信息
+            if (!filteredParts.isEmpty()) {
+                log.debug("过滤了 {} 个小于最小亩数({}亩)的outlinePart:", filteredParts.size(), config.MIN_MU);
+                for (OutlinePart filteredPart : filteredParts) {
+                    log.warn("  过滤outlinePart: 开始时间={}, 结束时间={}, 亩数={}亩",
+                            filteredPart.getStartTime(),
+                            filteredPart.getEndTime(),
+                            String.format("%.2f", filteredPart.getMu()));
+                }
             }
-            log.debug("过滤最小亩数，剩余 {} 个多边形", outlineParts.size());
-        } */
+
+            // 如果全部过滤完了，保留亩数最大的那个
+            if (outlineParts.isEmpty()) {
+                outlineParts.add(maxMuPart);
+                log.warn("所有outlinePart都被过滤，保留亩数最大的outlinePart: 开始时间={}, 结束时间={}, 亩数={}亩",
+                        maxMuPart.getStartTime(),
+                        maxMuPart.getEndTime(),
+                        String.format("%.2f", maxMuPart.getMu()));
+            } else if (originalSize > outlineParts.size()) {
+                log.debug("过滤最小亩数完成，原始 {} 个，过滤后 {} 个多边形", originalSize, outlineParts.size());
+            }
+        }
 
         // 8.4 合并所有outline几何图形为最终结果
         log.debug("合并所有outline几何图形为最终结果");
