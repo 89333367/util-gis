@@ -1875,7 +1875,7 @@ public class GisUtil implements AutoCloseable {
             if (!filteredParts.isEmpty()) {
                 log.debug("过滤了 {} 个小于最小亩数({}亩)的outlinePart:", filteredParts.size(), config.MIN_MU);
                 for (OutlinePart filteredPart : filteredParts) {
-                    log.warn("  过滤outlinePart: 开始时间={}, 结束时间={}, 亩数={}亩",
+                    log.warn("过滤小轮廓: 开始时间={}, 结束时间={}, 亩数={}亩",
                             filteredPart.getStartTime(),
                             filteredPart.getEndTime(),
                             String.format("%.2f", filteredPart.getMu()));
