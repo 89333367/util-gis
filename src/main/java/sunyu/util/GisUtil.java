@@ -231,6 +231,9 @@ public class GisUtil implements AutoCloseable {
         /** 最小作业点阈值 */
         private final int MIN_WORK_POINTS = 30;
 
+        /** 最小子段点数阈值 */
+        private final int MIN_SEGMENT_POINTS = 6;
+
         /** 最小亩数阈值 */
         private final double MIN_MU = 0.6;
     }
@@ -1651,17 +1654,24 @@ public class GisUtil implements AutoCloseable {
         DBSCANClusterer<TrackPoint> clusterer = new DBSCANClusterer<>(eps, minPts, config.euclideanDistance);
         List<Cluster<TrackPoint>> clusters = clusterer.cluster(gaussPoints);
         log.debug("聚类结果：共 {} 个聚类", clusters.size());
+        if (clusters.size() == 0) {
+            log.warn("聚类结果为空");
+            return result;
+        }
 
         List<Geometry> gaussGeometriesCluster = new ArrayList<>();
-        int clusterIndex = 1;
+        int clusterIndex = 0;
         for (Cluster<TrackPoint> cluster : clusters) {
+            ++clusterIndex;
             List<TrackPoint> points = cluster.getPoints();
-            log.debug("聚类 {} 共 {} 个点位", clusterIndex, points.size());
-            if (points.size() < 2) {
-                continue;
-            }
             // 密集聚类后，点位是乱序的，这里要重新排序
             points.sort(Comparator.comparing(TrackPoint::getTime));
+            log.debug("聚类 {} 共 {} 个点位", clusterIndex, points.size());
+            if (points.size() < config.MIN_WORK_POINTS) {
+                log.warn("聚类 {} 点位不足 {} 个，忽略此聚类；[{} {}]", clusterIndex, config.MIN_WORK_POINTS,
+                        points.get(0).getTime(), points.get(points.size() - 1).getTime());
+                continue;
+            }
             log.debug("按策略分割聚类 {}", clusterIndex);
             // 按策略分割轨迹点
             List<List<TrackPoint>> segments = new ArrayList<>();
@@ -1678,7 +1688,17 @@ public class GisUtil implements AutoCloseable {
                 TrackPoint prePoint = openList.get(openList.size() - 1);
                 long timeInterval = Duration.between(prePoint.getTime(), currentPoint.getTime()).getSeconds();
                 // 根据策略进行轨迹分段
-                if (currentPoint.getSpeed() > config.MAX_WORK_DISTANCE_M || timeInterval > minEffectiveInterval * 3) {
+                int maxInterval = minEffectiveInterval * 3;
+                if (currentPoint.getSpeed() > config.MAX_WORK_DISTANCE_M || timeInterval > maxInterval) {
+                    if (currentPoint.getSpeed() > config.MAX_WORK_DISTANCE_M) {
+                        log.warn("聚类 {} 子段 {} 速度 {} 超过 {} 米/秒，进行切割；[{} {}]", clusterIndex, segments.size(),
+                                currentPoint.getSpeed(), config.MAX_WORK_DISTANCE_M, prePoint.getTime(),
+                                currentPoint.getTime());
+                    }
+                    if (timeInterval > maxInterval) {
+                        log.warn("聚类 {} 子段 {} 时间间隔 {} 超过 {} 秒，进行切割；[{} {}]", clusterIndex, segments.size(),
+                                timeInterval, maxInterval, prePoint.getTime(), currentPoint.getTime());
+                    }
                     List<TrackPoint> newList = new ArrayList<>();
                     newList.add(currentPoint);
                     segments.add(newList);
@@ -1691,8 +1711,13 @@ public class GisUtil implements AutoCloseable {
 
             // 处理每个子段
             List<Geometry> gaussGeometriesSegment = new ArrayList<>();
+            int segmentIndex = 0;
             for (List<TrackPoint> segment : segments) {
-                if (segment.size() < 2) {
+                ++segmentIndex;
+                if (segment.size() < config.MIN_SEGMENT_POINTS) {
+                    log.warn("聚类 {} 子段 {} 点数 {} 不足 {} 个，忽略此子段；[{} {}]", clusterIndex, segmentIndex, segment.size(),
+                            config.MIN_SEGMENT_POINTS, segment.get(0).getTime(),
+                            segment.get(segment.size() - 1).getTime());
                     continue; // 忽略点数过少的段
                 }
                 // 循环打印所有轨迹点的信息（调试代码，已注释）
@@ -1723,7 +1748,6 @@ public class GisUtil implements AutoCloseable {
                     .union()
                     .buffer(0);
             gaussGeometriesCluster.add(unionGaussSegmentsGeometry);
-            clusterIndex++;
         }
         log.debug("所有聚类合并");
         Geometry unionGaussGeometry = config.geometryFactory
@@ -1810,20 +1834,20 @@ public class GisUtil implements AutoCloseable {
         outlineParts.sort(Comparator.comparingDouble(OutlinePart::getMu).reversed());
 
         if (outlineParts.size() > config.MAX_GEOMETRY) {
-            log.debug("截取前有 {} 个多边形，只保留亩数最大的 {} 个", outlineParts.size(), config.MAX_GEOMETRY);
+            log.warn("截取前有 {} 个多边形，只保留亩数最大的 {} 个", outlineParts.size(), config.MAX_GEOMETRY);
             outlineParts = outlineParts.subList(0, Math.min(config.MAX_GEOMETRY, outlineParts.size()));
         }
 
         // 8.2 过滤最小点位数量，确保多边形有足够的轨迹点支撑
-        if (outlineParts.size() > 1) {
+        /* if (outlineParts.size() > 1) {
             outlineParts = outlineParts.stream()
                     .filter(part -> part.getTrackPoints().size() >= config.MIN_WORK_POINTS)
                     .collect(Collectors.toList());
             log.debug("过滤最小点位，剩余 {} 个多边形", outlineParts.size());
-        }
+        } */
 
         // 8.3 过滤最小亩数，去除面积过小的噪声多边形
-        if (outlineParts.size() > 1) {
+        /* if (outlineParts.size() > 1) {
             OutlinePart bak = outlineParts.get(0);
             outlineParts = outlineParts.stream()
                     .filter(part -> part.getMu() >= config.MIN_MU)
@@ -1832,7 +1856,7 @@ public class GisUtil implements AutoCloseable {
                 outlineParts.add(bak);
             }
             log.debug("过滤最小亩数，剩余 {} 个多边形", outlineParts.size());
-        }
+        } */
 
         // 8.4 合并所有outline几何图形为最终结果
         log.debug("合并所有outline几何图形为最终结果");
