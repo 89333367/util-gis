@@ -345,6 +345,24 @@ public class TestGisUtil {
     }
 
     @Test
+    void t015() {
+        String did = "EC71BT2404140062";
+        String yyyyMMdd = "20240426";
+        读取一天轨迹数据(did, yyyyMMdd);
+        测试一天拆分数据(did, yyyyMMdd, 2.6);
+        输出一天HTML(did, yyyyMMdd);
+    }
+
+    @Test
+    void t016() {
+        String did = "EC71BT2404140062";
+        String yyyyMMdd = "20240427";
+        读取一天轨迹数据(did, yyyyMMdd);
+        测试一天拆分数据(did, yyyyMMdd, 2.6);
+        输出一天HTML(did, yyyyMMdd);
+    }
+
+    @Test
     void 循环金大丰1() {
         List<String> l = new ArrayList<>();
         String did = "EM9101B8F5AZT0041";
