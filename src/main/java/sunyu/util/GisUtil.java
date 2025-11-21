@@ -1551,17 +1551,17 @@ public class GisUtil implements AutoCloseable {
                 .filter(p -> {
                     // 1. 时间不能为空
                     if (p.getTime() == null) {
-                        log.warn("轨迹点时间为空，真恶心，抛弃");
+                        log.warn("轨迹点时间为空，抛弃");
                         return false;
                     }
                     // 2. 经纬度不能为0（无效坐标）
                     if (p.getLon() == 0.0 && p.getLat() == 0.0) {
-                        log.warn("定位时间: {} 轨迹点经纬度为 0 ，真恶心，抛弃", p.getTime());
+                        log.warn("定位时间: {} 轨迹点经纬度为 0 ，抛弃", p.getTime());
                         return false;
                     }
                     // 3. 经纬度必须在合理范围内
                     if (p.getLon() < -180.0 || p.getLon() > 180.0 || p.getLat() < -90.0 || p.getLat() > 90.0) {
-                        log.warn("定位时间: {} 轨迹点经纬度超出范围：[{},{}] 真恶心，抛弃", p.getTime(), p.getLon(), p.getLat());
+                        log.warn("定位时间: {} 轨迹点经纬度超出范围：[{},{}] 抛弃", p.getTime(), p.getLon(), p.getLat());
                         return false;
                     }
                     return true;
