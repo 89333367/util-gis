@@ -358,7 +358,25 @@ public class TestGisUtil {
         String did = "EC71BT2404140062";
         String yyyyMMdd = "20240427";
         读取一天轨迹数据(did, yyyyMMdd);
-        测试一天拆分数据(did, yyyyMMdd, 2.6);
+        测试一天拆分数据(did, yyyyMMdd, 2.1);
+        输出一天HTML(did, yyyyMMdd);
+    }
+
+    @Test
+    void t017() {
+        String did = "EC71BT2404140062";
+        String yyyyMMdd = "20240428";
+        读取一天轨迹数据(did, yyyyMMdd);
+        测试一天拆分数据(did, yyyyMMdd, 3.9);
+        输出一天HTML(did, yyyyMMdd);
+    }
+
+    @Test
+    void t018() {
+        String did = "EC71BT2404140062";
+        String yyyyMMdd = "20240429";
+        读取一天轨迹数据(did, yyyyMMdd);
+        测试一天拆分数据(did, yyyyMMdd, 3.9);
         输出一天HTML(did, yyyyMMdd);
     }
 
