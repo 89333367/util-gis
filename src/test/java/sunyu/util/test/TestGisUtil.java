@@ -83,9 +83,9 @@ public class TestGisUtil {
 
     @Test
     void 测试点是否在圆中() {
-        CoordinatePoint p = new CoordinatePoint(116.55470301, 40.21296700);
-        CoordinatePoint center = new CoordinatePoint(116.55560000, 40.21296700); // 向东偏移约100米
-        double radius = 10.0;
+        CoordinatePoint p = new CoordinatePoint(100.401807, 23.443696);
+        CoordinatePoint center = new CoordinatePoint(100.27786, 23.60424);
+        double radius = 1000.0;//米
         boolean isIn = gisUtil.inCircle(p, center, radius);
         log.info("点是否在圆中: {}", isIn);
     }
@@ -122,8 +122,10 @@ public class TestGisUtil {
 
     @Test
     void 测试两点距离() {
-        CoordinatePoint p1 = new CoordinatePoint(116.55470301, 40.21296700);
-        CoordinatePoint p2 = new CoordinatePoint(116.55473883, 40.21364248);
+        /* CoordinatePoint p1 = new CoordinatePoint(116.55470301, 40.21296700);
+        CoordinatePoint p2 = new CoordinatePoint(116.55473883, 40.21364248); */
+        CoordinatePoint p1 = new CoordinatePoint(100.401807, 23.443696);
+        CoordinatePoint p2 = new CoordinatePoint(100.27786, 23.60424);
         double distance = gisUtil.haversine(p1, p2);
         log.info("{} 米", distance);
     }
@@ -426,7 +428,7 @@ public class TestGisUtil {
         CsvUtil.getWriter("d:/tmp/EM9101B8F5AZT0041_20251026_trace.csv", null).write(rows);
     }
 
-     @Test
+    @Test
     void 轨迹围栏测试() {
         String did = "BAD3322508600098";
         String yyyyMMdd = "20251124";
