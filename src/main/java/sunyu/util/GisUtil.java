@@ -307,7 +307,7 @@ public class GisUtil implements AutoCloseable {
          * 先正向膨胀再反向收缩，用于去除小孔洞、平滑边界等几何优化。
          * </p>
          */
-        private final double BUFFER_SMOOTHING_DISTANCE_M = 0.025;
+        private final double BUFFER_SMOOTHING_DISTANCE_M = 1;
     }
 
     /**
