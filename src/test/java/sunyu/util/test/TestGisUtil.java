@@ -426,6 +426,15 @@ public class TestGisUtil {
         CsvUtil.getWriter("d:/tmp/EM9101B8F5AZT0041_20251026_trace.csv", null).write(rows);
     }
 
+     @Test
+    void 轨迹围栏测试() {
+        String did = "BAD3322508600098";
+        String yyyyMMdd = "20251124";
+        读取一天轨迹数据(did, yyyyMMdd);
+        测试一天拆分数据(did, yyyyMMdd, 2.5);
+        输出一天HTML(did, yyyyMMdd);
+    }
+
     @Test
     void 循环一天() throws SQLException {
         Db db = getMysqlDb();

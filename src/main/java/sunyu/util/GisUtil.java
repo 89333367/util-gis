@@ -2478,17 +2478,19 @@ public class GisUtil implements AutoCloseable {
                         }
                     })
                     .collect(Collectors.toList());
-            log.trace("点位空间判断完成，原始点位数：{}，筛选后点位数：{}", wgs84Points.size(), wgs84PointsSegment.size());
+            log.debug("点位空间判断完成，原始点位数：{}，筛选后点位数：{}", wgs84Points.size(), wgs84PointsSegment.size());
 
-            OutlinePart outlinePart = new OutlinePart();
-            outlinePart.setTotalWidthM(totalWidthM);
-            outlinePart.setOutline(unionGaussGeometry);
-            outlinePart.setWkt(wgs84Geometry.toText());
-            outlinePart.setMu(calcMu(wgs84Geometry));
-            outlinePart.setTrackPoints(wgs84PointsSegment);
-            outlinePart.setStartTime(wgs84PointsSegment.get(0).getTime());
-            outlinePart.setEndTime(wgs84PointsSegment.get(wgs84PointsSegment.size() - 1).getTime());
-            outlineParts.add(outlinePart);
+            if (wgs84PointsSegment.size() > 0) {
+                OutlinePart outlinePart = new OutlinePart();
+                outlinePart.setTotalWidthM(totalWidthM);
+                outlinePart.setOutline(unionGaussGeometry);
+                outlinePart.setWkt(wgs84Geometry.toText());
+                outlinePart.setMu(calcMu(wgs84Geometry));
+                outlinePart.setTrackPoints(wgs84PointsSegment);
+                outlinePart.setStartTime(wgs84PointsSegment.get(0).getTime());
+                outlinePart.setEndTime(wgs84PointsSegment.get(wgs84PointsSegment.size() - 1).getTime());
+                outlineParts.add(outlinePart);
+            }
         } else if (unionGaussGeometry instanceof MultiPolygon) {
             for (int i = 0; i < unionGaussGeometry.getNumGeometries(); i++) {
                 Geometry partGaussGeometry = unionGaussGeometry.getGeometryN(i);
@@ -2512,17 +2514,19 @@ public class GisUtil implements AutoCloseable {
                             }
                         })
                         .collect(Collectors.toList());
-                log.trace("点位空间判断完成，原始点位数：{}，筛选后点位数：{}", wgs84Points.size(), wgs84PointsSegmentPart.size());
+                log.debug("点位空间判断完成，原始点位数：{}，筛选后点位数：{}", wgs84Points.size(), wgs84PointsSegmentPart.size());
 
-                OutlinePart outlinePart = new OutlinePart();
-                outlinePart.setTotalWidthM(totalWidthM);
-                outlinePart.setOutline(partGaussGeometry);
-                outlinePart.setWkt(wgs84GeometryPart.toText());
-                outlinePart.setMu(calcMu(wgs84GeometryPart));
-                outlinePart.setTrackPoints(wgs84PointsSegmentPart);
-                outlinePart.setStartTime(wgs84PointsSegmentPart.get(0).getTime());
-                outlinePart.setEndTime(wgs84PointsSegmentPart.get(wgs84PointsSegmentPart.size() - 1).getTime());
-                outlineParts.add(outlinePart);
+                if (wgs84PointsSegmentPart.size() > 0) {
+                    OutlinePart outlinePart = new OutlinePart();
+                    outlinePart.setTotalWidthM(totalWidthM);
+                    outlinePart.setOutline(partGaussGeometry);
+                    outlinePart.setWkt(wgs84GeometryPart.toText());
+                    outlinePart.setMu(calcMu(wgs84GeometryPart));
+                    outlinePart.setTrackPoints(wgs84PointsSegmentPart);
+                    outlinePart.setStartTime(wgs84PointsSegmentPart.get(0).getTime());
+                    outlinePart.setEndTime(wgs84PointsSegmentPart.get(wgs84PointsSegmentPart.size() - 1).getTime());
+                    outlineParts.add(outlinePart);
+                }
             }
         }
 
