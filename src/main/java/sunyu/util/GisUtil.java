@@ -1378,7 +1378,7 @@ public class GisUtil implements AutoCloseable {
                 }
             }
 
-            log.debug("成功转换{}个轨迹点到高斯-克吕格投影坐标系", gaussPoints.size());
+            log.debug("成功转换 {} 个轨迹点到高斯-克吕格投影坐标系", gaussPoints.size());
         } catch (Exception e) {
             log.warn("WGS84轨迹点转换为高斯投影失败: {}", e.getMessage());
         }
