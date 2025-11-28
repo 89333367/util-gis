@@ -1,15 +1,14 @@
 package sunyu.util.pojo;
 
+import cn.hutool.core.collection.CollUtil;
+import org.locationtech.jts.geom.Geometry;
+
 import java.time.LocalDateTime;
 import java.util.List;
 
-import org.locationtech.jts.geom.Geometry;
-
-import cn.hutool.core.collection.CollUtil;
-
 /**
  * 分割道路的结果，包含整体轮廓以及每个区块的详情
- * 
+ *
  * @author SunYu
  */
 public class SplitRoadResult {

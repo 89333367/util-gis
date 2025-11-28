@@ -1,17 +1,17 @@
 package sunyu.util.pojo;
 
-import java.time.LocalDateTime;
-import java.util.List;
-
-import org.locationtech.jts.geom.Geometry;
-
 import cn.hutool.core.collection.CollUtil;
 import cn.hutool.core.date.LocalDateTimeUtil;
 import cn.hutool.core.util.StrUtil;
+import org.locationtech.jts.geom.Geometry;
+
+import java.time.LocalDateTime;
+import java.util.Comparator;
+import java.util.List;
 
 /**
  * 单个轮廓区块详情
- * 
+ *
  * @author SunYu
  */
 public class OutlinePart {
@@ -41,7 +41,7 @@ public class OutlinePart {
     private List<TrackPoint> trackPoints;
     /**
      * 区块内的轨迹点字符串表示形式（经度,纬度,定位时间#经度,纬度,定位时间#）
-     * 
+     * <p>
      * 定位时间格式yyyyMMddHHmmss
      */
     private String trackStr;
@@ -99,7 +99,7 @@ public class OutlinePart {
 
     public void setTrackPoints(List<TrackPoint> trackPoints) {
         if (CollUtil.isNotEmpty(trackPoints)) {
-            trackPoints.sort((a, b) -> a.getTime().compareTo(b.getTime()));
+            trackPoints.sort(Comparator.comparing(TrackPoint::getTime));
         }
         this.trackPoints = trackPoints;
     }

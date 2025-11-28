@@ -133,6 +133,7 @@ public class ProtocolSdk {
      * 解析值，一般用于前台展示，这里会根据convertResult把数字的值，转换成中文值，根据formatDateTime值，转换成格式化的值
      *
      * @param protocolParams 内部协议参数
+     *
      * @return
      */
     public TreeMap<String, String> parseValue(Map<String, String> protocolParams) {
@@ -183,6 +184,7 @@ public class ProtocolSdk {
      * 这里还返回了id对应的英文key信息
      *
      * @param protocolString 内部协议字符串
+     *
      * @return
      */
     public TreeMap<String, String> parseProtocolStringIncludeEnKey(String protocolString) {
@@ -215,6 +217,7 @@ public class ProtocolSdk {
      * 解析内部协议字符串；这里除了base64与base64Hex是解析过的，其余的信息返回值都是网关传过来的值，没有经过中文解析，一般用于存储hbase与hdfs
      *
      * @param protocolString 内部协议字符串
+     *
      * @return
      */
     public TreeMap<String, String> parseProtocolString(String protocolString) {
@@ -288,6 +291,7 @@ public class ProtocolSdk {
      * 通过内部协议key获得中文描述
      *
      * @param key 可以是英文key或者数字key
+     *
      * @return 如果没有找到中文描述，返回本身key
      */
     public String getCn(String key) {
@@ -315,6 +319,7 @@ public class ProtocolSdk {
      * 通过英文key获得数字key
      *
      * @param en 英文key
+     *
      * @return 数字key
      */
     public String getNum(String en) {
@@ -329,6 +334,7 @@ public class ProtocolSdk {
      * 通过数字key获得英文key
      *
      * @param num 数字key
+     *
      * @return 英文key
      */
     public String getEn(String num) {
@@ -343,6 +349,7 @@ public class ProtocolSdk {
      * 通过数字key获得单位
      *
      * @param num 数字key
+     *
      * @return 单位
      */
     public String getUnit(String num) {
@@ -357,6 +364,7 @@ public class ProtocolSdk {
      * 将map转换成内部协议字符串
      *
      * @param datas
+     *
      * @return
      */
     public String convertToProtocolString(Map<String, String> datas) {

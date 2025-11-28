@@ -1,7 +1,8 @@
 package sunyu.util.pojo;
 
-import java.time.LocalDateTime;
 import org.apache.commons.math3.ml.clustering.Clusterable;
+
+import java.time.LocalDateTime;
 
 /**
  * 轨迹点数据类，继承自CoordinatePoint，实现Clusterable接口以支持Apache Commons Math聚类
@@ -34,7 +35,7 @@ public class TrackPoint extends CoordinatePoint implements Clusterable {
 
     /**
      * 完整构造函数：包含所有属性
-     * 
+     *
      * @param time 时间
      * @param lon  经度
      * @param lat  纬度
@@ -116,7 +117,7 @@ public class TrackPoint extends CoordinatePoint implements Clusterable {
 
     /**
      * 实现Clusterable接口，返回用于聚类的点坐标
-     * 
+     *
      * @return 包含经度和纬度的双精度数组
      */
     @Override

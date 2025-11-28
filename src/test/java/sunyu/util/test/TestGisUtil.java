@@ -1,21 +1,5 @@
 package sunyu.util.test;
 
-import java.sql.SQLException;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Date;
-import java.util.List;
-import java.util.Map;
-import java.util.stream.Collectors;
-
-import javax.sql.DataSource;
-
-import org.junit.jupiter.api.Test;
-import org.locationtech.jts.geom.Geometry;
-
-import com.zaxxer.hikari.HikariConfig;
-import com.zaxxer.hikari.HikariDataSource;
-
 import cn.hutool.core.collection.CollUtil;
 import cn.hutool.core.convert.Convert;
 import cn.hutool.core.date.DateField;
@@ -32,13 +16,18 @@ import cn.hutool.db.Entity;
 import cn.hutool.log.Log;
 import cn.hutool.log.LogFactory;
 import cn.hutool.log.level.Level;
+import com.zaxxer.hikari.HikariConfig;
+import com.zaxxer.hikari.HikariDataSource;
+import org.junit.jupiter.api.Test;
+import org.locationtech.jts.geom.Geometry;
 import sunyu.util.GisUtil;
 import sunyu.util.TDengineUtil;
-import sunyu.util.pojo.CoordinatePoint;
-import sunyu.util.pojo.OutlinePart;
-import sunyu.util.pojo.SplitRoadResult;
-import sunyu.util.pojo.TrackPoint;
-import sunyu.util.pojo.WktIntersectionResult;
+import sunyu.util.pojo.*;
+
+import javax.sql.DataSource;
+import java.sql.SQLException;
+import java.util.*;
+import java.util.stream.Collectors;
 
 public class TestGisUtil {
     Log log = LogFactory.get();
@@ -199,10 +188,10 @@ public class TestGisUtil {
     @Test
     void 计算重复亩数0018_1335() throws Exception {
         String wkt1 = FileUtil.readUtf8Lines(path +
-                "/EC73BD2506050018_20251104090717_20251104092257_outline.txt")
+                        "/EC73BD2506050018_20251104090717_20251104092257_outline.txt")
                 .get(6).replace("WKT: ", "");
         String wkt2 = FileUtil.readUtf8Lines(path +
-                "/EC73BD2509061335_20251104100606_20251104101419_outline.txt")
+                        "/EC73BD2509061335_20251104100606_20251104101419_outline.txt")
                 .get(6).replace("WKT: ", "");
         WktIntersectionResult r = gisUtil.intersection(wkt1, wkt2);
         FileUtil.writeUtf8String(r.getWkt(), path +

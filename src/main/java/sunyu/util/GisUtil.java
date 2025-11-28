@@ -1,17 +1,8 @@
 package sunyu.util;
 
-import java.time.Duration;
-import java.util.ArrayList;
-import java.util.Comparator;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Map;
-import java.util.Objects;
-import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.stream.Collectors;
-
+import cn.hutool.core.collection.CollUtil;
+import cn.hutool.log.Log;
+import cn.hutool.log.LogFactory;
 import org.apache.commons.math3.ml.clustering.Cluster;
 import org.apache.commons.math3.ml.clustering.DBSCANClusterer;
 import org.apache.commons.math3.ml.distance.EuclideanDistance;
@@ -19,14 +10,7 @@ import org.geotools.geometry.jts.JTS;
 import org.geotools.geometry.jts.JTSFactoryFinder;
 import org.geotools.referencing.CRS;
 import org.geotools.referencing.crs.DefaultGeographicCRS;
-import org.locationtech.jts.geom.Coordinate;
-import org.locationtech.jts.geom.Envelope;
-import org.locationtech.jts.geom.Geometry;
-import org.locationtech.jts.geom.GeometryFactory;
-import org.locationtech.jts.geom.LineString;
-import org.locationtech.jts.geom.MultiPolygon;
-import org.locationtech.jts.geom.Point;
-import org.locationtech.jts.geom.Polygon;
+import org.locationtech.jts.geom.*;
 import org.locationtech.jts.geom.prep.PreparedGeometry;
 import org.locationtech.jts.geom.prep.PreparedGeometryFactory;
 import org.locationtech.jts.index.strtree.STRtree;
@@ -35,15 +19,12 @@ import org.locationtech.jts.io.WKTReader;
 import org.locationtech.jts.simplify.DouglasPeuckerSimplifier;
 import org.opengis.referencing.crs.CoordinateReferenceSystem;
 import org.opengis.referencing.operation.MathTransform;
+import sunyu.util.pojo.*;
 
-import cn.hutool.core.collection.CollUtil;
-import cn.hutool.log.Log;
-import cn.hutool.log.LogFactory;
-import sunyu.util.pojo.CoordinatePoint;
-import sunyu.util.pojo.OutlinePart;
-import sunyu.util.pojo.SplitRoadResult;
-import sunyu.util.pojo.TrackPoint;
-import sunyu.util.pojo.WktIntersectionResult;
+import java.time.Duration;
+import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.stream.Collectors;
 
 /**
  * GisUtil - 高精度地理空间数据处理工具类
@@ -125,11 +106,11 @@ import sunyu.util.pojo.WktIntersectionResult;
  *
  * @author SunYu
  * @version 1.0
- * @since 2025-11-01
  * @see AutoCloseable
  * @see org.geotools.geometry.jts.JTS
  * @see org.locationtech.jts.geom.Geometry
  * @see org.opengis.referencing.crs.CoordinateReferenceSystem
+ * @since 2025-11-01
  */
 public class GisUtil implements AutoCloseable {
     private final Log log = LogFactory.get();
@@ -142,8 +123,9 @@ public class GisUtil implements AutoCloseable {
      * 这是获取GisUtil实例的唯一入口，确保所有实例都经过正确配置和初始化。
      * Builder模式提供了灵活的参数配置选项，同时保证对象的一致性和完整性。
      * </p>
-     * 
+     *
      * @return GisUtil构建器实例，用于配置和创建GisUtil对象
+     *
      * @see Builder
      */
     public static Builder builder() {
@@ -156,7 +138,7 @@ public class GisUtil implements AutoCloseable {
      * 确保所有GisUtil实例只能通过builder()方法获取，保证配置的一致性和完整性。
      * 构造函数内部初始化必要的日志记录和配置引用。
      * </p>
-     * 
+     *
      * @param config 内部配置对象，包含GIS处理所需的常量、默认值和缓存实例
      */
     private GisUtil(Config config) {
@@ -189,35 +171,35 @@ public class GisUtil implements AutoCloseable {
      *   <li><b>内存效率</b>：空几何对象作为常量复用，减少内存分配</li>
      * </ul>
      * </p>
-     * 
+     *
      * @author SunYu
-     * @since 1.0
      * @see GisUtil#builder()
+     * @since 1.0
      */
     private static class Config {
-        /** 
+        /**
          * 几何工厂，用于创建各种几何对象
          * <p>使用JTSFactoryFinder获取线程安全的几何工厂实例，避免重复创建</p>
          */
-        private final GeometryFactory geometryFactory = JTSFactoryFinder.getGeometryFactory();
+        private final GeometryFactory GEOMETRY_FACTORY = JTSFactoryFinder.getGeometryFactory();
 
-        /** 
+        /**
          * 空几何集合，用于表示无效或空的几何结果
          * <p>作为常量复用，避免每次创建新的空几何对象，提高内存效率</p>
          */
-        private final Geometry EMPTYGEOM = geometryFactory.createGeometryCollection();
+        private final Geometry EMPTYGEOM = GEOMETRY_FACTORY.createGeometryCollection();
 
-        /** 
+        /**
          * WGS84坐标参考系统，使用默认地理CRS，避免重复创建
          * <p>这是全球标准的地理坐标参考系统，所有输入输出都基于此坐标系</p>
          */
         private final CoordinateReferenceSystem WGS84_CRS = DefaultGeographicCRS.WGS84;
 
-        /** 
+        /**
          * 欧几里得距离计算器，用于空间聚类和距离测量
          * <p>基于欧几里得距离公式，适用于投影坐标系中的距离计算</p>
          */
-        private final EuclideanDistance euclideanDistance = new EuclideanDistance();
+        private final EuclideanDistance EUCLIDEAN_DISTANCE = new EuclideanDistance();
 
         /**
          * 高斯投影CRS缓存（线程安全）
@@ -229,7 +211,7 @@ public class GisUtil implements AutoCloseable {
          * <strong>性能提升：</strong>避免重复创建CRS对象，显著提升坐标转换性能
          * </p>
          */
-        private final ConcurrentHashMap<String, CoordinateReferenceSystem> gaussCRSCache = new ConcurrentHashMap<>();
+        private final ConcurrentHashMap<String, CoordinateReferenceSystem> GAUSS_CRS_CACHE = new ConcurrentHashMap<>();
 
         /**
          * WGS84到高斯投影的坐标转换缓存（线程安全）
@@ -241,7 +223,7 @@ public class GisUtil implements AutoCloseable {
          * <strong>性能提升：</strong>避免重复创建MathTransform对象，坐标转换性能提升10倍以上
          * </p>
          */
-        private final ConcurrentHashMap<String, MathTransform> wgs84ToGaussTransformCache = new ConcurrentHashMap<>();
+        private final ConcurrentHashMap<String, MathTransform> WGS84_TO_GAUSS_TRANSFORM_CACHE = new ConcurrentHashMap<>();
 
         /**
          * 高斯投影到WGS84的坐标转换缓存（线程安全）
@@ -253,51 +235,51 @@ public class GisUtil implements AutoCloseable {
          * <strong>性能提升：</strong>避免重复创建MathTransform对象，坐标转换性能提升10倍以上
          * </p>
          */
-        private final ConcurrentHashMap<String, MathTransform> gaussToWgs84TransformCache = new ConcurrentHashMap<>();
+        private final ConcurrentHashMap<String, MathTransform> GAUSS_TO_WGS84_TRANSFORM_CACHE = new ConcurrentHashMap<>();
 
-        /** 
+        /**
          * WGS84椭球长半轴（米），与Turf.js保持一致，用于计算球面距离
          * <p>标准值：6378137.0米，这是WGS84椭球体的长半轴长度</p>
          */
         private final double EARTH_RADIUS = 6378137.0;
 
-        /** 
+        /**
          * 最小作业幅宽阈值（米），低于此值认为参数无效，用于农业轨迹处理
          * <p>设置此阈值是为了过滤掉不合理的作业幅宽参数，确保算法稳定性</p>
          */
         private final double MIN_WORKING_WIDTH_M = 1.0;
 
-        /** 
+        /**
          * 最大返回多边形数量
          * <p>限制返回结果的数量，避免在处理复杂轨迹时产生过多碎片化的几何图形</p>
          */
         private final int MAX_GEOMETRY = 10;
 
-        /** 
+        /**
          * 两点间最大作业距离(米)
          * <p>对应18km/h的作业速度（5米/秒），用于判断轨迹点之间的合理性</p>
          */
         private final double MAX_WORK_DISTANCE_M = 18 / 3.6;
 
-        /** 
+        /**
          * 最小作业点阈值
          * <p>低于此数量的轨迹点被认为不足以构成有效的作业区域</p>
          */
         private final int MIN_WORK_POINTS = 30;
 
-        /** 
+        /**
          * 最小子段点数阈值
          * <p>在轨迹分段时，低于此数量的子段会被过滤掉，避免产生过小的碎片</p>
          */
         private final int MIN_SEGMENT_POINTS = 6;
 
-        /** 
+        /**
          * 最小亩数阈值
          * <p>低于此面积的几何图形会被过滤掉，避免返回过小的作业区域</p>
          */
         private final double MIN_MU = 0.6;
 
-        /** 
+        /**
          * 几何图形膨胀收缩距离（米）
          * <p>
          * 用于几何图形的膨胀-收缩优化操作。
@@ -323,14 +305,16 @@ public class GisUtil implements AutoCloseable {
      *   <li><b>扩展性</b>：预留了未来功能扩展的接口</li>
      * </ul>
      * </p>
-     * 
+     *
      * @author SunYu
-     * @since 1.0
      * @see GisUtil#builder()
      * @see GisUtil
+     * @since 1.0
      */
     public static class Builder {
-        /** 配置对象，包含GisUtil所需的常量、默认值和缓存实例 */
+        /**
+         * 配置对象，包含GisUtil所需的常量、默认值和缓存实例
+         */
         private Config config = new Config();
 
         /**
@@ -349,8 +333,9 @@ public class GisUtil implements AutoCloseable {
          *   <li>返回配置完成的GisUtil实例</li>
          * </ol>
          * </p>
-         * 
+         *
          * @return 初始化完成的GisUtil实例，已准备就绪可直接使用
+         *
          * @see GisUtil#builder()
          * @see GisUtil
          */
@@ -382,7 +367,7 @@ public class GisUtil implements AutoCloseable {
      *     List<Geometry> result = gisUtil.splitRoad(trackPoints, 3.0);
      *     // 处理结果
      * } // close()方法在此处自动调用
-     * 
+     *
      * // 传统用法：手动管理资源
      * GisUtil gisUtil = GisUtil.builder().build();
      * try {
@@ -403,7 +388,7 @@ public class GisUtil implements AutoCloseable {
      *   <li>当前版本主要清理日志资源，未来版本可能扩展更多资源清理功能</li>
      * </ul>
      * </p>
-     * 
+     *
      * @see AutoCloseable#close()
      * @see GisUtil#builder()
      */
@@ -417,11 +402,11 @@ public class GisUtil implements AutoCloseable {
 
     /**
      * 使用Douglas-Peucker算法对轨迹点进行抽稀优化，减少数据量同时保持形状特征
-     * 
+     *
      * <p>该方法实现了经典的Douglas-Peucker抽稀算法，通过递归方式找到偏离直线最远的点，
      * 并以指定容差值进行点筛选。在轨迹处理中，这种方法能够有效减少GPS轨迹的点数，
      * 提高后续几何计算的效率，同时保持轨迹的整体形状特征。</p>
-     * 
+     *
      * <p><strong>算法原理：</strong>
      * <ol>
      *   <li>连接轨迹的首尾点，形成基线</li>
@@ -431,7 +416,7 @@ public class GisUtil implements AutoCloseable {
      *   <li>最终得到满足精度要求的抽稀轨迹</li>
      * </ol>
      * </p>
-     * 
+     *
      * <p><strong>性能优化：</strong>
      * <ul>
      *   <li>使用JTS库的DouglasPeuckerSimplifier进行实现，相比手工实现有更好的性能表现</li>
@@ -439,7 +424,7 @@ public class GisUtil implements AutoCloseable {
      *   <li>支持多线程环境下的并发访问</li>
      * </ul>
      * </p>
-     * 
+     *
      * <p><strong>使用场景：</strong>
      * <ul>
      *   <li>轨迹数据压缩：减少存储空间和传输带宽</li>
@@ -448,7 +433,7 @@ public class GisUtil implements AutoCloseable {
      *   <li>模式识别预处理：提取轨迹的主要形状特征</li>
      * </ul>
      * </p>
-     * 
+     *
      * <p><strong>参数调优建议：</strong>
      * <ul>
      *   <li>农业轨迹：建议容差0.5-2.0米，平衡精度和压缩率</li>
@@ -456,10 +441,12 @@ public class GisUtil implements AutoCloseable {
      *   <li>行人轨迹：建议容差0.1-1.0米，保持足够的精度</li>
      * </ul>
      * </p>
-     * 
+     *
      * @param points    原始轨迹点列表，按时间顺序排列
      * @param tolerance 抽稀容差值（单位：米），建议值0.1-1.0，值越大抽稀效果越明显
+     *
      * @return 抽稀后的轨迹点列表，保证包含首尾点，可能减少中间点数量
+     *
      * @see org.locationtech.jts.simplify.DouglasPeuckerSimplifier
      * @see #findClosestPoint(Coordinate, List)
      */
@@ -512,13 +499,13 @@ public class GisUtil implements AutoCloseable {
 
     /**
      * 查找最接近给定坐标的轨迹点，用于Douglas-Peucker抽稀算法的点匹配
-     * 
+     *
      * <p>在轨迹点抽稀过程中，抽稀后的坐标可能与原始轨迹点不完全匹配，
      * 需要找到最接近的原始轨迹点来保留时间、速度等重要属性信息。</p>
-     * 
+     *
      * <p>该方法使用欧几里得距离计算方法，对于小范围内的坐标比较效率很高。
      * 考虑到GPS轨迹点的空间相关性，这种简单距离计算方法已经能够满足精度要求。</p>
-     * 
+     *
      * <p><strong>算法特点：</strong>
      * <ul>
      *   <li><b>简单高效</b>：使用基本的欧几里得距离公式，计算复杂度O(n)</li>
@@ -526,7 +513,7 @@ public class GisUtil implements AutoCloseable {
      *   <li><b>鲁棒性强</b>：能够处理各种异常情况，如空列表、重复点等</li>
      * </ul>
      * </p>
-     * 
+     *
      * <p><strong>性能考虑：</strong>
      * <ul>
      *   <li>适用于小规模点集（<1000个点）的精确匹配</li>
@@ -534,7 +521,7 @@ public class GisUtil implements AutoCloseable {
      *   <li>在轨迹抽稀场景中，通常处理的是局部点集，性能完全满足需求</li>
      * </ul>
      * </p>
-     * 
+     *
      * <p><strong>距离计算说明：</strong>
      * <ul>
      *   <li>使用平面欧几里得距离：sqrt(dx² + dy²)</li>
@@ -542,10 +529,12 @@ public class GisUtil implements AutoCloseable {
      *   <li>经纬度差值直接作为平面坐标使用，适用于局部区域匹配</li>
      * </ul>
      * </p>
-     * 
-     * @param coord 目标坐标点，经纬度坐标
+     *
+     * @param coord  目标坐标点，经纬度坐标
      * @param points 候选轨迹点列表，从中查找最接近的点
+     *
      * @return 最接近的轨迹点，如果输入列表为空则返回null
+     *
      * @see #simplifyTrackPoints(List, double)
      * @see org.locationtech.jts.geom.Coordinate
      */
@@ -569,10 +558,10 @@ public class GisUtil implements AutoCloseable {
 
     /**
      * 分块处理大型轨迹段 - 高级优化版本
-     * 
+     *
      * <p>该方法是处理大型轨迹数据的核心优化策略，通过将大型轨迹段分解为较小的块来处理，
      * 有效避免内存溢出和计算超时问题。相比原始实现，本版本进行了多项关键优化：</p>
-     * 
+     *
      * <p><strong>关键优化：</strong>
      * <ol>
      *   <li><b>动态块大小调整</b>：根据轨迹点总数自动调整块大小(1000-2000点)，平衡内存使用和计算效率</li>
@@ -581,7 +570,7 @@ public class GisUtil implements AutoCloseable {
      *   <li><b>内存优化</b>：减少中间对象创建，优化数据结构，降低内存压力</li>
      * </ol>
      * </p>
-     * 
+     *
      * <p><strong>处理流程：</strong>
      * <ol>
      *   <li>根据轨迹点总数计算最优块大小和重叠区域</li>
@@ -591,7 +580,7 @@ public class GisUtil implements AutoCloseable {
      *   <li>对合并结果进行有效性检查和修复</li>
      * </ol>
      * </p>
-     * 
+     *
      * <p><strong>性能特点：</strong>
      * <ul>
      *   <li>时间复杂度：O(n + m)，其中n为轨迹点数，m为几何合并复杂度</li>
@@ -600,7 +589,7 @@ public class GisUtil implements AutoCloseable {
      *   <li>处理时间随轨迹点数线性增长，可预测性强</li>
      * </ul>
      * </p>
-     * 
+     *
      * <p><strong>适用场景：</strong>
      * <ul>
      *   <li>长距离农业作业轨迹（>1000点）</li>
@@ -609,10 +598,12 @@ public class GisUtil implements AutoCloseable {
      *   <li>内存受限环境下的轨迹处理</li>
      * </ul>
      * </p>
-     * 
+     *
      * @param points      轨迹点列表，按时间顺序排列
      * @param bufferWidth 缓冲区宽度（米），表示作业幅宽的一半
+     *
      * @return 合并后的几何图形，包含所有轨迹块的缓冲区，永不为null
+     *
      * @see #processChunk(List, int, int, int, double)
      * @see #mergeGeometriesRecursively(List)
      */
@@ -667,10 +658,10 @@ public class GisUtil implements AutoCloseable {
 
     /**
      * 处理单个轨迹块，从大型轨迹段中提取指定范围的点并生成缓冲区几何图形
-     * 
+     *
      * <p>该方法是分块处理策略的核心组件，负责处理轨迹数据的一个连续片段。
      * 通过将大型轨迹段分解为较小的块来处理，可以有效避免内存溢出和计算超时问题。</p>
-     * 
+     *
      * <p><strong>处理流程：</strong>
      * <ol>
      *   <li>从原始轨迹点列表中提取指定索引范围的子列表</li>
@@ -680,7 +671,7 @@ public class GisUtil implements AutoCloseable {
      *   <li>对复杂几何图形进行轻微简化以提高后续处理效率</li>
      * </ol>
      * </p>
-     * 
+     *
      * <p><strong>性能优化策略：</strong>
      * <ul>
      *   <li>使用数组直接转换而非中间集合，减少内存分配</li>
@@ -689,7 +680,7 @@ public class GisUtil implements AutoCloseable {
      *   <li>避免不必要的对象创建，使用基本类型数组存储坐标</li>
      * </ul>
      * </p>
-     * 
+     *
      * <p><strong>缓冲区参数优化：</strong>
      * <ul>
      *   <li><b>quadrantSegments=4</b>：使用最少的线段数近似圆形，显著提升性能</li>
@@ -697,7 +688,7 @@ public class GisUtil implements AutoCloseable {
      *   <li><b>简化阈值=0.00001</b>：轻微简化，在保持形状的前提下减少顶点数</li>
      * </ul>
      * </p>
-     * 
+     *
      * <p><strong>异常处理：</strong>
      * <ul>
      *   <li>边界检查：确保startIndex和chunkSize不会超出轨迹范围</li>
@@ -705,18 +696,20 @@ public class GisUtil implements AutoCloseable {
      *   <li>性能监控：记录每个块的处理时间，便于性能分析</li>
      * </ul>
      * </p>
-     * 
+     *
      * @param points      完整的轨迹点列表，作为数据源
      * @param startIndex  块的起始索引（包含），不能超过列表大小
      * @param chunkSize   块的大小（点数），实际处理点数可能少于该值
      * @param totalPoints 轨迹点总数，用于边界检查
      * @param bufferWidth 缓冲区宽度（米），表示作业范围的半宽
+     *
      * @return 轨迹块的缓冲区几何图形，永不为null，可能为空几何图形
+     *
      * @see Geometry#buffer(double, int, int) JTS缓冲区生成方法
      * @see org.locationtech.jts.simplify.DouglasPeuckerSimplifier
      */
     private Geometry processChunk(List<TrackPoint> points, int startIndex, int chunkSize,
-            int totalPoints, double bufferWidth) {
+                                  int totalPoints, double bufferWidth) {
         int end = Math.min(startIndex + chunkSize, totalPoints);
         List<TrackPoint> chunk = points.subList(startIndex, end);
 
@@ -730,7 +723,7 @@ public class GisUtil implements AutoCloseable {
             coords[j] = new Coordinate(p.getLon(), p.getLat());
         }
 
-        LineString chunkLine = config.geometryFactory.createLineString(coords);
+        LineString chunkLine = config.GEOMETRY_FACTORY.createLineString(coords);
 
         // 优化4: 进一步优化buffer参数，使用最小必要的精度
         int quadrantSegments = 4; // 更低的值，显著提升性能，在保证准确性的前提下
@@ -754,8 +747,9 @@ public class GisUtil implements AutoCloseable {
     /**
      * 高效合并几何图形列表 - 优化版本
      * 使用更优的合并策略，大幅提升性能
-     * 
+     *
      * @param geometries 几何图形列表
+     *
      * @return 合并后的几何图形
      */
     private Geometry mergeGeometriesRecursively(List<Geometry> geometries) {
@@ -871,8 +865,9 @@ public class GisUtil implements AutoCloseable {
      * 算法与Turf.js保持一致，确保跨平台结果兼容性。公式为：A = R² × |Σ(λi+1 - λi) × sin((φi+1 + φi)/2)|
      * 其中R为地球半径，λ为经度（弧度），φ为纬度（弧度）。
      * </p>
-     * 
+     *
      * @param wgs84Ring WGS84坐标系下的线环（单位：度），必须是闭合的环
+     *
      * @return 球面面积（平方米），计算失败返回0.0
      */
     private double calculateRingSphericalArea(LineString wgs84Ring) {
@@ -915,8 +910,9 @@ public class GisUtil implements AutoCloseable {
      * 实现方式为：计算外环面积减去所有内环（孔洞）面积的总和。支持复杂多边形形状，包括带孔洞的多边形。
      * 适用于精确面积测量、土地面积计算和地理统计分析。
      * </p>
-     * 
+     *
      * @param wgs84Polygon WGS84坐标系下的多边形，可包含内部孔洞
+     *
      * @return 多边形的球面面积（平方米）
      */
     private double calculatePolygonSphericalArea(Polygon wgs84Polygon) {
@@ -946,10 +942,11 @@ public class GisUtil implements AutoCloseable {
      * 该方法实现了高斯投影CRS的高效管理，使用线程安全的缓存机制避免重复创建相同参数的CRS。
      * 采用Transverse Mercator投影（横轴墨卡托投影），适用于中纬度地区的精确测量。
      * </p>
-     * 
-     * @param zone 高斯投影带号（1-60，对应全球6度分带）
-     * @param falseEasting 假东距（米），用于避免负值坐标
+     *
+     * @param zone            高斯投影带号（1-60，对应全球6度分带）
+     * @param falseEasting    假东距（米），用于避免负值坐标
      * @param centralMeridian 中央经线（度），投影带的中心线
+     *
      * @return 高斯投影坐标参考系统，创建失败返回null
      */
     private CoordinateReferenceSystem getGaussCRS(int zone, double falseEasting, double centralMeridian) {
@@ -957,7 +954,7 @@ public class GisUtil implements AutoCloseable {
         String cacheKey = String.format("%d_%.1f_%.1f", zone, falseEasting, centralMeridian);
 
         // 使用computeIfAbsent实现线程安全的缓存机制，只在缓存未命中时创建新CRS
-        return config.gaussCRSCache.computeIfAbsent(cacheKey, key -> {
+        return config.GAUSS_CRS_CACHE.computeIfAbsent(cacheKey, key -> {
             try {
                 log.debug("创建高斯投影CRS：投影带号={}, 假东距={}, 中央经线={}", zone, falseEasting,
                         centralMeridian);
@@ -989,8 +986,9 @@ public class GisUtil implements AutoCloseable {
      * </ul>
      * 适用于将平面坐标数据转换回地理坐标，用于全球定位和地图显示。
      * </p>
-     * 
+     *
      * @param gaussGeometry 高斯投影坐标系下的几何图形（米制）
+     *
      * @return WGS84坐标系下的几何图形（经纬度），转换失败返回空几何
      */
     public Geometry toWgs84Geometry(Geometry gaussGeometry) {
@@ -1052,7 +1050,7 @@ public class GisUtil implements AutoCloseable {
 
             // 从缓存获取或创建高斯投影到WGS84的坐标转换
             final int finalZone = zone;
-            MathTransform transform = config.gaussToWgs84TransformCache.computeIfAbsent(cacheKey, key -> {
+            MathTransform transform = config.GAUSS_TO_WGS84_TRANSFORM_CACHE.computeIfAbsent(cacheKey, key -> {
                 try {
                     return CRS.findMathTransform(gaussCRS, config.WGS84_CRS, true);
                 } catch (Exception e) {
@@ -1093,8 +1091,9 @@ public class GisUtil implements AutoCloseable {
      * 如点(POINT)、线(LINESTRING)、多边形(POLYGON)、多点(MULTIPOINT)等。
      * 解析后的几何对象可直接用于GIS空间分析操作。
      * </p>
-     * 
+     *
      * @param wgs84WKT WGS84坐标系下的WKT字符串，如"POINT(116.4 39.9)"或"POLYGON((...))"
+     *
      * @return WGS84坐标系的Geometry几何图形，解析失败返回空几何
      */
     public Geometry toWgs84Geometry(String wgs84WKT) {
@@ -1103,7 +1102,7 @@ public class GisUtil implements AutoCloseable {
             return config.EMPTYGEOM;
         }
         try {
-            Geometry geometry = new WKTReader(config.geometryFactory).read(wgs84WKT);
+            Geometry geometry = new WKTReader(config.GEOMETRY_FACTORY).read(wgs84WKT);
             log.debug("WKT字符串解析成功：几何类型={}", geometry.getGeometryType());
             return geometry;
         } catch (ParseException e) {
@@ -1127,8 +1126,9 @@ public class GisUtil implements AutoCloseable {
      * </ul>
      * 高斯投影适用于距离和面积的精确计算，特别适合中纬度地区的GIS分析。
      * </p>
-     * 
+     *
      * @param wgs84Geometry WGS84坐标系下的几何图形（经纬度）
+     *
      * @return 高斯投影坐标系下的几何图形（米制），转换失败返回空几何
      */
     public Geometry toGaussGeometry(Geometry wgs84Geometry) {
@@ -1168,7 +1168,7 @@ public class GisUtil implements AutoCloseable {
             String cacheKey = String.format("%d_%.1f_%.1f", zone, falseEasting, centralMeridian);
 
             // 从缓存获取或创建WGS84到高斯投影的坐标转换
-            MathTransform transform = config.wgs84ToGaussTransformCache.computeIfAbsent(cacheKey, key -> {
+            MathTransform transform = config.WGS84_TO_GAUSS_TRANSFORM_CACHE.computeIfAbsent(cacheKey, key -> {
                 try {
                     return CRS.findMathTransform(config.WGS84_CRS, gaussCRS, true);
                 } catch (Exception e) {
@@ -1209,8 +1209,9 @@ public class GisUtil implements AutoCloseable {
      * </ul>
      * 适用于轨迹点的单独处理和分析。
      * </p>
-     * 
+     *
      * @param wgs84Point WGS84坐标系的轨迹点（经纬度）
+     *
      * @return 高斯投影坐标系的轨迹点（米制），转换失败返回null
      */
     public TrackPoint toGaussPoint(TrackPoint wgs84Point) {
@@ -1247,7 +1248,7 @@ public class GisUtil implements AutoCloseable {
             String cacheKey = String.format("%d_%.1f_%.1f", zone, falseEasting, centralMeridian);
 
             // 从缓存获取或创建WGS84到高斯投影的坐标转换
-            MathTransform transform = config.wgs84ToGaussTransformCache.computeIfAbsent(cacheKey, key -> {
+            MathTransform transform = config.WGS84_TO_GAUSS_TRANSFORM_CACHE.computeIfAbsent(cacheKey, key -> {
                 try {
                     return CRS.findMathTransform(config.WGS84_CRS, gaussCRS, true);
                 } catch (Exception e) {
@@ -1300,10 +1301,11 @@ public class GisUtil implements AutoCloseable {
      * </ul>
      * 适用于轨迹数据的整体处理和分析。
      * </p>
-     * 
+     *
      * @param wgs84Points WGS84坐标系的轨迹点列表（经纬度）
+     *
      * @return 高斯投影坐标系的轨迹点列表（米制），保持与输入列表相同的顺序，
-     *         只包含成功转换的点，可能为空列表
+     * 只包含成功转换的点，可能为空列表
      */
     public List<TrackPoint> toGaussPointList(List<TrackPoint> wgs84Points) {
         if (wgs84Points == null || wgs84Points.isEmpty()) {
@@ -1341,7 +1343,7 @@ public class GisUtil implements AutoCloseable {
                     continue;
                 }
 
-                MathTransform transform = config.wgs84ToGaussTransformCache.computeIfAbsent(cacheKey, key -> {
+                MathTransform transform = config.WGS84_TO_GAUSS_TRANSFORM_CACHE.computeIfAbsent(cacheKey, key -> {
                     try {
                         return CRS.findMathTransform(config.WGS84_CRS, gaussCRS, true);
                     } catch (Exception e) {
@@ -1425,7 +1427,7 @@ public class GisUtil implements AutoCloseable {
             String cacheKey = String.format("%d_%.1f_%.1f", zone, falseEasting, centralMeridian);
 
             // 从缓存获取或创建高斯投影到WGS84的坐标转换
-            MathTransform transform = config.gaussToWgs84TransformCache.computeIfAbsent(cacheKey, key -> {
+            MathTransform transform = config.GAUSS_TO_WGS84_TRANSFORM_CACHE.computeIfAbsent(cacheKey, key -> {
                 try {
                     return CRS.findMathTransform(gaussCRS, config.WGS84_CRS, true);
                 } catch (Exception e) {
@@ -1493,9 +1495,10 @@ public class GisUtil implements AutoCloseable {
      * </ul>
      * 适用于轨迹分析、地理围栏、距离测量等场景。
      * </p>
-     * 
+     *
      * @param wgs84Point1 第一个WGS84坐标点，包含有效经纬度
      * @param wgs84Point2 第二个WGS84坐标点，包含有效经纬度
+     *
      * @return 两点之间的球面距离（米），结果为非负数
      */
     public double haversine(CoordinatePoint wgs84Point1, CoordinatePoint wgs84Point2) {
@@ -1528,10 +1531,11 @@ public class GisUtil implements AutoCloseable {
      * 来确定点是否位于圆内。采用球面距离计算确保在全球范围内的准确性，
      * 特别适合地理围栏（Geo-fencing）应用场景。
      * </p>
-     * 
-     * @param wgs84Point 要判断的WGS84坐标点，包含有效经纬度
+     *
+     * @param wgs84Point       要判断的WGS84坐标点，包含有效经纬度
      * @param wgs84CenterPoint 圆的中心点（WGS84坐标）
-     * @param radius 圆的半径（米），必须为非负数
+     * @param radius           圆的半径（米），必须为非负数
+     *
      * @return 如果点到圆心的球面距离小于等于指定半径（包含边界），则返回true；否则返回false
      */
     public boolean inCircle(CoordinatePoint wgs84Point, CoordinatePoint wgs84CenterPoint, double radius) {
@@ -1548,15 +1552,16 @@ public class GisUtil implements AutoCloseable {
      * 采用covers()方法判断，确保边界上的点也被视为在几何图形内部。
      * 适用于轨迹分析、地理围栏和空间统计等场景。
      * </p>
-     * 
-     * @param wgs84Point 待测试的WGS84坐标点，包含有效经纬度
+     *
+     * @param wgs84Point    待测试的WGS84坐标点，包含有效经纬度
      * @param wgs84Geometry 用于判断的几何图形，必须是有效的JTS Geometry对象
+     *
      * @return 如果点在几何图形内部或边界上，则返回true；否则返回false
      */
     public boolean inGeometry(CoordinatePoint wgs84Point, Geometry wgs84Geometry) {
         try {
             // 创建点几何对象
-            Point point = config.geometryFactory.createPoint(
+            Point point = config.GEOMETRY_FACTORY.createPoint(
                     new Coordinate(wgs84Point.getLon(), wgs84Point.getLat()));
 
             // 判断点是否在几何图形内或边界上
@@ -1576,14 +1581,15 @@ public class GisUtil implements AutoCloseable {
      * 支持任意顺序的对角点输入，内部会自动调整为正确的边界。不考虑地球曲率，适用于较小范围区域。
      * 常用于空间索引、数据分区和快速查询优化。
      * </p>
-     * 
-     * @param wgs84Point 待测试的WGS84坐标点，包含有效经纬度
-     * @param wgs84TopLeftPoint 矩形的左上角点（或任意对角点）
+     *
+     * @param wgs84Point            待测试的WGS84坐标点，包含有效经纬度
+     * @param wgs84TopLeftPoint     矩形的左上角点（或任意对角点）
      * @param wgs84BottomRightPoint 矩形的右下角点（或任意对角点）
+     *
      * @return 如果点的经纬度在矩形范围内（包含边界），则返回true；否则返回false
      */
     public boolean inRectangle(CoordinatePoint wgs84Point, CoordinatePoint wgs84TopLeftPoint,
-            CoordinatePoint wgs84BottomRightPoint) {
+                               CoordinatePoint wgs84BottomRightPoint) {
         try {
             double pointLon = wgs84Point.getLon();
             double pointLat = wgs84Point.getLat();
@@ -1624,9 +1630,10 @@ public class GisUtil implements AutoCloseable {
      * </ol>
      * 使用高斯投影进行中间计算可显著提高面积计算精度，适用于空间分析、数据裁剪和覆盖分析。
      * </p>
-     * 
+     *
      * @param wgs84WKT1 第一个WGS84几何图形的WKT字符串（如多边形、线、点等）
      * @param wgs84WKT2 第二个WGS84几何图形的WKT字符串（如多边形、线、点等）
+     *
      * @return 包含相交轮廓WKT字符串和面积（亩）的结果对象，无相交则返回空几何和零面积
      */
     public WktIntersectionResult intersection(String wgs84WKT1, String wgs84WKT2) {
@@ -1699,8 +1706,9 @@ public class GisUtil implements AutoCloseable {
      * 算法基于球面几何原理，精确考虑地球曲率，与Turf.js算法保持一致，确保跨平台结果一致性。
      * 适用于全球范围内的精确面积测量，不受区域大小限制。
      * </p>
-     * 
+     *
      * @param wgs84Geometry WGS84坐标系下的几何图形，支持Polygon和MultiPolygon类型
+     *
      * @return 球面面积（平方米），始终为正值；对于不支持的几何类型返回0.0
      */
     public double calculateSphericalArea(Geometry wgs84Geometry) {
@@ -1734,8 +1742,9 @@ public class GisUtil implements AutoCloseable {
      * 内部使用高精度球面面积计算算法，与Turf.js保持一致，结果进行四舍五入精确到4位小数。
      * 转换关系：1亩 = 2000/3 平方米 ≈ 666.6667平方米。
      * </p>
-     * 
+     *
      * @param wgs84Geometry WGS84坐标系下的几何图形，支持Polygon和MultiPolygon类型
+     *
      * @return 几何图形的面积（亩），四舍五入保留4位小数；计算失败返回0.0
      */
     public double calcMu(Geometry wgs84Geometry) {
@@ -1761,9 +1770,11 @@ public class GisUtil implements AutoCloseable {
      * 该方法是calcMu(Geometry)的便捷重载版本，直接接受WKT字符串作为输入，
      * 内部自动解析WKT为几何对象并计算面积。适用于从数据库或文件中读取的WKT格式几何数据。
      * </p>
-     * 
+     *
      * @param wgs84Wkt WGS84坐标系下的WKT字符串，如"POLYGON((...))"或"MULTIPOLYGON(((...)))"
+     *
      * @return 几何图形的面积（亩），四舍五入保留4位小数；解析或计算失败返回0.0
+     *
      * @see #calcMu(Geometry)
      */
     public double calcMu(String wgs84Wkt) {
@@ -1832,18 +1843,20 @@ public class GisUtil implements AutoCloseable {
      * @param totalWidthM 农机作业总幅宽，单位为米，必须大于等于1.0米
      *                    该参数用于生成作业区域缓冲区，影响最终作业面积计算
      *                    常见农机幅宽：1.5米（小型）、3.0米（中型）、6.0米（大型）
+     *
      * @return SplitRoadResult 作业分割结果，包含：
-     *         <ul>
-     *           <li>总作业面积（亩）</li>
-     *           <li>作业区域几何图形（WKT格式）</li>
-     *           <li>各子区域详细信息（OutlinePart列表）</li>
-     *           <li>每个子区域的起止时间、轨迹点、面积等</li>
-     *         </ul>
+     * <ul>
+     *   <li>总作业面积（亩）</li>
+     *   <li>作业区域几何图形（WKT格式）</li>
+     *   <li>各子区域详细信息（OutlinePart列表）</li>
+     *   <li>每个子区域的起止时间、轨迹点、面积等</li>
+     * </ul>
+     *
      * @throws IllegalArgumentException 当参数无效时抛出：
-     *         <ul>
-     *           <li>轨迹点列表为空</li>
-     *           <li>作业幅宽小于1.0米</li>
-     *         </ul>
+     *                                  <ul>
+     *                                    <li>轨迹点列表为空</li>
+     *                                    <li>作业幅宽小于1.0米</li>
+     *                                  </ul>
      * @see TrackPoint
      * @see SplitRoadResult
      * @see OutlinePart
@@ -1976,7 +1989,7 @@ public class GisUtil implements AutoCloseable {
         log.debug("开始进行空间密集聚类，聚类参数：聚类范围 {} 米，最小点数 {}", eps, minPts);
 
         // 使用自适应分层聚类优化，处理大量点位时的性能问题
-        DBSCANClusterer<TrackPoint> clusterer = new DBSCANClusterer<>(eps, minPts, config.euclideanDistance);
+        DBSCANClusterer<TrackPoint> clusterer = new DBSCANClusterer<>(eps, minPts, config.EUCLIDEAN_DISTANCE);
         List<Cluster<TrackPoint>> clusters = clusterer.cluster(gaussPoints);
 
         log.debug("聚类结果：共 {} 个聚类", clusters.size());
@@ -2062,14 +2075,14 @@ public class GisUtil implements AutoCloseable {
                     Coordinate[] coordinates = simplifiedPoints.stream()
                             .map(point -> new Coordinate(point.getLon(), point.getLat()))
                             .toArray(Coordinate[]::new);
-                    LineString lineString = config.geometryFactory.createLineString(coordinates);
+                    LineString lineString = config.GEOMETRY_FACTORY.createLineString(coordinates);
                     // 创建宽度为halfWidthM的缓冲区，表示作业区域
                     gaussGeometry = lineString.buffer(halfWidthM);
                 }
                 gaussGeometriesSegment.add(gaussGeometry);
             }
             log.debug("合并聚类 {} 所有子段", clusterIndex);
-            Geometry unionGaussSegmentsGeometry = config.geometryFactory
+            Geometry unionGaussSegmentsGeometry = config.GEOMETRY_FACTORY
                     .createGeometryCollection(gaussGeometriesSegment.toArray(new Geometry[0]))
                     .union()
                     .buffer(0);
@@ -2080,7 +2093,7 @@ public class GisUtil implements AutoCloseable {
             return result;
         }
         log.debug("所有聚类合并");
-        Geometry unionGaussGeometry = config.geometryFactory
+        Geometry unionGaussGeometry = config.GEOMETRY_FACTORY
                 .createGeometryCollection(gaussGeometriesCluster.toArray(new Geometry[0]))
                 .union()
                 .buffer(config.BUFFER_SMOOTHING_DISTANCE_M).buffer(-config.BUFFER_SMOOTHING_DISTANCE_M);
@@ -2101,7 +2114,7 @@ public class GisUtil implements AutoCloseable {
                                 return false;
                             }
                             // 第二步：使用PreparedGeometry进行精确空间判断
-                            return preparedWgs84Geometry.contains(config.geometryFactory.createPoint(
+                            return preparedWgs84Geometry.contains(config.GEOMETRY_FACTORY.createPoint(
                                     new Coordinate(point.getLon(), point.getLat())));
                         } catch (Exception e) {
                             log.trace("点位空间判断失败：经度{} 纬度{} 错误：{}",
@@ -2137,7 +2150,7 @@ public class GisUtil implements AutoCloseable {
                                     return false;
                                 }
                                 // 第二步：使用PreparedGeometry进行精确空间判断
-                                return preparedWgs84GeometryPart.contains(config.geometryFactory.createPoint(
+                                return preparedWgs84GeometryPart.contains(config.GEOMETRY_FACTORY.createPoint(
                                         new Coordinate(point.getLon(), point.getLat())));
                             } catch (Exception e) {
                                 log.trace("点位空间判断失败：经度{} 纬度{} 错误：{}",
@@ -2226,7 +2239,7 @@ public class GisUtil implements AutoCloseable {
 
         // 8.4 合并所有outline几何图形为最终结果
         log.debug("合并所有outline几何图形为最终结果");
-        unionGaussGeometry = config.geometryFactory
+        unionGaussGeometry = config.GEOMETRY_FACTORY
                 .createGeometryCollection(outlineParts.stream()
                         .map(OutlinePart::getOutline)
                         .toArray(Geometry[]::new))
