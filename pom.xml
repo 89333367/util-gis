@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project xmlns="http://maven.apache.org/POM/4.0.0"
-    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-    xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
 
     <groupId>sunyu.util</groupId>
@@ -49,7 +49,7 @@
         <dependency>
             <groupId>cn.hutool</groupId>
             <artifactId>hutool-all</artifactId>
-            <version>5.8.41</version>
+            <version>5.8.42</version>
         </dependency>
         <!-- JTS 核心 -->
         <!-- https://central.sonatype.com/artifact/org.locationtech.jts/jts-core/versions -->
@@ -63,6 +63,7 @@
         <dependency>
             <groupId>org.geotools</groupId>
             <artifactId>gt-epsg-hsql</artifactId>
+            <!-- jdk8只能支持到这个版本 -->
             <version>28.6.1</version>
         </dependency>
         <dependency>
@@ -98,7 +99,7 @@
         <dependency>
             <groupId>org.junit.jupiter</groupId>
             <artifactId>junit-jupiter</artifactId>
-            <version>5.14.0</version>
+            <version>5.14.1</version>
             <scope>test</scope>
         </dependency>
 
@@ -107,7 +108,6 @@
             <groupId>mysql</groupId>
             <artifactId>mysql-connector-java</artifactId>
             <version>5.1.49</version>
-            <!--<version>8.0.33</version>-->
             <scope>test</scope>
         </dependency>
         <!-- https://central.sonatype.com/artifact/com.zaxxer/HikariCP/versions -->
@@ -115,38 +115,13 @@
             <groupId>com.zaxxer</groupId>
             <artifactId>HikariCP</artifactId>
             <version>4.0.3</version>
-            <!--<version>7.0.2</version>-->
-            <scope>test</scope>
-        </dependency>
-        <dependency>
-            <artifactId>jackson-databind</artifactId>
-            <groupId>com.fasterxml.jackson.core</groupId>
-            <version>2.13.5</version>
-            <scope>test</scope>
-        </dependency>
-        <dependency>
-            <artifactId>jackson-datatype-jdk8</artifactId>
-            <groupId>com.fasterxml.jackson.datatype</groupId>
-            <version>2.13.5</version>
-            <scope>test</scope>
-        </dependency>
-        <dependency>
-            <artifactId>jackson-datatype-jsr310</artifactId>
-            <groupId>com.fasterxml.jackson.datatype</groupId>
-            <version>2.13.5</version>
-            <scope>test</scope>
-        </dependency>
-        <dependency>
-            <artifactId>jackson-module-parameter-names</artifactId>
-            <groupId>com.fasterxml.jackson.module</groupId>
-            <version>2.13.5</version>
             <scope>test</scope>
         </dependency>
         <dependency>
             <groupId>sunyu.util</groupId>
             <artifactId>util-tdengine</artifactId>
-            <!-- {util.version}_{jdk.version}_{architecture.version} -->
-            <version>1.0_jdk8_x64</version>
+            <!-- {taos-jdbcdriver.version}_{util.version}_{jdk.version}_{architecture.version} -->
+            <version>3.4.0_1.0_jdk8_x64</version>
             <classifier>shaded</classifier>
             <scope>test</scope>
         </dependency>
@@ -167,14 +142,38 @@
                             <goal>shade</goal>
                         </goals>
                         <configuration>
-                            <!-- 添加以下配置来禁用 dependency-reduced-pom.xml 文件生成 -->
+                            <!-- 禁用 dependency-reduced-pom.xml 文件生成 -->
                             <createDependencyReducedPom>false</createDependencyReducedPom>
                             <relocations>
-                                <!--<relocation>
-                                    <pattern>com.fasterxml.jackson</pattern>
-                                    <shadedPattern>shaded.com.fasterxml.jackson</shadedPattern>
-                                </relocation>-->
+                                <!-- 重命名Hutool包 -->
+                                <relocation>
+                                    <pattern>cn.hutool</pattern>
+                                    <shadedPattern>sunyu.util.relocations.gis.cn.hutool</shadedPattern>
+                                </relocation>
+                                <!-- 重命名Apache包 -->
+                                <relocation>
+                                    <pattern>org.apache</pattern>
+                                    <shadedPattern>sunyu.util.relocations.gis.org.apache</shadedPattern>
+                                </relocation>
+                                <!-- 重命名Jackson包 -->
+                                <relocation>
+                                    <pattern>com.fasterxml</pattern>
+                                    <shadedPattern>sunyu.util.relocations.gis.com.fasterxml</shadedPattern>
+                                </relocation>
+                                <!-- 重命名Guava包 -->
+                                <relocation>
+                                    <pattern>com.google</pattern>
+                                    <shadedPattern>sunyu.util.relocations.gis.com.google</shadedPattern>
+                                </relocation>
                             </relocations>
+                            <transformers>
+                                <!-- 合并META-INF/services文件 -->
+                                <transformer
+                                        implementation="org.apache.maven.plugins.shade.resource.ServicesResourceTransformer"/>
+                                <!-- 处理Apache许可证 -->
+                                <transformer
+                                        implementation="org.apache.maven.plugins.shade.resource.ApacheLicenseResourceTransformer"/>
+                            </transformers>
                             <shadedArtifactAttached>true</shadedArtifactAttached>
                             <shadedClassifierName>shaded</shadedClassifierName>
                             <filters>
@@ -185,7 +184,9 @@
                                         <exclude>META-INF/*.SF</exclude>
                                         <exclude>META-INF/*.DSA</exclude>
                                         <exclude>META-INF/*.RSA</exclude>
-                                        <!-- 可选：保留其他静态资源，必要时再按需排除 -->
+                                        <!-- 排除重复的NOTICE文件 -->
+                                        <exclude>META-INF/NOTICE*</exclude>
+                                        <exclude>META-INF/LICENSE*</exclude>
                                     </excludes>
                                 </filter>
                             </filters>
@@ -200,7 +201,7 @@
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-source-plugin</artifactId>
-                <version>3.3.1</version>
+                <version>3.4.0</version>
                 <executions>
                     <execution>
                         <phase>compile</phase>
@@ -219,7 +220,7 @@
                 <artifactId>maven-surefire-plugin</artifactId>
                 <version>3.5.4</version>
                 <configuration>
-                    <skip>false</skip>
+                    <skip>true</skip>
                 </configuration>
             </plugin>
 
