@@ -1904,10 +1904,29 @@ public class GisUtil implements AutoCloseable {
                     return true;
                 })
                 .collect(Collectors.toList());
-        log.debug("过滤异常点位后轨迹点数量 {}", wgs84Points.size());
 
         // 步骤3：按定位时间升序排序，确保轨迹时序正确
         wgs84Points.sort(Comparator.comparing(TrackPoint::getTime));
+
+        // 如果前后两个点的经纬度完全一致，只保留一个点
+        List<TrackPoint> filteredPoints = new ArrayList<>();
+        TrackPoint pre = null;
+        for (TrackPoint wgs84Point : wgs84Points) {
+            if (pre == null) {
+                pre = wgs84Point;
+                filteredPoints.add(pre);
+                continue;
+            }
+            if (wgs84Point.getLon() == pre.getLon() && wgs84Point.getLat() == pre.getLat()) {
+                log.warn("定位时间: {} 轨迹点经纬度与前一个点 {} 重复，抛弃", wgs84Point.getTime(), pre.getTime());
+                continue;
+            }
+            pre = wgs84Point;
+            filteredPoints.add(pre);
+        }
+        wgs84Points = filteredPoints;
+
+        log.debug("过滤异常点位后轨迹点数量 {}", wgs84Points.size());
 
         // 计算上报时间间隔分布
         Map<Integer, Integer> intervalDistribution = new HashMap<>();
@@ -1993,7 +2012,7 @@ public class GisUtil implements AutoCloseable {
         List<Cluster<TrackPoint>> clusters = clusterer.cluster(gaussPoints);
 
         log.debug("聚类结果：共 {} 个聚类", clusters.size());
-        if (clusters.size() == 0) {
+        if (clusters.isEmpty()) {
             log.warn("聚类结果为空");
             return result;
         }
@@ -2016,7 +2035,7 @@ public class GisUtil implements AutoCloseable {
             List<List<TrackPoint>> segments = new ArrayList<>();
             for (TrackPoint currentPoint : points) {
                 List<TrackPoint> openList;//未闭合段
-                if (segments.size() == 0) {//第一段
+                if (segments.isEmpty()) {//第一段
                     openList = new ArrayList<TrackPoint>();
                     openList.add(currentPoint);
                     segments.add(openList);
