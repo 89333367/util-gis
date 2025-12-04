@@ -32,56 +32,75 @@
 import java.time.LocalDateTime;
 import java.util.Arrays;
 import java.util.List;
-import sunyu.util.GisUtil;
-import sunyu.util.pojo.TrackPoint;
-import sunyu.util.pojo.CoordinatePoint;
-import sunyu.util.pojo.SplitRoadResult;
-import sunyu.util.pojo.OutlinePart;
-import sunyu.util.pojo.WktIntersectionResult;
-import org.locationtech.jts.geom.Geometry;
 
-GisUtil gis = GisUtil.builder().build();
+import sunyu.util.GisUtilbak;
+import sunyu.util.pojo.Wgs84Point;
+import sunyu.util.pojo.CoordinatePoint;
+import org.locationtech.jts.geom.Geometry;
+import sunyu.util.pojo.Wgs84Point;
+
+GisUtilbak gis = GisUtilbak.builder().build();
 
 // 1) 坐标转换示例
-TrackPoint wgs84Point = new TrackPoint(LocalDateTime.now(), 120.0, 30.0);
-TrackPoint gaussPoint = gis.toGaussPoint(wgs84Point); // WGS84转高斯投影
-System.out.println("WGS84: lon=" + wgs84Point.getLon() + ", lat=" + wgs84Point.getLat());
-System.out.println("Gauss: x=" + gaussPoint.getLon() + ", y=" + gaussPoint.getLat());
+Wgs84Point wgs84Point = new Wgs84Point(LocalDateTime.now(), 120.0, 30.0);
+Wgs84Point gaussPoint = gis.toGaussPoint(wgs84Point); // WGS84转高斯投影
+System.out.
+
+println("WGS84: lon="+wgs84Point.getLon() +", lat="+wgs84Point.
+
+getLat());
+        System.out.
+
+println("Gauss: x="+gaussPoint.getLon() +", y="+gaussPoint.
+
+getLat());
 
 // 2) 批量坐标转换
-List<TrackPoint> wgs84Points = Arrays.asList(
-    new TrackPoint(LocalDateTime.now(), 120.0, 30.0),
-    new TrackPoint(LocalDateTime.now(), 120.01, 30.01)
+List<Wgs84Point> wgs84Points = Arrays.asList(
+        new Wgs84Point(LocalDateTime.now(), 120.0, 30.0),
+        new Wgs84Point(LocalDateTime.now(), 120.01, 30.01)
 );
-List<TrackPoint> gaussPoints = gis.toGaussPointList(wgs84Points);
-System.out.println("converted " + gaussPoints.size() + " points");
+List<Wgs84Point> gaussPoints = gis.toGaussPointList(wgs84Points);
+System.out.
+
+println("converted "+gaussPoints.size() +" points");
 
 // 3) WKT字符串转几何对象
 String wktPolygon = "POLYGON((120 30, 120.01 30, 120.01 30.01, 120 30.01, 120 30))";
 Geometry geometry = gis.toWgs84Geometry(wktPolygon);
-System.out.println("Geometry type: " + geometry.getGeometryType());
+System.out.
+
+println("Geometry type: "+geometry.getGeometryType());
 
 // 4) 距离计算（Haversine算法）
 CoordinatePoint point1 = new CoordinatePoint(120.0, 30.0);
 CoordinatePoint point2 = new CoordinatePoint(120.01, 30.02);
 double distance = gis.haversine(point1, point2);
-System.out.println("distance(m)=" + distance);
+System.out.
+
+println("distance(m)="+distance);
 
 // 5) 点与几何关系判断
 CoordinatePoint testPoint = new CoordinatePoint(120.005, 30.005);
 boolean inPolygon = gis.inGeometry(testPoint, geometry);
-System.out.println("point in polygon=" + inPolygon);
+System.out.
+
+println("point in polygon="+inPolygon);
 
 // 6) 圆形区域判断
 CoordinatePoint center = new CoordinatePoint(120.0, 30.0);
 boolean inCircle = gis.inCircle(testPoint, center, 1000.0); // 1公里半径
-System.out.println("point in circle=" + inCircle);
+System.out.
+
+println("point in circle="+inCircle);
 
 // 7) 矩形区域判断
 CoordinatePoint topLeft = new CoordinatePoint(119.99, 30.01);
 CoordinatePoint bottomRight = new CoordinatePoint(120.01, 29.99);
 boolean inRectangle = gis.inRectangle(testPoint, topLeft, bottomRight);
-System.out.println("point in rectangle=" + inRectangle);
+System.out.
+
+println("point in rectangle="+inRectangle);
 ```
 
 ```java
@@ -138,32 +157,51 @@ gis.close();
 import java.time.LocalDateTime;
 import java.util.Arrays;
 import java.util.List;
-import sunyu.util.GisUtil;
-import sunyu.util.pojo.TrackPoint;
+
+import sunyu.util.GisUtilbak;
+import sunyu.util.pojo.Wgs84Point;
 import sunyu.util.pojo.OutlinePart;
 import sunyu.util.pojo.SplitRoadResult;
+import sunyu.util.pojo.Wgs84Point;
 
 // 准备轨迹点（WGS84，经纬度，时间）
-List<TrackPoint> trackPoints = Arrays.asList(
-    new TrackPoint(LocalDateTime.parse("2024-05-01T08:00:00"), 120.0000, 30.0000),
-    new TrackPoint(LocalDateTime.parse("2024-05-01T08:05:00"), 120.0010, 30.0005),
-    new TrackPoint(LocalDateTime.parse("2024-05-01T08:10:00"), 120.0020, 30.0010),
-    new TrackPoint(LocalDateTime.parse("2024-05-01T08:15:00"), 120.0030, 30.0015),
-    new TrackPoint(LocalDateTime.parse("2024-05-01T08:20:00"), 120.0040, 30.0020)
+List<Wgs84Point> wgs84Points = Arrays.asList(
+        new Wgs84Point(LocalDateTime.parse("2024-05-01T08:00:00"), 120.0000, 30.0000),
+        new Wgs84Point(LocalDateTime.parse("2024-05-01T08:05:00"), 120.0010, 30.0005),
+        new Wgs84Point(LocalDateTime.parse("2024-05-01T08:10:00"), 120.0020, 30.0010),
+        new Wgs84Point(LocalDateTime.parse("2024-05-01T08:15:00"), 120.0030, 30.0015),
+        new Wgs84Point(LocalDateTime.parse("2024-05-01T08:20:00"), 120.0040, 30.0020)
 );
 
-GisUtil gis = GisUtil.builder().build();
+        GisUtilbak gis = GisUtilbak.builder().build();
 
-// 智能轨迹分段处理：作业宽度12米
-SplitRoadResult splitResult = gis.splitRoad(trackPoints, 12.0);
-System.out.println("total area(mu)=" + splitResult.getMu());
-System.out.println("total segments=" + splitResult.getParts().size());
+        // 智能轨迹分段处理：作业宽度12米
+        SplitRoadResult splitResult = gis.splitRoad(wgs84Points, 12.0);
+System.out.
 
-for (OutlinePart part : splitResult.getParts()) {
-    System.out.println("segment: " + part.getStartTime() + " ~ " + part.getEndTime() + 
-                       ", area=" + String.format("%.2f", part.getMu()) + "mu");
-    System.out.println("  WKT=" + part.getWkt());
-}
+        println("total area(mu)="+splitResult.getMu());
+        System.out.
+
+        println("total segments="+splitResult.getParts().
+
+        size());
+
+        for(
+        OutlinePart part :splitResult.
+
+        getParts()){
+        System.out.
+
+        println("segment: "+part.getStartTime() +" ~ "+part.
+
+        getEndTime() +
+        ", area="+String.
+
+        format("%.2f",part.getMu())+"mu");
+        System.out.
+
+        println("  WKT="+part.getWkt());
+        }
 ```
 
 ## 数据结构

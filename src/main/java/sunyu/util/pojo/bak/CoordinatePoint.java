@@ -1,4 +1,4 @@
-package sunyu.util.pojo;
+package sunyu.util.pojo.bak;
 
 /**
  * 坐标点基类，用于存储经纬度坐标对

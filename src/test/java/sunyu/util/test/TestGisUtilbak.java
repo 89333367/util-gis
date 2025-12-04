@@ -20,18 +20,18 @@ import com.zaxxer.hikari.HikariConfig;
 import com.zaxxer.hikari.HikariDataSource;
 import org.junit.jupiter.api.Test;
 import org.locationtech.jts.geom.Geometry;
-import sunyu.util.GisUtil;
+import sunyu.util.GisUtilbak;
 import sunyu.util.TDengineUtil;
-import sunyu.util.pojo.*;
+import sunyu.util.pojo.bak.*;
 
 import javax.sql.DataSource;
 import java.sql.SQLException;
 import java.util.*;
 import java.util.stream.Collectors;
 
-public class TestGisUtil {
+public class TestGisUtilbak {
     Log log = LogFactory.get();
-    GisUtil gisUtil = GisUtil.builder().build();
+    GisUtilbak gisUtilbak = GisUtilbak.builder().build();
     ProtocolSdk protocolSdk = new ProtocolSdk(FileUtil.getInputStream(FileUtil.file("d:/tmp/config.xml")));
     String path = "D:/GitLab/util-gis/testFiles";
 
@@ -75,7 +75,7 @@ public class TestGisUtil {
         CoordinatePoint p = new CoordinatePoint(100.401807, 23.443696);
         CoordinatePoint center = new CoordinatePoint(100.27786, 23.60424);
         double radius = 1000.0;//米
-        boolean isIn = gisUtil.inCircle(p, center, radius);
+        boolean isIn = gisUtilbak.inCircle(p, center, radius);
         log.info("点是否在圆中: {}", isIn);
     }
 
@@ -84,28 +84,28 @@ public class TestGisUtil {
         CoordinatePoint p = new CoordinatePoint(116.55470301, 40.21296700);
         CoordinatePoint p1 = new CoordinatePoint(116.55560000, 40.21296700); // 向东偏移约100米
         CoordinatePoint p2 = new CoordinatePoint(116.55560000, 40.21364248); // 向北偏移约100米
-        boolean isIn = gisUtil.inRectangle(p, p1, p2);
+        boolean isIn = gisUtilbak.inRectangle(p, p1, p2);
         log.info("点是否在矩形中: {}", isIn);
     }
 
     @Test
     void 测试点是否在多边形中() {
-        Geometry geom = gisUtil.toWgs84Geometry(
+        Geometry geom = gisUtilbak.toWgs84Geometry(
                 "POLYGON((116.55470301 40.21296700, 116.55560000 40.21296700, 116.55560000 40.21364248, 116.55470301 40.21364248, 116.55470301 40.21296700))");
 
         // 测试多边形内部的点
         CoordinatePoint p1 = new CoordinatePoint(116.55515000, 40.21330000);
-        boolean isIn1 = gisUtil.inGeometry(p1, geom);
+        boolean isIn1 = gisUtilbak.inGeometry(p1, geom);
         log.info("内部点[116.55515000, 40.21330000]是否在多边形中: {}", isIn1);
 
         // 测试多边形顶点（边界点）
         CoordinatePoint p2 = new CoordinatePoint(116.55560000, 40.21364248);
-        boolean isIn2 = gisUtil.inGeometry(p2, geom);
+        boolean isIn2 = gisUtilbak.inGeometry(p2, geom);
         log.info("顶点[116.55560000, 40.21364248]是否在多边形中: {}", isIn2);
 
         // 测试多边形外部的点
         CoordinatePoint p3 = new CoordinatePoint(116.55600000, 40.21400000);
-        boolean isIn3 = gisUtil.inGeometry(p3, geom);
+        boolean isIn3 = gisUtilbak.inGeometry(p3, geom);
         log.info("外部点[116.55600000, 40.21400000]是否在多边形中: {}", isIn3);
     }
 
@@ -115,7 +115,7 @@ public class TestGisUtil {
         CoordinatePoint p2 = new CoordinatePoint(116.55473883, 40.21364248); */
         CoordinatePoint p1 = new CoordinatePoint(100.401807, 23.443696);
         CoordinatePoint p2 = new CoordinatePoint(100.27786, 23.60424);
-        double distance = gisUtil.haversine(p1, p2);
+        double distance = gisUtilbak.haversine(p1, p2);
         log.info("{} 米", distance);
     }
 
@@ -193,7 +193,7 @@ public class TestGisUtil {
         String wkt2 = FileUtil.readUtf8Lines(path +
                         "/EC73BD2509061335_20251104100606_20251104101419_outline.txt")
                 .get(6).replace("WKT: ", "");
-        WktIntersectionResult r = gisUtil.intersection(wkt1, wkt2);
+        WktIntersectionResult r = gisUtilbak.intersection(wkt1, wkt2);
         FileUtil.writeUtf8String(r.getWkt(), path +
                 "/EC73BD2509061335_20251104100606_20251104101419_intersection.txt");
         FileUtil.writeUtf8String(r.getWkt(), path +
@@ -563,7 +563,7 @@ public class TestGisUtil {
             l.add(trackPoint);
         }
         try {
-            SplitRoadResult res = gisUtil.splitRoad(l, jobWidth);
+            SplitRoadResult res = gisUtilbak.splitRoad(l, jobWidth);
             Geometry outline = res.getOutline();
             String outlineWkt = res.getWkt();
             List<OutlinePart> parts = res.getParts();
@@ -625,7 +625,7 @@ public class TestGisUtil {
             l.add(trackPoint);
         }
         try {
-            SplitRoadResult res = gisUtil.splitRoad(l, jobWidth);
+            SplitRoadResult res = gisUtilbak.splitRoad(l, jobWidth);
             Geometry outline = res.getOutline();
             String outlineWkt = res.getWkt();
             List<OutlinePart> parts = res.getParts();

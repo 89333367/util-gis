@@ -46,7 +46,7 @@ import cn.hutool.log.LogFactory;
 import sunyu.util.pojo.CoordinatePoint;
 import sunyu.util.pojo.OutlinePart;
 import sunyu.util.pojo.SplitRoadResult;
-import sunyu.util.pojo.TrackPoint;
+import sunyu.util.pojo.Wgs84Point;
 import sunyu.util.pojo.WktIntersectionResult;
 
 /**

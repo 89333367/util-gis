@@ -88,13 +88,23 @@
             <artifactId>geoapi</artifactId>
             <version>3.0.2</version>
         </dependency>
+        <!-- https://mvnrepository.com/artifact/io.github.elki-project/elki -->
+        <dependency>
+            <groupId>io.github.elki-project</groupId>
+            <artifactId>elki</artifactId>
+            <version>0.8.0</version>
+        </dependency>
+        <dependency>
+            <groupId>io.github.elki-project</groupId>
+            <artifactId>elki-batik-visualization</artifactId>
+            <version>0.8.0</version>
+        </dependency>
         <!-- https://central.sonatype.com/artifact/org.apache.commons/commons-math3/versions -->
         <dependency>
             <groupId>org.apache.commons</groupId>
             <artifactId>commons-math3</artifactId>
             <version>3.6.1</version>
         </dependency>
-
         <!-- https://central.sonatype.com/artifact/org.junit.jupiter/junit-jupiter/versions -->
         <dependency>
             <groupId>org.junit.jupiter</groupId>
