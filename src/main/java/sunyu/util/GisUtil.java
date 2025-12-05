@@ -58,7 +58,7 @@ public class GisUtil implements AutoCloseable {
          * 空几何集合，用于表示无效或空的几何结果
          * <p>作为常量复用，避免每次创建新的空几何对象，提高内存效率</p>
          */
-        private final Geometry EMPTYGEOM = GEOMETRY_FACTORY.createGeometryCollection();
+        private final Geometry EMPTY_GEOMETRY = GEOMETRY_FACTORY.createGeometryCollection();
 
         /**
          * WGS84坐标参考系统，使用默认地理CRS，避免重复创建
@@ -112,19 +112,19 @@ public class GisUtil implements AutoCloseable {
          * 最小作业幅宽阈值（米），低于此值认为参数无效，用于农业轨迹处理
          * <p>设置此阈值是为了过滤掉不合理的作业幅宽参数，确保算法稳定性</p>
          */
-        private final double MIN_WORKING_WIDTH_M = 1.0;
+        private final double MIN_WORKING_WIDTH = 1.0;
 
         /**
          * 最大返回多边形数量
          * <p>限制返回结果的数量，避免在处理复杂轨迹时产生过多碎片化的几何图形</p>
          */
-        private final int MAX_GEOMETRY = 10;
+        private final int MAX_RETURN_GEOMETRY = 10;
 
         /**
          * 两点间最大作业距离(米)
          * <p>对应18km/h的作业速度（5米/秒），用于判断轨迹点之间的合理性</p>
          */
-        private final double MAX_WORK_DISTANCE_M = 18 / 3.6;
+        private final double MAX_WORK_DISTANCE = 18 / 3.6;
 
         /**
          * 几何图形膨胀收缩距离（米）
@@ -134,7 +134,7 @@ public class GisUtil implements AutoCloseable {
          * 先正向膨胀再反向收缩，用于去除小孔洞、平滑边界等几何优化。
          * </p>
          */
-        private final double BUFFER_SMOOTHING_DISTANCE_M = 1;
+        private final double BUFFER_SMOOTHING_DISTANCE = 1;
     }
 
     public static class Builder {
@@ -158,8 +158,7 @@ public class GisUtil implements AutoCloseable {
         // 使用computeIfAbsent实现线程安全的缓存机制，只在缓存未命中时创建新CRS
         return config.GAUSS_CRS_CACHE.computeIfAbsent(cacheKey, key -> {
             try {
-                log.debug("创建高斯投影CRS：投影带号={}, 假东距={}, 中央经线={}", zone, falseEasting,
-                        centralMeridian);
+                log.debug("创建高斯投影CRS：投影带号={}, 假东距={}, 中央经线={}", zone, falseEasting, centralMeridian);
                 // 定义高斯-克吕格投影坐标系 - 使用预构建的WKT模板
                 // WKT格式定义了完整的坐标系统参数，包括基准面、椭球体、投影方式和参数
                 String wktTemplate = "PROJCS[\"Gauss_Kruger_ZONE_" + zone + "\", GEOGCS[\"GCS_WGS_1984\", DATUM[\"WGS_1984\", SPHEROID[\"WGS_84\", 6378137.0, 298.257223563]], PRIMEM[\"Greenwich\", 0.0], UNIT[\"Degree\", 0.0174532925199433]], PROJECTION[\"Transverse_Mercator\"], PARAMETER[\"False_Easting\", %.6f], PARAMETER[\"False_Northing\", 0.0], PARAMETER[\"Central_Meridian\", %.6f], PARAMETER[\"Scale_Factor\", 1.0], PARAMETER[\"Latitude_Of_Origin\", 0.0], UNIT[\"Meter\", 1.0]]";
@@ -168,15 +167,13 @@ public class GisUtil implements AutoCloseable {
                 // 解析WKT字符串创建CRS对象
                 return CRS.parseWKT(gaussProjString);
             } catch (Exception e) {
-                log.warn("创建高斯投影CRS失败：zone={}, falseEasting={}, centralMeridian={}, 错误={}",
-                        zone, falseEasting, centralMeridian, e.getMessage());
+                log.warn("创建高斯投影CRS失败：zone={}, falseEasting={}, centralMeridian={}, 错误={}", zone, falseEasting, centralMeridian, e.getMessage());
                 return null;
             }
         });
     }
 
-    private Geometry processChunk(List<GaussPoint> points, int startIndex, int chunkSize,
-                                  int totalPoints, double bufferWidth) {
+    private Geometry processChunk(List<GaussPoint> points, int startIndex, int chunkSize, int totalPoints, double bufferWidth) {
         int end = Math.min(startIndex + chunkSize, totalPoints);
         List<GaussPoint> chunk = points.subList(startIndex, end);
 
@@ -214,7 +211,7 @@ public class GisUtil implements AutoCloseable {
     private Geometry mergeGeometriesRecursively(List<Geometry> geometries) {
         // 基本情况：列表为空或只有一个元素
         if (geometries.isEmpty()) {
-            return config.EMPTYGEOM;
+            return config.EMPTY_GEOMETRY;
         }
         if (geometries.size() == 1) {
             return geometries.get(0);
@@ -229,7 +226,7 @@ public class GisUtil implements AutoCloseable {
         }
 
         if (nonEmptyGeometries.isEmpty()) {
-            return config.EMPTYGEOM;
+            return config.EMPTY_GEOMETRY;
         }
         if (nonEmptyGeometries.size() == 1) {
             return nonEmptyGeometries.get(0);
@@ -313,7 +310,7 @@ public class GisUtil implements AutoCloseable {
             return result;
         }
 
-        return config.EMPTYGEOM;
+        return config.EMPTY_GEOMETRY;
     }
 
     private Geometry processLargeSegmentInChunks(List<GaussPoint> points, double bufferWidth) {
@@ -380,7 +377,7 @@ public class GisUtil implements AutoCloseable {
                     env.getMinY() < -10000000 || env.getMaxY() > 10000000) {
                 log.warn("高斯投影坐标超出合理范围：MinX={}, MaxX={}, MinY={}, MaxY={}",
                         env.getMinX(), env.getMaxX(), env.getMinY(), env.getMaxY());
-                return config.EMPTYGEOM;
+                return config.EMPTY_GEOMETRY;
             }
 
             // 智能确定投影带号策略
@@ -397,7 +394,7 @@ public class GisUtil implements AutoCloseable {
                 // 对于宽几何，优先使用中间带号，并验证整个几何范围
                 if (zone < 1 || zone > 60) {
                     log.warn("无法确定合适的投影带号：centerX={}", centerX);
-                    return config.EMPTYGEOM;
+                    return config.EMPTY_GEOMETRY;
                 }
             } else if (zone < 1 || zone > 60) {
                 log.warn("反推的投影带号不合理：zone={}, centerX={}", zone, centerX);
@@ -407,7 +404,7 @@ public class GisUtil implements AutoCloseable {
                 log.trace("备用策略计算的投影带号：zone={}", backupZone);
                 if (backupZone < 1 || backupZone > 60) {
                     log.warn("备用策略仍然无法确定合适的投影带号：centerX={}", centerX);
-                    return config.EMPTYGEOM;
+                    return config.EMPTY_GEOMETRY;
                 }
                 zone = backupZone;
             }
@@ -417,7 +414,7 @@ public class GisUtil implements AutoCloseable {
 
             if (gaussCRS == null) {
                 log.warn("无法获取高斯投影CRS：zone={}", zone);
-                return config.EMPTYGEOM;
+                return config.EMPTY_GEOMETRY;
             }
 
             // 构建缓存key（用于transform缓存）
@@ -437,7 +434,7 @@ public class GisUtil implements AutoCloseable {
 
             if (transform == null) {
                 log.warn("无法获取坐标转换：zone={}", finalZone);
-                return config.EMPTYGEOM;
+                return config.EMPTY_GEOMETRY;
             }
 
             // 执行坐标转换（逆向：高斯投影 -> WGS84）
@@ -449,13 +446,13 @@ public class GisUtil implements AutoCloseable {
                     wgs84Env.getMinY() < -90 || wgs84Env.getMaxY() > 90) {
                 log.warn("转换后的WGS84坐标超出合理范围：MinLon={}, MaxLon={}, MinLat={}, MaxLat={}",
                         wgs84Env.getMinX(), wgs84Env.getMaxX(), wgs84Env.getMinY(), wgs84Env.getMaxY());
-                return config.EMPTYGEOM;
+                return config.EMPTY_GEOMETRY;
             }
             // 高斯投影几何到WGS84投影几何转换完成
             return wgs84Geometry;
         } catch (Exception e) {
             log.warn("高斯投影几何到WGS84投影几何转换失败：错误={}", e.getMessage());
-            return config.EMPTYGEOM;
+            return config.EMPTY_GEOMETRY;
         }
     }
 
@@ -713,7 +710,7 @@ public class GisUtil implements AutoCloseable {
         Geometry unionGaussGeometry = config.GEOMETRY_FACTORY
                 .createGeometryCollection(unionGaussGeometries.toArray(new Geometry[0]))
                 .union()
-                .buffer(config.BUFFER_SMOOTHING_DISTANCE_M).buffer(-config.BUFFER_SMOOTHING_DISTANCE_M);
+                .buffer(config.BUFFER_SMOOTHING_DISTANCE).buffer(-config.BUFFER_SMOOTHING_DISTANCE);
         Geometry wgs84UnionGeometry = toWgs84Geometry(unionGaussGeometry);
         log.debug("合并后的几何图形：{}", wgs84UnionGeometry.toText());
     }

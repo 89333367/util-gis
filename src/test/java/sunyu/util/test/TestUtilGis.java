@@ -122,6 +122,47 @@ public class TestUtilGis {
     }
 
     @Test
+    void 测试内存与cpu占用() {
+        String did = "EC71BT2406060220";
+        String startTime = "20251102154200";
+        String endTime = "20251102172202";
+        double jobWidth = 1.75;
+        String fileName = path + StrUtil.format("/{}_{}_{}_protocol.txt", did, startTime, endTime);
+        if (!FileUtil.exist(fileName)) {
+            return;
+        }
+        List<Wgs84Point> l = new ArrayList<>();
+        for (String protocolStr : FileUtil.readUtf8Lines(fileName)) {
+            Map<String, String> protocol = protocolSdk.parseProtocolString(protocolStr);
+            Wgs84Point wgs84Point = new Wgs84Point();
+            wgs84Point.setGpsTime(LocalDateTimeUtil.parse(protocol.get("3014"), "yyyyMMddHHmmss"));
+            wgs84Point.setLongitude(Double.parseDouble(protocol.get("2602")));
+            wgs84Point.setLatitude(Double.parseDouble(protocol.get("2603")));
+            if (protocol.containsKey("2601")) {// 定位状态,0已定位，1未定位
+                if (protocol.get("2601").equals("0")) {
+                    wgs84Point.setGpsStatus(1);
+                } else {
+                    wgs84Point.setGpsStatus(2);
+                }
+            }
+            if (protocol.containsKey("3020")) {// 终端ACC状态,0关闭，1开启
+                if (Convert.toStr(protocol.get("3020")).equals("0")) {
+                    wgs84Point.setJobStatus(2);//ACC关闭，认为是没有作业
+                }
+            }
+            if (protocol.containsKey("4031")) {// 作业标识,1作业,0非作业,2暂停
+                if (!Convert.toStr(protocol.get("4031")).equals("1")) {
+                    wgs84Point.setJobStatus(2);//作业标识不是1，认为是没有作业
+                }
+            }
+            l.add(wgs84Point);
+        }
+        for (int i = 0; i < 100; i++) {
+            gisUtil.splitRoad(l, jobWidth);
+        }
+    }
+
+    @Test
     void 测试镂空作业轮廓1() {
         String did = "EC71BT2406060220";
         String startTime = "20251102154200";
