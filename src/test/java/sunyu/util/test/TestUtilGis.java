@@ -78,9 +78,20 @@ public class TestUtilGis {
                 if (!protocol.containsKey("3014") || !protocol.containsKey("2602") || !protocol.containsKey("2603")) {
                     continue;
                 }
+                protocolList.add(row.get("protocol").toString());//只要有定位时间和经纬度信息就添加到协议列表
+                if (protocol.containsKey("2601") && !protocol.get("2601").equals("0")) {// 定位状态,0已定位，1未定位
+                    continue;
+                }
+                // 经纬度不能为0（无效坐标）
+                if (Convert.toDouble(protocol.get("2602")) == 0.0 && Convert.toDouble(protocol.get("2603")) == 0.0) {
+                    continue;
+                }
+                // 经纬度必须在合理范围内
+                if (Convert.toDouble(protocol.get("2602")) < -180.0 || Convert.toDouble(protocol.get("2602")) > 180.0 || Convert.toDouble(protocol.get("2603")) < -90.0 || Convert.toDouble(protocol.get("2603")) > 90.0) {
+                    continue;
+                }
                 // {定位时间yyyyMMddHHmmss},{经度},{纬度}
                 traceList.add(StrUtil.format("{},{},{}", protocol.get("3014"), protocol.get("2602"), protocol.get("2603")));
-                protocolList.add(row.get("protocol").toString());
             }
             FileUtil.writeUtf8Lines(traceList, path + StrUtil.format("/{}_{}_{}_trace.txt", did, startTime, endTime));
             FileUtil.writeUtf8Lines(protocolList, path + StrUtil.format("/{}_{}_{}_protocol.txt", did, startTime, endTime));
@@ -163,11 +174,22 @@ public class TestUtilGis {
     }
 
     @Test
-    void 测试镂空作业轮廓1() {
+    void 测试1秒间隔() {
         String did = "EC71BT2406060220";
         String startTime = "20251102154200";
         String endTime = "20251102172202";
         double jobWidth = 1.75;
+        生成数据文件(did, startTime, endTime);
+        测试拆分数据(did, startTime, endTime, jobWidth);
+    }
+
+    @Test
+    void 测试10秒间隔() {
+        String did = "EM9101B8F5AZT0041";
+        String yyyyMMdd = "20251027";
+        String startTime = yyyyMMdd + "000000";
+        String endTime = yyyyMMdd + "235959";
+        double jobWidth = 2.5;
         生成数据文件(did, startTime, endTime);
         测试拆分数据(did, startTime, endTime, jobWidth);
     }

@@ -1,7 +1,0 @@
-type: Polygon
-Parts: 1
-mu: 0.0
-totalWidthM: 2.5
-startTime: null
-endTime: null
-WKT: GEOMETRYCOLLECTION EMPTY

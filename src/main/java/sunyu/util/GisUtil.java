@@ -1,6 +1,8 @@
 package sunyu.util;
 
 import cn.hutool.core.collection.CollUtil;
+import cn.hutool.core.io.FileUtil;
+import cn.hutool.core.util.StrUtil;
 import cn.hutool.log.Log;
 import cn.hutool.log.LogFactory;
 import elki.clustering.dbscan.DBSCAN;
@@ -15,7 +17,7 @@ import elki.database.ids.DBIDIter;
 import elki.database.ids.DBIDRange;
 import elki.database.relation.Relation;
 import elki.datasource.ArrayAdapterDatabaseConnection;
-import elki.distance.minkowski.SquaredEuclideanDistance;
+import elki.distance.minkowski.EuclideanDistance;
 import org.geotools.geometry.jts.JTS;
 import org.geotools.geometry.jts.JTSFactoryFinder;
 import org.geotools.referencing.CRS;
@@ -158,7 +160,7 @@ public class GisUtil implements AutoCloseable {
         // 使用computeIfAbsent实现线程安全的缓存机制，只在缓存未命中时创建新CRS
         return config.GAUSS_CRS_CACHE.computeIfAbsent(cacheKey, key -> {
             try {
-                log.debug("创建高斯投影CRS：投影带号={}, 假东距={}, 中央经线={}", zone, falseEasting, centralMeridian);
+                log.debug("创建高斯投影CRS：投影带号 {} 假东距 {} 中央经线 {}", zone, falseEasting, centralMeridian);
                 // 定义高斯-克吕格投影坐标系 - 使用预构建的WKT模板
                 // WKT格式定义了完整的坐标系统参数，包括基准面、椭球体、投影方式和参数
                 String wktTemplate = "PROJCS[\"Gauss_Kruger_ZONE_" + zone + "\", GEOGCS[\"GCS_WGS_1984\", DATUM[\"WGS_1984\", SPHEROID[\"WGS_84\", 6378137.0, 298.257223563]], PRIMEM[\"Greenwich\", 0.0], UNIT[\"Degree\", 0.0174532925199433]], PROJECTION[\"Transverse_Mercator\"], PARAMETER[\"False_Easting\", %.6f], PARAMETER[\"False_Northing\", 0.0], PARAMETER[\"Central_Meridian\", %.6f], PARAMETER[\"Scale_Factor\", 1.0], PARAMETER[\"Latitude_Of_Origin\", 0.0], UNIT[\"Meter\", 1.0]]";
@@ -167,7 +169,7 @@ public class GisUtil implements AutoCloseable {
                 // 解析WKT字符串创建CRS对象
                 return CRS.parseWKT(gaussProjString);
             } catch (Exception e) {
-                log.warn("创建高斯投影CRS失败：zone={}, falseEasting={}, centralMeridian={}, 错误={}", zone, falseEasting, centralMeridian, e.getMessage());
+                log.warn("创建高斯投影CRS失败：投影带号 {} 假东距 {}, 中央经线 {}, 错误 {}", zone, falseEasting, centralMeridian, e.getMessage());
                 return null;
             }
         });
@@ -201,9 +203,7 @@ public class GisUtil implements AutoCloseable {
             chunkBuffer = DouglasPeuckerSimplifier.simplify(chunkBuffer, 0.00001); // 轻微简化，保持形状
         }
 
-        log.debug("处理块: {}-{}, 点数: {}, buffer几何类型: {}, 耗时: {}ms",
-                startIndex, end, chunkLength, chunkBuffer.getGeometryType(),
-                System.currentTimeMillis() - chunkStartTime);
+        log.debug("处理块: {}-{}, 点数: {}, buffer几何类型: {}, 耗时: {}ms", startIndex, end, chunkLength, chunkBuffer.getGeometryType(), System.currentTimeMillis() - chunkStartTime);
 
         return chunkBuffer;
     }
@@ -335,10 +335,9 @@ public class GisUtil implements AutoCloseable {
             chunkStartIndices.add(startIndex);
         }
 
-        log.debug("共分成 {} 个块进行处理，块大小: {}, 重叠区域: {}",
-                chunkStartIndices.size(), chunkSize, overlapSize);
+        log.debug("共分成 {} 个块进行处理，块大小: {}, 重叠区域: {}", chunkStartIndices.size(), chunkSize, overlapSize);
 
-        // 直接使用顺序处理所有块
+        // 处理所有块
         List<Geometry> chunkGeometries = new ArrayList<>();
         for (Integer startIndex : chunkStartIndices) {
             Geometry geom = processChunk(points, startIndex, chunkSize, totalPoints, bufferWidth);
@@ -347,7 +346,7 @@ public class GisUtil implements AutoCloseable {
             }
         }
 
-        log.debug("所有块处理完成，准备合并几何图形，耗时: {}ms", System.currentTimeMillis() - startTime);
+        log.debug("所有块处理完成，准备合并几何图形，耗时: {} ms", System.currentTimeMillis() - startTime);
 
         // 直接合并几何图形，移除中间预处理步骤
         Geometry mergedGeometry = mergeGeometriesRecursively(chunkGeometries);
@@ -357,9 +356,37 @@ public class GisUtil implements AutoCloseable {
             mergedGeometry = mergedGeometry.buffer(0); // 修复无效几何图形
         }
 
-        log.debug("分块处理完成，合并后几何类型: {}, 总耗时: {}ms",
-                mergedGeometry.getGeometryType(), System.currentTimeMillis() - startTime);
+        log.debug("分块处理完成，合并后几何类型: {}, 总耗时: {}ms", mergedGeometry.getGeometryType(), System.currentTimeMillis() - startTime);
         return mergedGeometry;
+    }
+
+    /**
+     * 根据角度获取方向的中文描述
+     *
+     * @param angle 角度（0-360度）
+     *
+     * @return 中文方向描述
+     */
+    private String getDirectionDescription(double angle) {
+        if (angle >= 337.5 || angle < 22.5) {
+            return "北";
+        } else if (angle >= 22.5 && angle < 67.5) {
+            return "东北";
+        } else if (angle >= 67.5 && angle < 112.5) {
+            return "东";
+        } else if (angle >= 112.5 && angle < 157.5) {
+            return "东南";
+        } else if (angle >= 157.5 && angle < 202.5) {
+            return "南";
+        } else if (angle >= 202.5 && angle < 247.5) {
+            return "西南";
+        } else if (angle >= 247.5 && angle < 292.5) {
+            return "西";
+        } else if (angle >= 292.5) {
+            return "西北";
+        } else {
+            return "未知";
+        }
     }
 
 
@@ -373,10 +400,8 @@ public class GisUtil implements AutoCloseable {
             // 验证高斯投影坐标的合理性
             // 高斯投影X坐标合理范围：50万-6400万米（对应全球1-60带，更宽松的范围）
             // 高斯投影Y坐标合理范围：±1000万米（对应全球纬度范围）
-            if (env.getMinX() < 500000 || env.getMaxX() > 64000000 ||
-                    env.getMinY() < -10000000 || env.getMaxY() > 10000000) {
-                log.warn("高斯投影坐标超出合理范围：MinX={}, MaxX={}, MinY={}, MaxY={}",
-                        env.getMinX(), env.getMaxX(), env.getMinY(), env.getMaxY());
+            if (env.getMinX() < 500000 || env.getMaxX() > 64000000 || env.getMinY() < -10000000 || env.getMaxY() > 10000000) {
+                log.warn("高斯投影坐标超出合理范围：MinX={}, MaxX={}, MinY={}, MaxY={}", env.getMinX(), env.getMaxX(), env.getMinY(), env.getMaxY());
                 return config.EMPTY_GEOMETRY;
             }
 
@@ -391,17 +416,16 @@ public class GisUtil implements AutoCloseable {
             double geometryWidth = env.getMaxX() - env.getMinX();
             if (geometryWidth > 1000000) {
                 log.warn("几何图形宽度{}米，可能跨越多个投影带，使用保守策略", geometryWidth);
-                // 对于宽几何，优先使用中间带号，并验证整个几何范围
                 if (zone < 1 || zone > 60) {
                     log.warn("无法确定合适的投影带号：centerX={}", centerX);
                     return config.EMPTY_GEOMETRY;
                 }
             } else if (zone < 1 || zone > 60) {
-                log.warn("反推的投影带号不合理：zone={}, centerX={}", zone, centerX);
+                log.warn("反推的投影带号不合理：投影带号 {}, centerX={}", zone, centerX);
                 // 尝试备用策略：如果zone不合理，可能是假东距计算问题，尝试重新计算
                 log.trace("尝试备用策略重新计算投影带号");
                 int backupZone = (int) Math.floor((centerX - 500000.0) / 1000000.0);
-                log.trace("备用策略计算的投影带号：zone={}", backupZone);
+                log.trace("备用策略计算的投影带号：{}", backupZone);
                 if (backupZone < 1 || backupZone > 60) {
                     log.warn("备用策略仍然无法确定合适的投影带号：centerX={}", centerX);
                     return config.EMPTY_GEOMETRY;
@@ -426,8 +450,7 @@ public class GisUtil implements AutoCloseable {
                 try {
                     return CRS.findMathTransform(gaussCRS, config.WGS84_CRS, true);
                 } catch (Exception e) {
-                    log.warn("创建坐标转换失败：zone={}, falseEasting={}, centralMeridian={}, 错误={}",
-                            finalZone, falseEasting, centralMeridian, e.getMessage());
+                    log.warn("创建坐标转换失败：zone={}, falseEasting={}, centralMeridian={}, 错误={}", finalZone, falseEasting, centralMeridian, e.getMessage());
                     return null;
                 }
             });
@@ -442,10 +465,8 @@ public class GisUtil implements AutoCloseable {
 
             // 验证转换后的WGS84坐标合理性
             Envelope wgs84Env = wgs84Geometry.getEnvelopeInternal();
-            if (wgs84Env.getMinX() < -180 || wgs84Env.getMaxX() > 180 ||
-                    wgs84Env.getMinY() < -90 || wgs84Env.getMaxY() > 90) {
-                log.warn("转换后的WGS84坐标超出合理范围：MinLon={}, MaxLon={}, MinLat={}, MaxLat={}",
-                        wgs84Env.getMinX(), wgs84Env.getMaxX(), wgs84Env.getMinY(), wgs84Env.getMaxY());
+            if (wgs84Env.getMinX() < -180 || wgs84Env.getMaxX() > 180 || wgs84Env.getMinY() < -90 || wgs84Env.getMaxY() > 90) {
+                log.warn("转换后的WGS84坐标超出合理范围：MinLon={}, MaxLon={}, MinLat={}, MaxLat={}", wgs84Env.getMinX(), wgs84Env.getMaxX(), wgs84Env.getMinY(), wgs84Env.getMaxY());
                 return config.EMPTY_GEOMETRY;
             }
             // 高斯投影几何到WGS84投影几何转换完成
@@ -497,8 +518,7 @@ public class GisUtil implements AutoCloseable {
                     try {
                         return CRS.findMathTransform(config.WGS84_CRS, gaussCRS, true);
                     } catch (Exception e) {
-                        log.warn("创建坐标转换失败：zone={}, falseEasting={}, centralMeridian={}, 错误={}",
-                                zone, falseEasting, centralMeridian, e.getMessage());
+                        log.warn("创建坐标转换失败：zone={}, falseEasting={}, centralMeridian={}, 错误={}", zone, falseEasting, centralMeridian, e.getMessage());
                         return null;
                     }
                 });
@@ -561,50 +581,46 @@ public class GisUtil implements AutoCloseable {
         // 获取最小有效时间间隔
         if (!intervalDistribution.isEmpty()) {
             // 找到点数最多的时间间隔，如果点数相同则选择时间间隔更小的
-            minEffectiveInterval = intervalDistribution.entrySet().stream()
-                    .max((e1, e2) -> {
-                        int countCompare = Integer.compare(e1.getValue(), e2.getValue());
-                        if (countCompare != 0) {
-                            return countCompare; // 点数多的优先
-                        }
-                        return Integer.compare(e2.getKey(), e1.getKey()); // 点数相同时，时间间隔小的优先（降序比较）
-                    })
-                    .map(Map.Entry::getKey)
-                    .orElse(1);
+            minEffectiveInterval = intervalDistribution.entrySet().stream().max((e1, e2) -> {
+                int countCompare = Integer.compare(e1.getValue(), e2.getValue());
+                if (countCompare != 0) {
+                    return countCompare; // 点数多的优先
+                }
+                return Integer.compare(e2.getKey(), e1.getKey()); // 点数相同时，时间间隔小的优先（降序比较）
+            }).map(Map.Entry::getKey).orElse(1);
         }
         log.debug("最小有效上报时间间隔 {} 秒", minEffectiveInterval);
 
         log.debug("准备过滤异常点位信息");
-        wgs84Wgs84Points = wgs84Wgs84Points.stream()
-                .filter(p -> {
-                    // 时间不能为空
-                    if (p.getGpsTime() == null) {
-                        log.warn("轨迹点时间为空，抛弃");
-                        return false;
-                    }
-                    // 经纬度不能为0（无效坐标）
-                    if (p.getLongitude() == 0.0 && p.getLatitude() == 0.0) {
-                        log.warn("定位时间: {} 轨迹点经纬度为 0 ，抛弃", p.getGpsTime());
-                        return false;
-                    }
-                    // 经纬度必须在合理范围内
-                    if (p.getLongitude() < -180.0 || p.getLongitude() > 180.0 || p.getLatitude() < -90.0 || p.getLatitude() > 90.0) {
-                        log.warn("定位时间: {} 轨迹点经纬度超出范围：[{},{}] 抛弃", p.getGpsTime(), p.getLongitude(), p.getLatitude());
-                        return false;
-                    }
-                    // GPS点位必须是已定位的点位
-                    if (p.getGpsStatus() != 0 && p.getGpsStatus() != 1) {
-                        log.warn("定位时间: {} 轨迹点GPS状态为 {} ，抛弃", p.getGpsTime(), p.getGpsStatus());
-                        return false;
-                    }
-                    // 必须是作业状态
-                    if (p.getJobStatus() != 0 && p.getJobStatus() != 1) {
-                        log.warn("定位时间: {} 轨迹点作业状态为 {} ，抛弃", p.getGpsTime(), p.getJobStatus());
-                        return false;
-                    }
-                    return true;
-                })
-                .collect(Collectors.toList());
+        wgs84Wgs84Points = wgs84Wgs84Points.stream().filter(p -> {
+            // 时间不能为空
+            if (p.getGpsTime() == null) {
+                log.warn("轨迹点时间为空，抛弃");
+                return false;
+
+            }
+            // 经纬度不能为0（无效坐标）
+            if (p.getLongitude() == 0.0 && p.getLatitude() == 0.0) {
+                log.warn("定位时间: {} 轨迹点经纬度为 0 ，抛弃", p.getGpsTime());
+                return false;
+            }
+            // 经纬度必须在合理范围内
+            if (p.getLongitude() < -180.0 || p.getLongitude() > 180.0 || p.getLatitude() < -90.0 || p.getLatitude() > 90.0) {
+                log.warn("定位时间: {} 轨迹点经纬度超出范围：[{},{}] 抛弃", p.getGpsTime(), p.getLongitude(), p.getLatitude());
+                return false;
+            }
+            // GPS点位必须是已定位的点位
+            if (p.getGpsStatus() != 0 && p.getGpsStatus() != 1) {
+                log.warn("定位时间: {} 轨迹点GPS状态为 {} ，抛弃", p.getGpsTime(), p.getGpsStatus());
+                return false;
+            }
+            // 必须是作业状态
+            if (p.getJobStatus() != 0 && p.getJobStatus() != 1) {
+                log.warn("定位时间: {} 轨迹点作业状态为 {} ，抛弃", p.getGpsTime(), p.getJobStatus());
+                return false;
+            }
+            return true;
+        }).collect(Collectors.toList());
         log.debug("过滤异常点位信息完成，剩余点位数量：{}", wgs84Wgs84Points.size());
         if (wgs84Wgs84Points.size() < 30) {
             log.error("作业轨迹点列表必须包含至少 30 个有效点位");
@@ -641,9 +657,63 @@ public class GisUtil implements AutoCloseable {
         // 转换为高斯投影坐标
         List<GaussPoint> gaussPoints = toGaussPointList(wgs84Wgs84Points);
 
+        List<String> gaussXyList = new ArrayList<>();
+        for (GaussPoint gaussPoint : gaussPoints) {
+            gaussXyList.add(StrUtil.format("{},{}", gaussPoint.getGaussX(), gaussPoint.getGaussY()));
+        }
+        FileUtil.writeUtf8Lines(gaussXyList, "D:/GitLab/util-gis/testFiles/gauss_xy.txt");
+
+        log.debug("打印两点之间的时间间隔与距离(米)");
+        List<Double> distancesAtMinInterval = new ArrayList<>();
+        for (int i = 1; i < gaussPoints.size(); i++) {
+            GaussPoint prevPoint = gaussPoints.get(i - 1);
+            GaussPoint currPoint = gaussPoints.get(i);
+            // 计算两点之间的时间间隔（秒）
+            Duration duration = Duration.between(prevPoint.getGpsTime(), currPoint.getGpsTime());
+            // 计算两点之间的欧几里得距离
+            double distance = Math.sqrt(Math.pow(currPoint.getGaussX() - prevPoint.getGaussX(), 2) + Math.pow(currPoint.getGaussY() - prevPoint.getGaussY(), 2));
+            // 计算两点之间的方向角度（方位角），从正北方向顺时针测量
+            double dx = currPoint.getGaussX() - prevPoint.getGaussX();
+            double dy = currPoint.getGaussY() - prevPoint.getGaussY();
+            double angle = Math.toDegrees(Math.atan2(dx, dy));
+            // 确保角度在0-360度范围内
+            if (angle < 0) {
+                angle += 360;
+            }
+            // 获取方向描述
+            String directionDescription = getDirectionDescription(angle);
+            if (duration.getSeconds() == minEffectiveInterval) {
+                distancesAtMinInterval.add(distance);
+                log.debug("{}->{} 间隔 {} 秒 方向角度：{}°，向 {} 行驶，距离: {}米", prevPoint.getGpsTime(), currPoint.getGpsTime(), duration.getSeconds(), String.format("%.2f", angle), directionDescription, String.format("%.2f", distance));
+            }
+        }
+        double avgDistance = config.MAX_WORK_DISTANCE;
+        if (!distancesAtMinInterval.isEmpty()) {
+            // 最大距离
+            double maxDistance = Collections.max(distancesAtMinInterval);
+            // 最小距离
+            double minDistance = Collections.min(distancesAtMinInterval);
+            // 平均距离
+            avgDistance = distancesAtMinInterval.stream().mapToDouble(Double::doubleValue).average().orElse(0.0);
+            // 中位数距离
+            List<Double> sortedDistances = new ArrayList<>(distancesAtMinInterval);
+            Collections.sort(sortedDistances);
+            double medianDistance;
+            int size = sortedDistances.size();
+            if (size % 2 == 0) {
+                medianDistance = (sortedDistances.get(size / 2 - 1) + sortedDistances.get(size / 2)) / 2.0;
+            } else {
+                medianDistance = sortedDistances.get(size / 2);
+            }
+            log.debug("{} 秒时间间隔统计: 最大距离={}米, 最小距离={}米, 平均距离={}米, 中位数距离={}米", minEffectiveInterval, String.format("%.2f", maxDistance), String.format("%.2f", minDistance), String.format("%.2f", avgDistance), String.format("%.2f", medianDistance));
+        } else {
+            log.debug("没有找到 {} 秒时间间隔的数据", minEffectiveInterval);
+        }
+
         log.debug("准备创建StaticArrayDatabase");
-        double eps = 5.0; // 1秒间隔保持6米（略大于最大速度5米/秒），10秒间隔保持35米
-        int minPts = 4;
+        double eps = avgDistance;
+        int minPts = 6;
+        log.debug("聚类参数 eps={} 米, minPts={}", String.format("%.2f", eps), minPts);
 
         log.debug("提取坐标数组");
         double[][] coords = new double[gaussPoints.size()][2];
@@ -657,11 +727,8 @@ public class GisUtil implements AutoCloseable {
         db.initialize();
 
         log.debug("DBSCAN");
-        DBSCAN<DoubleVector> dbscan = new DBSCAN<>(
-                SquaredEuclideanDistance.STATIC, // 使用平方欧几里得距离
-                eps,
-                minPts
-        );
+        // 使用欧几里得距离
+        DBSCAN<DoubleVector> dbscan = new DBSCAN<>(EuclideanDistance.STATIC, eps, minPts);
 
         log.debug("获取Relation对象并运行聚类");
         Relation<DoubleVector> relation = db.getRelation(TypeUtil.DOUBLE_VECTOR_FIELD);
@@ -670,15 +737,21 @@ public class GisUtil implements AutoCloseable {
         log.debug("映射结果");
         DBIDRange ids = (DBIDRange) relation.getDBIDs();
         List<List<GaussPoint>> clusters = new ArrayList<>();
+
         for (Cluster<Model> cluster : result.getAllClusters()) {
             List<GaussPoint> clusterPoints = new ArrayList<>();
             for (DBIDIter iter = cluster.getIDs().iter(); iter.valid(); iter.advance()) {
                 int offset = ids.getOffset(iter);
                 clusterPoints.add(gaussPoints.get(offset));
             }
-            clusters.add(clusterPoints);
+            log.debug("聚类信息 - 大小: {}, 名称: {}, 自动名称: {}, 模型: {}", cluster.size(), cluster.getName(), cluster.getNameAutomatic(), cluster.getModel());
+            if (cluster.getNameAutomatic().equals("Cluster")) {
+                clusters.add(clusterPoints);
+            }
         }
-        log.debug("空间密集聚类完成，共发现 {} 个聚类簇", clusters.size());
+
+        log.debug("聚类完成，总共有 {} 个聚类簇", clusters.size());
+
         List<Geometry> unionGaussGeometries = new ArrayList<>();
         for (List<GaussPoint> cluster : clusters) {
             log.debug("聚类簇包含 {} 个点", cluster.size());
@@ -686,9 +759,7 @@ public class GisUtil implements AutoCloseable {
                 log.debug("聚类后，按时间升序排序");
                 cluster.sort(Comparator.comparing(GaussPoint::getGpsTime));
                 log.debug("创建线缓冲，缓冲半径：{} 米", halfWorkingWidth);
-                Coordinate[] coordinates = cluster.stream()
-                        .map(point -> new Coordinate(point.getGaussX(), point.getGaussY()))
-                        .toArray(Coordinate[]::new);
+                Coordinate[] coordinates = cluster.stream().map(point -> new Coordinate(point.getGaussX(), point.getGaussY())).toArray(Coordinate[]::new);
                 if (coordinates.length > 500) {
                     LineString lineString = config.GEOMETRY_FACTORY.createLineString(coordinates);
                     Geometry simplifiedGeometry = DouglasPeuckerSimplifier.simplify(lineString, 0.1);//0.1米容差
@@ -707,10 +778,7 @@ public class GisUtil implements AutoCloseable {
                 }
             }
         }
-        Geometry unionGaussGeometry = config.GEOMETRY_FACTORY
-                .createGeometryCollection(unionGaussGeometries.toArray(new Geometry[0]))
-                .union()
-                .buffer(config.BUFFER_SMOOTHING_DISTANCE).buffer(-config.BUFFER_SMOOTHING_DISTANCE);
+        Geometry unionGaussGeometry = config.GEOMETRY_FACTORY.createGeometryCollection(unionGaussGeometries.toArray(new Geometry[0])).union().buffer(config.BUFFER_SMOOTHING_DISTANCE).buffer(-config.BUFFER_SMOOTHING_DISTANCE);
         Geometry wgs84UnionGeometry = toWgs84Geometry(unionGaussGeometry);
         log.debug("合并后的几何图形：{}", wgs84UnionGeometry.toText());
     }
