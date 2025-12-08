@@ -246,7 +246,7 @@ public class TestUtilGis {
         String yyyyMMdd = "20251027";
         String startTime = yyyyMMdd + "000000";
         String endTime = yyyyMMdd + "235959";
-        double jobWidth = 2.5;
+        double jobWidth = 3.5;
         生成数据文件(did, startTime, endTime);
         测试拆分数据(did, startTime, endTime, jobWidth);
         生成HTML(did, startTime, endTime);
