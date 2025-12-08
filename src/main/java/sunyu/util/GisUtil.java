@@ -413,6 +413,41 @@ public class GisUtil implements AutoCloseable {
     }
 
 
+    private List<List<GaussPoint>> splitClusterBySeconds(List<GaussPoint> cluster, double maxSeconds) {
+        List<List<GaussPoint>> segments = new ArrayList<>();
+        if (cluster == null || cluster.isEmpty()) {
+            return segments;
+        }
+
+        List<GaussPoint> currentSegment = new ArrayList<>();
+        currentSegment.add(cluster.get(0));
+
+        for (int i = 1; i < cluster.size(); i++) {
+            GaussPoint prevPoint = cluster.get(i - 1);
+            GaussPoint currPoint = cluster.get(i);
+
+            // 计算两点之间的时间间隔（秒）
+            Duration duration = Duration.between(prevPoint.getGpsTime(), currPoint.getGpsTime());
+            long seconds = duration.getSeconds();
+
+            if (seconds > maxSeconds) {
+                // 时间间隔超过阈值，结束当前段，开始新段
+                segments.add(new ArrayList<>(currentSegment));
+                currentSegment = new ArrayList<>();
+            }
+            currentSegment.add(currPoint);
+        }
+
+        // 处理最后一段
+        if (currentSegment.size() >= config.CLUSTER_MIN_SIZE) {
+            segments.add(currentSegment);
+        }
+
+        log.debug("时间切分完成：原始 {} 个点 -> {} 个子段，最大时间阈值 {} 秒", cluster.size(), segments.size(), maxSeconds);
+        return segments;
+    }
+
+
     /**
      * 使用Haversine公式计算WGS84坐标系下两点之间的球面距离。
      * <p>
@@ -1075,7 +1110,7 @@ public class GisUtil implements AutoCloseable {
         }
 
         log.debug("准备创建StaticArrayDatabase");
-        double eps = Math.max(avgDistance, 3);
+        double eps = Math.max(avgDistance, 4);
         int minPts = 6;
         log.debug("聚类参数 eps={} 米, minPts={}", String.format("%.2f", eps), minPts);
 
@@ -1123,22 +1158,32 @@ public class GisUtil implements AutoCloseable {
                 log.debug("聚类后，按时间升序排序");
                 cluster.sort(Comparator.comparing(GaussPoint::getGpsTime));
                 log.debug("创建线缓冲，缓冲半径：{} 米", halfWorkingWidth);
-                Coordinate[] coordinates = cluster.stream().map(point -> new Coordinate(point.getGaussX(), point.getGaussY())).toArray(Coordinate[]::new);
-                if (coordinates.length > 500) {
-                    LineString lineString = config.GEOMETRY_FACTORY.createLineString(coordinates);
-                    Geometry simplifiedGeometry = DouglasPeuckerSimplifier.simplify(lineString, 0.1);//0.1米容差
-                    Coordinate[] simplifiedCoords = simplifiedGeometry.getCoordinates();
-                    if (simplifiedCoords.length > 500) {
-                        Geometry gaussGeometry = processLargeSegmentInChunks(cluster, halfWorkingWidth);
-                        unionGaussGeometries.add(gaussGeometry);
-                    } else {
-                        Geometry gaussGeometry = simplifiedGeometry.buffer(halfWorkingWidth);
-                        unionGaussGeometries.add(gaussGeometry);
+
+                List<List<GaussPoint>> segments = splitClusterBySeconds(cluster, minEffectiveInterval * 3);
+                log.debug("时间切分后得到 {} 个子段", segments.size());
+
+                for (List<GaussPoint> segment : segments) {
+                    log.debug("处理子段：{} 个点", segment.size());
+                    if (segment.size() > config.CLUSTER_MIN_SIZE) {
+                        log.debug("创建线缓冲，缓冲半径：{} 米", halfWorkingWidth);
+                        Coordinate[] coordinates = segment.stream().map(point -> new Coordinate(point.getGaussX(), point.getGaussY())).toArray(Coordinate[]::new);
+                        if (coordinates.length > 500) {
+                            LineString lineString = config.GEOMETRY_FACTORY.createLineString(coordinates);
+                            Geometry simplifiedGeometry = DouglasPeuckerSimplifier.simplify(lineString, 0.1);//0.1米容差
+                            Coordinate[] simplifiedCoords = simplifiedGeometry.getCoordinates();
+                            if (simplifiedCoords.length > 500) {
+                                Geometry gaussGeometry = processLargeSegmentInChunks(segment, halfWorkingWidth);
+                                unionGaussGeometries.add(gaussGeometry);
+                            } else {
+                                Geometry gaussGeometry = simplifiedGeometry.buffer(halfWorkingWidth);
+                                unionGaussGeometries.add(gaussGeometry);
+                            }
+                        } else {
+                            LineString lineString = config.GEOMETRY_FACTORY.createLineString(coordinates);
+                            Geometry gaussGeometry = lineString.buffer(halfWorkingWidth);
+                            unionGaussGeometries.add(gaussGeometry);
+                        }
                     }
-                } else {
-                    LineString lineString = config.GEOMETRY_FACTORY.createLineString(coordinates);
-                    Geometry gaussGeometry = lineString.buffer(halfWorkingWidth);
-                    unionGaussGeometries.add(gaussGeometry);
                 }
             }
         }
