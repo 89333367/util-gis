@@ -128,13 +128,14 @@ public class GisUtil implements AutoCloseable {
         private final double BUFFER_SMOOTHING_DISTANCE = 1;
 
         /**
-         * 聚类最小点数量
+         * 最大拆分返回数量
          * <p>
-         * 用于确定轨迹点聚类的最小点数阈值。
-         * 只有当聚类簇中的点数量超过此阈值时，才会对簇进行后续处理，否则会被视为噪声点或异常值。
+         * 用于限制拆分轨迹点时返回的最大数量。
+         * 当轨迹点数量超过此阈值时，会对轨迹进行拆分，返回多个子轨迹。
+         * 该参数可以有效控制内存占用和处理时间，避免处理过大数据集时内存溢出。
          * </p>
          */
-        private final int CLUSTER_MIN_SIZE = 30;
+        private final int MAX_SPLIT_RETURN_SIZE = 10;
     }
 
     public static class Builder {
@@ -1074,8 +1075,8 @@ public class GisUtil implements AutoCloseable {
         log.debug("准备过滤时间为空的点位信息");
         wgs84Points.removeIf(p -> p.getGpsTime() == null);
         log.debug("过滤时间为空的点位完成，剩余点位数量：{}", wgs84Points.size());
-        if (wgs84Points.size() < config.CLUSTER_MIN_SIZE) {
-            log.error("作业轨迹点列表必须包含至少 {} 个有效点位", config.CLUSTER_MIN_SIZE);
+        if (wgs84Points.size() < 2) {
+            log.error("作业轨迹点列表必须包含至少 2 个有效点位");
             return splitResult;
         }
 
@@ -1111,8 +1112,8 @@ public class GisUtil implements AutoCloseable {
 
         // 转换为高斯投影坐标
         List<GaussPoint> gaussPoints = toGaussPointList(wgs84Points);
-        if (gaussPoints.size() < config.CLUSTER_MIN_SIZE) {
-            log.error("作业轨迹点列表必须包含至少 {} 个有效点位", config.CLUSTER_MIN_SIZE);
+        if (gaussPoints.size() < 2) {
+            log.error("作业轨迹点列表必须包含至少 2 个有效点位");
             return splitResult;
         }
 
@@ -1184,10 +1185,15 @@ public class GisUtil implements AutoCloseable {
 
         log.debug("聚类完成，总共有 {} 个聚类簇", clusters.size());
 
+        double bufferSmoothingDistance = config.BUFFER_SMOOTHING_DISTANCE;
+        if (minEffectiveInterval == 10) {
+            bufferSmoothingDistance = config.BUFFER_SMOOTHING_DISTANCE * 2;
+        }
+
         List<Geometry> unionGaussGeometries = new ArrayList<>();
         for (List<GaussPoint> cluster : clusters) {
             log.debug("聚类簇包含 {} 个点", cluster.size());
-            if (cluster.size() > config.CLUSTER_MIN_SIZE) {
+            if (cluster.size() > 2) {
                 log.debug("聚类后，按时间升序排序");
                 cluster.sort(Comparator.comparing(GaussPoint::getGpsTime));
                 log.debug("创建线缓冲，缓冲半径：{} 米", halfWorkingWidth);
@@ -1196,9 +1202,10 @@ public class GisUtil implements AutoCloseable {
                 List<List<GaussPoint>> segments = splitClusterByDistance(cluster, avgDistance * 5);
                 log.debug("时间切分后得到 {} 个子段", segments.size());
 
+                List<Geometry> segmentGeometries = new ArrayList<>();
                 for (List<GaussPoint> segment : segments) {
                     log.debug("处理子段：{} 个点", segment.size());
-                    if (segment.size() > 8) {
+                    if (segment.size() > 2) {
                         log.debug("创建线缓冲，缓冲半径：{} 米", halfWorkingWidth);
                         Coordinate[] coordinates = segment.stream().map(point -> new Coordinate(point.getGaussX(), point.getGaussY())).toArray(Coordinate[]::new);
                         if (coordinates.length > 500) {
@@ -1207,24 +1214,26 @@ public class GisUtil implements AutoCloseable {
                             Coordinate[] simplifiedCoords = simplifiedGeometry.getCoordinates();
                             if (simplifiedCoords.length > 500) {
                                 Geometry gaussGeometry = processLargeSegmentInChunks(segment, halfWorkingWidth);
-                                unionGaussGeometries.add(gaussGeometry);
+                                segmentGeometries.add(gaussGeometry);
                             } else {
                                 Geometry gaussGeometry = simplifiedGeometry.buffer(halfWorkingWidth);
-                                unionGaussGeometries.add(gaussGeometry);
+                                segmentGeometries.add(gaussGeometry);
                             }
                         } else {
                             LineString lineString = config.GEOMETRY_FACTORY.createLineString(coordinates);
                             Geometry gaussGeometry = lineString.buffer(halfWorkingWidth);
-                            unionGaussGeometries.add(gaussGeometry);
+                            segmentGeometries.add(gaussGeometry);
                         }
                     }
                 }
+                Geometry segmentGeometriesUnion = config.GEOMETRY_FACTORY.createGeometryCollection(segmentGeometries.toArray(new Geometry[0])).union().buffer(bufferSmoothingDistance).buffer(-bufferSmoothingDistance);
+                unionGaussGeometries.add(segmentGeometriesUnion);
             }
         }
-        double bufferSmoothingDistance = config.BUFFER_SMOOTHING_DISTANCE;
-        if (minEffectiveInterval == 10) {
-            bufferSmoothingDistance = config.BUFFER_SMOOTHING_DISTANCE * 2;
-        }
+
+        unionGaussGeometries.sort(Comparator.comparing(Geometry::getArea).reversed());
+        unionGaussGeometries = unionGaussGeometries.subList(0, Math.min(config.MAX_SPLIT_RETURN_SIZE, unionGaussGeometries.size()));
+
         log.debug("合并所有几何图形，膨胀再收缩 {} 米", bufferSmoothingDistance);
         Geometry unionGaussGeometry = config.GEOMETRY_FACTORY.createGeometryCollection(unionGaussGeometries.toArray(new Geometry[0])).union().buffer(bufferSmoothingDistance).buffer(-bufferSmoothingDistance);
         Geometry wgs84UnionGeometry = toWgs84Geometry(unionGaussGeometry);
