@@ -17,10 +17,7 @@ import org.junit.jupiter.api.Test;
 import org.locationtech.jts.geom.Geometry;
 import sunyu.util.GisUtil;
 import sunyu.util.TDengineUtil;
-import sunyu.util.pojo.GaussPoint;
-import sunyu.util.pojo.Part;
-import sunyu.util.pojo.SplitResult;
-import sunyu.util.pojo.Wgs84Point;
+import sunyu.util.pojo.*;
 
 import javax.sql.DataSource;
 import java.util.ArrayList;
@@ -312,6 +309,37 @@ public class TestUtilGis {
         生成数据文件(did, startTime, endTime);
         测试拆分数据(did, startTime, endTime, jobWidth);
         生成HTML(did, startTime, endTime);
+    }
+
+    @Test
+    void 测试1秒间隔005() {
+        String did = "EC73BD2506050018";
+        String startTime = "20251104090717";
+        String endTime = "20251104092257";
+        double jobWidth = 2.8;
+        生成数据文件(did, startTime, endTime);
+        测试拆分数据(did, startTime, endTime, jobWidth);
+        生成HTML(did, startTime, endTime);
+    }
+
+    @Test
+    void 测试1秒间隔006() {
+        String did = "EC73BD2509061335";
+        String startTime = "20251104100606";
+        String endTime = "20251104101419";
+        double jobWidth = 2.8;
+        生成数据文件(did, startTime, endTime);
+        测试拆分数据(did, startTime, endTime, jobWidth);
+        生成HTML(did, startTime, endTime);
+    }
+
+    @Test
+    void 计算重复亩数0018_1335() throws Exception {
+        String wkt1 = FileUtil.readUtf8Lines(path + "/EC73BD2506050018_20251104090717_20251104092257_parts.txt").get(1).replace("WKT: ", "");
+        String wkt2 = FileUtil.readUtf8Lines(path + "/EC73BD2509061335_20251104100606_20251104101419_parts.txt").get(1).replace("WKT: ", "");
+        WktIntersectionResult r = gisUtil.intersection(wkt1, wkt2);
+        log.info("相交轮廓WKT: {}", r.getWkt());
+        log.info("相交面积：{} 亩", r.getMu());
     }
 
     @Test
