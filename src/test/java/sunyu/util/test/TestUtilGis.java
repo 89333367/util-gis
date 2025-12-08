@@ -142,6 +142,7 @@ public class TestUtilGis {
         for (Part part : splitResult.getParts()) {
             List<String> partInfo = new ArrayList<>();
             partInfo.add(StrUtil.format("WKT: {}", part.getWkt()));
+            partInfo.add(StrUtil.format("轨迹点字符串: {}", part.getTrackStr()));
             partInfo.add(StrUtil.format("作业面积（亩）: {}", part.getMu()));
             partInfo.add(StrUtil.format("作业时间范围: {} - {}", part.getStartTime(), part.getEndTime()));
             partsInfo.add(StrUtil.join("\n", partInfo) + "\n");

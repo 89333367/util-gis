@@ -1,5 +1,9 @@
 package sunyu.util.pojo;
 
+import cn.hutool.core.collection.CollUtil;
+import cn.hutool.core.date.LocalDateTimeUtil;
+import cn.hutool.core.util.StrUtil;
+
 import java.time.LocalDateTime;
 import java.util.Comparator;
 import java.util.List;
@@ -74,7 +78,14 @@ public class Part {
     }
 
     public String getTrackStr() {
-        return trackStr;
+        if (CollUtil.isNotEmpty(trackPoints)) {
+            StringBuilder sb = new StringBuilder();
+            for (Wgs84Point trackPoints : trackPoints) {
+                sb.append(StrUtil.format("{},{},{}#", trackPoints.getLongitude(), trackPoints.getLatitude(), LocalDateTimeUtil.format(trackPoints.getGpsTime(), "yyyyMMddHHmmss")));
+            }
+            return sb.toString();
+        }
+        return "";
     }
 
     public void setTrackStr(String trackStr) {
