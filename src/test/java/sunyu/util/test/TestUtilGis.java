@@ -293,6 +293,17 @@ public class TestUtilGis {
     }
 
     @Test
+    void 测试1秒间隔003() {
+        String did = "EC73BD2509060398";
+        String startTime = "20251103130852";
+        String endTime = "20251103151309";
+        double jobWidth = 1.0;
+        生成数据文件(did, startTime, endTime);
+        测试拆分数据(did, startTime, endTime, jobWidth);
+        生成HTML(did, startTime, endTime);
+    }
+
+    @Test
     void 测试10秒间隔001() {
         String did = "EM9101B8F5AZT0041";
         String yyyyMMdd = "20251027";

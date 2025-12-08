@@ -126,6 +126,15 @@ public class GisUtil implements AutoCloseable {
          * </p>
          */
         private final double BUFFER_SMOOTHING_DISTANCE = 1;
+
+        /**
+         * 聚类最小点数量
+         * <p>
+         * 用于确定轨迹点聚类的最小点数阈值。
+         * 只有当聚类簇中的点数量超过此阈值时，才会对簇进行后续处理，否则会被视为噪声点或异常值。
+         * </p>
+         */
+        private final int CLUSTER_MIN_SIZE = 30;
     }
 
     public static class Builder {
@@ -1000,8 +1009,8 @@ public class GisUtil implements AutoCloseable {
         log.debug("准备过滤时间为空的点位信息");
         wgs84Points.removeIf(p -> p.getGpsTime() == null);
         log.debug("过滤时间为空的点位完成，剩余点位数量：{}", wgs84Points.size());
-        if (wgs84Points.size() < 30) {
-            log.error("作业轨迹点列表必须包含至少 30 个有效点位");
+        if (wgs84Points.size() < config.CLUSTER_MIN_SIZE) {
+            log.error("作业轨迹点列表必须包含至少 {} 个有效点位", config.CLUSTER_MIN_SIZE);
             return splitResult;
         }
 
@@ -1037,8 +1046,8 @@ public class GisUtil implements AutoCloseable {
 
         // 转换为高斯投影坐标
         List<GaussPoint> gaussPoints = toGaussPointList(wgs84Points);
-        if (gaussPoints.size() < 30) {
-            log.error("作业轨迹点列表必须包含至少 30 个有效点位");
+        if (gaussPoints.size() < config.CLUSTER_MIN_SIZE) {
+            log.error("作业轨迹点列表必须包含至少 {} 个有效点位", config.CLUSTER_MIN_SIZE);
             return splitResult;
         }
 
@@ -1110,7 +1119,7 @@ public class GisUtil implements AutoCloseable {
         List<Geometry> unionGaussGeometries = new ArrayList<>();
         for (List<GaussPoint> cluster : clusters) {
             log.debug("聚类簇包含 {} 个点", cluster.size());
-            if (cluster.size() > 30) {
+            if (cluster.size() > config.CLUSTER_MIN_SIZE) {
                 log.debug("聚类后，按时间升序排序");
                 cluster.sort(Comparator.comparing(GaussPoint::getGpsTime));
                 log.debug("创建线缓冲，缓冲半径：{} 米", halfWorkingWidth);
@@ -1138,7 +1147,7 @@ public class GisUtil implements AutoCloseable {
         //log.debug("合并后的几何图形：{}", wgs84UnionGeometry.toText());
         splitResult.setWkt(wgs84UnionGeometry.toText());
         splitResult.setMu(calcMu(wgs84UnionGeometry));
-        log.debug("整体轮廓面积（亩）：{}", splitResult.getMu());
+        log.debug("整体轮廓面积（亩）：{} 共 {} 个子几何图形", splitResult.getMu(), unionGaussGeometry.getNumGeometries());
 
         for (int i = 0; i < unionGaussGeometry.getNumGeometries(); i++) {
             Geometry partGaussGeometry = unionGaussGeometry.getGeometryN(i);
