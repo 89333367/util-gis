@@ -15,6 +15,7 @@ import com.zaxxer.hikari.HikariDataSource;
 import org.junit.jupiter.api.Test;
 import sunyu.util.GisUtil;
 import sunyu.util.TDengineUtil;
+import sunyu.util.pojo.GaussPoint;
 import sunyu.util.pojo.Wgs84Point;
 
 import javax.sql.DataSource;
@@ -130,6 +131,12 @@ public class TestUtilGis {
             l.add(wgs84Point);
         }
         gisUtil.splitRoad(l, jobWidth);
+        List<GaussPoint> gaussPointList = gisUtil.toGaussPointList(l);
+        List<String> gaussXyList = new ArrayList<>();
+        for (GaussPoint gaussPoint : gaussPointList) {
+            gaussXyList.add(StrUtil.format("{},{}", gaussPoint.getGaussX(), gaussPoint.getGaussY()));
+        }
+        FileUtil.writeUtf8Lines(gaussXyList, path + StrUtil.format("/{}_{}_{}_gauss.txt", did, startTime, endTime));
     }
 
     @Test

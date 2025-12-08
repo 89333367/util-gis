@@ -1,8 +1,6 @@
 package sunyu.util;
 
 import cn.hutool.core.collection.CollUtil;
-import cn.hutool.core.io.FileUtil;
-import cn.hutool.core.util.StrUtil;
 import cn.hutool.log.Log;
 import cn.hutool.log.LogFactory;
 import elki.clustering.dbscan.DBSCAN;
@@ -125,11 +123,6 @@ public class GisUtil implements AutoCloseable {
          * </p>
          */
         private final double BUFFER_SMOOTHING_DISTANCE = 1;
-
-        /**
-         * 输出高斯坐标数据到文件路径
-         */
-        private final String WRITE_GAUSS_DATAS_PATH = "D:/GitLab/util-gis/testFiles/gauss_xy.txt";
     }
 
     public static class Builder {
@@ -447,6 +440,56 @@ public class GisUtil implements AutoCloseable {
             return new ArrayList<>();
         }
 
+        log.debug("准备过滤异常点位信息");
+        wgs84Points = wgs84Points.stream().filter(p -> {
+            // 时间不能为空
+            if (p.getGpsTime() == null) {
+                log.warn("轨迹点时间为空，抛弃");
+                return false;
+            }
+            // 经纬度不能为0（无效坐标）
+            if (p.getLongitude() == 0.0 && p.getLatitude() == 0.0) {
+                log.warn("定位时间: {} 轨迹点经纬度为 0 ，抛弃", p.getGpsTime());
+                return false;
+            }
+            // 经纬度必须在合理范围内
+            if (p.getLongitude() < -180.0 || p.getLongitude() > 180.0 || p.getLatitude() < -90.0 || p.getLatitude() > 90.0) {
+                log.warn("定位时间: {} 轨迹点经纬度超出范围：[{},{}] 抛弃", p.getGpsTime(), p.getLongitude(), p.getLatitude());
+                return false;
+            }
+            // GPS点位必须是已定位的点位
+            if (p.getGpsStatus() != 0 && p.getGpsStatus() != 1) {
+                log.warn("定位时间: {} 轨迹点GPS状态为 {} ，抛弃", p.getGpsTime(), p.getGpsStatus());
+                return false;
+            }
+            // 必须是作业状态
+            if (p.getJobStatus() != 0 && p.getJobStatus() != 1) {
+                log.warn("定位时间: {} 轨迹点作业状态为 {} ，抛弃", p.getGpsTime(), p.getJobStatus());
+                return false;
+            }
+            return true;
+        }).collect(Collectors.toList());
+        log.debug("过滤异常点位信息完成，剩余点位数量：{}", wgs84Points.size());
+
+        log.debug("准备去重前后两个经纬度点完全一致的轨迹点");
+        List<Wgs84Point> filteredPoints = new ArrayList<>();
+        Wgs84Point pre = null;
+        for (Wgs84Point wgs84Point : wgs84Points) {
+            if (pre == null) {
+                pre = wgs84Point;
+                filteredPoints.add(pre);
+                continue;
+            }
+            if (wgs84Point.getLongitude() == pre.getLongitude() && wgs84Point.getLatitude() == pre.getLatitude()) {
+                log.warn("定位时间: {} 轨迹点经纬度与前一个点 {} 重复，抛弃", wgs84Point.getGpsTime(), pre.getGpsTime());
+                continue;
+            }
+            pre = wgs84Point;
+            filteredPoints.add(pre);
+        }
+        wgs84Points = filteredPoints;
+        log.debug("去重前后两个经纬度点完全一致的轨迹点完成，剩余点位数量：{}", wgs84Points.size());
+
         List<GaussPoint> gaussPoints = new ArrayList<>(wgs84Points.size());
         try {
             // 优化1：按投影带分组，批量处理同一投影带的点
@@ -516,8 +559,8 @@ public class GisUtil implements AutoCloseable {
         return gaussPoints;
     }
 
-    public void splitRoad(List<Wgs84Point> wgs84Wgs84Points, double workingWidth) {
-        if (CollUtil.isEmpty(wgs84Wgs84Points)) {
+    public void splitRoad(List<Wgs84Point> wgs84Points, double workingWidth) {
+        if (CollUtil.isEmpty(wgs84Points)) {
             log.error("作业轨迹点列表不能为空");
             return;
         }
@@ -525,35 +568,26 @@ public class GisUtil implements AutoCloseable {
             log.error("作业幅宽必须大于等于 1 米");
             return;
         }
-        log.debug("参数 wgs84TrackPoints 大小：{} workingWidth：{}", wgs84Wgs84Points.size(), workingWidth);
+        log.debug("参数 wgs84TrackPoints 大小：{} workingWidth：{}", wgs84Points.size(), workingWidth);
 
         log.debug("准备过滤时间为空的点位信息");
-        wgs84Wgs84Points = wgs84Wgs84Points.stream().filter(p -> {
-            // 时间不能为空
-            if (p.getGpsTime() == null) {
-                log.warn("轨迹点时间为空，抛弃");
-                return false;
-            }
-            return true;
-        }).collect(Collectors.toList());
-        log.debug("过滤异常点位信息完成，剩余点位数量：{}", wgs84Wgs84Points.size());
-        if (wgs84Wgs84Points.size() < 30) {
+        wgs84Points.removeIf(p -> p.getGpsTime() == null);
+        log.debug("过滤时间为空的点位完成，剩余点位数量：{}", wgs84Points.size());
+        if (wgs84Points.size() < 30) {
             log.error("作业轨迹点列表必须包含至少 30 个有效点位");
             return;
         }
 
         log.debug("准备对轨迹点按时间升序排序");
-        wgs84Wgs84Points.sort(Comparator.comparing(Wgs84Point::getGpsTime));
+        wgs84Points.sort(Comparator.comparing(Wgs84Point::getGpsTime));
         log.debug("轨迹点按时间升序排序完成");
-
-        double halfWorkingWidth = workingWidth / 2.0;
 
         log.debug("准备计算上报时间间隔分布");
         int minEffectiveInterval = 1; // 默认值
         Map<Integer, Integer> intervalDistribution = new HashMap<>();
-        for (int i = 1; i < wgs84Wgs84Points.size(); i++) {
-            Wgs84Point prevPoint = wgs84Wgs84Points.get(i - 1);
-            Wgs84Point currPoint = wgs84Wgs84Points.get(i);
+        for (int i = 1; i < wgs84Points.size(); i++) {
+            Wgs84Point prevPoint = wgs84Points.get(i - 1);
+            Wgs84Point currPoint = wgs84Points.get(i);
 
             // 计算时间间隔（秒）- LocalDateTime使用Duration
             Duration duration = Duration.between(prevPoint.getGpsTime(), currPoint.getGpsTime());
@@ -574,68 +608,14 @@ public class GisUtil implements AutoCloseable {
         }
         log.debug("最小有效上报时间间隔 {} 秒", minEffectiveInterval);
 
-        log.debug("准备过滤异常点位信息");
-        wgs84Wgs84Points = wgs84Wgs84Points.stream().filter(p -> {
-            // 经纬度不能为0（无效坐标）
-            if (p.getLongitude() == 0.0 && p.getLatitude() == 0.0) {
-                log.warn("定位时间: {} 轨迹点经纬度为 0 ，抛弃", p.getGpsTime());
-                return false;
-            }
-            // 经纬度必须在合理范围内
-            if (p.getLongitude() < -180.0 || p.getLongitude() > 180.0 || p.getLatitude() < -90.0 || p.getLatitude() > 90.0) {
-                log.warn("定位时间: {} 轨迹点经纬度超出范围：[{},{}] 抛弃", p.getGpsTime(), p.getLongitude(), p.getLatitude());
-                return false;
-            }
-            // GPS点位必须是已定位的点位
-            if (p.getGpsStatus() != 0 && p.getGpsStatus() != 1) {
-                log.warn("定位时间: {} 轨迹点GPS状态为 {} ，抛弃", p.getGpsTime(), p.getGpsStatus());
-                return false;
-            }
-            // 必须是作业状态
-            if (p.getJobStatus() != 0 && p.getJobStatus() != 1) {
-                log.warn("定位时间: {} 轨迹点作业状态为 {} ，抛弃", p.getGpsTime(), p.getJobStatus());
-                return false;
-            }
-            return true;
-        }).collect(Collectors.toList());
-        log.debug("过滤异常点位信息完成，剩余点位数量：{}", wgs84Wgs84Points.size());
-        if (wgs84Wgs84Points.size() < 30) {
-            log.error("作业轨迹点列表必须包含至少 30 个有效点位");
-            return;
-        }
-
-
-        log.debug("准备去重前后两个经纬度点完全一致的轨迹点");
-        List<Wgs84Point> filteredPoints = new ArrayList<>();
-        Wgs84Point pre = null;
-        for (Wgs84Point wgs84Point : wgs84Wgs84Points) {
-            if (pre == null) {
-                pre = wgs84Point;
-                filteredPoints.add(pre);
-                continue;
-            }
-            if (wgs84Point.getLongitude() == pre.getLongitude() && wgs84Point.getLatitude() == pre.getLatitude()) {
-                log.warn("定位时间: {} 轨迹点经纬度与前一个点 {} 重复，抛弃", wgs84Point.getGpsTime(), pre.getGpsTime());
-                continue;
-            }
-            pre = wgs84Point;
-            filteredPoints.add(pre);
-        }
-        wgs84Wgs84Points = filteredPoints;
-        log.debug("去重前后两个经纬度点完全一致的轨迹点完成，剩余点位数量：{}", wgs84Wgs84Points.size());
-        if (wgs84Wgs84Points.size() < 30) {
-            log.error("作业轨迹点列表必须包含至少 30 个有效点位");
-            return;
-        }
-
         // 转换为高斯投影坐标
-        List<GaussPoint> gaussPoints = toGaussPointList(wgs84Wgs84Points);
-
-        List<String> gaussXyList = new ArrayList<>();
-        for (GaussPoint gaussPoint : gaussPoints) {
-            gaussXyList.add(StrUtil.format("{},{}", gaussPoint.getGaussX(), gaussPoint.getGaussY()));
+        List<GaussPoint> gaussPoints = toGaussPointList(wgs84Points);
+        if (gaussPoints.size() < 30) {
+            log.error("作业轨迹点列表必须包含至少 30 个有效点位");
+            return;
         }
-        FileUtil.writeUtf8Lines(gaussXyList, config.WRITE_GAUSS_DATAS_PATH);
+
+        double halfWorkingWidth = workingWidth / 2.0;
 
         List<Double> distancesAtMinInterval = new ArrayList<>();
         for (int i = 1; i < gaussPoints.size(); i++) {
