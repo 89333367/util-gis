@@ -21,6 +21,8 @@ import org.geotools.geometry.jts.JTSFactoryFinder;
 import org.geotools.referencing.CRS;
 import org.geotools.referencing.crs.DefaultGeographicCRS;
 import org.locationtech.jts.geom.*;
+import org.locationtech.jts.geom.prep.PreparedGeometry;
+import org.locationtech.jts.geom.prep.PreparedGeometryFactory;
 import org.locationtech.jts.index.strtree.STRtree;
 import org.locationtech.jts.simplify.DouglasPeuckerSimplifier;
 import org.opengis.referencing.crs.CoordinateReferenceSystem;
@@ -914,6 +916,26 @@ public class GisUtil implements AutoCloseable {
             Part part = new Part();
             part.setWkt(wgs84PartGeometry.toText());
             part.setMu(calcMu(wgs84PartGeometry));
+            // 获取几何图形的边界框，用于快速空间过滤
+            Envelope geometryEnvelope = wgs84PartGeometry.getEnvelopeInternal();
+            // 使用PreparedGeometry预优化，大幅提升空间判断性能（10-100倍）
+            PreparedGeometry preparedWgs84Geometry = PreparedGeometryFactory.prepare(wgs84PartGeometry);
+            List<Wgs84Point> wgs84PointsSegment = wgs84Points.stream().filter(point -> {
+                try {
+                    // 第一步：边界框快速过滤 - 使用简单的数值比较，性能极高
+                    if (!geometryEnvelope.contains(point.getLongitude(), point.getLatitude())) {
+                        return false;
+                    }
+                    // 第二步：使用PreparedGeometry进行精确空间判断
+                    return preparedWgs84Geometry.contains(config.GEOMETRY_FACTORY.createPoint(new Coordinate(point.getLongitude(), point.getLatitude())));
+                } catch (Exception e) {
+                    log.trace("点位空间判断失败：经度{} 纬度{} 错误：{}", point.getLongitude(), point.getLatitude(), e.getMessage());
+                    return false;
+                }
+            }).collect(Collectors.toList());
+            part.setTrackPoints(wgs84PointsSegment);
+            part.setStartTime(wgs84PointsSegment.get(0).getGpsTime());
+            part.setEndTime(wgs84PointsSegment.get(wgs84PointsSegment.size() - 1).getGpsTime());
             splitResult.getParts().add(part);
         }
 
