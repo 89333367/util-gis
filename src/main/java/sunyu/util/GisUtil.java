@@ -670,48 +670,23 @@ public class GisUtil implements AutoCloseable {
             GaussPoint currPoint = gaussPoints.get(i);
             // 计算两点之间的时间间隔（秒）
             Duration duration = Duration.between(prevPoint.getGpsTime(), currPoint.getGpsTime());
-            // 计算两点之间的欧几里得距离
+            // 计算两点之间的欧几里得距离（米）
             double distance = Math.sqrt(Math.pow(currPoint.getGaussX() - prevPoint.getGaussX(), 2) + Math.pow(currPoint.getGaussY() - prevPoint.getGaussY(), 2));
-            // 计算两点之间的方向角度（方位角），从正北方向顺时针测量
-            double dx = currPoint.getGaussX() - prevPoint.getGaussX();
-            double dy = currPoint.getGaussY() - prevPoint.getGaussY();
-            double angle = Math.toDegrees(Math.atan2(dx, dy));
-            // 确保角度在0-360度范围内
-            if (angle < 0) {
-                angle += 360;
-            }
-            // 获取方向描述
-            String directionDescription = getDirectionDescription(angle);
             if (duration.getSeconds() == minEffectiveInterval) {
                 distancesAtMinInterval.add(distance);
-                log.debug("{}->{} 间隔 {} 秒 方向角度：{}°，向 {} 行驶，距离: {}米", prevPoint.getGpsTime(), currPoint.getGpsTime(), duration.getSeconds(), String.format("%.2f", angle), directionDescription, String.format("%.2f", distance));
             }
         }
         double avgDistance = config.MAX_WORK_DISTANCE;
         if (!distancesAtMinInterval.isEmpty()) {
-            // 最大距离
-            double maxDistance = Collections.max(distancesAtMinInterval);
-            // 最小距离
-            double minDistance = Collections.min(distancesAtMinInterval);
             // 平均距离
             avgDistance = distancesAtMinInterval.stream().mapToDouble(Double::doubleValue).average().orElse(0.0);
-            // 中位数距离
-            List<Double> sortedDistances = new ArrayList<>(distancesAtMinInterval);
-            Collections.sort(sortedDistances);
-            double medianDistance;
-            int size = sortedDistances.size();
-            if (size % 2 == 0) {
-                medianDistance = (sortedDistances.get(size / 2 - 1) + sortedDistances.get(size / 2)) / 2.0;
-            } else {
-                medianDistance = sortedDistances.get(size / 2);
-            }
-            log.debug("{} 秒时间间隔统计: 最大距离={}米, 最小距离={}米, 平均距离={}米, 中位数距离={}米", minEffectiveInterval, String.format("%.2f", maxDistance), String.format("%.2f", minDistance), String.format("%.2f", avgDistance), String.format("%.2f", medianDistance));
+            log.debug("{} 秒时间间隔统计: 平均距离={}米", minEffectiveInterval, String.format("%.2f", avgDistance));
         } else {
             log.debug("没有找到 {} 秒时间间隔的数据", minEffectiveInterval);
         }
 
         log.debug("准备创建StaticArrayDatabase");
-        double eps = avgDistance;
+        double eps = Math.max(avgDistance, 3);
         int minPts = 6;
         log.debug("聚类参数 eps={} 米, minPts={}", String.format("%.2f", eps), minPts);
 
