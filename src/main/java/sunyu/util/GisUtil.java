@@ -111,18 +111,6 @@ public class GisUtil implements AutoCloseable {
         private final double EARTH_RADIUS = 6378137.0;
 
         /**
-         * 最小作业幅宽阈值（米），低于此值认为参数无效，用于农业轨迹处理
-         * <p>设置此阈值是为了过滤掉不合理的作业幅宽参数，确保算法稳定性</p>
-         */
-        private final double MIN_WORKING_WIDTH = 1.0;
-
-        /**
-         * 最大返回多边形数量
-         * <p>限制返回结果的数量，避免在处理复杂轨迹时产生过多碎片化的几何图形</p>
-         */
-        private final int MAX_RETURN_GEOMETRY = 10;
-
-        /**
          * 两点间最大作业距离(米)
          * <p>对应18km/h的作业速度（5米/秒），用于判断轨迹点之间的合理性</p>
          */
@@ -137,6 +125,11 @@ public class GisUtil implements AutoCloseable {
          * </p>
          */
         private final double BUFFER_SMOOTHING_DISTANCE = 1;
+
+        /**
+         * 输出高斯坐标数据到文件路径
+         */
+        private final String WRITE_GAUSS_DATAS_PATH = "D:/GitLab/util-gis/testFiles/gauss_xy.txt";
     }
 
     public static class Builder {
@@ -360,35 +353,6 @@ public class GisUtil implements AutoCloseable {
         return mergedGeometry;
     }
 
-    /**
-     * 根据角度获取方向的中文描述
-     *
-     * @param angle 角度（0-360度）
-     *
-     * @return 中文方向描述
-     */
-    private String getDirectionDescription(double angle) {
-        if (angle >= 337.5 || angle < 22.5) {
-            return "北";
-        } else if (angle >= 22.5 && angle < 67.5) {
-            return "东北";
-        } else if (angle >= 67.5 && angle < 112.5) {
-            return "东";
-        } else if (angle >= 112.5 && angle < 157.5) {
-            return "东南";
-        } else if (angle >= 157.5 && angle < 202.5) {
-            return "南";
-        } else if (angle >= 202.5 && angle < 247.5) {
-            return "西南";
-        } else if (angle >= 247.5 && angle < 292.5) {
-            return "西";
-        } else if (angle >= 292.5) {
-            return "西北";
-        } else {
-            return "未知";
-        }
-    }
-
 
     public Geometry toWgs84Geometry(Geometry gaussGeometry) {
         try {
@@ -558,10 +522,29 @@ public class GisUtil implements AutoCloseable {
             return;
         }
         if (workingWidth < 1) {
-            log.error("作业幅宽必须大于 0 米");
+            log.error("作业幅宽必须大于等于 1 米");
             return;
         }
         log.debug("参数 wgs84TrackPoints 大小：{} workingWidth：{}", wgs84Wgs84Points.size(), workingWidth);
+
+        log.debug("准备过滤时间为空的点位信息");
+        wgs84Wgs84Points = wgs84Wgs84Points.stream().filter(p -> {
+            // 时间不能为空
+            if (p.getGpsTime() == null) {
+                log.warn("轨迹点时间为空，抛弃");
+                return false;
+            }
+            return true;
+        }).collect(Collectors.toList());
+        log.debug("过滤异常点位信息完成，剩余点位数量：{}", wgs84Wgs84Points.size());
+        if (wgs84Wgs84Points.size() < 30) {
+            log.error("作业轨迹点列表必须包含至少 30 个有效点位");
+            return;
+        }
+
+        log.debug("准备对轨迹点按时间升序排序");
+        wgs84Wgs84Points.sort(Comparator.comparing(Wgs84Point::getGpsTime));
+        log.debug("轨迹点按时间升序排序完成");
 
         double halfWorkingWidth = workingWidth / 2.0;
 
@@ -593,12 +576,6 @@ public class GisUtil implements AutoCloseable {
 
         log.debug("准备过滤异常点位信息");
         wgs84Wgs84Points = wgs84Wgs84Points.stream().filter(p -> {
-            // 时间不能为空
-            if (p.getGpsTime() == null) {
-                log.warn("轨迹点时间为空，抛弃");
-                return false;
-
-            }
             // 经纬度不能为0（无效坐标）
             if (p.getLongitude() == 0.0 && p.getLatitude() == 0.0) {
                 log.warn("定位时间: {} 轨迹点经纬度为 0 ，抛弃", p.getGpsTime());
@@ -627,9 +604,6 @@ public class GisUtil implements AutoCloseable {
             return;
         }
 
-        log.debug("准备对轨迹点按时间升序排序");
-        wgs84Wgs84Points.sort(Comparator.comparing(Wgs84Point::getGpsTime));
-        log.debug("轨迹点按时间升序排序完成");
 
         log.debug("准备去重前后两个经纬度点完全一致的轨迹点");
         List<Wgs84Point> filteredPoints = new ArrayList<>();
@@ -661,9 +635,8 @@ public class GisUtil implements AutoCloseable {
         for (GaussPoint gaussPoint : gaussPoints) {
             gaussXyList.add(StrUtil.format("{},{}", gaussPoint.getGaussX(), gaussPoint.getGaussY()));
         }
-        FileUtil.writeUtf8Lines(gaussXyList, "D:/GitLab/util-gis/testFiles/gauss_xy.txt");
+        FileUtil.writeUtf8Lines(gaussXyList, config.WRITE_GAUSS_DATAS_PATH);
 
-        log.debug("打印两点之间的时间间隔与距离(米)");
         List<Double> distancesAtMinInterval = new ArrayList<>();
         for (int i = 1; i < gaussPoints.size(); i++) {
             GaussPoint prevPoint = gaussPoints.get(i - 1);
