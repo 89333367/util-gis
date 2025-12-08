@@ -4,6 +4,7 @@ import cn.hutool.core.convert.Convert;
 import cn.hutool.core.date.DateUtil;
 import cn.hutool.core.date.LocalDateTimeUtil;
 import cn.hutool.core.io.FileUtil;
+import cn.hutool.core.io.resource.ResourceUtil;
 import cn.hutool.core.util.StrUtil;
 import cn.hutool.db.Db;
 import cn.hutool.db.DbUtil;
@@ -16,6 +17,8 @@ import org.junit.jupiter.api.Test;
 import sunyu.util.GisUtil;
 import sunyu.util.TDengineUtil;
 import sunyu.util.pojo.GaussPoint;
+import sunyu.util.pojo.Part;
+import sunyu.util.pojo.SplitResult;
 import sunyu.util.pojo.Wgs84Point;
 
 import javax.sql.DataSource;
@@ -31,8 +34,7 @@ public class TestUtilGis {
 
     private DataSource getMySqlDatasource() {
         HikariConfig config = new HikariConfig();
-        config.setJdbcUrl(
-                "jdbc:mysql://172.16.1.59:3306/farm?useUnicode=true&characterEncoding=UTF-8&serverTimezone=UTC&zeroDateTimeBehavior=convertToNull&useInformationSchema=true&useSSL=false&allowMultiQueries=true");
+        config.setJdbcUrl("jdbc:mysql://172.16.1.59:3306/farm?useUnicode=true&characterEncoding=UTF-8&serverTimezone=UTC&zeroDateTimeBehavior=convertToNull&useInformationSchema=true&useSSL=false&allowMultiQueries=true");
         config.setUsername("dev");
         config.setPassword("uml-tech");
         config.setMinimumIdle(0);
@@ -130,13 +132,48 @@ public class TestUtilGis {
             }
             l.add(wgs84Point);
         }
-        gisUtil.splitRoad(l, jobWidth);
-        List<GaussPoint> gaussPointList = gisUtil.toGaussPointList(l);
-        List<String> gaussXyList = new ArrayList<>();
-        for (GaussPoint gaussPoint : gaussPointList) {
-            gaussXyList.add(StrUtil.format("{},{}", gaussPoint.getGaussX(), gaussPoint.getGaussY()));
+
+        String partsFile = StrUtil.format(path + "/{}_{}_{}_parts.txt", did, startTime, endTime);
+        List<String> partsInfo = new ArrayList<>();
+        SplitResult splitResult = gisUtil.splitRoad(l, jobWidth);
+        partsInfo.add(StrUtil.format("作业总幅宽（米）: {}", splitResult.getWorkingWidth()));
+        partsInfo.add(StrUtil.format("WKT: {}", splitResult.getWkt()));
+        partsInfo.add(StrUtil.format("作业总面积（亩）: {}\n", splitResult.getMu()));
+        for (Part part : splitResult.getParts()) {
+            List<String> partInfo = new ArrayList<>();
+            partInfo.add(StrUtil.format("WKT: {}", part.getWkt()));
+            partInfo.add(StrUtil.format("作业面积（亩）: {}", part.getMu()));
+            partInfo.add(StrUtil.format("作业时间范围: {} - {}", part.getStartTime(), part.getEndTime()));
+            partsInfo.add(StrUtil.join("\n", partInfo) + "\n");
         }
-        FileUtil.writeUtf8Lines(gaussXyList, path + StrUtil.format("/{}_{}_{}_gauss.txt", did, startTime, endTime));
+        FileUtil.writeUtf8Lines(partsInfo, partsFile);
+
+        fileName = path + StrUtil.format("/{}_{}_{}_gauss.txt", did, startTime, endTime);
+        if (!FileUtil.exist(fileName)) {
+            List<GaussPoint> gaussPointList = gisUtil.toGaussPointList(l);
+            List<String> gaussXyList = new ArrayList<>();
+            for (GaussPoint gaussPoint : gaussPointList) {
+                gaussXyList.add(StrUtil.format("{},{}", gaussPoint.getGaussX(), gaussPoint.getGaussY()));
+            }
+            FileUtil.writeUtf8Lines(gaussXyList, fileName);
+        }
+    }
+
+    void 生成HTML(String did, String startTime, String endTime) {
+        // 利用 showGeometryTemplate.html 当做模版，将trace输出到轨迹的TAB中
+        String html = ResourceUtil.readUtf8Str("showGeometryTemplate.html");
+
+        String fileName = path + StrUtil.format("/{}_{}_{}_trace.txt", did, startTime, endTime);
+        if (!FileUtil.exist(fileName)) {
+            return;
+        }
+        String trace = FileUtil.readUtf8String(fileName);
+        html = StrUtil.replace(html, "${trace}", trace);
+
+        String outline = FileUtil.readUtf8Lines(path + StrUtil.format("/{}_{}_{}_parts.txt", did, startTime, endTime)).get(1);
+        html = StrUtil.replace(html, "${outline}", outline.replace("WKT: ", ""));
+
+        FileUtil.writeUtf8String(html, path + StrUtil.format("/{}_{}_{}.html", did, startTime, endTime));
     }
 
     @Test
@@ -188,6 +225,7 @@ public class TestUtilGis {
         double jobWidth = 1.75;
         生成数据文件(did, startTime, endTime);
         测试拆分数据(did, startTime, endTime, jobWidth);
+        生成HTML(did, startTime, endTime);
     }
 
     @Test
@@ -198,6 +236,7 @@ public class TestUtilGis {
         double jobWidth = 1.75;
         生成数据文件(did, startTime, endTime);
         测试拆分数据(did, startTime, endTime, jobWidth);
+        生成HTML(did, startTime, endTime);
     }
 
     @Test
@@ -209,5 +248,6 @@ public class TestUtilGis {
         double jobWidth = 2.5;
         生成数据文件(did, startTime, endTime);
         测试拆分数据(did, startTime, endTime, jobWidth);
+        生成HTML(did, startTime, endTime);
     }
 }

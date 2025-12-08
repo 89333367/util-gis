@@ -26,6 +26,8 @@ import org.locationtech.jts.simplify.DouglasPeuckerSimplifier;
 import org.opengis.referencing.crs.CoordinateReferenceSystem;
 import org.opengis.referencing.operation.MathTransform;
 import sunyu.util.pojo.GaussPoint;
+import sunyu.util.pojo.Part;
+import sunyu.util.pojo.SplitResult;
 import sunyu.util.pojo.Wgs84Point;
 
 import java.time.Duration;
@@ -159,6 +161,60 @@ public class GisUtil implements AutoCloseable {
                 return null;
             }
         });
+    }
+
+    private double calculateRingSphericalArea(LineString wgs84Ring) {
+        // 参数有效性检查
+        if (wgs84Ring == null || wgs84Ring.isEmpty()) {
+            return 0.0;
+        }
+
+        // 获取环的所有坐标点
+        org.locationtech.jts.geom.Coordinate[] coords = wgs84Ring.getCoordinates();
+        // 至少需要3个点才能形成多边形
+        if (coords.length < 3) {
+            return 0.0;
+        }
+
+        double area = 0.0;
+
+        // 步骤1：遍历环上的连续点对，应用球面面积公式
+        for (int i = 0; i < coords.length - 1; i++) {
+            // 步骤2：将经纬度转换为弧度
+            double lon1 = Math.toRadians(coords[i].x);
+            double lat1 = Math.toRadians(coords[i].y);
+            double lon2 = Math.toRadians(coords[i + 1].x);
+            double lat2 = Math.toRadians(coords[i + 1].y);
+
+            // 步骤3：应用球面面积公式的累加项
+            // 计算：(λi+1 - λi) × sin((φi+1 + φi)/2)
+            area += (lon2 - lon1) * Math.sin((lat1 + lat2) / 2.0);
+        }
+
+        // 步骤4：计算最终面积 = |面积累加值| × 地球半径²
+        area = Math.abs(area) * config.EARTH_RADIUS * config.EARTH_RADIUS;
+        return area;
+    }
+
+    private double calculatePolygonSphericalArea(Polygon wgs84Polygon) {
+        // 步骤1：计算多边形外环的面积
+        double exteriorArea = calculateRingSphericalArea(wgs84Polygon.getExteriorRing());
+        log.trace("外环面积: {}平方米", exteriorArea);
+
+        // 步骤2：计算所有内环（孔洞）的面积总和
+        double holesArea = 0.0;
+        for (int i = 0; i < wgs84Polygon.getNumInteriorRing(); i++) {
+            // 计算单个内环面积
+            double holeArea = calculateRingSphericalArea(wgs84Polygon.getInteriorRingN(i));
+            // 累加所有孔洞面积
+            holesArea += holeArea;
+            log.trace("内环{}面积: {}平方米", i, holeArea);
+        }
+
+        // 步骤3：总面积 = 外环面积 - 所有孔洞面积
+        double totalArea = exteriorArea - holesArea;
+        log.trace("多边形总面积: {}平方米", totalArea);
+        return totalArea;
     }
 
     private Geometry processChunk(List<GaussPoint> points, int startIndex, int chunkSize, int totalPoints, double bufferWidth) {
@@ -559,14 +615,57 @@ public class GisUtil implements AutoCloseable {
         return gaussPoints;
     }
 
-    public void splitRoad(List<Wgs84Point> wgs84Points, double workingWidth) {
+    public double calculateSphericalArea(Geometry wgs84Geometry) {
+        double totalArea = 0.0;
+
+        // 步骤1：根据几何图形类型选择计算策略
+        if (wgs84Geometry instanceof Polygon) {
+            // 单多边形处理
+            totalArea = calculatePolygonSphericalArea((Polygon) wgs84Geometry);
+            log.trace("单多边形面积: {}平方米", totalArea);
+        } else if (wgs84Geometry instanceof MultiPolygon) {
+            // 多多边形处理：累加所有子多边形面积
+            MultiPolygon multiPolygon = (MultiPolygon) wgs84Geometry;
+            for (int i = 0; i < multiPolygon.getNumGeometries(); i++) {
+                Polygon polygon = (Polygon) multiPolygon.getGeometryN(i);
+                double polyArea = calculatePolygonSphericalArea(polygon);
+                totalArea += polyArea;
+                log.trace("多边形{}面积: {}平方米", i, polyArea);
+            }
+            log.trace("MULTIPOLYGON总面积: {}平方米", totalArea);
+        }
+
+        // 步骤2：确保返回正值面积
+        return Math.abs(totalArea);
+    }
+
+    public double calcMu(Geometry wgs84Geometry) {
+        try {
+            // 步骤1：使用球面面积算法计算平方米面积
+            double areaSqm = calculateSphericalArea(wgs84Geometry);
+
+            // 步骤2：平方米转换为亩（1亩 = 2000/3平方米）
+            // 四舍五入保留4位小数
+            double mu = Math.round((areaSqm / (2000.0 / 3.0)) * 10000.0) / 10000.0;
+
+            log.trace("计算几何图形面积（亩）: {}亩", mu);
+            return mu;
+        } catch (Exception e) {
+            log.warn("WGS84几何图形计算亩数失败: {}", e.getMessage());
+            return 0.0;
+        }
+    }
+
+    public SplitResult splitRoad(List<Wgs84Point> wgs84Points, double workingWidth) {
+        SplitResult splitResult = new SplitResult();
+        splitResult.setWorkingWidth(workingWidth);
         if (CollUtil.isEmpty(wgs84Points)) {
             log.error("作业轨迹点列表不能为空");
-            return;
+            return splitResult;
         }
         if (workingWidth < 1) {
             log.error("作业幅宽必须大于等于 1 米");
-            return;
+            return splitResult;
         }
         log.debug("参数 wgs84TrackPoints 大小：{} workingWidth：{}", wgs84Points.size(), workingWidth);
 
@@ -575,7 +674,7 @@ public class GisUtil implements AutoCloseable {
         log.debug("过滤时间为空的点位完成，剩余点位数量：{}", wgs84Points.size());
         if (wgs84Points.size() < 30) {
             log.error("作业轨迹点列表必须包含至少 30 个有效点位");
-            return;
+            return splitResult;
         }
 
         log.debug("准备对轨迹点按时间升序排序");
@@ -612,7 +711,7 @@ public class GisUtil implements AutoCloseable {
         List<GaussPoint> gaussPoints = toGaussPointList(wgs84Points);
         if (gaussPoints.size() < 30) {
             log.error("作业轨迹点列表必须包含至少 30 个有效点位");
-            return;
+            return splitResult;
         }
 
         double halfWorkingWidth = workingWidth / 2.0;
@@ -708,7 +807,22 @@ public class GisUtil implements AutoCloseable {
         }
         Geometry unionGaussGeometry = config.GEOMETRY_FACTORY.createGeometryCollection(unionGaussGeometries.toArray(new Geometry[0])).union().buffer(config.BUFFER_SMOOTHING_DISTANCE).buffer(-config.BUFFER_SMOOTHING_DISTANCE);
         Geometry wgs84UnionGeometry = toWgs84Geometry(unionGaussGeometry);
-        log.debug("合并后的几何图形：{}", wgs84UnionGeometry.toText());
+        //log.debug("合并后的几何图形：{}", wgs84UnionGeometry.toText());
+        splitResult.setWkt(wgs84UnionGeometry.toText());
+        splitResult.setMu(calcMu(wgs84UnionGeometry));
+        log.debug("整体轮廓面积（亩）：{}", splitResult.getMu());
+
+        for (int i = 0; i < unionGaussGeometry.getNumGeometries(); i++) {
+            Geometry partGaussGeometry = unionGaussGeometry.getGeometryN(i);
+            Geometry wgs84PartGeometry = toWgs84Geometry(partGaussGeometry);
+            //log.debug("子几何图形{}：{}", i + 1, wgs84PartGeometry.toText());
+            Part part = new Part();
+            part.setWkt(wgs84PartGeometry.toText());
+            part.setMu(calcMu(wgs84PartGeometry));
+            splitResult.getParts().add(part);
+        }
+
+        return splitResult;
     }
 
 }
