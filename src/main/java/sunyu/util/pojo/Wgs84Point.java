@@ -30,6 +30,17 @@ public class Wgs84Point {
     /**
      * 构造方法
      *
+     * @param longitude 经度(单位：度)(东经为正值，西经为负值)(范围：-180.0到180.0)
+     * @param latitude  纬度(单位：度)(北纬为正值，南纬为负值)(范围：-90.0到90.0)
+     */
+    public Wgs84Point(double longitude, double latitude) {
+        this.longitude = longitude;
+        this.latitude = latitude;
+    }
+
+    /**
+     * 构造方法
+     *
      * @param gpsTime   GPS定位时间
      * @param longitude 经度(单位：度)(东经为正值，西经为负值)(范围：-180.0到180.0)
      * @param latitude  纬度(单位：度)(北纬为正值，南纬为负值)(范围：-90.0到90.0)

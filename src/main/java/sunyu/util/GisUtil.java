@@ -24,14 +24,12 @@ import org.locationtech.jts.geom.*;
 import org.locationtech.jts.geom.prep.PreparedGeometry;
 import org.locationtech.jts.geom.prep.PreparedGeometryFactory;
 import org.locationtech.jts.index.strtree.STRtree;
+import org.locationtech.jts.io.ParseException;
+import org.locationtech.jts.io.WKTReader;
 import org.locationtech.jts.simplify.DouglasPeuckerSimplifier;
 import org.opengis.referencing.crs.CoordinateReferenceSystem;
 import org.opengis.referencing.operation.MathTransform;
-import sunyu.util.pojo.GaussPoint;
-import sunyu.util.pojo.Part;
-import sunyu.util.pojo.SplitResult;
-import sunyu.util.pojo.Wgs84Point;
-import sunyu.util.pojo.bak.TrackPoint;
+import sunyu.util.pojo.*;
 
 import java.time.Duration;
 import java.util.*;
@@ -406,6 +404,316 @@ public class GisUtil implements AutoCloseable {
     }
 
 
+    /**
+     * 使用Haversine公式计算WGS84坐标系下两点之间的球面距离。
+     * <p>
+     * Haversine公式适用于球面上两点之间距离的精确计算，特别适合地球表面两点间的距离估算。
+     * 该方法具有以下特点：
+     * <ul>
+     *   <li>使用地球赤道半径作为计算基准</li>
+     *   <li>考虑了经纬度的弧度转换</li>
+     *   <li>数值稳定性好，适用于中短距离计算</li>
+     *   <li>执行效率高，无需额外的几何库支持</li>
+     * </ul>
+     * 适用于轨迹分析、地理围栏、距离测量等场景。
+     * </p>
+     *
+     * @param wgs84Point1 第一个WGS84坐标点，包含有效经纬度
+     * @param wgs84Point2 第二个WGS84坐标点，包含有效经纬度
+     *
+     * @return 两点之间的球面距离（米），结果为非负数
+     */
+    public double haversine(Wgs84Point wgs84Point1, Wgs84Point wgs84Point2) {
+        // 将经纬度从度数转换为弧度，三角函数计算需要弧度值
+        double lon1 = Math.toRadians(wgs84Point1.getLongitude());
+        double lat1 = Math.toRadians(wgs84Point1.getLatitude());
+        double lon2 = Math.toRadians(wgs84Point2.getLongitude());
+        double lat2 = Math.toRadians(wgs84Point2.getLatitude());
+
+        // 计算两点间经度差和纬度差
+        double dlon = lon2 - lon1;
+        double dlat = lat2 - lat1;
+
+        // Haversine公式核心计算：半正矢公式
+        double a = Math.sin(dlat / 2.0) * Math.sin(dlat / 2.0) + Math.cos(lat1) * Math.cos(lat2) * Math.sin(dlon / 2.0) * Math.sin(dlon / 2.0);
+
+        // 计算haversine函数结果，避免数值精度问题
+        double c = 2.0 * Math.atan2(Math.sqrt(a), Math.sqrt(1.0 - a));
+
+        // 最终距离 = 地球半径 * haversine函数结果
+        return config.EARTH_RADIUS * c;
+    }
+
+    /**
+     * 使用Haversine公式判断一个地理点是否在指定半径的圆内。
+     * <p>
+     * 该方法通过计算测试点与圆心之间的球面距离，并与指定半径进行比较，
+     * 来确定点是否位于圆内。采用球面距离计算确保在全球范围内的准确性，
+     * 特别适合地理围栏（Geo-fencing）应用场景。
+     * </p>
+     *
+     * @param wgs84Point       要判断的WGS84坐标点，包含有效经纬度
+     * @param wgs84CenterPoint 圆的中心点（WGS84坐标）
+     * @param radius           圆的半径（米），必须为非负数
+     *
+     * @return 如果点到圆心的球面距离小于等于指定半径（包含边界），则返回true；否则返回false
+     */
+    public boolean inCircle(Wgs84Point wgs84Point, Wgs84Point wgs84CenterPoint, double radius) {
+        // 计算两点间的球面距离（米）
+        double distance = haversine(wgs84Point, wgs84CenterPoint);
+        // 如果距离小于等于半径，则点在圆内（包含边界）
+        return distance <= radius;
+    }
+
+    /**
+     * 判断WGS84坐标系下的点是否在指定的几何图形内部。
+     * <p>
+     * 该方法使用JTS拓扑套件进行精确的空间关系判断，支持各种几何类型（点、线、面等）。
+     * 采用covers()方法判断，确保边界上的点也被视为在几何图形内部。
+     * 适用于轨迹分析、地理围栏和空间统计等场景。
+     * </p>
+     *
+     * @param wgs84Point    待测试的WGS84坐标点，包含有效经纬度
+     * @param wgs84Geometry 用于判断的几何图形，必须是有效的JTS Geometry对象
+     *
+     * @return 如果点在几何图形内部或边界上，则返回true；否则返回false
+     */
+    public boolean inGeometry(Wgs84Point wgs84Point, Geometry wgs84Geometry) {
+        try {
+            // 创建点几何对象
+            Point point = config.GEOMETRY_FACTORY.createPoint(new Coordinate(wgs84Point.getLongitude(), wgs84Point.getLatitude()));
+
+            // 判断点是否在几何图形内或边界上
+            // covers() 方法包含边界，而 contains() 不包含边界
+            return wgs84Geometry.covers(point);
+        } catch (Exception e) {
+            log.warn("判断点是否在几何图形内失败：点[{},{}] 错误={}", wgs84Point.getLongitude(), wgs84Point.getLatitude(), e.getMessage());
+            return false;
+        }
+    }
+
+    /**
+     * 判断WGS84坐标系下的点是否位于指定的地理矩形范围内。
+     * <p>
+     * 该方法使用高效的边界框检查，通过比较点的经纬度与矩形边界，快速判断点是否在矩形范围内。
+     * 支持任意顺序的对角点输入，内部会自动调整为正确的边界。不考虑地球曲率，适用于较小范围区域。
+     * 常用于空间索引、数据分区和快速查询优化。
+     * </p>
+     *
+     * @param wgs84Point            待测试的WGS84坐标点，包含有效经纬度
+     * @param wgs84TopLeftPoint     矩形的左上角点（或任意对角点）
+     * @param wgs84BottomRightPoint 矩形的右下角点（或任意对角点）
+     *
+     * @return 如果点的经纬度在矩形范围内（包含边界），则返回true；否则返回false
+     */
+    public boolean inRectangle(Wgs84Point wgs84Point, Wgs84Point wgs84TopLeftPoint, Wgs84Point wgs84BottomRightPoint) {
+        try {
+            double pointLon = wgs84Point.getLongitude();
+            double pointLat = wgs84Point.getLatitude();
+            double topLeftLon = wgs84TopLeftPoint.getLongitude();
+            double topLeftLat = wgs84TopLeftPoint.getLatitude();
+            double bottomRightLon = wgs84BottomRightPoint.getLongitude();
+            double bottomRightLat = wgs84BottomRightPoint.getLatitude();
+
+            // 确保左上角和右下角的经纬度关系正确
+            double minLon = Math.min(topLeftLon, bottomRightLon);
+            double maxLon = Math.max(topLeftLon, bottomRightLon);
+            double maxLat = Math.max(topLeftLat, bottomRightLat);
+            double minLat = Math.min(topLeftLat, bottomRightLat);
+
+            // 判断点是否在矩形范围内（包含边界）
+            return pointLon >= minLon && pointLon <= maxLon && pointLat >= minLat && pointLat <= maxLat;
+        } catch (Exception e) {
+            log.warn("判断点是否在矩形内失败：点[{},{}] 左上角[{},{}] 右下角[{},{}] 错误={}", wgs84Point.getLongitude(), wgs84Point.getLatitude(), wgs84TopLeftPoint.getLongitude(), wgs84TopLeftPoint.getLatitude(), wgs84BottomRightPoint.getLongitude(), wgs84BottomRightPoint.getLatitude(), e.getMessage());
+            return false;
+        }
+    }
+
+
+    /**
+     * 将WGS84坐标系的WKT（Well-Known Text）字符串解析为Geometry几何图形。
+     * <p>
+     * 该方法将标准WKT格式的几何描述文本解析为JTS几何对象，支持所有标准几何类型，
+     * 如点(POINT)、线(LINESTRING)、多边形(POLYGON)、多点(MULTIPOINT)等。
+     * 解析后的几何对象可直接用于GIS空间分析操作。
+     * </p>
+     *
+     * @param wgs84WKT WGS84坐标系下的WKT字符串，如"POINT(116.4 39.9)"或"POLYGON((...))"
+     *
+     * @return WGS84坐标系的Geometry几何图形，解析失败返回空几何
+     */
+    public Geometry toWgs84Geometry(String wgs84WKT) {
+        if (wgs84WKT == null || wgs84WKT.trim().isEmpty()) {
+            log.warn("WKT字符串为空或null");
+            return config.EMPTY_GEOMETRY;
+        }
+        try {
+            Geometry geometry = new WKTReader(config.GEOMETRY_FACTORY).read(wgs84WKT);
+            log.debug("WKT字符串解析成功：几何类型={}", geometry.getGeometryType());
+            return geometry;
+        } catch (ParseException e) {
+            log.warn("WKT字符串解析失败：{}", e.getMessage());
+            return config.EMPTY_GEOMETRY;
+        } catch (Exception e) {
+            log.warn("WKT字符串转换几何图形失败：{}", e.getMessage());
+            return config.EMPTY_GEOMETRY;
+        }
+    }
+
+    /**
+     * 将WGS84地理坐标系的几何图形转换为高斯-克吕格投影坐标系。
+     * <p>
+     * 该方法实现了高精度的坐标正转换，包括：
+     * <ul>
+     *   <li>全球范围支持，自动处理1-60投影带</li>
+     *   <li>根据几何中心经度智能选择最合适的投影带</li>
+     *   <li>输入输出坐标合理性验证</li>
+     *   <li>线程安全的转换缓存机制</li>
+     * </ul>
+     * 高斯投影适用于距离和面积的精确计算，特别适合中纬度地区的GIS分析。
+     * </p>
+     *
+     * @param wgs84Geometry WGS84坐标系下的几何图形（经纬度）
+     *
+     * @return 高斯投影坐标系下的几何图形（米制），转换失败返回空几何
+     */
+    public Geometry toGaussGeometry(Geometry wgs84Geometry) {
+        try {
+            if (wgs84Geometry == null || wgs84Geometry.isEmpty()) {
+                return config.EMPTY_GEOMETRY;
+            }
+
+            // WGS84几何到高斯投影几何转换开始
+            // 获取几何图形的边界信息来确定高斯投影参数
+            Envelope env = wgs84Geometry.getEnvelopeInternal();
+            double centerLon = (env.getMinX() + env.getMaxX()) / 2.0;
+
+            // 验证WGS84坐标的合理性
+            if (env.getMinX() < -180 || env.getMaxX() > 180 || env.getMinY() < -90 || env.getMaxY() > 90) {
+                log.warn("WGS84坐标超出合理范围：MinLon={}, MaxLon={}, MinLat={}, MaxLat={}", env.getMinX(), env.getMaxX(), env.getMinY(), env.getMaxY());
+                return config.EMPTY_GEOMETRY;
+            }
+
+            // 计算高斯投影带号 (6度分带)
+            int zone = (int) Math.floor((centerLon + 180) / 6) + 1;
+            double centralMeridian = (zone - 1) * 6 - 180 + 3;
+            double falseEasting = zone * 1000000.0 + 500000.0;
+
+            // 验证投影带号的合理性
+            if (zone < 1 || zone > 60) {
+                log.warn("投影带号超出合理范围：zone={}，经度={}", zone, centerLon);
+                return config.EMPTY_GEOMETRY;
+            }
+
+            // 从缓存获取或创建高斯投影CRS
+            CoordinateReferenceSystem gaussCRS = getGaussCRS(zone, falseEasting, centralMeridian);
+
+            // 构建缓存key（用于transform缓存）
+            String cacheKey = String.format("%d_%.1f_%.1f", zone, falseEasting, centralMeridian);
+
+            // 从缓存获取或创建WGS84到高斯投影的坐标转换
+            MathTransform transform = config.WGS84_TO_GAUSS_TRANSFORM_CACHE.computeIfAbsent(cacheKey, key -> {
+                try {
+                    return CRS.findMathTransform(config.WGS84_CRS, gaussCRS, true);
+                } catch (Exception e) {
+                    log.warn("创建坐标转换失败：zone={}, falseEasting={}, centralMeridian={}, 错误={}", zone, falseEasting, centralMeridian, e.getMessage());
+                    return null;
+                }
+            });
+
+            // 执行坐标转换（正向：WGS84 -> 高斯投影）
+            Geometry gaussGeometry = JTS.transform(wgs84Geometry, transform);
+
+            // 验证转换后的高斯投影坐标合理性
+            Envelope gaussEnv = gaussGeometry.getEnvelopeInternal();
+            if (gaussEnv.getMinX() < 500000 || gaussEnv.getMaxX() > 64000000 || gaussEnv.getMinY() < -10000000 || gaussEnv.getMaxY() > 10000000) {
+                log.warn("转换后的高斯投影坐标超出合理范围：MinX={}, MaxX={}, MinY={}, MaxY={}", gaussEnv.getMinX(), gaussEnv.getMaxX(), gaussEnv.getMinY(), gaussEnv.getMaxY());
+                return config.EMPTY_GEOMETRY;
+            }
+            // WGS84几何到高斯投影几何转换完成
+            return gaussGeometry;
+        } catch (Exception e) {
+            log.warn("WGS84几何到高斯投影几何转换失败：错误={}", e.getMessage());
+            return config.EMPTY_GEOMETRY;
+        }
+    }
+
+    /**
+     * 计算WGS84坐标系下两个几何图形的空间交集轮廓及面积。
+     * <p>
+     * 该方法通过以下步骤计算两个几何图形的交集：
+     * <ol>
+     *   <li>解析WKT字符串为JTS几何对象</li>
+     *   <li>将几何图形转换到高斯投影坐标系进行高精度计算</li>
+     *   <li>执行几何交集操作</li>
+     *   <li>将结果转换回WGS84坐标系</li>
+     *   <li>计算相交区域面积并转换为亩数</li>
+     * </ol>
+     * 使用高斯投影进行中间计算可显著提高面积计算精度，适用于空间分析、数据裁剪和覆盖分析。
+     * </p>
+     *
+     * @param wgs84WKT1 第一个WGS84几何图形的WKT字符串（如多边形、线、点等）
+     * @param wgs84WKT2 第二个WGS84几何图形的WKT字符串（如多边形、线、点等）
+     *
+     * @return 包含相交轮廓WKT字符串和面积（亩）的结果对象，无相交则返回空几何和零面积
+     */
+    public WktIntersectionResult intersection(String wgs84WKT1, String wgs84WKT2) {
+        WktIntersectionResult result = new WktIntersectionResult();
+        result.setWkt(config.EMPTY_GEOMETRY.toText());
+        result.setMu(0.0);
+
+        try {
+            log.debug("开始计算两个WGS84几何图形的相交轮廓");
+
+            // 1. 解析WKT字符串为几何对象
+            Geometry geometry1 = toWgs84Geometry(wgs84WKT1);
+            Geometry geometry2 = toWgs84Geometry(wgs84WKT2);
+
+            log.debug("解析成功：几何1类型={}, 几何2类型={}", geometry1.getGeometryType(), geometry2.getGeometryType());
+
+            // 2. 将WGS84几何图形转换为高斯投影坐标系以获得更精确的相交计算
+            Geometry gaussGeometry1 = toGaussGeometry(geometry1);
+            Geometry gaussGeometry2 = toGaussGeometry(geometry2);
+
+            if (gaussGeometry1.isEmpty() || gaussGeometry2.isEmpty()) {
+                log.warn("WGS84几何图形转换为高斯投影失败");
+                return result;
+            }
+
+            log.debug("高斯投影转换成功：几何1类型={}, 几何2类型={}", gaussGeometry1.getGeometryType(), gaussGeometry2.getGeometryType());
+
+            // 3. 在高斯投影坐标系下执行相交操作（更精确）
+            Geometry gaussIntersection = gaussGeometry1.intersection(gaussGeometry2);
+
+            // 4. 检查是否有实际相交区域
+            if (gaussIntersection == null || gaussIntersection.isEmpty()) {
+                log.debug("两个几何图形没有相交区域");
+                return result;
+            }
+
+            log.debug("相交成功，高斯投影下相交几何类型：{}，面积：{}平方米", gaussIntersection.getGeometryType(), gaussIntersection.getArea());
+
+            // 5. 将相交结果转换回WGS84坐标系
+            Geometry wgs84Intersection = toWgs84Geometry(gaussIntersection);
+            if (wgs84Intersection.isEmpty()) {
+                log.warn("高斯投影相交结果转换回WGS84失败");
+                return result;
+            }
+
+            // 6. 设置相交结果的WKT字符串
+            result.setWkt(wgs84Intersection.toText());
+
+            // 7. 在高斯投影坐标系下计算面积（更精确），然后转换为亩
+            result.setMu(calcMu(wgs84Intersection));
+
+            log.debug("相交轮廓计算完成：亩数={}亩（基于WGS84精确计算）", result.getMu());
+        } catch (Exception e) {
+            log.warn("相交计算失败：{}", e.getMessage());
+        }
+
+        return result;
+    }
+
     public Geometry toWgs84Geometry(Geometry gaussGeometry) {
         try {
             // 开始高斯投影几何到WGS84投影几何转换
@@ -642,100 +950,6 @@ public class GisUtil implements AutoCloseable {
         return Math.abs(totalArea);
     }
 
-    public TrackPoint toWgs84Point(TrackPoint gaussPoint) {
-        try {
-            // 获取高斯投影坐标
-            double gaussX = gaussPoint.getLon(); // X坐标（东向）
-            double gaussY = gaussPoint.getLat(); // Y坐标（北向）
-
-            log.trace("开始高斯投影到WGS84转换 原始坐标：X={}, Y={}", gaussX, gaussY);
-
-            // 验证高斯投影坐标的合理性
-            // 高斯投影X坐标合理范围：50万-6400万米（对应全球1-60带，更宽松的范围）
-            // 高斯投影Y坐标合理范围：±1000万米（对应全球纬度范围）
-            if (gaussX < 500000 || gaussX > 64000000 || gaussY < -10000000 || gaussY > 10000000) {
-                log.warn("高斯投影坐标超出合理范围：X={}, Y={}", gaussX, gaussY);
-                return null;
-            }
-
-            // 计算投影带号（基于假东距）
-            // 假东距格式：zone × 1000000 + 500000（如49带 = 49500000米）
-            int zone = (int) Math.floor(gaussX / 1000000.0);
-
-            // 验证投影带号的合理性
-            if (zone < 1 || zone > 60) {
-                log.warn("投影带号超出合理范围：zone={}, X={}", zone, gaussX);
-                return null;
-            }
-
-            // 计算中央经线
-            double centralMeridian = (zone - 1) * 6 - 180 + 3;
-            double falseEasting = zone * 1000000.0 + 500000.0;
-
-            // 从缓存获取或创建高斯投影CRS
-            CoordinateReferenceSystem gaussCRS = getGaussCRS(zone, falseEasting, centralMeridian);
-            if (gaussCRS == null) {
-                return null;
-            }
-
-            // 构建缓存key（用于transform缓存）
-            String cacheKey = String.format("%d_%.1f_%.1f", zone, falseEasting, centralMeridian);
-
-            // 从缓存获取或创建高斯投影到WGS84的坐标转换
-            MathTransform transform = config.GAUSS_TO_WGS84_TRANSFORM_CACHE.computeIfAbsent(cacheKey, key -> {
-                try {
-                    return CRS.findMathTransform(gaussCRS, config.WGS84_CRS, true);
-                } catch (Exception e) {
-                    log.warn("创建坐标转换失败：zone={}, falseEasting={}, centralMeridian={}, 错误={}", zone, falseEasting, centralMeridian, e.getMessage());
-                    return null;
-                }
-            });
-            if (transform == null) {
-                return null;
-            }
-
-            // 执行坐标转换
-            Coordinate sourceCoord = new Coordinate(gaussX, gaussY);
-            Coordinate targetCoord = new Coordinate();
-            JTS.transform(sourceCoord, targetCoord, transform);
-
-            // 验证转换后的WGS84坐标合理性
-            if (targetCoord.x < -180 || targetCoord.x > 180 || targetCoord.y < -90 || targetCoord.y > 90) {
-                log.warn("转换后的WGS84坐标超出合理范围：经度={}, 纬度={}", targetCoord.x, targetCoord.y);
-                return null;
-            }
-
-            // 创建新的轨迹点，保持原有属性，只更新坐标
-            TrackPoint result = new TrackPoint();
-            result.setTime(gaussPoint.getTime());
-            result.setLon(targetCoord.x); // 经度
-            result.setLat(targetCoord.y); // 纬度
-
-            return result;
-        } catch (Exception e) {
-            log.warn("高斯投影到WGS84转换失败：X={}, Y={}, 错误={}", gaussPoint.getLon(), gaussPoint.getLat(), e.getMessage());
-            return null;
-        }
-    }
-
-    public List<TrackPoint> toWgs84Points(List<TrackPoint> gaussPoints) {
-        List<TrackPoint> wgs84Points = new ArrayList<>();
-        try {
-            // 对每个轨迹点进行坐标转换
-            for (TrackPoint gaussPoint : gaussPoints) {
-                TrackPoint wgs84Point = toWgs84Point(gaussPoint);
-                if (wgs84Point != null) {
-                    wgs84Points.add(wgs84Point);
-                }
-            }
-
-            log.debug("成功转换{}个轨迹点到WGS84坐标系", wgs84Points.size());
-        } catch (Exception e) {
-            log.warn("高斯投影轨迹点转换为WGS84失败: {}", e.getMessage());
-        }
-        return wgs84Points;
-    }
-
     public double calcMu(Geometry wgs84Geometry) {
         try {
             // 步骤1：使用球面面积算法计算平方米面积
@@ -751,6 +965,23 @@ public class GisUtil implements AutoCloseable {
             log.warn("WGS84几何图形计算亩数失败: {}", e.getMessage());
             return 0.0;
         }
+    }
+
+    /**
+     * 计算WGS84坐标系下WKT字符串表示的几何图形面积（亩）
+     * <p>
+     * 该方法是calcMu(Geometry)的便捷重载版本，直接接受WKT字符串作为输入，
+     * 内部自动解析WKT为几何对象并计算面积。适用于从数据库或文件中读取的WKT格式几何数据。
+     * </p>
+     *
+     * @param wgs84Wkt WGS84坐标系下的WKT字符串，如"POLYGON((...))"或"MULTIPOLYGON(((...)))"
+     *
+     * @return 几何图形的面积（亩），四舍五入保留4位小数；解析或计算失败返回0.0
+     *
+     * @see #calcMu(Geometry)
+     */
+    public double calcMu(String wgs84Wkt) {
+        return calcMu(toWgs84Geometry(wgs84Wkt));
     }
 
     public SplitResult splitRoad(List<Wgs84Point> wgs84Points, double workingWidth) {

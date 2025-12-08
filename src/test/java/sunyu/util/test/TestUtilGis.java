@@ -14,6 +14,7 @@ import cn.hutool.log.level.Level;
 import com.zaxxer.hikari.HikariConfig;
 import com.zaxxer.hikari.HikariDataSource;
 import org.junit.jupiter.api.Test;
+import org.locationtech.jts.geom.Geometry;
 import sunyu.util.GisUtil;
 import sunyu.util.TDengineUtil;
 import sunyu.util.pojo.GaussPoint;
@@ -216,6 +217,57 @@ public class TestUtilGis {
         for (int i = 0; i < 100; i++) {
             gisUtil.splitRoad(l, jobWidth);
         }
+    }
+
+    @Test
+    void 测试点是否在圆中() {
+        Wgs84Point p = new Wgs84Point(100.401807, 23.443696);
+        Wgs84Point center = new Wgs84Point(100.27786, 23.60424);
+        double radius = 1000.0;//米
+        boolean isIn = gisUtil.inCircle(p, center, radius);
+        log.info("点是否在圆中: {}", isIn);
+    }
+
+    @Test
+    void 测试点是否在矩形中() {
+        Wgs84Point p = new Wgs84Point(116.55470301, 40.21296700);
+        Wgs84Point p1 = new Wgs84Point(116.55560000, 40.21296700); // 向东偏移约100米
+        Wgs84Point p2 = new Wgs84Point(116.55560000, 40.21364248); // 向北偏移约100米
+        boolean isIn = gisUtil.inRectangle(p, p1, p2);
+        log.info("点是否在矩形中: {}", isIn);
+    }
+
+    @Test
+    void 测试点是否在多边形中() {
+        Geometry geom = gisUtil.toWgs84Geometry("POLYGON((116.55470301 40.21296700, 116.55560000 40.21296700, 116.55560000 40.21364248, 116.55470301 40.21364248, 116.55470301 40.21296700))");
+
+        // 测试多边形内部的点
+        Wgs84Point p1 = new Wgs84Point(116.55515000, 40.21330000);
+        boolean isIn1 = gisUtil.inGeometry(p1, geom);
+        log.info("内部点[116.55515000, 40.21330000]是否在多边形中: {}", isIn1);
+
+        // 测试多边形顶点（边界点）
+        Wgs84Point p2 = new Wgs84Point(116.55560000, 40.21364248);
+        boolean isIn2 = gisUtil.inGeometry(p2, geom);
+        log.info("顶点[116.55560000, 40.21364248]是否在多边形中: {}", isIn2);
+
+        // 测试多边形外部的点
+        Wgs84Point p3 = new Wgs84Point(116.55600000, 40.21400000);
+        boolean isIn3 = gisUtil.inGeometry(p3, geom);
+        log.info("外部点[116.55600000, 40.21400000]是否在多边形中: {}", isIn3);
+    }
+
+    @Test
+    void 测试两点距离() {
+        Wgs84Point p1 = new Wgs84Point(100.401807, 23.443696);
+        Wgs84Point p2 = new Wgs84Point(100.27786, 23.60424);
+        double distance = gisUtil.haversine(p1, p2);
+        log.info("{} 米", distance);
+
+        p1 = new Wgs84Point(116.55470301, 40.21296700);
+        p2 = new Wgs84Point(116.55473883, 40.21364248);
+        distance = gisUtil.haversine(p1, p2);
+        log.info("{} 米", distance);
     }
 
     @Test

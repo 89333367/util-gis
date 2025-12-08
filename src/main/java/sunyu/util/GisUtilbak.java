@@ -19,6 +19,7 @@ import org.locationtech.jts.io.WKTReader;
 import org.locationtech.jts.simplify.DouglasPeuckerSimplifier;
 import org.opengis.referencing.crs.CoordinateReferenceSystem;
 import org.opengis.referencing.operation.MathTransform;
+import sunyu.util.pojo.WktIntersectionResult;
 import sunyu.util.pojo.bak.*;
 
 import java.time.Duration;

@@ -22,6 +22,7 @@ import org.junit.jupiter.api.Test;
 import org.locationtech.jts.geom.Geometry;
 import sunyu.util.GisUtilbak;
 import sunyu.util.TDengineUtil;
+import sunyu.util.pojo.WktIntersectionResult;
 import sunyu.util.pojo.bak.*;
 
 import javax.sql.DataSource;
