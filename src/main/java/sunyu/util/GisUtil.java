@@ -413,6 +413,38 @@ public class GisUtil implements AutoCloseable {
     }
 
 
+    private List<List<GaussPoint>> splitClusterByDistance(List<GaussPoint> cluster, double maxDistance) {
+        List<List<GaussPoint>> segments = new ArrayList<>();
+        if (cluster == null || cluster.isEmpty()) {
+            return segments;
+        }
+
+        List<GaussPoint> currentSegment = new ArrayList<>();
+        currentSegment.add(cluster.get(0));
+
+        for (int i = 1; i < cluster.size(); i++) {
+            GaussPoint prevPoint = cluster.get(i - 1);
+            GaussPoint currPoint = cluster.get(i);
+
+            // 计算欧几里得距离
+            double distance = Math.sqrt(Math.pow(currPoint.getGaussX() - prevPoint.getGaussX(), 2) + Math.pow(currPoint.getGaussY() - prevPoint.getGaussY(), 2));
+
+            if (distance > maxDistance) {
+                // 距离超过阈值，结束当前段，开始新段
+                segments.add(new ArrayList<>(currentSegment));
+                currentSegment = new ArrayList<>();
+            }
+            currentSegment.add(currPoint);
+        }
+
+        // 处理最后一段
+        segments.add(currentSegment);
+
+        log.debug("距离切分完成：原始 {} 个点 -> {} 个子段，最大距离阈值 {} 米", cluster.size(), segments.size(), maxDistance);
+        return segments;
+    }
+
+
     private List<List<GaussPoint>> splitClusterBySeconds(List<GaussPoint> cluster, double maxSeconds) {
         List<List<GaussPoint>> segments = new ArrayList<>();
         if (cluster == null || cluster.isEmpty()) {
@@ -439,9 +471,7 @@ public class GisUtil implements AutoCloseable {
         }
 
         // 处理最后一段
-        if (currentSegment.size() >= config.CLUSTER_MIN_SIZE) {
-            segments.add(currentSegment);
-        }
+        segments.add(currentSegment);
 
         log.debug("时间切分完成：原始 {} 个点 -> {} 个子段，最大时间阈值 {} 秒", cluster.size(), segments.size(), maxSeconds);
         return segments;
@@ -1110,8 +1140,11 @@ public class GisUtil implements AutoCloseable {
         }
 
         log.debug("准备创建StaticArrayDatabase");
-        double eps = Math.max(avgDistance, 4);
-        int minPts = 6;
+        double eps = 4;
+        int minPts = 8;
+        if (minEffectiveInterval == 10) {
+            eps = 13;
+        }
         log.debug("聚类参数 eps={} 米, minPts={}", String.format("%.2f", eps), minPts);
 
         log.debug("提取坐标数组");
@@ -1159,12 +1192,13 @@ public class GisUtil implements AutoCloseable {
                 cluster.sort(Comparator.comparing(GaussPoint::getGpsTime));
                 log.debug("创建线缓冲，缓冲半径：{} 米", halfWorkingWidth);
 
-                List<List<GaussPoint>> segments = splitClusterBySeconds(cluster, minEffectiveInterval * 3);
+                //List<List<GaussPoint>> segments = splitClusterBySeconds(cluster, minEffectiveInterval * 5);
+                List<List<GaussPoint>> segments = splitClusterByDistance(cluster, avgDistance * 5);
                 log.debug("时间切分后得到 {} 个子段", segments.size());
 
                 for (List<GaussPoint> segment : segments) {
                     log.debug("处理子段：{} 个点", segment.size());
-                    if (segment.size() > config.CLUSTER_MIN_SIZE) {
+                    if (segment.size() > 8) {
                         log.debug("创建线缓冲，缓冲半径：{} 米", halfWorkingWidth);
                         Coordinate[] coordinates = segment.stream().map(point -> new Coordinate(point.getGaussX(), point.getGaussY())).toArray(Coordinate[]::new);
                         if (coordinates.length > 500) {
@@ -1187,7 +1221,12 @@ public class GisUtil implements AutoCloseable {
                 }
             }
         }
-        Geometry unionGaussGeometry = config.GEOMETRY_FACTORY.createGeometryCollection(unionGaussGeometries.toArray(new Geometry[0])).union().buffer(config.BUFFER_SMOOTHING_DISTANCE).buffer(-config.BUFFER_SMOOTHING_DISTANCE);
+        double bufferSmoothingDistance = config.BUFFER_SMOOTHING_DISTANCE;
+        if (minEffectiveInterval == 10) {
+            bufferSmoothingDistance = config.BUFFER_SMOOTHING_DISTANCE * 2;
+        }
+        log.debug("合并所有几何图形，膨胀再收缩 {} 米", bufferSmoothingDistance);
+        Geometry unionGaussGeometry = config.GEOMETRY_FACTORY.createGeometryCollection(unionGaussGeometries.toArray(new Geometry[0])).union().buffer(bufferSmoothingDistance).buffer(-bufferSmoothingDistance);
         Geometry wgs84UnionGeometry = toWgs84Geometry(unionGaussGeometry);
         //log.debug("合并后的几何图形：{}", wgs84UnionGeometry.toText());
         splitResult.setWkt(wgs84UnionGeometry.toText());
