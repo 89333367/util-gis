@@ -29,6 +29,7 @@ import sunyu.util.pojo.GaussPoint;
 import sunyu.util.pojo.Part;
 import sunyu.util.pojo.SplitResult;
 import sunyu.util.pojo.Wgs84Point;
+import sunyu.util.pojo.bak.TrackPoint;
 
 import java.time.Duration;
 import java.util.*;
@@ -637,6 +638,100 @@ public class GisUtil implements AutoCloseable {
 
         // 步骤2：确保返回正值面积
         return Math.abs(totalArea);
+    }
+
+    public TrackPoint toWgs84Point(TrackPoint gaussPoint) {
+        try {
+            // 获取高斯投影坐标
+            double gaussX = gaussPoint.getLon(); // X坐标（东向）
+            double gaussY = gaussPoint.getLat(); // Y坐标（北向）
+
+            log.trace("开始高斯投影到WGS84转换 原始坐标：X={}, Y={}", gaussX, gaussY);
+
+            // 验证高斯投影坐标的合理性
+            // 高斯投影X坐标合理范围：50万-6400万米（对应全球1-60带，更宽松的范围）
+            // 高斯投影Y坐标合理范围：±1000万米（对应全球纬度范围）
+            if (gaussX < 500000 || gaussX > 64000000 || gaussY < -10000000 || gaussY > 10000000) {
+                log.warn("高斯投影坐标超出合理范围：X={}, Y={}", gaussX, gaussY);
+                return null;
+            }
+
+            // 计算投影带号（基于假东距）
+            // 假东距格式：zone × 1000000 + 500000（如49带 = 49500000米）
+            int zone = (int) Math.floor(gaussX / 1000000.0);
+
+            // 验证投影带号的合理性
+            if (zone < 1 || zone > 60) {
+                log.warn("投影带号超出合理范围：zone={}, X={}", zone, gaussX);
+                return null;
+            }
+
+            // 计算中央经线
+            double centralMeridian = (zone - 1) * 6 - 180 + 3;
+            double falseEasting = zone * 1000000.0 + 500000.0;
+
+            // 从缓存获取或创建高斯投影CRS
+            CoordinateReferenceSystem gaussCRS = getGaussCRS(zone, falseEasting, centralMeridian);
+            if (gaussCRS == null) {
+                return null;
+            }
+
+            // 构建缓存key（用于transform缓存）
+            String cacheKey = String.format("%d_%.1f_%.1f", zone, falseEasting, centralMeridian);
+
+            // 从缓存获取或创建高斯投影到WGS84的坐标转换
+            MathTransform transform = config.GAUSS_TO_WGS84_TRANSFORM_CACHE.computeIfAbsent(cacheKey, key -> {
+                try {
+                    return CRS.findMathTransform(gaussCRS, config.WGS84_CRS, true);
+                } catch (Exception e) {
+                    log.warn("创建坐标转换失败：zone={}, falseEasting={}, centralMeridian={}, 错误={}", zone, falseEasting, centralMeridian, e.getMessage());
+                    return null;
+                }
+            });
+            if (transform == null) {
+                return null;
+            }
+
+            // 执行坐标转换
+            Coordinate sourceCoord = new Coordinate(gaussX, gaussY);
+            Coordinate targetCoord = new Coordinate();
+            JTS.transform(sourceCoord, targetCoord, transform);
+
+            // 验证转换后的WGS84坐标合理性
+            if (targetCoord.x < -180 || targetCoord.x > 180 || targetCoord.y < -90 || targetCoord.y > 90) {
+                log.warn("转换后的WGS84坐标超出合理范围：经度={}, 纬度={}", targetCoord.x, targetCoord.y);
+                return null;
+            }
+
+            // 创建新的轨迹点，保持原有属性，只更新坐标
+            TrackPoint result = new TrackPoint();
+            result.setTime(gaussPoint.getTime());
+            result.setLon(targetCoord.x); // 经度
+            result.setLat(targetCoord.y); // 纬度
+
+            return result;
+        } catch (Exception e) {
+            log.warn("高斯投影到WGS84转换失败：X={}, Y={}, 错误={}", gaussPoint.getLon(), gaussPoint.getLat(), e.getMessage());
+            return null;
+        }
+    }
+
+    public List<TrackPoint> toWgs84Points(List<TrackPoint> gaussPoints) {
+        List<TrackPoint> wgs84Points = new ArrayList<>();
+        try {
+            // 对每个轨迹点进行坐标转换
+            for (TrackPoint gaussPoint : gaussPoints) {
+                TrackPoint wgs84Point = toWgs84Point(gaussPoint);
+                if (wgs84Point != null) {
+                    wgs84Points.add(wgs84Point);
+                }
+            }
+
+            log.debug("成功转换{}个轨迹点到WGS84坐标系", wgs84Points.size());
+        } catch (Exception e) {
+            log.warn("高斯投影轨迹点转换为WGS84失败: {}", e.getMessage());
+        }
+        return wgs84Points;
     }
 
     public double calcMu(Geometry wgs84Geometry) {
