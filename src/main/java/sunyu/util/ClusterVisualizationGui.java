@@ -466,6 +466,7 @@ public class ClusterVisualizationGui extends JFrame {
             renderer.setSeriesLinesVisible(seriesIndex, false);
             renderer.setSeriesShape(seriesIndex, new java.awt.geom.Ellipse2D.Double(-5, -5, 10, 10));
             renderer.setSeriesPaint(seriesIndex, CLUSTER_COLORS[clusterId % CLUSTER_COLORS.length]);
+            renderer.setSeriesVisibleInLegend(seriesIndex, true);  // 确保簇系列在图例中显示
 
             seriesIndex++;
         }
@@ -484,6 +485,7 @@ public class ClusterVisualizationGui extends JFrame {
             renderer.setSeriesLinesVisible(seriesIndex, false);
             renderer.setSeriesShape(seriesIndex, new java.awt.geom.Ellipse2D.Double(-4, -4, 8, 8));
             renderer.setSeriesPaint(seriesIndex, NOISE_COLOR);
+            renderer.setSeriesVisibleInLegend(seriesIndex, true);  // 确保噪声点在图例中显示
         }
 
         // 更新标题和统计信息
