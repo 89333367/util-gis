@@ -857,7 +857,7 @@ public class GisUtil implements AutoCloseable {
             // 7. 在高斯投影坐标系下计算面积（更精确），然后转换为亩
             result.setMu(calcMu(wgs84Intersection));
 
-            log.debug("相交轮廓计算完成：亩数={}亩（基于WGS84精确计算）", result.getMu());
+            log.debug("相交轮廓计算完成：亩数={}亩（基于WGS84坐标系计算）", result.getMu());
         } catch (Exception e) {
             log.warn("相交计算失败：{}", e.getMessage());
         }
