@@ -117,7 +117,7 @@ public class ClusterVisualizationGui extends JFrame {
 
         // 图表组件
         dataset = new XYSeriesCollection();
-        chart = ChartFactory.createScatterPlot("DBSCAN聚类分析", "X 坐标 (米)", "Y 坐标 (米)", dataset, PlotOrientation.VERTICAL, true,  // 显示图例
+        chart = ChartFactory.createScatterPlot("DBSCAN聚类分析", "", "", dataset, PlotOrientation.VERTICAL, true,  // 显示图例
                 true,  // 工具提示
                 false  // URL链接
         );
@@ -161,6 +161,10 @@ public class ClusterVisualizationGui extends JFrame {
         plot.setBackgroundPaint(Color.WHITE);
         plot.setDomainGridlinePaint(Color.LIGHT_GRAY);
         plot.setRangeGridlinePaint(Color.LIGHT_GRAY);
+        
+        // 隐藏网格线，让图表更简洁
+        plot.setDomainGridlinesVisible(false);
+        plot.setRangeGridlinesVisible(false);
 
         // 设置坐标轴
         NumberAxis domainAxis = (NumberAxis) plot.getDomainAxis();
@@ -168,12 +172,15 @@ public class ClusterVisualizationGui extends JFrame {
 
         domainAxis.setAutoRangeIncludesZero(false);
         rangeAxis.setAutoRangeIncludesZero(false);
-        domainAxis.setLabelFont(new Font(Font.SANS_SERIF, Font.PLAIN, 12));
-        rangeAxis.setLabelFont(new Font(Font.SANS_SERIF, Font.PLAIN, 12));
-
-        // 设置坐标轴刻度字体
-        domainAxis.setTickLabelFont(new Font(Font.SANS_SERIF, Font.PLAIN, 10));
-        rangeAxis.setTickLabelFont(new Font(Font.SANS_SERIF, Font.PLAIN, 10));
+        
+        // 隐藏坐标轴标签和刻度
+        domainAxis.setTickLabelsVisible(false);  // 隐藏X轴刻度标签
+        domainAxis.setTickMarksVisible(false);   // 隐藏X轴刻度线
+        domainAxis.setAxisLineVisible(false);    // 隐藏X轴线
+        
+        rangeAxis.setTickLabelsVisible(false);   // 隐藏Y轴刻度标签
+        rangeAxis.setTickMarksVisible(false);    // 隐藏Y轴刻度线
+        rangeAxis.setAxisLineVisible(false);     // 隐藏Y轴线
 
         // 设置固定大小，禁用所有拖动和缩放
         plot.setDomainPannable(true);  // 启用domain拖动（用于右键拖动）
