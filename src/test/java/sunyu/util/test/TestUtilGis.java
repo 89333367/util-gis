@@ -436,6 +436,7 @@ public class TestUtilGis {
 
     @Test
     void 测试10秒间隔002() {
+        // eps 20 米, minPts 8
         String did = "EM9101B8F5AZT0041";
         String yyyyMMdd = "20251024";
         String startTime = yyyyMMdd + "000000";
