@@ -1218,10 +1218,10 @@ public class GisUtil implements AutoCloseable {
         }
 
         log.debug("准备创建StaticArrayDatabase");
-        double eps = 13;
+        double eps = 20;
         int minPts = 8;
         if (minEffectiveInterval == 10) {
-            eps = 13;
+            eps = 20;
             minPts = 8;
         } else if (minEffectiveInterval == 1) {
             eps = 4.7;

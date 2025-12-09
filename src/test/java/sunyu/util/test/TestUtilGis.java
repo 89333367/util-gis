@@ -390,9 +390,54 @@ public class TestUtilGis {
     }
 
     @Test
+    void 测试1秒间隔011() {
+        String did = "NJ4GNBSAX0000693";
+        String startTime = "20250505080044";
+        String endTime = "20250505173658";
+        double jobWidth = 2.5;
+        生成数据文件(did, startTime, endTime);
+        测试拆分数据(did, startTime, endTime, jobWidth);
+        生成HTML(did, startTime, endTime);
+    }
+
+    @Test
+    void 测试1秒间隔012() {
+        String did = "NJ4GNBSAX0000693";
+        String startTime = "20250507073041";
+        String endTime = "20250507162457";
+        double jobWidth = 2.5;
+        生成数据文件(did, startTime, endTime);
+        测试拆分数据(did, startTime, endTime, jobWidth);
+        生成HTML(did, startTime, endTime);
+    }
+
+    @Test
+    void 测试1秒间隔013() {
+        String did = "NJ4GNBSAX0000693";
+        String startTime = "20250509092721";
+        String endTime = "20250509111620";
+        double jobWidth = 2.5;
+        生成数据文件(did, startTime, endTime);
+        测试拆分数据(did, startTime, endTime, jobWidth);
+        生成HTML(did, startTime, endTime);
+    }
+
+    @Test
     void 测试10秒间隔001() {
         String did = "EM9101B8F5AZT0041";
         String yyyyMMdd = "20251027";
+        String startTime = yyyyMMdd + "000000";
+        String endTime = yyyyMMdd + "235959";
+        double jobWidth = 3.5;
+        生成数据文件(did, startTime, endTime);
+        测试拆分数据(did, startTime, endTime, jobWidth);
+        生成HTML(did, startTime, endTime);
+    }
+
+    @Test
+    void 测试10秒间隔002() {
+        String did = "EM9101B8F5AZT0041";
+        String yyyyMMdd = "20251024";
         String startTime = yyyyMMdd + "000000";
         String endTime = yyyyMMdd + "235959";
         double jobWidth = 3.5;
