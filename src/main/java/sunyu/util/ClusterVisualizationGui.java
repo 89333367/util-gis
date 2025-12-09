@@ -38,6 +38,7 @@ import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
 import java.awt.event.ComponentAdapter;
 import java.awt.event.ComponentEvent;
+import java.awt.geom.Rectangle2D;
 import java.io.File;
 import java.util.*;
 import java.util.List;
@@ -99,7 +100,7 @@ public class ClusterVisualizationGui extends JFrame {
      */
     private void initializeComponents() {
         // 文件选择组件
-        filePathField = new JTextField(50);
+        filePathField = new JTextField(100);
         filePathField.setEditable(false);
         filePathField.setToolTipText("选择的坐标文件路径");
 
@@ -145,6 +146,9 @@ public class ClusterVisualizationGui extends JFrame {
 
         // 添加右键拖动功能
         setupRightClickDrag(chartPanel);
+        
+        // 设置鼠标滚轮放大缩小功能
+        setupMouseHoverZoom(chartPanel);
     }
 
     /**
@@ -321,6 +325,74 @@ public class ClusterVisualizationGui extends JFrame {
                         plot.getRangeAxis().setRange(dragStartRange[0] + rangeDelta, dragStartRange[1] + rangeDelta);
                     }
                 }
+            }
+        });
+    }
+
+    /**
+     * 设置鼠标滚轮放大缩小功能
+     */
+    private void setupMouseHoverZoom(ChartPanel chartPanel) {
+        final java.awt.Point hoverPoint = new java.awt.Point();
+        
+        chartPanel.addMouseMotionListener(new java.awt.event.MouseMotionAdapter() {
+            @Override
+            public void mouseMoved(java.awt.event.MouseEvent e) {
+                hoverPoint.setLocation(e.getPoint());
+            }
+        });
+        
+        chartPanel.addMouseWheelListener(new java.awt.event.MouseWheelListener() {
+            @Override
+            public void mouseWheelMoved(java.awt.event.MouseWheelEvent e) {
+                if (coordinates.isEmpty()) {
+                    return;
+                }
+                
+                // 将鼠标位置转换为数据坐标
+                java.awt.geom.Point2D plotPoint = chartPanel.translateScreenToJava2D(hoverPoint);
+                XYPlot plot = chart.getXYPlot();
+                
+                // 获取坐标轴
+                org.jfree.chart.axis.ValueAxis domainAxis = plot.getDomainAxis();
+                org.jfree.chart.axis.ValueAxis rangeAxis = plot.getRangeAxis();
+                
+                // 计算鼠标位置对应的数据坐标
+                Rectangle2D dataArea = chartPanel.getScreenDataArea();
+                if (dataArea == null) {
+                    return;
+                }
+                
+                double mouseX = domainAxis.java2DToValue(plotPoint.getX(), dataArea, plot.getDomainAxisEdge());
+                double mouseY = rangeAxis.java2DToValue(plotPoint.getY(), dataArea, plot.getRangeAxisEdge());
+                
+                // 获取当前显示范围
+                double currentDomainMin = domainAxis.getLowerBound();
+                double currentDomainMax = domainAxis.getUpperBound();
+                double currentRangeMin = rangeAxis.getLowerBound();
+                double currentRangeMax = rangeAxis.getUpperBound();
+                
+                // 计算缩放比例（滚轮向上放大，向下缩小）
+                double zoomFactor = e.getWheelRotation() < 0 ? 0.9 : 1.1; // 0.9放大，1.1缩小
+                
+                // 计算新的显示范围（以鼠标位置为中心进行缩放）
+                double newDomainRange = (currentDomainMax - currentDomainMin) * zoomFactor;
+                double newRangeRange = (currentRangeMax - currentRangeMin) * zoomFactor;
+                
+                double newDomainMin = mouseX - (mouseX - currentDomainMin) * zoomFactor;
+                double newDomainMax = mouseX + (currentDomainMax - mouseX) * zoomFactor;
+                double newRangeMin = mouseY - (mouseY - currentRangeMin) * zoomFactor;
+                double newRangeMax = mouseY + (currentRangeMax - mouseY) * zoomFactor;
+                
+                // 确保不超出数据范围
+                newDomainMin = Math.max(newDomainMin, getMinX());
+                newDomainMax = Math.min(newDomainMax, getMaxX());
+                newRangeMin = Math.max(newRangeMin, getMinY());
+                newRangeMax = Math.min(newRangeMax, getMaxY());
+                
+                // 应用缩放
+                plot.getDomainAxis().setRange(newDomainMin, newDomainMax);
+                plot.getRangeAxis().setRange(newRangeMin, newRangeMax);
             }
         });
     }
