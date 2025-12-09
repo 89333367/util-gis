@@ -1157,7 +1157,7 @@ public class GisUtil implements AutoCloseable {
             eps = 13;
             minPts = 8;
         } else if (minEffectiveInterval == 1) {
-            eps = 4;
+            eps = 4.7;
             minPts = 8;
         }
         log.debug("聚类参数 eps={} 米, minPts={}", String.format("%.2f", eps), minPts);

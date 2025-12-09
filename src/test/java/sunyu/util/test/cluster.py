@@ -97,14 +97,14 @@ app.layout = dbc.Container([
             html.Td([
                 html.Div([
                     html.Label("eps:", style={'fontSize': '10px', 'marginRight': '2px'}),
-                    dbc.Input(id='eps-input', type='number', value=3, min=0.01, max=50, step=0.01,
+                    dbc.Input(id='eps-input', type='number', value=4.7, min=1, max=50, step=0.01,
                              placeholder="eps", size="sm", style={'width': '60px'})
                 ], style={'display': 'flex', 'alignItems': 'center'})
             ], style={'width': '12%'}),
             html.Td([
                 html.Div([
                     html.Label("minPts:", style={'fontSize': '10px', 'marginRight': '2px'}),
-                    dbc.Input(id='minpts-input', type='number', value=6, min=2, max=50, step=1,
+                    dbc.Input(id='minpts-input', type='number', value=8, min=2, max=50, step=1,
                              placeholder="minPts", size="sm", style={'width': '60px'})
                 ], style={'display': 'flex', 'alignItems': 'center'})
             ], style={'width': '12%'}),
