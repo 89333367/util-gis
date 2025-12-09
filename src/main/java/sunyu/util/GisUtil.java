@@ -136,6 +136,16 @@ public class GisUtil implements AutoCloseable {
          * </p>
          */
         private final int MAX_SPLIT_RETURN_SIZE = 10;
+
+        /**
+         * 最小返回面积（亩）
+         */
+        private final double MIN_RETURN_MU = 0.5;
+
+        /**
+         * 亩到平方米的转换系数
+         */
+        private final double MU_TO_SQUARE_METER = 666.6666666667;
     }
 
     public static class Builder {
@@ -1141,10 +1151,14 @@ public class GisUtil implements AutoCloseable {
         }
 
         log.debug("准备创建StaticArrayDatabase");
-        double eps = 4;
+        double eps = 13;
         int minPts = 8;
         if (minEffectiveInterval == 10) {
             eps = 13;
+            minPts = 8;
+        } else if (minEffectiveInterval == 1) {
+            eps = 4;
+            minPts = 8;
         }
         log.debug("聚类参数 eps={} 米, minPts={}", String.format("%.2f", eps), minPts);
 
@@ -1233,6 +1247,7 @@ public class GisUtil implements AutoCloseable {
 
         unionGaussGeometries.sort(Comparator.comparing(Geometry::getArea).reversed());
         unionGaussGeometries = unionGaussGeometries.subList(0, Math.min(config.MAX_SPLIT_RETURN_SIZE, unionGaussGeometries.size()));
+        unionGaussGeometries.removeIf(geometry -> geometry.getArea() < config.MIN_RETURN_MU * config.MU_TO_SQUARE_METER);
 
         log.debug("合并所有几何图形，膨胀再收缩 {} 米", bufferSmoothingDistance);
         Geometry unionGaussGeometry = config.GEOMETRY_FACTORY.createGeometryCollection(unionGaussGeometries.toArray(new Geometry[0])).union().buffer(bufferSmoothingDistance).buffer(-bufferSmoothingDistance);
