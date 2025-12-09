@@ -1224,8 +1224,8 @@ public class GisUtil implements AutoCloseable {
             eps = 20;
             minPts = 8;
         } else if (minEffectiveInterval == 1) {
-            eps = 4.7;
-            minPts = 8;
+            eps = 5;
+            minPts = 20;
         }
         log.debug("聚类参数 eps={} 米, minPts={}", String.format("%.2f", eps), minPts);
 
@@ -1319,7 +1319,7 @@ public class GisUtil implements AutoCloseable {
         log.debug("合并所有几何图形，膨胀再收缩 {} 米", bufferSmoothingDistance);
         Geometry unionGaussGeometry = config.GEOMETRY_FACTORY.createGeometryCollection(unionGaussGeometries.toArray(new Geometry[0])).union().buffer(bufferSmoothingDistance).buffer(-bufferSmoothingDistance);
         log.debug("合并后几何图形的面积（平方米）：{}", unionGaussGeometry.getArea());
-        if (unionGaussGeometry.getArea() < config.MU_TO_SQUARE_METER) {
+        if (unionGaussGeometry.getArea() < config.MIN_RETURN_MU * config.MU_TO_SQUARE_METER) {
             return splitResult;
         }
         Geometry wgs84UnionGeometry = toWgs84Geometry(unionGaussGeometry);
