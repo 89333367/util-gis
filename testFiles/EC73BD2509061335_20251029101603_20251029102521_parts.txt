@@ -1,0 +1,3 @@
+作业总幅宽（米）: 2.0
+WKT: GEOMETRYCOLLECTION EMPTY
+作业总面积（亩）: 0.0

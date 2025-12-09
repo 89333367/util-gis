@@ -1138,6 +1138,7 @@ public class GisUtil implements AutoCloseable {
     public SplitResult splitRoad(List<Wgs84Point> wgs84Points, double workingWidth) {
         SplitResult splitResult = new SplitResult();
         splitResult.setWorkingWidth(workingWidth);
+        splitResult.setWkt(config.EMPTY_GEOMETRY.toText());
         if (CollUtil.isEmpty(wgs84Points)) {
             log.error("作业轨迹点列表不能为空");
             return splitResult;
@@ -1317,6 +1318,10 @@ public class GisUtil implements AutoCloseable {
 
         log.debug("合并所有几何图形，膨胀再收缩 {} 米", bufferSmoothingDistance);
         Geometry unionGaussGeometry = config.GEOMETRY_FACTORY.createGeometryCollection(unionGaussGeometries.toArray(new Geometry[0])).union().buffer(bufferSmoothingDistance).buffer(-bufferSmoothingDistance);
+        log.debug("合并后几何图形的面积（平方米）：{}", unionGaussGeometry.getArea());
+        if (unionGaussGeometry.getArea() < config.MU_TO_SQUARE_METER) {
+            return splitResult;
+        }
         Geometry wgs84UnionGeometry = toWgs84Geometry(unionGaussGeometry);
         //log.debug("合并后的几何图形：{}", wgs84UnionGeometry.toText());
         splitResult.setWkt(wgs84UnionGeometry.toText());
