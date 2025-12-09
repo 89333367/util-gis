@@ -24,6 +24,9 @@ import org.jfree.chart.axis.NumberAxis;
 import org.jfree.chart.plot.PlotOrientation;
 import org.jfree.chart.plot.XYPlot;
 import org.jfree.chart.renderer.xy.XYLineAndShapeRenderer;
+import org.jfree.chart.ui.HorizontalAlignment;
+import org.jfree.chart.ui.RectangleEdge;
+import org.jfree.chart.ui.VerticalAlignment;
 import org.jfree.data.xy.XYSeries;
 import org.jfree.data.xy.XYSeriesCollection;
 
@@ -249,18 +252,19 @@ public class ClusterVisualizationGui extends JFrame {
         // 主布局
         setLayout(new BorderLayout(10, 10));
         add(controlPanel, BorderLayout.NORTH);
-
-        // 中间区域：图表和统计信息
-        JSplitPane splitPane = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT);
-        splitPane.setLeftComponent(chartPanel);
-        splitPane.setRightComponent(statsScrollPane);
-        splitPane.setDividerLocation(900);
-        splitPane.setOneTouchExpandable(true);
-        // 禁用等比调整，保持图表固定大小
-        splitPane.setResizeWeight(0.0);  // 左侧组件（图表）不随窗口调整
-        splitPane.setContinuousLayout(false);  // 禁用连续布局
-
-        add(splitPane, BorderLayout.CENTER);
+        
+        // 创建图表容器，使用BorderLayout来放置图例
+        JPanel chartContainer = new JPanel(new BorderLayout());
+        chartContainer.add(chartPanel, BorderLayout.CENTER);
+        
+        // 设置图例到右侧纵向排列
+        if (chart.getLegend() != null) {
+            chart.getLegend().setPosition(RectangleEdge.RIGHT);
+            chart.getLegend().setVerticalAlignment(VerticalAlignment.CENTER);
+            chart.getLegend().setHorizontalAlignment(HorizontalAlignment.CENTER);
+        }
+        
+        add(chartContainer, BorderLayout.CENTER);
 
         // 添加边框
         ((JComponent) getContentPane()).setBorder(new EmptyBorder(10, 10, 10, 10));
