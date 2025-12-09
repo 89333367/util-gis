@@ -526,7 +526,7 @@ public class ClusterVisualizationGui extends JFrame {
         // 设置点的样式
         XYLineAndShapeRenderer renderer = new XYLineAndShapeRenderer();
         renderer.setSeriesLinesVisible(0, false);
-        renderer.setSeriesShape(0, new java.awt.geom.Ellipse2D.Double(-4, -4, 8, 8));
+        renderer.setSeriesShape(0, new java.awt.geom.Ellipse2D.Double(-2, -2, 4, 4));
         renderer.setSeriesPaint(0, Color.BLACK);
         renderer.setSeriesVisibleInLegend(0, false);
 
@@ -658,7 +658,7 @@ public class ClusterVisualizationGui extends JFrame {
             // 设置系列样式
             XYLineAndShapeRenderer renderer = (XYLineAndShapeRenderer) chart.getXYPlot().getRenderer();
             renderer.setSeriesLinesVisible(seriesIndex, false);
-            renderer.setSeriesShape(seriesIndex, new java.awt.geom.Ellipse2D.Double(-5, -5, 10, 10));
+            renderer.setSeriesShape(seriesIndex, new java.awt.geom.Ellipse2D.Double(-2, -2, 4, 4));
             renderer.setSeriesPaint(seriesIndex, CLUSTER_COLORS[clusterId % CLUSTER_COLORS.length]);
             renderer.setSeriesVisibleInLegend(seriesIndex, true);  // 确保簇系列在图例中显示
 
@@ -677,7 +677,7 @@ public class ClusterVisualizationGui extends JFrame {
 
             XYLineAndShapeRenderer renderer = (XYLineAndShapeRenderer) chart.getXYPlot().getRenderer();
             renderer.setSeriesLinesVisible(seriesIndex, false);
-            renderer.setSeriesShape(seriesIndex, new java.awt.geom.Ellipse2D.Double(-4, -4, 8, 8));
+            renderer.setSeriesShape(seriesIndex, new java.awt.geom.Ellipse2D.Double(-1.5, -1.5, 3, 3));
             renderer.setSeriesPaint(seriesIndex, NOISE_COLOR);
             renderer.setSeriesVisibleInLegend(seriesIndex, true);  // 确保噪声点在图例中显示
         }
