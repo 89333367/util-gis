@@ -61,8 +61,7 @@ public class ClusterVisualizationGui extends JFrame {
     private XYSeriesCollection dataset;
 
     // 颜色配置 - 使用更鲜艳的颜色
-    private static final Color[] CLUSTER_COLORS = {
-            new Color(255, 99, 71),   // 番茄红
+    private static final Color[] CLUSTER_COLORS = {new Color(255, 99, 71),   // 番茄红
             new Color(30, 144, 255),  // 道奇蓝
             new Color(50, 205, 50),   // 酸橙绿
             new Color(255, 215, 0),   // 金色
@@ -96,7 +95,7 @@ public class ClusterVisualizationGui extends JFrame {
      */
     private void initializeComponents() {
         // 文件选择组件
-        filePathField = new JTextField(30);
+        filePathField = new JTextField(50);
         filePathField.setEditable(false);
         filePathField.setToolTipText("选择的坐标文件路径");
 
@@ -104,10 +103,10 @@ public class ClusterVisualizationGui extends JFrame {
         selectFileButton.setToolTipText("选择TXT或CSV格式的坐标文件");
 
         // 聚类参数组件
-        epsField = new JTextField("4.7", 8);
+        epsField = new JTextField("5", 8);
         epsField.setToolTipText("DBSCAN eps参数 (邻域半径)");
 
-        minPtsField = new JTextField("8", 8);
+        minPtsField = new JTextField("20", 8);
         minPtsField.setToolTipText("DBSCAN minPts参数 (最小点数)");
 
         clusterButton = new JButton("执行聚类");
@@ -116,13 +115,7 @@ public class ClusterVisualizationGui extends JFrame {
 
         // 图表组件
         dataset = new XYSeriesCollection();
-        chart = ChartFactory.createScatterPlot(
-                "DBSCAN聚类分析",
-                "X 坐标 (米)",
-                "Y 坐标 (米)",
-                dataset,
-                PlotOrientation.VERTICAL,
-                true,  // 显示图例
+        chart = ChartFactory.createScatterPlot("DBSCAN聚类分析", "X 坐标 (米)", "Y 坐标 (米)", dataset, PlotOrientation.VERTICAL, true,  // 显示图例
                 true,  // 工具提示
                 false  // URL链接
         );
@@ -248,8 +241,7 @@ public class ClusterVisualizationGui extends JFrame {
         fileChooser.setDialogTitle("选择坐标文件");
 
         // 设置文件过滤器
-        FileNameExtensionFilter filter = new FileNameExtensionFilter(
-                "坐标文件 (*.txt, *.csv)", "txt", "csv");
+        FileNameExtensionFilter filter = new FileNameExtensionFilter("坐标文件 (*.txt, *.csv)", "txt", "csv");
         fileChooser.setFileFilter(filter);
 
         // 设置默认目录（如果有测试数据）
@@ -297,9 +289,7 @@ public class ClusterVisualizationGui extends JFrame {
             }
 
             if (coordinates.isEmpty()) {
-                JOptionPane.showMessageDialog(this,
-                        "文件中没有找到有效的坐标数据！",
-                        "错误", JOptionPane.ERROR_MESSAGE);
+                JOptionPane.showMessageDialog(this, "文件中没有找到有效的坐标数据！", "错误", JOptionPane.ERROR_MESSAGE);
                 return;
             }
 
@@ -310,23 +300,13 @@ public class ClusterVisualizationGui extends JFrame {
             clusterButton.setEnabled(true);
 
             // 更新统计信息
-            updateStats(String.format(
-                    "数据加载成功！\\n" +
-                            "数据点数量: %d\\n" +
-                            "X坐标范围: [%.2f, %.2f]\\n" +
-                            "Y坐标范围: [%.2f, %.2f]",
-                    coordinates.size(),
-                    getMinX(), getMaxX(),
-                    getMinY(), getMaxY()
-            ));
+            updateStats("数据加载成功！\n" + "数据点数量: " + coordinates.size() + "\n" + "X坐标范围: [" + String.format("%.2f", getMinX()) + ", " + String.format("%.2f", getMaxX()) + "]\n" + "Y坐标范围: [" + String.format("%.2f", getMinY()) + ", " + String.format("%.2f", getMaxY()) + "]");
 
             log.info("成功加载 {} 个坐标点", coordinates.size());
 
         } catch (Exception e) {
             log.error("加载文件失败", e);
-            JOptionPane.showMessageDialog(this,
-                    "文件加载失败: " + e.getMessage(),
-                    "错误", JOptionPane.ERROR_MESSAGE);
+            JOptionPane.showMessageDialog(this, "文件加载失败: " + e.getMessage(), "错误", JOptionPane.ERROR_MESSAGE);
         }
     }
 
@@ -359,9 +339,7 @@ public class ClusterVisualizationGui extends JFrame {
      */
     private void performClustering() {
         if (coordinates.isEmpty()) {
-            JOptionPane.showMessageDialog(this,
-                    "请先加载数据文件！",
-                    "警告", JOptionPane.WARNING_MESSAGE);
+            JOptionPane.showMessageDialog(this, "请先加载数据文件！", "警告", JOptionPane.WARNING_MESSAGE);
             return;
         }
 
@@ -372,9 +350,7 @@ public class ClusterVisualizationGui extends JFrame {
 
             // 参数验证
             if (eps <= 0 || minPts < 2) {
-                JOptionPane.showMessageDialog(this,
-                        "请输入有效的参数 (eps > 0, minPts ≥ 2)",
-                        "参数错误", JOptionPane.ERROR_MESSAGE);
+                JOptionPane.showMessageDialog(this, "请输入有效的参数 (eps > 0, minPts ≥ 2)", "参数错误", JOptionPane.ERROR_MESSAGE);
                 return;
             }
 
@@ -393,14 +369,10 @@ public class ClusterVisualizationGui extends JFrame {
             displayClusteringResults(labels, eps, minPts);
 
         } catch (NumberFormatException e) {
-            JOptionPane.showMessageDialog(this,
-                    "参数格式错误，请输入有效的数字！",
-                    "参数错误", JOptionPane.ERROR_MESSAGE);
+            JOptionPane.showMessageDialog(this, "参数格式错误，请输入有效的数字！", "参数错误", JOptionPane.ERROR_MESSAGE);
         } catch (Exception e) {
             log.error("聚类执行失败", e);
-            JOptionPane.showMessageDialog(this,
-                    "聚类执行失败: " + e.getMessage(),
-                    "错误", JOptionPane.ERROR_MESSAGE);
+            JOptionPane.showMessageDialog(this, "聚类执行失败: " + e.getMessage(), "错误", JOptionPane.ERROR_MESSAGE);
         }
     }
 
@@ -506,25 +478,13 @@ public class ClusterVisualizationGui extends JFrame {
         }
 
         // 更新标题和统计信息
-        chart.setTitle(String.format("DBSCAN聚类结果 (eps=%.1f, minPts=%d)", eps, minPts));
+        chart.setTitle("DBSCAN聚类结果 (eps=" + eps + ", minPts=" + minPts + ")");
 
-        String stats = String.format(
-                "聚类统计\\n" +
-                        "簇数量: %d\\n" +
-                        "噪声点: %d (%.1f%%)\\n" +
-                        "总点数: %d\\n" +
-                        "参数: eps=%.1f, minPts=%d",
-                clusterCount,
-                noiseCount,
-                (double) noiseCount / coordinates.size() * 100,
-                coordinates.size(),
-                eps, minPts
-        );
+        String stats = "聚类统计\n" + "簇数量: " + clusterCount + "\n" + "噪声点: " + noiseCount + " (" + String.format("%.1f", (double) noiseCount / coordinates.size() * 100) + "%)\n" + "总点数: " + coordinates.size() + "\n" + "参数: eps=" + eps + ", minPts=" + minPts;
 
         updateStats(stats);
 
-        log.info("聚类完成: {}个簇, {}个噪声点, 共{}个点",
-                clusterCount, noiseCount, coordinates.size());
+        log.info("聚类完成: {}个簇, {}个噪声点, 共{}个点", clusterCount, noiseCount, coordinates.size());
     }
 
     /**
@@ -573,13 +533,7 @@ public class ClusterVisualizationGui extends JFrame {
                 gui.setVisible(true);
 
                 // 显示欢迎信息
-                gui.updateStats("欢迎使用DBSCAN聚类可视化工具！\\n\\n" +
-                        "操作步骤：\\n" +
-                        "1. 点击'选择数据文件'加载坐标数据\\n" +
-                        "2. 设置聚类参数 (eps和minPts)\\n" +
-                        "3. 点击'执行聚类'进行分析\\n\\n" +
-                        "支持TXT和CSV格式的坐标文件，\\n" +
-                        "每行格式：x,y");
+                gui.updateStats("操作步骤：\n" + "1. 点击'选择数据文件'加载坐标数据\n" + "2. 设置聚类参数 (eps和minPts)\n" + "3. 点击'执行聚类'进行分析\n\n" + "支持TXT和CSV格式的坐标文件，\n" + "每行格式：x,y");
             }
         });
     }
