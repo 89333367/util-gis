@@ -24,9 +24,6 @@ import org.jfree.chart.axis.NumberAxis;
 import org.jfree.chart.plot.PlotOrientation;
 import org.jfree.chart.plot.XYPlot;
 import org.jfree.chart.renderer.xy.XYLineAndShapeRenderer;
-import org.jfree.chart.ui.HorizontalAlignment;
-import org.jfree.chart.ui.RectangleEdge;
-import org.jfree.chart.ui.VerticalAlignment;
 import org.jfree.data.xy.XYSeries;
 import org.jfree.data.xy.XYSeriesCollection;
 
@@ -128,17 +125,17 @@ public class ClusterVisualizationGui extends JFrame {
 
         // 自定义图表样式
         customizeChart();
-        
+
         // 隐藏默认图例
         chart.removeLegend();
-        
+
         // 初始化自定义图例面板
         legendPanel = new JPanel();
         legendPanel.setLayout(new BoxLayout(legendPanel, BoxLayout.Y_AXIS));
         legendPanel.setPreferredSize(new Dimension(200, 600));
         legendPanel.setBorder(BorderFactory.createTitledBorder("图例"));
         legendPanel.setBackground(Color.WHITE);
-        
+
         legendPanel.removeAll();
         JLabel emptyLabel = new JLabel("暂无数据");
         emptyLabel.setFont(new Font(Font.SANS_SERIF, Font.ITALIC, 12));
@@ -162,14 +159,14 @@ public class ClusterVisualizationGui extends JFrame {
         chartPanel.setDomainZoomable(false);   // 禁用domain轴缩放
         chartPanel.setRangeZoomable(false);    // 禁用range轴缩放
         chartPanel.setPopupMenu(null);         // 禁用右键菜单
-        
+
         // 设置等比例显示，保持地图比例
         chartPanel.setRefreshBuffer(true);
         chartPanel.setDoubleBuffered(true);
 
         // 添加右键拖动功能
         setupRightClickDrag(chartPanel);
-        
+
         // 设置鼠标滚轮放大缩小功能
         setupMouseHoverZoom(chartPanel);
     }
@@ -353,74 +350,73 @@ public class ClusterVisualizationGui extends JFrame {
      */
     private void setupMouseHoverZoom(ChartPanel chartPanel) {
         final java.awt.Point hoverPoint = new java.awt.Point();
-        
+
         chartPanel.addMouseMotionListener(new java.awt.event.MouseMotionAdapter() {
             @Override
             public void mouseMoved(java.awt.event.MouseEvent e) {
                 hoverPoint.setLocation(e.getPoint());
             }
         });
-        
+
         chartPanel.addMouseWheelListener(new java.awt.event.MouseWheelListener() {
             @Override
             public void mouseWheelMoved(java.awt.event.MouseWheelEvent e) {
                 if (coordinates.isEmpty()) {
                     return;
                 }
-                
+
                 // 将鼠标位置转换为数据坐标
                 java.awt.geom.Point2D plotPoint = chartPanel.translateScreenToJava2D(hoverPoint);
                 XYPlot plot = chart.getXYPlot();
-                
+
                 // 获取坐标轴
                 org.jfree.chart.axis.ValueAxis domainAxis = plot.getDomainAxis();
                 org.jfree.chart.axis.ValueAxis rangeAxis = plot.getRangeAxis();
-                
+
                 // 计算鼠标位置对应的数据坐标
                 Rectangle2D dataArea = chartPanel.getScreenDataArea();
                 if (dataArea == null) {
                     return;
                 }
-                
+
                 double mouseX = domainAxis.java2DToValue(plotPoint.getX(), dataArea, plot.getDomainAxisEdge());
                 double mouseY = rangeAxis.java2DToValue(plotPoint.getY(), dataArea, plot.getRangeAxisEdge());
-                
+
                 // 获取当前显示范围
                 double currentDomainMin = domainAxis.getLowerBound();
                 double currentDomainMax = domainAxis.getUpperBound();
                 double currentRangeMin = rangeAxis.getLowerBound();
                 double currentRangeMax = rangeAxis.getUpperBound();
-                
+
                 // 计算缩放比例（滚轮向上放大，向下缩小）
                 double zoomFactor = e.getWheelRotation() < 0 ? 0.9 : 1.1; // 0.9放大，1.1缩小
-                
+
                 // 获取图表面板的宽高比
                 double panelAspectRatio = dataArea.getWidth() / dataArea.getHeight();
-                
+
                 // 计算新的显示范围（以鼠标位置为中心进行等比缩放）
                 double newDomainRange = (currentDomainMax - currentDomainMin) * zoomFactor;
                 double newRangeRange = (currentRangeMax - currentRangeMin) * zoomFactor;
-                
+
                 // 根据面板比例调整缩放，保持地图比例
                 double adjustedRangeRange = newDomainRange / panelAspectRatio;
-                
+
                 double newDomainMin = mouseX - (mouseX - currentDomainMin) * zoomFactor;
                 double newDomainMax = mouseX + (currentDomainMax - mouseX) * zoomFactor;
                 double newRangeMin = mouseY - (mouseY - currentRangeMin) * (adjustedRangeRange / (currentRangeMax - currentRangeMin));
                 double newRangeMax = mouseY + (currentRangeMax - mouseY) * (adjustedRangeRange / (currentRangeMax - currentRangeMin));
-                
+
                 // 限制最大缩放范围（防止缩放到无限大）
                 double dataRange = Math.max(getMaxX() - getMinX(), getMaxY() - getMinY());
                 double maxRange = dataRange * 100; // 最大100倍数据范围
                 double minRange = dataRange * 0.01; // 最小1%数据范围
-                
-                if (newDomainRange >= minRange && newDomainRange <= maxRange && 
-                    newRangeRange >= minRange && newRangeRange <= maxRange) {
+
+                if (newDomainRange >= minRange && newDomainRange <= maxRange && newRangeRange >= minRange && newRangeRange <= maxRange) {
                     // 应用缩放
                     plot.getDomainAxis().setRange(newDomainMin, newDomainMax);
                     plot.getRangeAxis().setRange(newRangeMin, newRangeMax);
                 }
-                
+
                 // 应用缩放
                 plot.getDomainAxis().setRange(newDomainMin, newDomainMax);
                 plot.getRangeAxis().setRange(newRangeMin, newRangeMax);
@@ -516,7 +512,6 @@ public class ClusterVisualizationGui extends JFrame {
             clusterButton.setEnabled(true);
 
 
-
             log.info("成功加载 {} 个坐标点", coordinates.size());
 
         } catch (Exception e) {
@@ -584,15 +579,15 @@ public class ClusterVisualizationGui extends JFrame {
             int[] labels = performDBSCAN(data, eps, minPts);
 
             // 显示聚类结果
-        displayClusteringResults(labels, eps, minPts);
+            displayClusteringResults(labels, eps, minPts);
 
-    } catch (NumberFormatException e) {
-        JOptionPane.showMessageDialog(this, "参数格式错误，请输入有效的数字！", "参数错误", JOptionPane.ERROR_MESSAGE);
-    } catch (Exception e) {
-        log.error("聚类执行失败", e);
-        JOptionPane.showMessageDialog(this, "聚类执行失败: " + e.getMessage(), "错误", JOptionPane.ERROR_MESSAGE);
+        } catch (NumberFormatException e) {
+            JOptionPane.showMessageDialog(this, "参数格式错误，请输入有效的数字！", "参数错误", JOptionPane.ERROR_MESSAGE);
+        } catch (Exception e) {
+            log.error("聚类执行失败", e);
+            JOptionPane.showMessageDialog(this, "聚类执行失败: " + e.getMessage(), "错误", JOptionPane.ERROR_MESSAGE);
+        }
     }
-}
 
     /**
      * 使用ELKI执行DBSCAN聚类
@@ -637,24 +632,24 @@ public class ClusterVisualizationGui extends JFrame {
      */
     private void updateCustomLegend(Map<Integer, List<double[]>> clusters, List<double[]> noisePoints) {
         legendPanel.removeAll();
-        
+
         // 添加标题
         JLabel titleLabel = new JLabel("聚类图例");
         titleLabel.setFont(new Font(Font.SANS_SERIF, Font.BOLD, 14));
         titleLabel.setAlignmentX(Component.CENTER_ALIGNMENT);
         legendPanel.add(titleLabel);
         legendPanel.add(Box.createVerticalStrut(10));
-        
+
         // 添加聚类图例项
         int clusterIndex = 0;
         for (Map.Entry<Integer, List<double[]>> entry : clusters.entrySet()) {
             int clusterId = entry.getKey();
             List<double[]> points = entry.getValue();
-            
+
             JPanel itemPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
             itemPanel.setBackground(Color.WHITE);
             itemPanel.setMaximumSize(new Dimension(180, 25));
-            
+
             // 创建颜色指示器（4x4椭圆）
             JPanel colorIndicator = new JPanel() {
                 @Override
@@ -668,25 +663,25 @@ public class ClusterVisualizationGui extends JFrame {
             };
             colorIndicator.setPreferredSize(new Dimension(12, 12));
             colorIndicator.setBackground(Color.WHITE);
-            
+
             JLabel label = new JLabel(String.format("簇 %d (%d点)", clusterId, points.size()));
             label.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 12));
-            
+
             itemPanel.add(colorIndicator);
             itemPanel.add(label);
-            
+
             legendPanel.add(itemPanel);
             legendPanel.add(Box.createVerticalStrut(5));
-            
+
             clusterIndex++;
         }
-        
+
         // 添加噪声点图例项
         if (!noisePoints.isEmpty()) {
             JPanel noisePanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
             noisePanel.setBackground(Color.WHITE);
             noisePanel.setMaximumSize(new Dimension(180, 25));
-            
+
             // 创建噪声点颜色指示器（4x4椭圆，黑色）
             JPanel noiseIndicator = new JPanel() {
                 @Override
@@ -700,19 +695,19 @@ public class ClusterVisualizationGui extends JFrame {
             };
             noiseIndicator.setPreferredSize(new Dimension(12, 12));
             noiseIndicator.setBackground(Color.WHITE);
-            
+
             JLabel noiseLabel = new JLabel(String.format("噪声 (%d点)", noisePoints.size()));
             noiseLabel.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 12));
-            
+
             noisePanel.add(noiseIndicator);
             noisePanel.add(noiseLabel);
-            
+
             legendPanel.add(noisePanel);
         }
-        
+
         // 添加弹性空间
         legendPanel.add(Box.createVerticalGlue());
-        
+
         legendPanel.revalidate();
         legendPanel.repaint();
     }
@@ -738,7 +733,7 @@ public class ClusterVisualizationGui extends JFrame {
 
         int clusterCount = clusters.size();
         int noiseCount = noisePoints.size();
-        
+
         // 更新自定义图例
         updateCustomLegend(clusters, noisePoints);
 
@@ -795,7 +790,6 @@ public class ClusterVisualizationGui extends JFrame {
     }
 
 
-
     /**
      * 获取坐标范围
      */
@@ -831,31 +825,31 @@ public class ClusterVisualizationGui extends JFrame {
         // 计算数据范围
         double xRange = maxX - minX;
         double yRange = maxY - minY;
-        
+
         // 获取图表面板的宽高比
         int panelWidth = chartPanel.getWidth();
         int panelHeight = chartPanel.getHeight();
-        
+
         if (panelWidth <= 0 || panelHeight <= 0) {
             panelWidth = 800;  // 默认值
             panelHeight = 600; // 默认值
         }
-        
+
         double panelAspectRatio = (double) panelWidth / panelHeight;
-        
+
         // 计算数据的高斯投影比例（通常接近1:1，但需要根据实际数据调整）
         double dataAspectRatio = xRange / yRange;
-        
+
         // 添加边距
         double margin = Math.max(xRange, yRange) * 0.1;
-        
+
         double xMin, xMax, yMin, yMax;
-        
+
         if (dataAspectRatio > panelAspectRatio) {
             // 数据更宽，以X轴为主，调整Y轴范围
             xMin = minX - margin;
             xMax = maxX + margin;
-            
+
             double adjustedYRange = (xMax - xMin) / panelAspectRatio;
             double yCenter = (minY + maxY) / 2;
             yMin = yCenter - adjustedYRange / 2;
@@ -864,7 +858,7 @@ public class ClusterVisualizationGui extends JFrame {
             // 数据更高，以Y轴为主，调整X轴范围
             yMin = minY - margin;
             yMax = maxY + margin;
-            
+
             double adjustedXRange = (yMax - yMin) * panelAspectRatio;
             double xCenter = (minX + maxX) / 2;
             xMin = xCenter - adjustedXRange / 2;
