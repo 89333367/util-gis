@@ -33,6 +33,8 @@ import javax.swing.filechooser.FileNameExtensionFilter;
 import java.awt.*;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
+import java.awt.event.ComponentAdapter;
+import java.awt.event.ComponentEvent;
 import java.io.File;
 import java.util.*;
 import java.util.List;
@@ -125,8 +127,22 @@ public class ClusterVisualizationGui extends JFrame {
 
         chartPanel = new ChartPanel(chart);
         chartPanel.setPreferredSize(new Dimension(800, 600));
-        chartPanel.setMouseWheelEnabled(true); // 启用滚轮缩放
-        chartPanel.setMouseZoomable(true);     // 启用鼠标缩放
+        chartPanel.setMouseWheelEnabled(false); // 禁用滚轮缩放
+        chartPanel.setMouseZoomable(false);     // 禁用鼠标缩放
+        chartPanel.setFillZoomRectangle(false);
+        // 设置固定大小，不允许任何缩放
+        chartPanel.setMaximumDrawWidth(800);
+        chartPanel.setMaximumDrawHeight(600);
+        chartPanel.setMinimumDrawWidth(800);
+        chartPanel.setMinimumDrawHeight(600);
+        
+        // 完全禁用缩放和拖动功能
+        chartPanel.setDomainZoomable(false);   // 禁用domain轴缩放
+        chartPanel.setRangeZoomable(false);    // 禁用range轴缩放
+        chartPanel.setPopupMenu(null);         // 禁用右键菜单
+        
+        // 添加右键拖动功能
+        setupRightClickDrag(chartPanel);
 
         // 统计信息组件
         statsTextArea = new JTextArea(6, 30);
@@ -154,10 +170,29 @@ public class ClusterVisualizationGui extends JFrame {
         rangeAxis.setAutoRangeIncludesZero(false);
         domainAxis.setLabelFont(new Font(Font.SANS_SERIF, Font.PLAIN, 12));
         rangeAxis.setLabelFont(new Font(Font.SANS_SERIF, Font.PLAIN, 12));
-        
+
         // 设置坐标轴刻度字体
         domainAxis.setTickLabelFont(new Font(Font.SANS_SERIF, Font.PLAIN, 10));
         rangeAxis.setTickLabelFont(new Font(Font.SANS_SERIF, Font.PLAIN, 10));
+
+        // 设置固定大小，禁用所有拖动和缩放
+        plot.setDomainPannable(true);  // 启用domain拖动（用于右键拖动）
+        plot.setRangePannable(true);   // 启用range拖动（用于右键拖动）
+        plot.setDomainGridlinesVisible(true);
+        plot.setRangeGridlinesVisible(true);
+        
+        // 禁止任何拉伸和缩放
+        plot.setRangeZeroBaselineVisible(false);
+        plot.setDomainZeroBaselineVisible(false);
+        plot.setNoDataMessage("暂无数据");
+        
+        // 设置固定模式
+        domainAxis.setAutoRangeStickyZero(false);
+        rangeAxis.setAutoRangeStickyZero(false);
+        
+        // 设置固定坐标轴
+        plot.setDomainAxis(domainAxis);
+        plot.setRangeAxis(rangeAxis);
 
         // 设置渲染器
         XYLineAndShapeRenderer renderer = new XYLineAndShapeRenderer();
@@ -166,7 +201,7 @@ public class ClusterVisualizationGui extends JFrame {
 
         // 设置标题字体
         chart.getTitle().setFont(new Font(Font.SANS_SERIF, Font.BOLD, 16));
-        
+
         // 设置图例字体
         if (chart.getLegend() != null) {
             chart.getLegend().setItemFont(new Font(Font.SANS_SERIF, Font.PLAIN, 12));
@@ -214,11 +249,81 @@ public class ClusterVisualizationGui extends JFrame {
         splitPane.setRightComponent(statsScrollPane);
         splitPane.setDividerLocation(900);
         splitPane.setOneTouchExpandable(true);
+        // 禁用等比调整，保持图表固定大小
+        splitPane.setResizeWeight(0.0);  // 左侧组件（图表）不随窗口调整
+        splitPane.setContinuousLayout(false);  // 禁用连续布局
 
         add(splitPane, BorderLayout.CENTER);
 
         // 添加边框
         ((JComponent) getContentPane()).setBorder(new EmptyBorder(10, 10, 10, 10));
+    }
+
+    /**
+     * 设置右键拖动功能
+     */
+    private void setupRightClickDrag(ChartPanel chartPanel) {
+        // 使用共享变量来避免重复初始化
+        final java.awt.Point[] dragStartPoint = new java.awt.Point[1];
+        final double[] dragStartDomain = new double[2]; // [min, max]
+        final double[] dragStartRange = new double[2];  // [min, max]
+        final boolean[] isDragging = new boolean[1];
+        
+        chartPanel.addMouseListener(new java.awt.event.MouseAdapter() {
+            @Override
+            public void mousePressed(java.awt.event.MouseEvent e) {
+                if (SwingUtilities.isRightMouseButton(e)) {
+                    dragStartPoint[0] = e.getPoint();
+                    XYPlot plot = chart.getXYPlot();
+                    dragStartDomain[0] = plot.getDomainAxis().getLowerBound();
+                    dragStartDomain[1] = plot.getDomainAxis().getUpperBound();
+                    dragStartRange[0] = plot.getRangeAxis().getLowerBound();
+                    dragStartRange[1] = plot.getRangeAxis().getUpperBound();
+                    isDragging[0] = true;
+                    chartPanel.setCursor(Cursor.getPredefinedCursor(Cursor.MOVE_CURSOR));
+                }
+            }
+            
+            @Override
+            public void mouseReleased(java.awt.event.MouseEvent e) {
+                if (SwingUtilities.isRightMouseButton(e)) {
+                    isDragging[0] = false;
+                    chartPanel.setCursor(Cursor.getDefaultCursor());
+                }
+            }
+        });
+        
+        chartPanel.addMouseMotionListener(new java.awt.event.MouseMotionAdapter() {
+            @Override
+            public void mouseDragged(java.awt.event.MouseEvent e) {
+                if (SwingUtilities.isRightMouseButton(e) && isDragging[0] && dragStartPoint[0] != null) {
+                    java.awt.Point currentPoint = e.getPoint();
+                    
+                    // 计算像素移动距离
+                    int deltaX = currentPoint.x - dragStartPoint[0].x;
+                    int deltaY = currentPoint.y - dragStartPoint[0].y;
+                    
+                    // 获取图表尺寸
+                    int chartWidth = chartPanel.getWidth();
+                    int chartHeight = chartPanel.getHeight();
+                    
+                    if (chartWidth > 0 && chartHeight > 0) {
+                        // 计算坐标轴范围
+                        double domainRange = dragStartDomain[1] - dragStartDomain[0];
+                        double rangeRange = dragStartRange[1] - dragStartRange[0];
+                        
+                        // 将像素移动转换为坐标值移动
+                        double domainDelta = -deltaX * (domainRange / chartWidth);
+                        double rangeDelta = deltaY * (rangeRange / chartHeight);
+                        
+                        // 更新坐标轴范围（基于初始位置计算，避免累积误差）
+                        XYPlot plot = chart.getXYPlot();
+                        plot.getDomainAxis().setRange(dragStartDomain[0] + domainDelta, dragStartDomain[1] + domainDelta);
+                        plot.getRangeAxis().setRange(dragStartRange[0] + rangeDelta, dragStartRange[1] + rangeDelta);
+                    }
+                }
+            }
+        });
     }
 
     /**
@@ -341,6 +446,9 @@ public class ClusterVisualizationGui extends JFrame {
 
         chart.getXYPlot().setRenderer(renderer);
         chart.setTitle("原始数据 - 请选择文件并点击'执行聚类'按钮");
+        
+        // 居中显示所有数据点
+        centerChart();
     }
 
     /**
@@ -494,6 +602,9 @@ public class ClusterVisualizationGui extends JFrame {
         String stats = "聚类统计\n" + "簇数量: " + clusterCount + "\n" + "噪声点: " + noiseCount + " (" + String.format("%.1f", (double) noiseCount / coordinates.size() * 100) + "%)\n" + "总点数: " + coordinates.size() + "\n" + "参数: eps=" + eps + ", minPts=" + minPts;
 
         updateStats(stats);
+        
+        // 居中显示所有数据点
+        centerChart();
 
         log.info("聚类完成: {}个簇, {}个噪声点, 共{}个点", clusterCount, noiseCount, coordinates.size());
     }
@@ -526,6 +637,33 @@ public class ClusterVisualizationGui extends JFrame {
     }
 
     /**
+     * 将图表居中显示所有数据点
+     */
+    private void centerChart() {
+        if (coordinates.isEmpty()) {
+            return;
+        }
+        
+        double minX = getMinX();
+        double maxX = getMaxX();
+        double minY = getMinY();
+        double maxY = getMaxY();
+        
+        // 添加10%的边距
+        double xMargin = (maxX - minX) * 0.1;
+        double yMargin = (maxY - minY) * 0.1;
+        
+        double xMin = minX - xMargin;
+        double xMax = maxX + xMargin;
+        double yMin = minY - yMargin;
+        double yMax = maxY + yMargin;
+        
+        XYPlot plot = chart.getXYPlot();
+        plot.getDomainAxis().setRange(xMin, xMax);
+        plot.getRangeAxis().setRange(yMin, yMax);
+    }
+
+    /**
      * 主方法 - 启动应用
      */
     public static void main(String[] args) {
@@ -545,6 +683,18 @@ public class ClusterVisualizationGui extends JFrame {
 
                 // 显示欢迎信息
                 gui.updateStats("操作步骤：\n" + "1. 点击'选择数据文件'加载坐标数据\n" + "2. 设置聚类参数 (eps和minPts)\n" + "3. 点击'执行聚类'进行分析\n\n" + "支持TXT和CSV格式的坐标文件，\n" + "每行格式：x,y");
+
+                // 添加组件监听器，确保窗口大小变化时保持图表比例
+                gui.addComponentListener(new ComponentAdapter() {
+                    @Override
+                    public void componentResized(ComponentEvent e) {
+                        // 重新设置图表的等比显示
+                        if (gui.chartPanel != null) {
+                            gui.chartPanel.revalidate();
+                            gui.chartPanel.repaint();
+                        }
+                    }
+                });
             }
         });
     }
