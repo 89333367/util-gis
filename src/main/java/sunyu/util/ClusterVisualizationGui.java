@@ -152,8 +152,12 @@ public class ClusterVisualizationGui extends JFrame {
 
         domainAxis.setAutoRangeIncludesZero(false);
         rangeAxis.setAutoRangeIncludesZero(false);
-        domainAxis.setLabelFont(new Font("宋体", Font.PLAIN, 12));
-        rangeAxis.setLabelFont(new Font("宋体", Font.PLAIN, 12));
+        domainAxis.setLabelFont(new Font(Font.SANS_SERIF, Font.PLAIN, 12));
+        rangeAxis.setLabelFont(new Font(Font.SANS_SERIF, Font.PLAIN, 12));
+        
+        // 设置坐标轴刻度字体
+        domainAxis.setTickLabelFont(new Font(Font.SANS_SERIF, Font.PLAIN, 10));
+        rangeAxis.setTickLabelFont(new Font(Font.SANS_SERIF, Font.PLAIN, 10));
 
         // 设置渲染器
         XYLineAndShapeRenderer renderer = new XYLineAndShapeRenderer();
@@ -161,7 +165,12 @@ public class ClusterVisualizationGui extends JFrame {
         plot.setRenderer(renderer);
 
         // 设置标题字体
-        chart.getTitle().setFont(new Font("宋体", Font.BOLD, 16));
+        chart.getTitle().setFont(new Font(Font.SANS_SERIF, Font.BOLD, 16));
+        
+        // 设置图例字体
+        if (chart.getLegend() != null) {
+            chart.getLegend().setItemFont(new Font(Font.SANS_SERIF, Font.PLAIN, 12));
+        }
     }
 
     /**
