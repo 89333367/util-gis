@@ -30,6 +30,10 @@ import org.jfree.data.xy.XYSeriesCollection;
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
 import javax.swing.filechooser.FileNameExtensionFilter;
+import javax.swing.text.AbstractDocument;
+import javax.swing.text.AttributeSet;
+import javax.swing.text.BadLocationException;
+import javax.swing.text.DocumentFilter;
 import java.awt.*;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
@@ -107,10 +111,122 @@ public class ClusterVisualizationGui extends JFrame {
 
         // 聚类参数组件
         epsField = new JTextField("5", 8);
-        epsField.setToolTipText("DBSCAN eps参数 (邻域半径)");
+        epsField.setToolTipText("DBSCAN eps参数 (邻域半径，必须>1.0)");
+        // 设置eps字段只能输入大于1.0的浮点数
+        ((AbstractDocument) epsField.getDocument()).setDocumentFilter(new DocumentFilter() {
+            @Override
+            public void insertString(FilterBypass fb, int offset, String string, AttributeSet attr) throws BadLocationException {
+                if (string == null) return;
+                String currentText = fb.getDocument().getText(0, fb.getDocument().getLength());
+                String newStr = currentText.substring(0, offset) + string + currentText.substring(offset);
+                if (isValidEps(newStr)) {
+                    super.insertString(fb, offset, string, attr);
+                }
+            }
+
+            @Override
+            public void replace(FilterBypass fb, int offset, int length, String text, AttributeSet attrs) throws BadLocationException {
+                if (text == null) return;
+                String currentText = fb.getDocument().getText(0, fb.getDocument().getLength());
+                String newStr = currentText.substring(0, offset) + text + currentText.substring(offset + length);
+                if (isValidEps(newStr)) {
+                    super.replace(fb, offset, length, text, attrs);
+                }
+            }
+
+            @Override
+            public void remove(FilterBypass fb, int offset, int length) throws BadLocationException {
+                String currentText = fb.getDocument().getText(0, fb.getDocument().getLength());
+                String newStr = currentText.substring(0, offset) + currentText.substring(offset + length);
+                if (isValidEps(newStr)) {
+                    super.remove(fb, offset, length);
+                }
+            }
+
+            private boolean isValidEps(String text) {
+                if (text.isEmpty()) return true; // 允许空字符串
+
+                // 检查是否只包含数字、小数点和负号
+                for (int i = 0; i < text.length(); i++) {
+                    char c = text.charAt(i);
+                    if (!Character.isDigit(c) && c != '.' && c != '-') {
+                        return false;
+                    }
+                }
+
+                // 检查小数点数量
+                int dotCount = 0;
+                for (int i = 0; i < text.length(); i++) {
+                    if (text.charAt(i) == '.') {
+                        dotCount++;
+                    }
+                }
+                if (dotCount > 1) return false;
+
+                // 检查负号位置
+                if (text.indexOf('-') > 0) return false;
+
+                try {
+                    float value = Float.parseFloat(text);
+                    return value > 1.0f; // 必须大于1.0
+                } catch (NumberFormatException e) {
+                    return false;
+                }
+            }
+        });
 
         minPtsField = new JTextField("20", 8);
-        minPtsField.setToolTipText("DBSCAN minPts参数 (最小点数)");
+        minPtsField.setToolTipText("DBSCAN minPts参数 (最小点数，必须≥3)");
+        // 设置minPts字段只能输入大于等于3的整数
+        ((AbstractDocument) minPtsField.getDocument()).setDocumentFilter(new DocumentFilter() {
+            @Override
+            public void insertString(FilterBypass fb, int offset, String string, AttributeSet attr) throws BadLocationException {
+                if (string == null) return;
+                String currentText = fb.getDocument().getText(0, fb.getDocument().getLength());
+                String newStr = currentText.substring(0, offset) + string + currentText.substring(offset);
+                if (isValidMinPts(newStr)) {
+                    super.insertString(fb, offset, string, attr);
+                }
+            }
+
+            @Override
+            public void replace(FilterBypass fb, int offset, int length, String text, AttributeSet attrs) throws BadLocationException {
+                if (text == null) return;
+                String currentText = fb.getDocument().getText(0, fb.getDocument().getLength());
+                String newStr = currentText.substring(0, offset) + text + currentText.substring(offset + length);
+                if (isValidMinPts(newStr)) {
+                    super.replace(fb, offset, length, text, attrs);
+                }
+            }
+
+            @Override
+            public void remove(FilterBypass fb, int offset, int length) throws BadLocationException {
+                String currentText = fb.getDocument().getText(0, fb.getDocument().getLength());
+                String newStr = currentText.substring(0, offset) + currentText.substring(offset + length);
+                if (isValidMinPts(newStr)) {
+                    super.remove(fb, offset, length);
+                }
+            }
+
+            private boolean isValidMinPts(String text) {
+                if (text.isEmpty()) return true; // 允许空字符串
+
+                // 检查是否只包含数字
+                for (int i = 0; i < text.length(); i++) {
+                    char c = text.charAt(i);
+                    if (!Character.isDigit(c)) {
+                        return false;
+                    }
+                }
+
+                try {
+                    int value = Integer.parseInt(text);
+                    return value >= 3; // 必须大于等于3
+                } catch (NumberFormatException e) {
+                    return false;
+                }
+            }
+        });
 
         clusterButton = new JButton("执行聚类");
         clusterButton.setEnabled(false);
