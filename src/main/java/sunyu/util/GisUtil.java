@@ -376,14 +376,77 @@ public class GisUtil implements AutoCloseable {
         return config.EMPTY_GEOMETRY;
     }
 
+    /**
+     * 计算轨迹段的点密度（点/米）
+     * 通过计算相邻点之间的平均距离来估算密度
+     *
+     * @param points 轨迹点列表
+     *
+     * @return 密度值（点/米），值越大表示点越密集
+     */
+    private double calculatePointDensity(List<GaussPoint> points) {
+        if (points.size() < 2) {
+            return 0.0;
+        }
+
+        double totalDistance = 0.0;
+        int validSegments = 0;
+
+        // 计算相邻点之间的总距离
+        for (int i = 1; i < points.size(); i++) {
+            GaussPoint prevPoint = points.get(i - 1);
+            GaussPoint currPoint = points.get(i);
+
+            // 计算欧几里得距离
+            double distance = Math.sqrt(Math.pow(currPoint.getGaussX() - prevPoint.getGaussX(), 2) + Math.pow(currPoint.getGaussY() - prevPoint.getGaussY(), 2));
+
+            if (distance > 0) { // 避免重复点
+                totalDistance += distance;
+                validSegments++;
+            }
+        }
+
+        if (validSegments == 0) {
+            return 0.0;
+        }
+
+        double avgDistance = totalDistance / validSegments;
+        double density = avgDistance > 0 ? 1.0 / avgDistance : 0.0; // 密度 = 1/平均距离
+
+        log.debug("密度计算：总点数={}, 有效段数={}, 总距离={}米, 平均距离={}米, 密度={}点/米", points.size(), validSegments, totalDistance, avgDistance, density);
+
+        return density;
+    }
+
     private Geometry processLargeSegmentInChunks(List<GaussPoint> points, double bufferWidth) {
         long startTime = System.currentTimeMillis();
         log.debug("开始分块处理大型轨迹段，点数: {}", points.size());
 
-        // 简化分块逻辑：使用固定的较大块大小，减少分块数
+        // 计算点的密度，动态调整分块策略
+        double density = calculatePointDensity(points);
+        log.debug("轨迹段密度: {} 点/米", density);
+
+        // 根据密度动态设置分块参数
         int totalPoints = points.size();
-        int chunkSize = Math.max(1000, Math.min(totalPoints, 2000)); // 使用更大的块大小减少分块数
-        int overlapSize = 50; // 使用固定的重叠区域确保连续性
+        int chunkSize;
+        int overlapSize;
+
+        if (density > 1.0) {
+            // 高密度区域：点非常密集，使用小块，减少每块点数
+            chunkSize = Math.max(300, Math.min(totalPoints, 500));
+            overlapSize = Math.max(30, chunkSize / 10); // 10%重叠
+            log.debug("高密度区域，使用小块处理：块大小={}, 重叠={}", chunkSize, overlapSize);
+        } else if (density > 0.5) {
+            // 中密度区域：中等密度，使用中等块
+            chunkSize = Math.max(500, Math.min(totalPoints, 800));
+            overlapSize = Math.max(40, chunkSize / 12); // 8%重叠
+            log.debug("中密度区域，使用中块处理：块大小={}, 重叠={}", chunkSize, overlapSize);
+        } else {
+            // 低密度区域：点稀疏，使用大块，减少分块数
+            chunkSize = Math.max(800, Math.min(totalPoints, 1200));
+            overlapSize = Math.max(50, chunkSize / 15); // 6.7%重叠
+            log.debug("低密度区域，使用大块处理：块大小={}, 重叠={}", chunkSize, overlapSize);
+        }
 
         // 计算块数并生成块起始索引
         int chunksCount = (int) Math.ceil((double) totalPoints / (chunkSize - overlapSize));
@@ -398,11 +461,14 @@ public class GisUtil implements AutoCloseable {
             chunkStartIndices.add(startIndex);
         }
 
-        log.debug("共分成 {} 个块进行处理，块大小: {}, 重叠区域: {}", chunkStartIndices.size(), chunkSize, overlapSize);
+        log.debug("共分成 {} 个块进行处理，总点数: {}", chunkStartIndices.size(), totalPoints);
 
         // 处理所有块
         List<Geometry> chunkGeometries = new ArrayList<>();
-        for (Integer startIndex : chunkStartIndices) {
+        for (int i = 0; i < chunkStartIndices.size(); i++) {
+            int startIndex = chunkStartIndices.get(i);
+            log.debug("处理第 {} 块，起始索引: {}, 块大小: {}", i + 1, startIndex, chunkSize);
+
             Geometry geom = processChunk(points, startIndex, chunkSize, totalPoints, bufferWidth);
             if (!geom.isEmpty()) {
                 chunkGeometries.add(geom);
