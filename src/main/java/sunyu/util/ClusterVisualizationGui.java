@@ -60,6 +60,7 @@ public class ClusterVisualizationGui extends JFrame {
     private JButton clusterButton;
     private ChartPanel chartPanel;
     private JFreeChart chart;
+    private JPanel legendPanel;  // 自定义图例面板
 
     // 数据存储
     private List<double[]> coordinates = new ArrayList<>();
@@ -127,6 +128,24 @@ public class ClusterVisualizationGui extends JFrame {
 
         // 自定义图表样式
         customizeChart();
+        
+        // 隐藏默认图例
+        chart.removeLegend();
+        
+        // 初始化自定义图例面板
+        legendPanel = new JPanel();
+        legendPanel.setLayout(new BoxLayout(legendPanel, BoxLayout.Y_AXIS));
+        legendPanel.setPreferredSize(new Dimension(200, 600));
+        legendPanel.setBorder(BorderFactory.createTitledBorder("图例"));
+        legendPanel.setBackground(Color.WHITE);
+        
+        legendPanel.removeAll();
+        JLabel emptyLabel = new JLabel("暂无数据");
+        emptyLabel.setFont(new Font(Font.SANS_SERIF, Font.ITALIC, 12));
+        emptyLabel.setAlignmentX(Component.CENTER_ALIGNMENT);
+        legendPanel.add(Box.createVerticalGlue());
+        legendPanel.add(emptyLabel);
+        legendPanel.add(Box.createVerticalGlue());
 
         chartPanel = new ChartPanel(chart);
         chartPanel.setPreferredSize(new Dimension(800, 600));
@@ -249,18 +268,14 @@ public class ClusterVisualizationGui extends JFrame {
         setLayout(new BorderLayout(10, 10));
         add(controlPanel, BorderLayout.NORTH);
 
-        // 创建图表容器，使用BorderLayout来放置图例
-        JPanel chartContainer = new JPanel(new BorderLayout());
-        chartContainer.add(chartPanel, BorderLayout.CENTER);
+        // 自定义图例面板已在initializeComponents中初始化
 
-        // 设置图例到右侧纵向排列
-        if (chart.getLegend() != null) {
-            chart.getLegend().setPosition(RectangleEdge.RIGHT);
-            chart.getLegend().setVerticalAlignment(VerticalAlignment.CENTER);
-            chart.getLegend().setHorizontalAlignment(HorizontalAlignment.CENTER);
-        }
+        // 创建主内容面板，使用水平分割
+        JPanel mainContentPanel = new JPanel(new BorderLayout());
+        mainContentPanel.add(chartPanel, BorderLayout.CENTER);
+        mainContentPanel.add(legendPanel, BorderLayout.EAST);
 
-        add(chartContainer, BorderLayout.CENTER);
+        add(mainContentPanel, BorderLayout.CENTER);
 
         // 添加边框
         ((JComponent) getContentPane()).setBorder(new EmptyBorder(10, 10, 10, 10));
@@ -618,6 +633,91 @@ public class ClusterVisualizationGui extends JFrame {
     }
 
     /**
+     * 更新自定义图例面板
+     */
+    private void updateCustomLegend(Map<Integer, List<double[]>> clusters, List<double[]> noisePoints) {
+        legendPanel.removeAll();
+        
+        // 添加标题
+        JLabel titleLabel = new JLabel("聚类图例");
+        titleLabel.setFont(new Font(Font.SANS_SERIF, Font.BOLD, 14));
+        titleLabel.setAlignmentX(Component.CENTER_ALIGNMENT);
+        legendPanel.add(titleLabel);
+        legendPanel.add(Box.createVerticalStrut(10));
+        
+        // 添加聚类图例项
+        int clusterIndex = 0;
+        for (Map.Entry<Integer, List<double[]>> entry : clusters.entrySet()) {
+            int clusterId = entry.getKey();
+            List<double[]> points = entry.getValue();
+            
+            JPanel itemPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
+            itemPanel.setBackground(Color.WHITE);
+            itemPanel.setMaximumSize(new Dimension(180, 25));
+            
+            // 创建颜色指示器（4x4椭圆）
+            JPanel colorIndicator = new JPanel() {
+                @Override
+                protected void paintComponent(Graphics g) {
+                    super.paintComponent(g);
+                    g.setColor(CLUSTER_COLORS[clusterId % CLUSTER_COLORS.length]);
+                    Graphics2D g2d = (Graphics2D) g;
+                    g2d.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                    g2d.fill(new java.awt.geom.Ellipse2D.Double(2, 2, 8, 8));
+                }
+            };
+            colorIndicator.setPreferredSize(new Dimension(12, 12));
+            colorIndicator.setBackground(Color.WHITE);
+            
+            JLabel label = new JLabel(String.format("簇 %d (%d点)", clusterId, points.size()));
+            label.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 12));
+            
+            itemPanel.add(colorIndicator);
+            itemPanel.add(label);
+            
+            legendPanel.add(itemPanel);
+            legendPanel.add(Box.createVerticalStrut(5));
+            
+            clusterIndex++;
+        }
+        
+        // 添加噪声点图例项
+        if (!noisePoints.isEmpty()) {
+            JPanel noisePanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
+            noisePanel.setBackground(Color.WHITE);
+            noisePanel.setMaximumSize(new Dimension(180, 25));
+            
+            // 创建噪声点颜色指示器（4x4椭圆，黑色）
+            JPanel noiseIndicator = new JPanel() {
+                @Override
+                protected void paintComponent(Graphics g) {
+                    super.paintComponent(g);
+                    g.setColor(NOISE_COLOR);
+                    Graphics2D g2d = (Graphics2D) g;
+                    g2d.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                    g2d.fill(new java.awt.geom.Ellipse2D.Double(2, 2, 8, 8));
+                }
+            };
+            noiseIndicator.setPreferredSize(new Dimension(12, 12));
+            noiseIndicator.setBackground(Color.WHITE);
+            
+            JLabel noiseLabel = new JLabel(String.format("噪声 (%d点)", noisePoints.size()));
+            noiseLabel.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 12));
+            
+            noisePanel.add(noiseIndicator);
+            noisePanel.add(noiseLabel);
+            
+            legendPanel.add(noisePanel);
+        }
+        
+        // 添加弹性空间
+        legendPanel.add(Box.createVerticalGlue());
+        
+        legendPanel.revalidate();
+        legendPanel.repaint();
+    }
+
+    /**
      * 显示聚类结果
      */
     private void displayClusteringResults(int[] labels, double eps, int minPts) {
@@ -638,6 +738,9 @@ public class ClusterVisualizationGui extends JFrame {
 
         int clusterCount = clusters.size();
         int noiseCount = noisePoints.size();
+        
+        // 更新自定义图例
+        updateCustomLegend(clusters, noisePoints);
 
         // 创建系列数据
         int seriesIndex = 0;
@@ -660,7 +763,6 @@ public class ClusterVisualizationGui extends JFrame {
             renderer.setSeriesLinesVisible(seriesIndex, false);
             renderer.setSeriesShape(seriesIndex, new java.awt.geom.Ellipse2D.Double(-0.5, -0.5, 1, 1));
             renderer.setSeriesPaint(seriesIndex, CLUSTER_COLORS[clusterId % CLUSTER_COLORS.length]);
-            renderer.setSeriesVisibleInLegend(seriesIndex, true);  // 确保簇系列在图例中显示
 
             seriesIndex++;
         }
@@ -679,7 +781,6 @@ public class ClusterVisualizationGui extends JFrame {
             renderer.setSeriesLinesVisible(seriesIndex, false);
             renderer.setSeriesShape(seriesIndex, new java.awt.geom.Ellipse2D.Double(-1.5, -1.5, 3, 3));
             renderer.setSeriesPaint(seriesIndex, NOISE_COLOR);
-            renderer.setSeriesVisibleInLegend(seriesIndex, true);  // 确保噪声点在图例中显示
         }
 
         // 更新标题和统计信息
