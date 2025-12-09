@@ -143,6 +143,10 @@ public class ClusterVisualizationGui extends JFrame {
         chartPanel.setDomainZoomable(false);   // 禁用domain轴缩放
         chartPanel.setRangeZoomable(false);    // 禁用range轴缩放
         chartPanel.setPopupMenu(null);         // 禁用右键菜单
+        
+        // 设置等比例显示，保持地图比例
+        chartPanel.setRefreshBuffer(true);
+        chartPanel.setDoubleBuffered(true);
 
         // 添加右键拖动功能
         setupRightClickDrag(chartPanel);
@@ -330,7 +334,7 @@ public class ClusterVisualizationGui extends JFrame {
     }
 
     /**
-     * 设置鼠标滚轮放大缩小功能
+     * 设置鼠标滚轮放大缩小功能，保持地图比例
      */
     private void setupMouseHoverZoom(ChartPanel chartPanel) {
         final java.awt.Point hoverPoint = new java.awt.Point();
@@ -375,20 +379,32 @@ public class ClusterVisualizationGui extends JFrame {
                 // 计算缩放比例（滚轮向上放大，向下缩小）
                 double zoomFactor = e.getWheelRotation() < 0 ? 0.9 : 1.1; // 0.9放大，1.1缩小
                 
-                // 计算新的显示范围（以鼠标位置为中心进行缩放）
+                // 获取图表面板的宽高比
+                double panelAspectRatio = dataArea.getWidth() / dataArea.getHeight();
+                
+                // 计算新的显示范围（以鼠标位置为中心进行等比缩放）
                 double newDomainRange = (currentDomainMax - currentDomainMin) * zoomFactor;
                 double newRangeRange = (currentRangeMax - currentRangeMin) * zoomFactor;
                 
+                // 根据面板比例调整缩放，保持地图比例
+                double adjustedRangeRange = newDomainRange / panelAspectRatio;
+                
                 double newDomainMin = mouseX - (mouseX - currentDomainMin) * zoomFactor;
                 double newDomainMax = mouseX + (currentDomainMax - mouseX) * zoomFactor;
-                double newRangeMin = mouseY - (mouseY - currentRangeMin) * zoomFactor;
-                double newRangeMax = mouseY + (currentRangeMax - mouseY) * zoomFactor;
+                double newRangeMin = mouseY - (mouseY - currentRangeMin) * (adjustedRangeRange / (currentRangeMax - currentRangeMin));
+                double newRangeMax = mouseY + (currentRangeMax - mouseY) * (adjustedRangeRange / (currentRangeMax - currentRangeMin));
                 
-                // 确保不超出数据范围
-                newDomainMin = Math.max(newDomainMin, getMinX());
-                newDomainMax = Math.min(newDomainMax, getMaxX());
-                newRangeMin = Math.max(newRangeMin, getMinY());
-                newRangeMax = Math.min(newRangeMax, getMaxY());
+                // 限制最大缩放范围（防止缩放到无限大）
+                double dataRange = Math.max(getMaxX() - getMinX(), getMaxY() - getMinY());
+                double maxRange = dataRange * 100; // 最大100倍数据范围
+                double minRange = dataRange * 0.01; // 最小1%数据范围
+                
+                if (newDomainRange >= minRange && newDomainRange <= maxRange && 
+                    newRangeRange >= minRange && newRangeRange <= maxRange) {
+                    // 应用缩放
+                    plot.getDomainAxis().setRange(newDomainMin, newDomainMax);
+                    plot.getRangeAxis().setRange(newRangeMin, newRangeMax);
+                }
                 
                 // 应用缩放
                 plot.getDomainAxis().setRange(newDomainMin, newDomainMax);
@@ -699,7 +715,7 @@ public class ClusterVisualizationGui extends JFrame {
     }
 
     /**
-     * 将图表居中显示所有数据点
+     * 将图表居中显示所有数据点，保持地图比例
      */
     private void centerChart() {
         if (coordinates.isEmpty()) {
@@ -711,14 +727,48 @@ public class ClusterVisualizationGui extends JFrame {
         double minY = getMinY();
         double maxY = getMaxY();
 
-        // 添加10%的边距
-        double xMargin = (maxX - minX) * 0.1;
-        double yMargin = (maxY - minY) * 0.1;
-
-        double xMin = minX - xMargin;
-        double xMax = maxX + xMargin;
-        double yMin = minY - yMargin;
-        double yMax = maxY + yMargin;
+        // 计算数据范围
+        double xRange = maxX - minX;
+        double yRange = maxY - minY;
+        
+        // 获取图表面板的宽高比
+        int panelWidth = chartPanel.getWidth();
+        int panelHeight = chartPanel.getHeight();
+        
+        if (panelWidth <= 0 || panelHeight <= 0) {
+            panelWidth = 800;  // 默认值
+            panelHeight = 600; // 默认值
+        }
+        
+        double panelAspectRatio = (double) panelWidth / panelHeight;
+        
+        // 计算数据的高斯投影比例（通常接近1:1，但需要根据实际数据调整）
+        double dataAspectRatio = xRange / yRange;
+        
+        // 添加边距
+        double margin = Math.max(xRange, yRange) * 0.1;
+        
+        double xMin, xMax, yMin, yMax;
+        
+        if (dataAspectRatio > panelAspectRatio) {
+            // 数据更宽，以X轴为主，调整Y轴范围
+            xMin = minX - margin;
+            xMax = maxX + margin;
+            
+            double adjustedYRange = (xMax - xMin) / panelAspectRatio;
+            double yCenter = (minY + maxY) / 2;
+            yMin = yCenter - adjustedYRange / 2;
+            yMax = yCenter + adjustedYRange / 2;
+        } else {
+            // 数据更高，以Y轴为主，调整X轴范围
+            yMin = minY - margin;
+            yMax = maxY + margin;
+            
+            double adjustedXRange = (yMax - yMin) * panelAspectRatio;
+            double xCenter = (minX + maxX) / 2;
+            xMin = xCenter - adjustedXRange / 2;
+            xMax = xCenter + adjustedXRange / 2;
+        }
 
         XYPlot plot = chart.getXYPlot();
         plot.getDomainAxis().setRange(xMin, xMax);
@@ -743,17 +793,13 @@ public class ClusterVisualizationGui extends JFrame {
                 ClusterVisualizationGui gui = new ClusterVisualizationGui();
                 gui.setVisible(true);
 
-                // 显示欢迎信息
-
-
                 // 添加组件监听器，确保窗口大小变化时保持图表比例
                 gui.addComponentListener(new ComponentAdapter() {
                     @Override
                     public void componentResized(ComponentEvent e) {
                         // 重新设置图表的等比显示
-                        if (gui.chartPanel != null) {
-                            gui.chartPanel.revalidate();
-                            gui.chartPanel.repaint();
+                        if (gui.coordinates != null && !gui.coordinates.isEmpty()) {
+                            gui.centerChart();
                         }
                     }
                 });
