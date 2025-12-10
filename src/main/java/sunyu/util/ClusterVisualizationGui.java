@@ -213,7 +213,7 @@ public class ClusterVisualizationGui extends JFrame {
 
         // 初始化图表
         dataset = new XYSeriesCollection();
-        chart = ChartFactory.createScatterPlot("DBSCAN聚类分析", "", "", dataset, PlotOrientation.VERTICAL, true, true, false);
+        chart = ChartFactory.createScatterPlot("", "", "", dataset, PlotOrientation.VERTICAL, true, true, false);
         customizeChart();
         chart.removeLegend(); // 使用自定义图例
 
@@ -624,7 +624,6 @@ public class ClusterVisualizationGui extends JFrame {
         renderer.setSeriesVisibleInLegend(0, false);
 
         chart.getXYPlot().setRenderer(renderer);
-        chart.setTitle("原始数据 - 请选择文件并点击'执行聚类'按钮");
         centerChart();
     }
 
@@ -858,7 +857,6 @@ public class ClusterVisualizationGui extends JFrame {
             renderer.setSeriesPaint(seriesIndex, NOISE_COLOR); // 设置噪声点颜色
         }
 
-        chart.setTitle("DBSCAN聚类结果 (eps=" + eps + ", minPts=" + minPts + ")"); // 设置图表标题
         centerChart(); // 居中显示所有数据点
 
         log.info("聚类完成: {}个簇, {}个噪声点, 共{}个点", clusterCount, noiseCount, coordinates.size()); // 记录聚类结果统计
