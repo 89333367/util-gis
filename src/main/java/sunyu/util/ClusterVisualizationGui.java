@@ -551,16 +551,9 @@ public class ClusterVisualizationGui extends JFrame {
                 double newRangeMin = mouseY - (mouseY - currentRangeMin) * (adjustedRangeRange / (currentRangeMax - currentRangeMin));
                 double newRangeMax = mouseY + (currentRangeMax - mouseY) * (adjustedRangeRange / (currentRangeMax - currentRangeMin));
 
-                // 限制最大缩放范围（防止缩放到无限大）
-                double dataRange = Math.max(getMaxX() - getMinX(), getMaxY() - getMinY());
-                double maxRange = dataRange * 100; // 最大100倍数据范围，防止过度放大
-                double minRange = dataRange * 0.01; // 最小1%数据范围，防止过度缩小
-
-                if (newDomainRange >= minRange && newDomainRange <= maxRange && newRangeRange >= minRange && newRangeRange <= maxRange) {
-                    // 应用缩放
-                    plot.getDomainAxis().setRange(newDomainMin, newDomainMax);
-                    plot.getRangeAxis().setRange(newRangeMin, newRangeMax);
-                }
+                // 应用缩放
+                plot.getDomainAxis().setRange(newDomainMin, newDomainMax);
+                plot.getRangeAxis().setRange(newRangeMin, newRangeMax);
             }
         });
     }
