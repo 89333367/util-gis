@@ -176,8 +176,8 @@ public class ClusterVisualizationGui extends JFrame {
         });
 
         minPtsField = new JTextField("20", 8);
-        minPtsField.setToolTipText("DBSCAN minPts参数 (最小点数，必须≥3)");
-        // 设置minPts字段只能输入大于等于3的整数
+        minPtsField.setToolTipText("DBSCAN minPts参数 (最小点数，必须≥2)");
+        // 设置minPts字段只能输入大于等于2的整数
         ((AbstractDocument) minPtsField.getDocument()).setDocumentFilter(new DocumentFilter() {
             @Override
             public void insertString(FilterBypass fb, int offset, String string, AttributeSet attr) throws BadLocationException {
@@ -221,7 +221,7 @@ public class ClusterVisualizationGui extends JFrame {
 
                 try {
                     int value = Integer.parseInt(text);
-                    return value >= 3; // 必须大于等于3
+                    return value >= 2; // 必须大于等于2
                 } catch (NumberFormatException e) {
                     return false;
                 }
@@ -749,11 +749,6 @@ public class ClusterVisualizationGui extends JFrame {
     private void updateCustomLegend(Map<Integer, List<double[]>> clusters, List<double[]> noisePoints) {
         legendPanel.removeAll();
 
-        // 添加标题
-        JLabel titleLabel = new JLabel("聚类图例");
-        titleLabel.setFont(new Font(Font.SANS_SERIF, Font.BOLD, 14));
-        titleLabel.setAlignmentX(Component.CENTER_ALIGNMENT);
-        legendPanel.add(titleLabel);
         legendPanel.add(Box.createVerticalStrut(10));
 
         // 添加聚类图例项
