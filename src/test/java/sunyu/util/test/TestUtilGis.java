@@ -446,5 +446,64 @@ public class TestUtilGis {
         生成HTML(did, startTime, endTime);
     }
 
+    @Test
+    void 测试10秒间隔003() {
+        String did = "EM9101B8F5AZT0041";
+        String yyyyMMdd = "20250903";
+        String startTime = yyyyMMdd + "000000";
+        String endTime = yyyyMMdd + "235959";
+        double jobWidth = 3.5;
+        生成数据文件(did, startTime, endTime);
+        测试拆分数据(did, startTime, endTime, jobWidth);
+        生成HTML(did, startTime, endTime);
+    }
+
+    @Test
+    void 测试10秒间隔004() {
+        String did = "EM9101B8F5AZT0041";
+        String yyyyMMdd = "20251025";
+        String startTime = yyyyMMdd + "000000";
+        String endTime = yyyyMMdd + "235959";
+        double jobWidth = 3.5;
+        生成数据文件(did, startTime, endTime);
+        测试拆分数据(did, startTime, endTime, jobWidth);
+        生成HTML(did, startTime, endTime);
+    }
+
+    @Test
+    void 测试10秒间隔005() {
+        String did = "EM9101B8F5AZT0041";
+        String yyyyMMdd = "20251026";
+        String startTime = yyyyMMdd + "000000";
+        String endTime = yyyyMMdd + "235959";
+        double jobWidth = 3.5;
+        生成数据文件(did, startTime, endTime);
+        测试拆分数据(did, startTime, endTime, jobWidth);
+        生成HTML(did, startTime, endTime);
+    }
+
+    @Test
+    void 测试10秒间隔006() {
+        String did = "EM9101B8F5AZT0041";
+        String yyyyMMdd = "20251023";
+        String startTime = yyyyMMdd + "000000";
+        String endTime = yyyyMMdd + "235959";
+        double jobWidth = 3.5;
+        生成数据文件(did, startTime, endTime);
+        测试拆分数据(did, startTime, endTime, jobWidth);
+        生成HTML(did, startTime, endTime);
+    }
+
+    @Test
+    void 测试10秒间隔007() {
+        String did = "EM9101B8F4AZR0296";
+        String yyyyMMdd = "20251101";
+        String startTime = yyyyMMdd + "000000";
+        String endTime = yyyyMMdd + "235959";
+        double jobWidth = 3.5;
+        生成数据文件(did, startTime, endTime);
+        测试拆分数据(did, startTime, endTime, jobWidth);
+        生成HTML(did, startTime, endTime);
+    }
 
 }
