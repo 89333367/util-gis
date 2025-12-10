@@ -761,7 +761,7 @@ public class ClusterVisualizationGui extends JFrame {
             itemPanel.setBackground(Color.WHITE);
             itemPanel.setMaximumSize(new Dimension(180, 25));
 
-            // 创建颜色指示器（4x4椭圆）
+            // 创建颜色指示器（8x8椭圆）
             JPanel colorIndicator = new JPanel() {
                 @Override
                 protected void paintComponent(Graphics g) {
@@ -769,7 +769,7 @@ public class ClusterVisualizationGui extends JFrame {
                     g.setColor(CLUSTER_COLORS[clusterId % CLUSTER_COLORS.length]);
                     Graphics2D g2d = (Graphics2D) g;
                     g2d.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-                    g2d.fill(new java.awt.geom.Ellipse2D.Double(2, 2, 4, 4));
+                    g2d.fill(new java.awt.geom.Ellipse2D.Double(1, 1, 8, 8));
                 }
             };
             colorIndicator.setPreferredSize(new Dimension(12, 12));
@@ -793,7 +793,7 @@ public class ClusterVisualizationGui extends JFrame {
             noisePanel.setBackground(Color.WHITE);
             noisePanel.setMaximumSize(new Dimension(180, 25));
 
-            // 创建噪声点颜色指示器（4x4椭圆，黑色）
+            // 创建噪声点颜色指示器（8x8椭圆，黑色）
             JPanel noiseIndicator = new JPanel() {
                 @Override
                 protected void paintComponent(Graphics g) {
@@ -801,7 +801,7 @@ public class ClusterVisualizationGui extends JFrame {
                     g.setColor(NOISE_COLOR);
                     Graphics2D g2d = (Graphics2D) g;
                     g2d.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-                    g2d.fill(new java.awt.geom.Ellipse2D.Double(2, 2, 4, 4));
+                    g2d.fill(new java.awt.geom.Ellipse2D.Double(1, 1, 8, 8));
                 }
             };
             noiseIndicator.setPreferredSize(new Dimension(12, 12));
