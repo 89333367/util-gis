@@ -76,7 +76,7 @@ public class ClusterVisualizationGui extends JFrame {
         setupLayout();
         setupEventListeners();
         setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
-        setTitle("DBSCAN聚类可视化工具");
+        setTitle("空间密集聚类测试工具 - SunYu");
         setSize(1200, 800);
         setLocationRelativeTo(null); // 居中显示
     }
@@ -287,8 +287,6 @@ public class ClusterVisualizationGui extends JFrame {
         // 设置固定大小，禁用所有拖动和缩放
         plot.setDomainPannable(true);  // 启用domain拖动（用于右键拖动）
         plot.setRangePannable(true);   // 启用range拖动（用于右键拖动）
-        plot.setDomainGridlinesVisible(true);
-        plot.setRangeGridlinesVisible(true);
 
         // 禁止任何拉伸和缩放
         plot.setRangeZeroBaselineVisible(false);
