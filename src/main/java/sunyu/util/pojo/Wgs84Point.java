@@ -2,6 +2,9 @@ package sunyu.util.pojo;
 
 import java.time.LocalDateTime;
 
+/**
+ * WGS84坐标系点
+ */
 public class Wgs84Point {
     /**
      * GPS定位时间

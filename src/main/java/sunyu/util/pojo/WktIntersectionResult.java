@@ -1,11 +1,11 @@
 package sunyu.util.pojo;
 
 /**
- * 相交轮廓结果类
+ * 相交地块结果类
  */
 public class WktIntersectionResult {
     /**
-     * 相交轮廓WKT(WGS84坐标系)
+     * 相交地块WKT(WGS84坐标系)
      */
     private String wkt;
     /**

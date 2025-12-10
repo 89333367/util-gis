@@ -3,6 +3,9 @@ package sunyu.util.pojo;
 import java.util.ArrayList;
 import java.util.List;
 
+/**
+ * 道路拆分结果
+ */
 public class SplitResult {
     /**
      * 轮廓的WKT表示（WGS84坐标系）
@@ -19,7 +22,7 @@ public class SplitResult {
     private double mu;
 
     /**
-     * 子区块列表
+     * 拆分后的地块列表
      */
     private List<Part> parts = new ArrayList<>();
 

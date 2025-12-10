@@ -2,6 +2,9 @@ package sunyu.util.pojo;
 
 import java.time.LocalDateTime;
 
+/**
+ * 高斯投影点
+ */
 public class GaussPoint extends Wgs84Point {
     /**
      * 高斯投影x坐标(单位：米)，内部使用，外部不要直接访问

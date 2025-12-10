@@ -8,6 +8,9 @@ import java.time.LocalDateTime;
 import java.util.Comparator;
 import java.util.List;
 
+/**
+ * 地块信息
+ */
 public class Part {
     /**
      * 区块的起始时间
