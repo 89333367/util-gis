@@ -36,6 +36,11 @@ import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
+/**
+ * GIS工具类，提供几何操作、投影转换、空间分析等功能
+ *
+ * @author SunYu
+ */
 public class GisUtil implements AutoCloseable {
     private final Log log = LogFactory.get();
     private final Config config;
@@ -171,6 +176,20 @@ public class GisUtil implements AutoCloseable {
         log.info("[销毁{}] 结束", this.getClass().getSimpleName());
     }
 
+    /**
+     * 获取高斯投影CRS
+     * <p>
+     * <strong>缓存策略：</strong>基于投影带号、假东距和中央经线的组合作为唯一键进行缓存
+     * <br>
+     * <strong>性能提升：</strong>避免重复创建CRS对象，显著提升坐标转换性能
+     * </p>
+     *
+     * @param zone            投影带号
+     * @param falseEasting    假东距
+     * @param centralMeridian 中央经线
+     *
+     * @return 对应的高斯投影CRS对象
+     */
     private CoordinateReferenceSystem getGaussCRS(int zone, double falseEasting, double centralMeridian) {
         // 创建缓存键，使用带号、假东距和中央经线作为唯一标识
         String cacheKey = String.format("%d_%.1f_%.1f", zone, falseEasting, centralMeridian);
@@ -193,6 +212,13 @@ public class GisUtil implements AutoCloseable {
         });
     }
 
+    /**
+     * 计算WGS84坐标系下的环的球面面积（平方米）
+     *
+     * @param wgs84Ring 输入的WGS84坐标系下的环对象（LineString类型）
+     *
+     * @return 环的球面面积（平方米），如果输入无效则返回0.0
+     */
     private double calculateRingSphericalArea(LineString wgs84Ring) {
         // 参数有效性检查
         if (wgs84Ring == null || wgs84Ring.isEmpty()) {
@@ -200,7 +226,7 @@ public class GisUtil implements AutoCloseable {
         }
 
         // 获取环的所有坐标点
-        org.locationtech.jts.geom.Coordinate[] coords = wgs84Ring.getCoordinates();
+        Coordinate[] coords = wgs84Ring.getCoordinates();
         // 至少需要3个点才能形成多边形
         if (coords.length < 3) {
             return 0.0;
@@ -226,6 +252,13 @@ public class GisUtil implements AutoCloseable {
         return area;
     }
 
+    /**
+     * 计算WGS84坐标系下的多边形的球面面积（平方米）
+     *
+     * @param wgs84Polygon 输入的WGS84坐标系下的多边形对象（Polygon类型）
+     *
+     * @return 多边形的球面面积（平方米），如果输入无效则返回0.0
+     */
     private double calculatePolygonSphericalArea(Polygon wgs84Polygon) {
         // 步骤1：计算多边形外环的面积
         double exteriorArea = calculateRingSphericalArea(wgs84Polygon.getExteriorRing());
@@ -247,6 +280,17 @@ public class GisUtil implements AutoCloseable {
         return totalArea;
     }
 
+    /**
+     * 处理数据块，将其转换为缓冲几何图形
+     *
+     * @param points      输入的点列表，每个点包含高斯投影坐标（GaussPoint类型）
+     * @param startIndex  数据块的起始索引
+     * @param chunkSize   数据块的大小（点数）
+     * @param totalPoints 总数据点数量
+     * @param bufferWidth 缓冲宽度（单位：米）
+     *
+     * @return 处理后的缓冲几何图形（LineString或Polygon类型）
+     */
     private Geometry processChunk(List<GaussPoint> points, int startIndex, int chunkSize, int totalPoints, double bufferWidth) {
         int end = Math.min(startIndex + chunkSize, totalPoints);
         List<GaussPoint> chunk = points.subList(startIndex, end);
@@ -280,6 +324,13 @@ public class GisUtil implements AutoCloseable {
         return chunkBuffer;
     }
 
+    /**
+     * 递归合并几何图形列表，优化合并效率
+     *
+     * @param geometries 输入的几何图形列表（LineString或Polygon类型）
+     *
+     * @return 合并后的几何图形（LineString或Polygon类型），如果输入无效则返回空几何图形
+     */
     private Geometry mergeGeometriesRecursively(List<Geometry> geometries) {
         // 基本情况：列表为空或只有一个元素
         if (geometries.isEmpty()) {
@@ -427,6 +478,14 @@ public class GisUtil implements AutoCloseable {
         return density;
     }
 
+    /**
+     * 分块处理大型轨迹段，避免内存溢出
+     *
+     * @param points      轨迹点列表（GaussPoint类型）
+     * @param bufferWidth 缓冲区宽度（米），用于合并分块后的几何图形
+     *
+     * @return 合并后的几何图形（LineString或Polygon类型），如果输入无效则返回空几何图形
+     */
     private Geometry processLargeSegmentInChunks(List<GaussPoint> points, double bufferWidth) {
         long startTime = System.currentTimeMillis();
         log.debug("开始分块处理大型轨迹段，点数: {}", points.size());
@@ -499,6 +558,14 @@ public class GisUtil implements AutoCloseable {
     }
 
 
+    /**
+     * 按最大距离切分轨迹点集群，生成多个子轨迹段
+     *
+     * @param cluster     轨迹点集群（GaussPoint类型）
+     * @param maxDistance 最大距离阈值（米），超过此距离的点将被视为不同轨迹段的起始点
+     *
+     * @return 切分后的轨迹段列表（每个元素为一个子轨迹段的GaussPoint列表）
+     */
     private List<List<GaussPoint>> splitClusterByDistance(List<GaussPoint> cluster, double maxDistance) {
         List<List<GaussPoint>> segments = new ArrayList<>();
         if (cluster == null || cluster.isEmpty()) {
@@ -530,7 +597,14 @@ public class GisUtil implements AutoCloseable {
         return segments;
     }
 
-
+    /**
+     * 按最大时间间隔切分轨迹点集群，生成多个子轨迹段
+     *
+     * @param cluster    轨迹点集群（GaussPoint类型）
+     * @param maxSeconds 最大时间间隔阈值（秒），超过此时间间隔的点将被视为不同轨迹段的起始点
+     *
+     * @return 切分后的轨迹段列表（每个元素为一个子轨迹段的GaussPoint列表）
+     */
     private List<List<GaussPoint>> splitClusterBySeconds(List<GaussPoint> cluster, double maxSeconds) {
         List<List<GaussPoint>> segments = new ArrayList<>();
         if (cluster == null || cluster.isEmpty()) {
@@ -874,6 +948,13 @@ public class GisUtil implements AutoCloseable {
         return result;
     }
 
+    /**
+     * 将高斯投影几何转换为WGS84投影几何
+     *
+     * @param gaussGeometry 输入的高斯投影几何对象（LineString或Polygon类型）
+     *
+     * @return 转换后的WGS84投影几何对象（LineString或Polygon类型），转换失败返回空几何
+     */
     public Geometry toWgs84Geometry(Geometry gaussGeometry) {
         try {
             // 开始高斯投影几何到WGS84投影几何转换
@@ -961,6 +1042,13 @@ public class GisUtil implements AutoCloseable {
         }
     }
 
+    /**
+     * 将WGS84坐标系下的点列表转换为高斯投影坐标系下的点列表
+     *
+     * @param wgs84Points 输入的WGS84坐标系下的点列表（Wgs84Point类型）
+     *
+     * @return 转换后的高斯投影坐标系下的点列表（GaussPoint类型）
+     */
     public List<GaussPoint> toGaussPointList(List<Wgs84Point> wgs84Points) {
         log.debug("转换WGS84点列表为高斯投影点列表，点数量={}", wgs84Points.size());
         if (CollUtil.isEmpty(wgs84Points)) {
@@ -1086,6 +1174,13 @@ public class GisUtil implements AutoCloseable {
         return gaussPoints;
     }
 
+    /**
+     * 计算WGS84坐标系下的几何图形球面面积（平方米）
+     *
+     * @param wgs84Geometry 输入的WGS84坐标系下的几何图形对象（Polygon或MultiPolygon类型）
+     *
+     * @return 计算得到的球面面积（平方米），计算失败返回0.0
+     */
     public double calculateSphericalArea(Geometry wgs84Geometry) {
         double totalArea = 0.0;
 
@@ -1110,6 +1205,17 @@ public class GisUtil implements AutoCloseable {
         return Math.abs(totalArea);
     }
 
+    /**
+     * 计算WGS84坐标系下几何图形的面积（亩）
+     * <p>
+     * 该方法利用球面面积算法计算WGS84坐标系下的几何图形面积（平方米），
+     * 并将其转换为亩（1亩 = 2000/3平方米），结果四舍五入保留4位小数。
+     * </p>
+     *
+     * @param wgs84Geometry 输入的WGS84坐标系下的几何图形对象（Polygon或MultiPolygon类型）
+     *
+     * @return 计算得到的几何图形面积（亩），计算失败返回0.0
+     */
     public double calcMu(Geometry wgs84Geometry) {
         try {
             // 步骤1：使用球面面积算法计算平方米面积
@@ -1144,6 +1250,14 @@ public class GisUtil implements AutoCloseable {
         return calcMu(toWgs84Geometry(wgs84Wkt));
     }
 
+    /**
+     * 道路拆分，将道路轨迹拆分掉，只保留作业信息
+     *
+     * @param wgs84Points  输入的WGS84坐标系下的点列表（Wgs84Point类型）
+     * @param workingWidth 作业幅宽（米）
+     *
+     * @return 拆分后的作业轨迹结果（SplitResult类型）
+     */
     public SplitResult splitRoad(List<Wgs84Point> wgs84Points, double workingWidth) {
         SplitResult splitResult = new SplitResult();
         splitResult.setWorkingWidth(workingWidth);
