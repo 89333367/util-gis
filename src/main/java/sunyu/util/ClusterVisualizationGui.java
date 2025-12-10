@@ -652,7 +652,7 @@ public class ClusterVisualizationGui extends JFrame {
         // 设置点的样式
         XYLineAndShapeRenderer renderer = new XYLineAndShapeRenderer();
         renderer.setSeriesLinesVisible(0, false);
-        renderer.setSeriesShape(0, new java.awt.geom.Ellipse2D.Double(-1, -1, 2, 2));
+        renderer.setSeriesShape(0, new java.awt.geom.Ellipse2D.Double(-0.5, -0.5, 1, 1));
         renderer.setSeriesPaint(0, Color.BLACK);
         renderer.setSeriesVisibleInLegend(0, false);
 
@@ -769,7 +769,7 @@ public class ClusterVisualizationGui extends JFrame {
                     g.setColor(CLUSTER_COLORS[clusterId % CLUSTER_COLORS.length]);
                     Graphics2D g2d = (Graphics2D) g;
                     g2d.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-                    g2d.fill(new java.awt.geom.Ellipse2D.Double(2, 2, 8, 8));
+                    g2d.fill(new java.awt.geom.Ellipse2D.Double(2, 2, 4, 4));
                 }
             };
             colorIndicator.setPreferredSize(new Dimension(12, 12));
@@ -801,7 +801,7 @@ public class ClusterVisualizationGui extends JFrame {
                     g.setColor(NOISE_COLOR);
                     Graphics2D g2d = (Graphics2D) g;
                     g2d.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-                    g2d.fill(new java.awt.geom.Ellipse2D.Double(2, 2, 8, 8));
+                    g2d.fill(new java.awt.geom.Ellipse2D.Double(2, 2, 4, 4));
                 }
             };
             noiseIndicator.setPreferredSize(new Dimension(12, 12));
@@ -885,7 +885,7 @@ public class ClusterVisualizationGui extends JFrame {
 
             XYLineAndShapeRenderer renderer = (XYLineAndShapeRenderer) chart.getXYPlot().getRenderer();
             renderer.setSeriesLinesVisible(seriesIndex, false);
-            renderer.setSeriesShape(seriesIndex, new java.awt.geom.Ellipse2D.Double(-1.5, -1.5, 3, 3));
+            renderer.setSeriesShape(seriesIndex, new java.awt.geom.Ellipse2D.Double(-0.5, -0.5, 1, 1));
             renderer.setSeriesPaint(seriesIndex, NOISE_COLOR);
         }
 
