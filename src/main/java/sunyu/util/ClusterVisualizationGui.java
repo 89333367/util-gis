@@ -46,7 +46,7 @@ import java.util.List;
 
 /**
  * DBSCAN聚类可视化工具
- * 支持坐标文件加载、参数配置和聚类结果可视化
+ * 支持高斯投影坐标文件加载、参数配置和聚类结果可视化
  *
  * @author SunYu
  */
@@ -71,6 +71,9 @@ public class ClusterVisualizationGui extends JFrame {
     private static final Color[] CLUSTER_COLORS = {new Color(255, 99, 71), new Color(30, 144, 255), new Color(50, 205, 50), new Color(255, 215, 0), new Color(138, 43, 226), new Color(255, 140, 0), new Color(220, 20, 60), new Color(0, 191, 255), new Color(255, 20, 147), new Color(0, 250, 154), new Color(255, 69, 0), new Color(106, 90, 205), new Color(255, 255, 0), new Color(186, 85, 211), new Color(0, 255, 127), new Color(123, 104, 238)};
     private static final Color NOISE_COLOR = Color.BLACK;
 
+    /**
+     * 构造函数：初始化聚类可视化工具的GUI组件
+     */
     public ClusterVisualizationGui() {
         initializeComponents();
         setupLayout();
@@ -434,6 +437,12 @@ public class ClusterVisualizationGui extends JFrame {
             }
         });
 
+        /**
+         * 处理鼠标拖拽事件
+         * 实现图表的右键拖拽平移功能
+         *
+         * @param e 鼠标事件对象，包含当前鼠标位置信息
+         */
         chartPanel.addMouseMotionListener(new java.awt.event.MouseMotionAdapter() {
             @Override
             public void mouseDragged(java.awt.event.MouseEvent e) {
@@ -476,13 +485,24 @@ public class ClusterVisualizationGui extends JFrame {
     private void setupMouseHoverZoom(ChartPanel chartPanel) {
         final java.awt.Point hoverPoint = new java.awt.Point();
 
+        /**
+         * 处理鼠标移动事件
+         * 记录当前鼠标位置，用于后续滚轮缩放操作
+         *
+         * @param e 鼠标事件对象，包含当前鼠标位置信息
+         */
         chartPanel.addMouseMotionListener(new java.awt.event.MouseMotionAdapter() {
             @Override
             public void mouseMoved(java.awt.event.MouseEvent e) {
                 hoverPoint.setLocation(e.getPoint());
             }
         });
-
+        /**
+         * 处理鼠标滚轮事件
+         * 实现以鼠标位置为中心的滚轮缩放功能
+         *
+         * @param e 鼠标滚轮事件对象，包含滚轮旋转信息
+         */
         chartPanel.addMouseWheelListener(new java.awt.event.MouseWheelListener() {
             @Override
             public void mouseWheelMoved(java.awt.event.MouseWheelEvent e) {
@@ -1002,11 +1022,16 @@ public class ClusterVisualizationGui extends JFrame {
      */
     public static void main(String[] args) {
         try {
+            // 设置系统外观为默认外观，确保在不同操作系统上有一致的外观
             UIManager.setLookAndFeel(UIManager.getSystemLookAndFeelClassName());
         } catch (Exception e) {
             log.warn("设置系统外观失败", e);
         }
 
+        /**
+         * 启动Swing事件调度线程
+         * 确保GUI组件在事件线程中创建和更新
+         */
         SwingUtilities.invokeLater(() -> {
             ClusterVisualizationGui gui = new ClusterVisualizationGui();
             gui.setVisible(true);
