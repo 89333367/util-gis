@@ -118,6 +118,15 @@ public class GisUtil implements AutoCloseable {
         private final double MAX_WORK_DISTANCE = 18 / 3.6;
 
         /**
+         * DBSCAN最小点数
+         * <p>
+         * 用于DBSCAN聚类算法的最小点阈值。
+         * 当一个区域内的点数量小于此值时，被认为是噪声点或异常值，不会被分配到任何聚类中。
+         * </p>
+         */
+        private final int MIN_DBSCAN_POINTS = 20;
+
+        /**
          * 几何图形膨胀收缩距离（米）
          * <p>
          * 用于几何图形的膨胀-收缩优化操作。
@@ -1217,34 +1226,24 @@ public class GisUtil implements AutoCloseable {
             log.debug("没有找到 {} 秒时间间隔的数据", minEffectiveInterval);
         }
 
-        log.debug("准备创建StaticArrayDatabase");
-        double eps = 20;
-        int minPts = 8;
-        if (minEffectiveInterval == 10) {
-            eps = 20;
-            minPts = 8;
-        } else if (minEffectiveInterval == 1) {
-            eps = 5;
-            minPts = 20;
-        }
-        log.debug("聚类参数 eps={} 米, minPts={}", String.format("%.2f", eps), minPts);
-
-        log.debug("提取坐标数组");
+        log.debug("从高斯投影中提取坐标数组");
         double[][] coords = new double[gaussPoints.size()][2];
         for (int i = 0; i < gaussPoints.size(); i++) {
             coords[i][0] = gaussPoints.get(i).getGaussX();
             coords[i][1] = gaussPoints.get(i).getGaussY();
         }
 
-        log.debug("创建数据库");
+        log.debug("创建StaticArrayDatabase");
         Database db = new StaticArrayDatabase(new ArrayAdapterDatabaseConnection(coords), null);
         db.initialize();
 
-        log.debug("DBSCAN");
         // 使用欧几里得距离
+        double eps = config.MAX_WORK_DISTANCE * minEffectiveInterval;
+        int minPts = config.MIN_DBSCAN_POINTS;
+        log.debug("聚类参数 eps={} 米, minPts={}", String.format("%.2f", eps), minPts);
         DBSCAN<DoubleVector> dbscan = new DBSCAN<>(EuclideanDistance.STATIC, eps, minPts);
 
-        log.debug("获取Relation对象并运行聚类");
+        log.debug("获取Relation对象并执行空间密集聚类");
         Relation<DoubleVector> relation = db.getRelation(TypeUtil.DOUBLE_VECTOR_FIELD);
         Clustering<Model> result = dbscan.run(relation);
 
@@ -1258,7 +1257,7 @@ public class GisUtil implements AutoCloseable {
                 int offset = ids.getOffset(iter);
                 clusterPoints.add(gaussPoints.get(offset));
             }
-            log.debug("聚类信息 - 大小: {}, 名称: {}, 自动名称: {}, 模型: {}", cluster.size(), cluster.getName(), cluster.getNameAutomatic(), cluster.getModel());
+            log.debug("聚类信息： 聚类名称: {} 点数量: {}", cluster.getNameAutomatic(), cluster.size());
             if (cluster.getNameAutomatic().equals("Cluster")) {
                 clusters.add(clusterPoints);
             }
@@ -1267,10 +1266,11 @@ public class GisUtil implements AutoCloseable {
         log.debug("聚类完成，总共有 {} 个聚类簇", clusters.size());
 
         double bufferSmoothingDistance = config.BUFFER_SMOOTHING_DISTANCE;
-        if (minEffectiveInterval == 10) {
+        if (minEffectiveInterval > 5) {
             bufferSmoothingDistance = config.BUFFER_SMOOTHING_DISTANCE * 2;
         }
 
+        log.debug("循环所有聚类");
         List<Geometry> unionGaussGeometries = new ArrayList<>();
         for (List<GaussPoint> cluster : clusters) {
             log.debug("聚类簇包含 {} 个点", cluster.size());
