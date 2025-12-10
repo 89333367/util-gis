@@ -1156,7 +1156,7 @@ public class GisUtil implements AutoCloseable {
             log.error("作业幅宽必须大于等于 1 米");
             return splitResult;
         }
-        log.debug("参数 wgs84TrackPoints 大小：{} workingWidth：{}", wgs84Points.size(), workingWidth);
+        log.info("参数 wgs84TrackPoints 大小：{} workingWidth：{}", wgs84Points.size(), workingWidth);
 
         log.debug("准备过滤时间为空的点位信息");
         wgs84Points.removeIf(p -> p.getGpsTime() == null);
@@ -1221,9 +1221,9 @@ public class GisUtil implements AutoCloseable {
         if (!distancesAtMinInterval.isEmpty()) {
             // 平均距离
             avgDistance = distancesAtMinInterval.stream().mapToDouble(Double::doubleValue).average().orElse(0.0);
-            log.debug("{} 秒时间间隔统计: 平均距离={}米", minEffectiveInterval, String.format("%.2f", avgDistance));
+            log.info("{} 秒时间间隔统计: 平均距离={}米", minEffectiveInterval, String.format("%.2f", avgDistance));
         } else {
-            log.debug("没有找到 {} 秒时间间隔的数据", minEffectiveInterval);
+            log.warn("没有找到 {} 秒时间间隔的数据", minEffectiveInterval);
         }
 
         log.debug("从高斯投影中提取坐标数组");
@@ -1240,7 +1240,7 @@ public class GisUtil implements AutoCloseable {
         // 使用欧几里得距离
         double eps = config.MAX_WORK_DISTANCE * minEffectiveInterval;
         int minPts = config.MIN_DBSCAN_POINTS;
-        log.debug("聚类参数 eps={} 米, minPts={}", String.format("%.2f", eps), minPts);
+        log.info("聚类参数 eps={} 米, minPts={}", String.format("%.2f", eps), minPts);
         DBSCAN<DoubleVector> dbscan = new DBSCAN<>(EuclideanDistance.STATIC, eps, minPts);
 
         log.debug("获取Relation对象并执行空间密集聚类");
@@ -1263,7 +1263,7 @@ public class GisUtil implements AutoCloseable {
             }
         }
 
-        log.debug("聚类完成，总共有 {} 个聚类簇", clusters.size());
+        log.info("聚类完成，总共有 {} 个聚类簇", clusters.size());
 
         double bufferSmoothingDistance = config.BUFFER_SMOOTHING_DISTANCE;
         if (minEffectiveInterval > 5) {
@@ -1316,7 +1316,7 @@ public class GisUtil implements AutoCloseable {
         unionGaussGeometries = unionGaussGeometries.subList(0, Math.min(config.MAX_SPLIT_RETURN_SIZE, unionGaussGeometries.size()));
         unionGaussGeometries.removeIf(geometry -> geometry.getArea() < config.MIN_RETURN_MU * config.MU_TO_SQUARE_METER);
 
-        log.debug("合并所有几何图形，膨胀再收缩 {} 米", bufferSmoothingDistance);
+        log.info("合并所有几何图形，膨胀再收缩 {} 米", bufferSmoothingDistance);
         Geometry unionGaussGeometry = config.GEOMETRY_FACTORY.createGeometryCollection(unionGaussGeometries.toArray(new Geometry[0])).union().buffer(bufferSmoothingDistance).buffer(-bufferSmoothingDistance);
         log.debug("合并后几何图形的面积（平方米）：{}", unionGaussGeometry.getArea());
         if (unionGaussGeometry.getArea() < config.MIN_RETURN_MU * config.MU_TO_SQUARE_METER) {
@@ -1326,7 +1326,7 @@ public class GisUtil implements AutoCloseable {
         //log.debug("合并后的几何图形：{}", wgs84UnionGeometry.toText());
         splitResult.setWkt(wgs84UnionGeometry.toText());
         splitResult.setMu(calcMu(wgs84UnionGeometry));
-        log.debug("整体轮廓面积（亩）：{} 共 {} 个子几何图形", splitResult.getMu(), unionGaussGeometry.getNumGeometries());
+        log.info("整体轮廓面积（亩）：{} 共 {} 个子几何图形", splitResult.getMu(), unionGaussGeometry.getNumGeometries());
 
         for (int i = 0; i < unionGaussGeometry.getNumGeometries(); i++) {
             Geometry partGaussGeometry = unionGaussGeometry.getGeometryN(i);
@@ -1348,7 +1348,7 @@ public class GisUtil implements AutoCloseable {
                     // 第二步：使用PreparedGeometry进行精确空间判断
                     return preparedWgs84Geometry.contains(config.GEOMETRY_FACTORY.createPoint(new Coordinate(point.getLongitude(), point.getLatitude())));
                 } catch (Exception e) {
-                    log.trace("点位空间判断失败：经度{} 纬度{} 错误：{}", point.getLongitude(), point.getLatitude(), e.getMessage());
+                    log.warn("点位空间判断失败：经度{} 纬度{} 错误：{}", point.getLongitude(), point.getLatitude(), e.getMessage());
                     return false;
                 }
             }).collect(Collectors.toList());
