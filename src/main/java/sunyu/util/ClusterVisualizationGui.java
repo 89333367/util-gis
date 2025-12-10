@@ -82,8 +82,8 @@ public class ClusterVisualizationGui extends JFrame {
     }
 
     /**
-     * 初始化界面组件
-     * 创建并配置所有GUI组件，包括文件选择、参数输入和图表显示区域
+     * 初始化GUI组件
+     * 创建并配置所有界面元素，包括文件选择、参数输入、图表和图例等
      */
     private void initializeComponents() {
         // 文件选择组件
@@ -95,6 +95,10 @@ public class ClusterVisualizationGui extends JFrame {
         // eps参数输入验证 - 必须大于1.0的浮点数
         epsField = new JTextField("5", 8);
         ((AbstractDocument) epsField.getDocument()).setDocumentFilter(new DocumentFilter() {
+            /**
+             * 插入字符串时验证eps参数的有效性
+             * 只有当新字符串通过验证时才允许插入
+             */
             @Override
             public void insertString(FilterBypass fb, int offset, String string, AttributeSet attr) throws BadLocationException {
                 if (string == null) return;
@@ -105,6 +109,10 @@ public class ClusterVisualizationGui extends JFrame {
                 }
             }
 
+            /**
+             * 替换字符串时验证eps参数的有效性
+             * 只有当新字符串通过验证时才允许替换
+             */
             @Override
             public void replace(FilterBypass fb, int offset, int length, String text, AttributeSet attrs) throws BadLocationException {
                 if (text == null) return;
@@ -115,6 +123,10 @@ public class ClusterVisualizationGui extends JFrame {
                 }
             }
 
+            /**
+             * 删除字符串时验证eps参数的有效性
+             * 只有当删除后的新字符串通过验证时才允许删除
+             */
             @Override
             public void remove(FilterBypass fb, int offset, int length) throws BadLocationException {
                 String currentText = fb.getDocument().getText(0, fb.getDocument().getLength());
@@ -124,6 +136,13 @@ public class ClusterVisualizationGui extends JFrame {
                 }
             }
 
+            /**
+             * 验证eps参数的有效性
+             * 检查输入文本是否为有效的浮点数且大于等于1.0
+             *
+             * @param text 要验证的文本
+             * @return 如果文本有效返回true，否则返回false
+             */
             private boolean isValidEps(String text) {
                 if (text.isEmpty()) return true; // 允许空字符串
 
@@ -159,6 +178,10 @@ public class ClusterVisualizationGui extends JFrame {
         minPtsField = new JTextField("20", 8);
         // minPts参数输入验证 - 必须是正整数
         ((AbstractDocument) minPtsField.getDocument()).setDocumentFilter(new DocumentFilter() {
+            /**
+             * 插入字符串时验证minPts参数的有效性
+             * 只有当新字符串通过验证时才允许插入
+             */
             @Override
             public void insertString(FilterBypass fb, int offset, String string, AttributeSet attr) throws BadLocationException {
                 if (string == null) return;
@@ -169,6 +192,10 @@ public class ClusterVisualizationGui extends JFrame {
                 }
             }
 
+            /**
+             * 替换字符串时验证minPts参数的有效性
+             * 只有当新字符串通过验证时才允许替换
+             */
             @Override
             public void replace(FilterBypass fb, int offset, int length, String text, AttributeSet attrs) throws BadLocationException {
                 if (text == null) return;
@@ -179,6 +206,10 @@ public class ClusterVisualizationGui extends JFrame {
                 }
             }
 
+            /**
+             * 删除字符串时验证minPts参数的有效性
+             * 只有当删除后的新字符串通过验证时才允许删除
+             */
             @Override
             public void remove(FilterBypass fb, int offset, int length) throws BadLocationException {
                 String currentText = fb.getDocument().getText(0, fb.getDocument().getLength());
@@ -188,6 +219,13 @@ public class ClusterVisualizationGui extends JFrame {
                 }
             }
 
+            /**
+             * 验证minPts参数的有效性
+             * 检查输入文本是否为有效的正整数且大于等于2
+             *
+             * @param text 要验证的文本
+             * @return 如果文本有效返回true，否则返回false
+             */
             private boolean isValidMinPts(String text) {
                 if (text.isEmpty()) return true; // 允许空字符串
 
