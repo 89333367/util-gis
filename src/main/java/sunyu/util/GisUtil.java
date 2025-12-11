@@ -1383,21 +1383,22 @@ public class GisUtil implements AutoCloseable {
 
         log.debug("映射结果");
         DBIDRange ids = (DBIDRange) relation.getDBIDs();
-        List<List<GaussPoint>> clusters = new ArrayList<>();
-
+        List<List<GaussPoint>> clustersNoTimeSort = new ArrayList<>();
         for (Cluster<Model> cluster : result.getAllClusters()) {
-            List<GaussPoint> clusterPoints = new ArrayList<>();
+            log.debug("聚类信息： 聚类名称: {} 点数量: {}", cluster.getNameAutomatic(), cluster.size());
+            if (!cluster.getNameAutomatic().equals("Cluster")) {
+                // 如果不是聚类簇，跳过
+                continue;
+            }
+            List<GaussPoint> gaussPointList = new ArrayList<>();
             for (DBIDIter iter = cluster.getIDs().iter(); iter.valid(); iter.advance()) {
                 int offset = ids.getOffset(iter);
-                clusterPoints.add(gaussPoints.get(offset));
+                GaussPoint gaussPoint = gaussPoints.get(offset);
+                gaussPointList.add(gaussPoint);
             }
-            log.debug("聚类信息： 聚类名称: {} 点数量: {}", cluster.getNameAutomatic(), cluster.size());
-            if (cluster.getNameAutomatic().equals("Cluster")) {
-                clusters.add(clusterPoints);
-            }
+            clustersNoTimeSort.add(gaussPointList);
         }
-
-        log.info("聚类完成，总共有 {} 个聚类簇", clusters.size());
+        log.info("聚类完成，总共有 {} 个聚类簇", clustersNoTimeSort.size());
 
         double bufferSmoothingDistance = config.BUFFER_SMOOTHING_DISTANCE;
         if (minEffectiveInterval > 5) {
@@ -1406,7 +1407,7 @@ public class GisUtil implements AutoCloseable {
 
         log.debug("循环所有聚类");
         List<Geometry> clusterUnionGaussGeometries = new ArrayList<>();
-        for (List<GaussPoint> cluster : clusters) {
+        for (List<GaussPoint> cluster : clustersNoTimeSort) {
             log.debug("聚类簇包含 {} 个点", cluster.size());
             if (cluster.size() > 2) {
                 log.debug("聚类后，按时间升序排序");
