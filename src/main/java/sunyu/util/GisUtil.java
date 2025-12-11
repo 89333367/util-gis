@@ -1259,7 +1259,7 @@ public class GisUtil implements AutoCloseable {
      * @return 拆分后的作业轨迹结果（SplitResult类型）
      */
     public SplitResult splitRoad(List<Wgs84Point> wgs84Points, double workingWidth) {
-        long timeA = System.currentTimeMillis();
+        long splitRoadStartTime = System.currentTimeMillis();
         SplitResult splitResult = new SplitResult();
         splitResult.setWorkingWidth(workingWidth);
         splitResult.setWkt(config.EMPTY_GEOMETRY.toText());
@@ -1474,7 +1474,7 @@ public class GisUtil implements AutoCloseable {
             splitResult.getParts().add(part);
         }
 
-        log.info("拆分完成，耗时 {} 毫秒", System.currentTimeMillis() - timeA);
+        log.info("拆分完成，耗时 {} 毫秒", System.currentTimeMillis() - splitRoadStartTime);
         return splitResult;
     }
 
