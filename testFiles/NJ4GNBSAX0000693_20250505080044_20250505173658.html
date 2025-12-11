@@ -515,7 +515,8 @@
                 </label>
             </div>
             <div class="time-range-settings" style="margin-bottom:8px;font-size:12px;color:#333;">
-                <label>时间范围（格式：2025-10-23T13:56:49 - 2025-10-23T15:51:31）：</label>
+                <label>时间范围格式：</label>
+                <label>2025-10-23T13:56:49 - 2025-10-23T15:51:31</label>
                 <input type="text" id="timeRangeInput" style="width:100%;margin-top:4px;padding:4px;border:1px solid #ddd;border-radius:4px;font-size:12px;" placeholder="留空则显示所有轨迹">
             </div>
             <textarea id="trackTextarea" style="width:100%;height:120px;margin-bottom:10px;padding:8px;border:1px solid #ddd;border-radius:4px;font-family:monospace;resize:vertical;box-sizing:border-box;">20250505080044,113.0610520,28.7032920
@@ -33000,9 +33001,48 @@
             try {
                 const text = ta.value.trim();
                 if (!text) { alert('请粘贴轨迹文本（时间戳,经度,纬度）'); return; }
-                const points = parseTrackText(text);
-                if (points.length === 0) { alert('未找到有效轨迹点'); return; }
-                showTrackPoints(points);
+                const pointsWithTime = parseTrackTextWithTime(text);
+                if (pointsWithTime.length === 0) { alert('未找到有效轨迹点'); return; }
+                
+                // 解析时间范围
+                const timeRangeInput = document.getElementById('timeRangeInput');
+                const timeRangeText = timeRangeInput ? timeRangeInput.value.trim() : '';
+                let filteredPointsWithTime = pointsWithTime;
+                
+                if (timeRangeText) {
+                    // 解析时间范围：格式如 "2025-10-23T13:56:49 - 2025-10-23T15:51:31"
+                    const timeRangeMatch = timeRangeText.match(/^([\d-]+T[\d:]+)\s*-\s*([\d-]+T[\d:]+)$/);
+                    if (timeRangeMatch) {
+                        const startTimeStr = timeRangeMatch[1];
+                        const endTimeStr = timeRangeMatch[2];
+                        
+                        const startTime = new Date(startTimeStr);
+                        const endTime = new Date(endTimeStr);
+                        
+                        if (!isNaN(startTime.getTime()) && !isNaN(endTime.getTime())) {
+                            filteredPointsWithTime = pointsWithTime.filter(point => 
+                                point.time >= startTime && point.time <= endTime
+                            );
+                            
+                            if (filteredPointsWithTime.length === 0) {
+                                alert('该时间范围内没有找到轨迹点');
+                                return;
+                            }
+                        } else {
+                            alert('时间范围格式不正确，请使用格式：2025-10-23T13:56:49 - 2025-10-23T15:51:31');
+                            return;
+                        }
+                    } else {
+                        alert('时间范围格式不正确，请使用格式：2025-10-23T13:56:49 - 2025-10-23T15:51:31');
+                        return;
+                    }
+                }
+                
+                // 传递包含时间信息的点对象
+                showTrackPoints(filteredPointsWithTime);
+                
+                // 提取坐标点用于地图适配
+                const points = filteredPointsWithTime.map(point => point.ll);
                 fitViewportToTrack(points);
             } catch (e) {
                 alert('显示轨迹点失败：' + (e && e.message ? e.message : e));
@@ -33016,16 +33056,16 @@
         });
     }
 
-    function showTrackPoints(points) {
+    function showTrackPoints(pointsWithTime) {
         // 先移除旧轨迹（不影响轮廓）
         clearTrackOverlays(false);
         
-        if (!map || !points || points.length === 0) {
+        if (!map || !pointsWithTime || pointsWithTime.length === 0) {
             console.log('无轨迹点可显示');
             return;
         }
         
-        console.log(`准备显示${points.length}个轨迹点`);
+        console.log(`准备显示${pointsWithTime.length}个轨迹点`);
         
         // 使用批量处理和更小的图标来提高性能
         // 创建一个更小的自定义颜色点SVG图标
@@ -33040,13 +33080,24 @@
         const concurrentBatches = 4; // 并发批次数量
         
         // 预创建点击事件处理函数，避免重复创建
-        function createClickHandler(point, index) {
+        function createClickHandler(pointWithTime, index) {
             return function() {
+                // 格式化时间显示
+                const formattedTime = pointWithTime.time.toLocaleString('zh-CN', {
+                    year: 'numeric',
+                    month: '2-digit',
+                    day: '2-digit',
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    second: '2-digit',
+                    hour12: false
+                });
+                
                 const infoWindow = new T.InfoWindow({
-                    content: `点${index + 1}<br/>经度: ${point.lng.toFixed(6)}<br/>纬度: ${point.lat.toFixed(6)}`,
+                    content: `点${index + 1}<br/>经度: ${pointWithTime.ll.lng.toFixed(6)}<br/>纬度: ${pointWithTime.ll.lat.toFixed(6)}<br/>时间: ${formattedTime}`,
                     offset: new T.Point(0, -20)
                 });
-                infoWindow.open(map, point);
+                infoWindow.open(map, pointWithTime.ll);
             };
         }
         
@@ -33054,26 +33105,26 @@
         let currentIndex = 0;
         
         function addBatch() {
-            if (currentIndex >= points.length) {
-                console.log(`已显示${points.length}个轨迹点`);
+            if (currentIndex >= pointsWithTime.length) {
+                console.log(`已显示${pointsWithTime.length}个轨迹点`);
                 return;
             }
             
             // 添加当前批次的点
-            const endIndex = Math.min(currentIndex + batchSize, points.length);
+            const endIndex = Math.min(currentIndex + batchSize, pointsWithTime.length);
             const markersToAdd = [];
             
             // 先创建所有标记
             for (let i = currentIndex; i < endIndex; i++) {
-                const point = points[i];
+                const pointWithTime = pointsWithTime[i];
                 const index = i;
                 
-                const marker = new T.Marker(point, {
+                const marker = new T.Marker(pointWithTime.ll, {
                     icon: smallColoredDotIcon
                 });
                 
                 // 添加点击事件
-                marker.addEventListener('click', createClickHandler(point, index));
+                marker.addEventListener('click', createClickHandler(pointWithTime, index));
                 
                 markersToAdd.push(marker);
             }
