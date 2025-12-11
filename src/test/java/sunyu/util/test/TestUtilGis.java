@@ -350,6 +350,7 @@ public class TestUtilGis {
 
     @Test
     void 测试1秒间隔007() {
+        // 两块地，有很长的路，有一块地蝴蝶形状
         String did = "EC73BD2509060248";
         String yyyyMMdd = "20251023";
         String startTime = yyyyMMdd + "000000";
@@ -362,6 +363,7 @@ public class TestUtilGis {
 
     @Test
     void 测试1秒间隔008() {
+        // 一天干了9块地
         String did = "EC73BD2508220055";
         String yyyyMMdd = "20251013";
         String startTime = yyyyMMdd + "000000";
