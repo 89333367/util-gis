@@ -49,7 +49,7 @@
             padding: 12px;
             border-radius: 6px;
             box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
-            width: min(500px, 90vw);
+            width: min(400px, 90vw);
             box-sizing: border-box;
             transition: all 0.3s;
         }
@@ -82,7 +82,7 @@
         }
 
         .wkt-input-container.minimized {
-            width: 40px;
+            width: 60px;
             height: 40px;
             padding: 0;
         }
@@ -264,7 +264,7 @@
           #generateMultiBtn:hover { background: #2860E0; }
           #copyMultiBtn { background: #f5f5f5; color: #333; }
           #copyMultiBtn:hover { background: #e0e0e0; }
-          
+
           /* 左侧工具条样式 */
           #leftToolbar {
               position: absolute;
@@ -280,7 +280,7 @@
               gap: 2px;
               width: 40px;
           }
-          
+
           .toolbar-btn {
               width: 100%;
               padding: 6px 0;
@@ -295,22 +295,22 @@
               align-items: center;
               justify-content: center;
           }
-          
+
           .toolbar-btn:hover {
               background: #f5f5f5;
           }
-          
+
           .toolbar-btn span {
               font-size: 12px;
               margin-top: 4px;
           }
-          
+
           .toolbar-divider {
             height: 1px;
             background-color: #e0e0e0;
             margin: 2px 4px;
         }
-        
+
         /* 颜色选择器样式 */
         .color-picker-container {
             margin-top: 10px;
@@ -319,27 +319,27 @@
             border-radius: 4px;
             border: 1px solid #e0e0e0;
         }
-        
+
         .color-picker-title {
             font-size: 13px;
             font-weight: 600;
             color: #333;
             margin-bottom: 8px;
         }
-        
+
         .color-picker-row {
             display: flex;
             align-items: center;
             margin-bottom: 8px;
         }
-        
+
         .color-picker-label {
             font-size: 12px;
             color: #555;
             width: 60px;
             flex-shrink: 0;
         }
-        
+
         .color-picker {
             width: 30px;
             height: 30px;
@@ -349,7 +349,7 @@
             margin-right: 8px;
             flex-shrink: 0;
         }
-        
+
         .color-input {
             flex: 1;
             padding: 4px 8px;
@@ -358,25 +358,25 @@
             font-size: 12px;
             font-family: monospace;
         }
-        
+
         .opacity-slider-container {
             display: flex;
             align-items: center;
             margin-top: 8px;
         }
-        
+
         .opacity-slider {
             flex: 1;
             margin-right: 8px;
         }
-        
+
         .opacity-value {
             font-size: 12px;
             color: #555;
             width: 40px;
             text-align: right;
         }
-      </style>
+    </style>
     <script src="https://api.tianditu.gov.cn/api?v=4.0&tk=9ed3674d01dd7c129ab38e3c38bf651a"></script>
     <script src="https://cdn.bootcdn.net/ajax/libs/Turf.js/6.5.0/turf.min.js"></script>
     <script src="https://lib.baomitu.com/terraformer/1.0.12/terraformer.min.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
@@ -513,6 +513,10 @@
                         <option value="cgcs2000">CGCS2000</option>
                     </select>
                 </label>
+            </div>
+            <div class="time-range-settings" style="margin-bottom:8px;font-size:12px;color:#333;">
+                <label>时间范围选取(留空则显示所有轨迹)</label>
+                <input type="text" id="timeRangeInput" style="width:100%;margin-top:4px;padding:4px;border:1px solid #ddd;border-radius:4px;font-size:12px;" placeholder="格式：yyyy-MM-ddTHH:mm:ss - yyyy-MM-ddTHH:mm:ss">
             </div>
             <textarea id="trackTextarea" style="width:100%;height:120px;margin-bottom:10px;padding:8px;border:1px solid #ddd;border-radius:4px;font-family:monospace;resize:vertical;box-sizing:border-box;"></textarea>
             <div class="button-group">
@@ -775,7 +779,7 @@
                 if (!wktStr) { alert("请输入WKT字符串！"); return; }
                 clearOverlays();
                 const geojson = parseWkt(wktStr);
-    
+
                 const polygonData = [];
                 if (geojson.type === "Polygon") {
                     polygonData.push({ index: 1, coordinates: geojson.coordinates });
@@ -784,14 +788,14 @@
                         polygonData.push({ index: index + 1, coordinates: polygon });
                     });
                 }
-    
+
                 // 重置并绘制
                 polygonInfoList = [];
                 polygonData.forEach(pd => processPolygon(pd.index, pd.coordinates));
-    
+
                 // 视图居中到所有已绘制轮廓
                 try { fitViewportToPolygons(); } catch (e) { console.warn('视图居中失败', e); }
-    
+
                 // 在视图稳定后再创建/更新标签
                 setTimeout(() => {
                     if (labelsEnabled) {
@@ -861,7 +865,7 @@
               fillColor: currentFillColor,
               fillOpacity: currentFillOpacity
           });
- 
+
           // 使用WGS84坐标计算面积（更准确的面积计算）
          let areaSqm;
          let areaMu;
@@ -1506,7 +1510,45 @@
             try {
                 const text = ta.value.trim();
                 if (!text) { alert('请粘贴轨迹文本（时间戳,经度,纬度）'); return; }
-                const points = parseTrackText(text);
+                const pointsWithTime = parseTrackTextWithTime(text);
+
+                // 解析时间范围
+                const timeRangeInput = document.getElementById('timeRangeInput');
+                const timeRangeText = timeRangeInput ? timeRangeInput.value.trim() : '';
+                let filteredPoints = pointsWithTime;
+
+                if (timeRangeText) {
+                    // 解析时间范围：格式如 "2025-10-23T13:56:49 - 2025-10-23T15:51:31"
+                    const timeRangeMatch = timeRangeText.match(/^([\d-]+T[\d:]+)\s*-\s*([\d-]+T[\d:]+)$/);
+                    if (timeRangeMatch) {
+                        const startTimeStr = timeRangeMatch[1];
+                        const endTimeStr = timeRangeMatch[2];
+
+                        const startTime = new Date(startTimeStr);
+                        const endTime = new Date(endTimeStr);
+
+                        if (!isNaN(startTime.getTime()) && !isNaN(endTime.getTime())) {
+                            filteredPoints = pointsWithTime.filter(point =>
+                                point.time >= startTime && point.time <= endTime
+                            );
+
+                            if (filteredPoints.length < 2) {
+                                alert('该时间范围内的有效轨迹点不足，至少需要两点');
+                                return;
+                            }
+                        } else {
+                            alert('时间范围格式不正确，请使用格式：2025-10-23T13:56:49 - 2025-10-23T15:51:31');
+                            return;
+                        }
+                    } else {
+                        alert('时间范围格式不正确，请使用格式：2025-10-23T13:56:49 - 2025-10-23T15:51:31');
+                        return;
+                    }
+                }
+
+                // 提取坐标点
+                const points = filteredPoints.map(point => point.ll);
+
                 if (points.length < 2) { alert('有效轨迹点不足，至少需要两点'); return; }
                 drawTrackFromPoints(points);
                 fitViewportToTrack(points);
@@ -1520,9 +1562,48 @@
             try {
                 const text = ta.value.trim();
                 if (!text) { alert('请粘贴轨迹文本（时间戳,经度,纬度）'); return; }
-                const points = parseTrackText(text);
-                if (points.length === 0) { alert('未找到有效轨迹点'); return; }
-                showTrackPoints(points);
+                const pointsWithTime = parseTrackTextWithTime(text);
+                if (pointsWithTime.length === 0) { alert('未找到有效轨迹点'); return; }
+
+                // 解析时间范围
+                const timeRangeInput = document.getElementById('timeRangeInput');
+                const timeRangeText = timeRangeInput ? timeRangeInput.value.trim() : '';
+                let filteredPointsWithTime = pointsWithTime;
+
+                if (timeRangeText) {
+                    // 解析时间范围：格式如 "2025-10-23T13:56:49 - 2025-10-23T15:51:31"
+                    const timeRangeMatch = timeRangeText.match(/^([\d-]+T[\d:]+)\s*-\s*([\d-]+T[\d:]+)$/);
+                    if (timeRangeMatch) {
+                        const startTimeStr = timeRangeMatch[1];
+                        const endTimeStr = timeRangeMatch[2];
+
+                        const startTime = new Date(startTimeStr);
+                        const endTime = new Date(endTimeStr);
+
+                        if (!isNaN(startTime.getTime()) && !isNaN(endTime.getTime())) {
+                            filteredPointsWithTime = pointsWithTime.filter(point =>
+                                point.time >= startTime && point.time <= endTime
+                            );
+
+                            if (filteredPointsWithTime.length === 0) {
+                                alert('该时间范围内没有找到轨迹点');
+                                return;
+                            }
+                        } else {
+                            alert('时间范围格式不正确，请使用格式：2025-10-23T13:56:49 - 2025-10-23T15:51:31');
+                            return;
+                        }
+                    } else {
+                        alert('时间范围格式不正确，请使用格式：2025-10-23T13:56:49 - 2025-10-23T15:51:31');
+                        return;
+                    }
+                }
+
+                // 传递包含时间信息的点对象
+                showTrackPoints(filteredPointsWithTime);
+
+                // 提取坐标点用于地图适配
+                const points = filteredPointsWithTime.map(point => point.ll);
                 fitViewportToTrack(points);
             } catch (e) {
                 alert('显示轨迹点失败：' + (e && e.message ? e.message : e));
@@ -1536,17 +1617,17 @@
         });
     }
 
-    function showTrackPoints(points) {
+    function showTrackPoints(pointsWithTime) {
         // 先移除旧轨迹（不影响轮廓）
         clearTrackOverlays(false);
-        
-        if (!map || !points || points.length === 0) {
+
+        if (!map || !pointsWithTime || pointsWithTime.length === 0) {
             console.log('无轨迹点可显示');
             return;
         }
-        
-        console.log(`准备显示${points.length}个轨迹点`);
-        
+
+        console.log(`准备显示${pointsWithTime.length}个轨迹点`);
+
         // 使用批量处理和更小的图标来提高性能
         // 创建一个更小的自定义颜色点SVG图标
         const smallColoredDotIcon = new T.Icon({
@@ -1554,46 +1635,57 @@
             iconSize: new T.Point(1, 1),
             iconAnchor: new T.Point(0.5, 0.5)
         });
-        
+
         // 优化批量添加点的速度
         const batchSize = 2000; // 增加每批处理的点数
         const concurrentBatches = 4; // 并发批次数量
-        
+
         // 预创建点击事件处理函数，避免重复创建
-        function createClickHandler(point, index) {
+        function createClickHandler(pointWithTime, index) {
             return function() {
+                // 格式化时间显示
+                const formattedTime = pointWithTime.time.toLocaleString('zh-CN', {
+                    year: 'numeric',
+                    month: '2-digit',
+                    day: '2-digit',
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    second: '2-digit',
+                    hour12: false
+                });
+
                 const infoWindow = new T.InfoWindow({
-                    content: `点${index + 1}<br/>经度: ${point.lng.toFixed(6)}<br/>纬度: ${point.lat.toFixed(6)}`,
+                    content: `点${index + 1}<br/>经度: ${pointWithTime.ll.lng.toFixed(6)}<br/>纬度: ${pointWithTime.ll.lat.toFixed(6)}<br/>时间: ${formattedTime}`,
                     offset: new T.Point(0, -20)
                 });
-                infoWindow.open(map, point);
+                infoWindow.open(map, pointWithTime.ll);
             };
         }
-        
+
         // 使用setTimeout实现更高效的批量添加，避免阻塞UI
         let currentIndex = 0;
-        
+
         function addBatch() {
-            if (currentIndex >= points.length) {
-                console.log(`已显示${points.length}个轨迹点`);
+            if (currentIndex >= pointsWithTime.length) {
+                console.log(`已显示${pointsWithTime.length}个轨迹点`);
                 return;
             }
-            
+
             // 添加当前批次的点
-            const endIndex = Math.min(currentIndex + batchSize, points.length);
+            const endIndex = Math.min(currentIndex + batchSize, pointsWithTime.length);
             const markersToAdd = [];
-            
+
             // 先创建所有标记
             for (let i = currentIndex; i < endIndex; i++) {
-                const point = points[i];
+                const pointWithTime = pointsWithTime[i];
                 const index = i;
-                
-                const marker = new T.Marker(point, {
+
+                const marker = new T.Marker(pointWithTime.ll, {
                     icon: smallColoredDotIcon
                 });
-                
+
                 // 添加点击事件
-                marker.addEventListener('click', createClickHandler(point, index));
+                marker.addEventListener('click', createClickHandler(pointWithTime, index));
                 
                 markersToAdd.push(marker);
             }
