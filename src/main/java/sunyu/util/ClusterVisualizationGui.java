@@ -722,6 +722,7 @@ public class ClusterVisualizationGui extends JFrame {
         JFileChooser fileChooser = new JFileChooser();
         fileChooser.setDialogTitle("选择坐标文件");
         fileChooser.setFileFilter(new FileNameExtensionFilter("坐标文件 (*.txt, *.csv)", "txt", "csv"));
+        // 标准JFileChooser不支持直接设置视图模式，移除不兼容代码
 
         // 设置默认目录
         File testDir = new File("testFiles");
