@@ -1395,7 +1395,8 @@ public class GisUtil implements AutoCloseable {
                 log.debug("创建线缓冲，缓冲半径：{} 米", halfWorkingWidth);
 
                 //List<List<GaussPoint>> segments = splitClusterBySeconds(cluster, minEffectiveInterval * 5);
-                List<List<GaussPoint>> segments = splitClusterByDistance(cluster, avgDistance * 6.5);
+                //List<List<GaussPoint>> segments = splitClusterByDistance(cluster, avgDistance * 6.5);
+                List<List<GaussPoint>> segments = splitClusterByDistance(cluster, minEffectiveInterval * config.MAX_WORK_DISTANCE);
                 log.debug("时间切分后得到 {} 个子段", segments.size());
 
                 List<Geometry> segmentGeometries = new ArrayList<>();

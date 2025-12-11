@@ -317,6 +317,7 @@ public class TestUtilGis {
 
     @Test
     void 测试1秒间隔005() {
+        // 广西测试地块，有作业开关状态上报
         String did = "EC73BD2506050018";
         String startTime = "20251104090717";
         String endTime = "20251104092257";
@@ -328,6 +329,7 @@ public class TestUtilGis {
 
     @Test
     void 测试1秒间隔006() {
+        // 广西测试地块，有作业开关状态上报
         String did = "EC73BD2509061335";
         String startTime = "20251104100606";
         String endTime = "20251104101419";
@@ -395,7 +397,7 @@ public class TestUtilGis {
 
     @Test
     void 测试1秒间隔011() {
-        // 三块地，路稍微有一点点粘连
+        // 高密度地块，三块地，路稍微有一点点粘连
         String did = "NJ4GNBSAX0000693";
         String startTime = "20250505080044";
         String endTime = "20250505173658";
@@ -407,8 +409,7 @@ public class TestUtilGis {
 
     @Test
     void 测试1秒间隔012() {
-        // 执行稍慢
-        // 三块地，路有一些粘连，地中有一点断开
+        // 高密度地块，三块地，路有一些粘连，地中有一点断开，地中有一点缝隙
         String did = "NJ4GNBSAX0000693";
         String startTime = "20250507073041";
         String endTime = "20250507162457";
@@ -420,7 +421,7 @@ public class TestUtilGis {
 
     @Test
     void 测试1秒间隔013() {
-        // 一块地，加上很长的路
+        // 一块地，有很长的路
         String did = "NJ4GNBSAX0000693";
         String startTime = "20250509092721";
         String endTime = "20250509111620";
@@ -432,7 +433,7 @@ public class TestUtilGis {
 
     @Test
     void 测试1秒间隔014() {
-        // 三块地，中间有路，有些粘连
+        // 高密度地块，点位非常多，三块地，中间有路，有些粘连
         String did = "EC71BT2404140062";
         String yyyyMMdd = "20240426";
         String startTime = yyyyMMdd + "000000";
