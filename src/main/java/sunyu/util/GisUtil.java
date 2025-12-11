@@ -1414,19 +1414,18 @@ public class GisUtil implements AutoCloseable {
             cluster.sort(Comparator.comparing(GaussPoint::getGpsTime));
             GaussPoint prePoint = null;
             for (GaussPoint gaussPoint : cluster) {
-                GaussPoint currPoint = gaussPoint;
                 if (prePoint == null) {
                     splitTimeClusters.add(new ArrayList<>());
-                    splitTimeClusters.get(splitTimeClusters.size() - 1).add(currPoint);
-                    prePoint = currPoint;
+                    splitTimeClusters.get(splitTimeClusters.size() - 1).add(gaussPoint);
+                    prePoint = gaussPoint;
                     continue;
                 }
-                Duration duration = Duration.between(prePoint.getGpsTime(), currPoint.getGpsTime());
+                Duration duration = Duration.between(prePoint.getGpsTime(), gaussPoint.getGpsTime());
                 if (duration.getSeconds() > config.CLUSTER_POINT_SPLIT_TIME_SECOND) {
                     splitTimeClusters.add(new ArrayList<>());
                 }
-                splitTimeClusters.get(splitTimeClusters.size() - 1).add(currPoint);
-                prePoint = currPoint;
+                splitTimeClusters.get(splitTimeClusters.size() - 1).add(gaussPoint);
+                prePoint = gaussPoint;
             }
         }
         log.info("再按时间切割后，总共有 {} 个聚类簇", splitTimeClusters.size());
@@ -1510,12 +1509,31 @@ public class GisUtil implements AutoCloseable {
                     return false;
                 }
             }).collect(Collectors.toList());
+            // 将 wgs84TrackPoints 里的每一个item，再次按照时间进行切割，保留点位多的段
+            List<List<Wgs84Point>> fixWgs84TrackPoints = new ArrayList<>();
+            Wgs84Point prePoint = null;
+            for (Wgs84Point wgs84TrackPoint : wgs84TrackPoints) {
+                if (prePoint == null) {
+                    fixWgs84TrackPoints.add(new ArrayList<>());
+                    fixWgs84TrackPoints.get(fixWgs84TrackPoints.size() - 1).add(wgs84TrackPoint);
+                    prePoint = wgs84TrackPoint;
+                    continue;
+                }
+                Duration duration = Duration.between(prePoint.getGpsTime(), wgs84TrackPoint.getGpsTime());
+                if (duration.getSeconds() > config.CLUSTER_POINT_SPLIT_TIME_SECOND) {
+                    fixWgs84TrackPoints.add(new ArrayList<>());
+                }
+                fixWgs84TrackPoints.get(fixWgs84TrackPoints.size() - 1).add(wgs84TrackPoint);
+                prePoint = wgs84TrackPoint;
+            }
+            // 只要 wgs84TrackPoints 里item数量最多的那个
+            wgs84TrackPoints = fixWgs84TrackPoints.stream().max(Comparator.comparingInt(List::size)).orElse(new ArrayList<>());
             Part part = new Part();
             part.setTrackPoints(wgs84TrackPoints);
             part.setWkt(wgs84PartGeometry.toText());
             part.setMu(calcMu(wgs84PartGeometry));
-            part.setStartTime(wgs84TrackPoints.get(0).getGpsTime());
-            part.setEndTime(wgs84TrackPoints.get(wgs84TrackPoints.size() - 1).getGpsTime());
+            part.setStartTime(part.getTrackPoints().get(0).getGpsTime());
+            part.setEndTime(part.getTrackPoints().get(part.getTrackPoints().size() - 1).getGpsTime());
             parts.add(part);
         }
 
