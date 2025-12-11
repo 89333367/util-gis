@@ -376,6 +376,7 @@ public class TestUtilGis {
 
     @Test
     void 测试1秒间隔009() {
+        // 有两块地，非常多的路
         String did = "NJ4GBQSAX0000687";
         String yyyyMMdd = "20250503";
         String startTime = yyyyMMdd + "000000";
@@ -388,6 +389,7 @@ public class TestUtilGis {
 
     @Test
     void 测试1秒间隔010() {
+        // 不会形成作业地块，不是正常的作业轨迹
         String did = "EC73BD2509061335";
         String startTime = "20251029101603";
         String endTime = "20251029102521";
@@ -448,6 +450,7 @@ public class TestUtilGis {
 
     @Test
     void 测试10秒间隔001() {
+        // 一块地，非常多的路
         String did = "EM9101B8F5AZT0041";
         String yyyyMMdd = "20251027";
         String startTime = yyyyMMdd + "000000";
@@ -460,6 +463,7 @@ public class TestUtilGis {
 
     @Test
     void 测试10秒间隔002() {
+        // 五块地，非常分散，路也非常多，还有一个非常小的轮廓无法去掉
         String did = "EM9101B8F5AZT0041";
         String yyyyMMdd = "20251024";
         String startTime = yyyyMMdd + "000000";
