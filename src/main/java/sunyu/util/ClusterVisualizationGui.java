@@ -576,19 +576,27 @@ public class ClusterVisualizationGui extends JFrame {
                         }
                     }
 
-                    // 绘制新的框选矩形
-                    int x = Math.min(selectionStartPoint[0].x, selectionEndPoint[0].x);
-                    int y = Math.min(selectionStartPoint[0].y, selectionEndPoint[0].y);
-                    int width = Math.abs(selectionEndPoint[0].x - selectionStartPoint[0].x);
-                    int height = Math.abs(selectionEndPoint[0].y - selectionStartPoint[0].y);
+                    // 绘制新的框选矩形，强制保持正方形比例
+                    int x1 = selectionStartPoint[0].x;
+                    int y1 = selectionStartPoint[0].y;
+                    int x2 = selectionEndPoint[0].x;
+                    int y2 = selectionEndPoint[0].y;
 
-                    selectionRectangle[0] = new Rectangle(x, y, width, height);
+                    // 计算鼠标移动的最大距离，作为正方形的边长
+                    int distance = Math.min(Math.abs(x2 - x1), Math.abs(y2 - y1));
+
+                    // 确定正方形的坐标（保持与鼠标移动方向一致）
+                    int x = x1 < x2 ? x1 : x1 - distance;
+                    int y = y1 < y2 ? y1 : y1 - distance;
+                    int size = distance;
+
+                    selectionRectangle[0] = new Rectangle(x, y, size, size);
 
                     // 绘制框选矩形
                     Graphics g = chartPanel.getGraphics();
                     if (g != null) {
                         g.setXORMode(Color.WHITE);
-                        g.drawRect(x, y, width, height);
+                        g.drawRect(x, y, size, size);
                         g.setPaintMode();
                     }
                     e.consume(); // 消费事件，防止冒泡
