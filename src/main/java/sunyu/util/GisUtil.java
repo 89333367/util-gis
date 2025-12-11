@@ -793,7 +793,7 @@ public class GisUtil implements AutoCloseable {
 
             // 判断点是否在几何图形内或边界上
             // covers() 方法包含边界，而 contains() 不包含边界
-            return wgs84Geometry.covers(point);
+            return wgs84Geometry.contains(point);
         } catch (Exception e) {
             log.warn("判断点是否在几何图形内失败：点[{},{}] 错误={}", wgs84Point.getLongitude(), wgs84Point.getLatitude(), e.getMessage());
             return false;
