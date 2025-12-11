@@ -132,6 +132,14 @@ public class GisUtil implements AutoCloseable {
         private final int MIN_DBSCAN_POINTS = 20;
 
         /**
+         * 轨迹点聚类分割参数（秒）
+         * <p>
+         * 一类中相邻两点的时间间隔超过此值，则将其分为不同的聚类
+         * </p>
+         */
+        private final int CLUSTER_POINT_SPLIT_TIME_SECOND = 3600;
+
+        /**
          * 几何图形膨胀收缩距离（米）
          * <p>
          * 用于几何图形的膨胀-收缩优化操作。
@@ -1383,7 +1391,7 @@ public class GisUtil implements AutoCloseable {
 
         log.debug("映射结果");
         DBIDRange ids = (DBIDRange) relation.getDBIDs();
-        List<List<GaussPoint>> clustersNoTimeSort = new ArrayList<>();
+        List<List<GaussPoint>> clusters = new ArrayList<>();
         for (Cluster<Model> cluster : result.getAllClusters()) {
             log.debug("聚类信息： 聚类名称: {} 点数量: {}", cluster.getNameAutomatic(), cluster.size());
             if (!cluster.getNameAutomatic().equals("Cluster")) {
@@ -1396,9 +1404,32 @@ public class GisUtil implements AutoCloseable {
                 GaussPoint gaussPoint = gaussPoints.get(offset);
                 gaussPointList.add(gaussPoint);
             }
-            clustersNoTimeSort.add(gaussPointList);
+            clusters.add(gaussPointList);
         }
-        log.info("聚类完成，总共有 {} 个聚类簇", clustersNoTimeSort.size());
+        log.info("聚类完成，总共有 {} 个聚类簇", clusters.size());
+
+        log.debug("按时间切割聚类簇");
+        List<List<GaussPoint>> splitTimeClusters = new ArrayList<>();
+        for (List<GaussPoint> cluster : clusters) {
+            cluster.sort(Comparator.comparing(GaussPoint::getGpsTime));
+            GaussPoint prePoint = null;
+            for (GaussPoint gaussPoint : cluster) {
+                GaussPoint currPoint = gaussPoint;
+                if (prePoint == null) {
+                    splitTimeClusters.add(new ArrayList<>());
+                    splitTimeClusters.get(splitTimeClusters.size() - 1).add(currPoint);
+                    prePoint = currPoint;
+                    continue;
+                }
+                Duration duration = Duration.between(prePoint.getGpsTime(), currPoint.getGpsTime());
+                if (duration.getSeconds() > config.CLUSTER_POINT_SPLIT_TIME_SECOND) {
+                    splitTimeClusters.add(new ArrayList<>());
+                }
+                splitTimeClusters.get(splitTimeClusters.size() - 1).add(currPoint);
+                prePoint = currPoint;
+            }
+        }
+        log.info("再按时间切割后，总共有 {} 个聚类簇", splitTimeClusters.size());
 
         double bufferSmoothingDistance = config.BUFFER_SMOOTHING_DISTANCE;
         if (minEffectiveInterval > 5) {
@@ -1406,16 +1437,14 @@ public class GisUtil implements AutoCloseable {
         }
 
         log.debug("循环所有聚类");
-        List<Geometry> clusterUnionGaussGeometries = new ArrayList<>();
-        for (List<GaussPoint> cluster : clustersNoTimeSort) {
+        List<Geometry> clusterGaussGeometries = new ArrayList<>();
+        for (List<GaussPoint> cluster : splitTimeClusters) {
             log.debug("聚类簇包含 {} 个点", cluster.size());
             if (cluster.size() > 2) {
                 log.debug("聚类后，按时间升序排序");
                 cluster.sort(Comparator.comparing(GaussPoint::getGpsTime));
                 log.debug("创建线缓冲，缓冲半径：{} 米", halfWorkingWidth);
 
-                //List<List<GaussPoint>> segments = splitClusterBySeconds(cluster, minEffectiveInterval * 5);
-                //List<List<GaussPoint>> segments = splitClusterByDistance(cluster, avgDistance * 6.5);
                 log.debug("按距离切分聚类");
                 List<List<GaussPoint>> segments = splitClusterByDistance(cluster, minEffectiveInterval * config.MAX_WORK_DISTANCE);
                 log.debug("切分后得到 {} 个子段", segments.size());
@@ -1444,42 +1473,31 @@ public class GisUtil implements AutoCloseable {
                         }
                     }
                 }
+                log.info("使用膨胀、收缩参数 {}米 合并几何图形", bufferSmoothingDistance);
                 Geometry segmentGeometriesUnion = config.GEOMETRY_FACTORY.createGeometryCollection(segmentGeometries.toArray(new Geometry[0])).union().buffer(bufferSmoothingDistance).buffer(-bufferSmoothingDistance);
-                clusterUnionGaussGeometries.add(segmentGeometriesUnion);
+                clusterGaussGeometries.add(segmentGeometriesUnion);
             }
         }
 
         log.debug("按面积倒序排序");
-        clusterUnionGaussGeometries.sort(Comparator.comparing(Geometry::getArea).reversed());
+        clusterGaussGeometries.sort(Comparator.comparing(Geometry::getArea).reversed());
         log.debug("取前 {} 个最大面积的几何图形", config.MAX_SPLIT_RETURN_SIZE);
-        clusterUnionGaussGeometries = clusterUnionGaussGeometries.subList(0, Math.min(config.MAX_SPLIT_RETURN_SIZE, clusterUnionGaussGeometries.size()));
+        clusterGaussGeometries = clusterGaussGeometries.subList(0, Math.min(config.MAX_SPLIT_RETURN_SIZE, clusterGaussGeometries.size()));
         log.debug("移除面积小于 {} 平方米的几何图形", config.MIN_RETURN_MU * config.MU_TO_SQUARE_METER);
-        clusterUnionGaussGeometries.removeIf(geometry -> geometry.getArea() < config.MIN_RETURN_MU * config.MU_TO_SQUARE_METER);
-
-        log.info("使用膨胀、收缩参数 {}米 合并所有几何图形", bufferSmoothingDistance);
-        Geometry clustersUnionGaussGeometry = config.GEOMETRY_FACTORY.createGeometryCollection(clusterUnionGaussGeometries.toArray(new Geometry[0])).union().buffer(bufferSmoothingDistance).buffer(-bufferSmoothingDistance);
-        log.debug("合并后几何图形的面积（平方米）：{}", clustersUnionGaussGeometry.getArea());
-        if (clustersUnionGaussGeometry.getArea() < config.MIN_RETURN_MU * config.MU_TO_SQUARE_METER) {
+        clusterGaussGeometries.removeIf(geometry -> geometry.getArea() < config.MIN_RETURN_MU * config.MU_TO_SQUARE_METER);
+        log.info("最终保留 {} 个几何图形", clusterGaussGeometries.size());
+        if (clusterGaussGeometries.isEmpty()) {
             return splitResult;
         }
-        Geometry wgs84UnionGeometry = toWgs84Geometry(clustersUnionGaussGeometry);
-        //log.debug("合并后的几何图形：{}", wgs84UnionGeometry.toText());
-        splitResult.setWkt(wgs84UnionGeometry.toText());
-        splitResult.setMu(calcMu(wgs84UnionGeometry));
-        log.info("地块总面积={}亩 共 {} 个地块", splitResult.getMu(), clustersUnionGaussGeometry.getNumGeometries());
 
-        for (int i = 0; i < clustersUnionGaussGeometry.getNumGeometries(); i++) {
-            Geometry partGaussGeometry = clustersUnionGaussGeometry.getGeometryN(i);
-            Geometry wgs84PartGeometry = toWgs84Geometry(partGaussGeometry);
-            //log.debug("子几何图形{}：{}", i + 1, wgs84PartGeometry.toText());
-            Part part = new Part();
-            part.setWkt(wgs84PartGeometry.toText());
-            part.setMu(calcMu(wgs84PartGeometry));
+        List<Part> parts = new ArrayList<>();
+        for (Geometry clusterGaussGeometry : clusterGaussGeometries) {
+            Geometry wgs84PartGeometry = toWgs84Geometry(clusterGaussGeometry);
             // 获取几何图形的边界框，用于快速空间过滤
             Envelope geometryEnvelope = wgs84PartGeometry.getEnvelopeInternal();
             // 使用PreparedGeometry预优化，大幅提升空间判断性能（10-100倍）
             PreparedGeometry preparedWgs84Geometry = PreparedGeometryFactory.prepare(wgs84PartGeometry);
-            List<Wgs84Point> wgs84PointsSegment = wgs84Points.stream().filter(point -> {
+            List<Wgs84Point> wgs84TrackPoints = wgs84Points.stream().filter(point -> {
                 try {
                     // 第一步：边界框快速过滤 - 使用简单的数值比较，性能极高
                     if (!geometryEnvelope.contains(point.getLongitude(), point.getLatitude())) {
@@ -1492,11 +1510,23 @@ public class GisUtil implements AutoCloseable {
                     return false;
                 }
             }).collect(Collectors.toList());
-            part.setTrackPoints(wgs84PointsSegment);
-            part.setStartTime(wgs84PointsSegment.get(0).getGpsTime());
-            part.setEndTime(wgs84PointsSegment.get(wgs84PointsSegment.size() - 1).getGpsTime());
-            splitResult.getParts().add(part);
+            Part part = new Part();
+            part.setTrackPoints(wgs84TrackPoints);
+            part.setWkt(wgs84PartGeometry.toText());
+            part.setMu(calcMu(wgs84PartGeometry));
+            part.setStartTime(wgs84TrackPoints.get(0).getGpsTime());
+            part.setEndTime(wgs84TrackPoints.get(wgs84TrackPoints.size() - 1).getGpsTime());
+            parts.add(part);
         }
+
+        Geometry clustersUnionGaussGeometry = config.GEOMETRY_FACTORY.createGeometryCollection(clusterGaussGeometries.toArray(new Geometry[0])).union().buffer(0);
+        log.debug("合并后几何图形的面积（平方米）：{}", clustersUnionGaussGeometry.getArea());
+        Geometry wgs84UnionGeometry = toWgs84Geometry(clustersUnionGaussGeometry);
+        //log.debug("合并后的几何图形：{}", wgs84UnionGeometry.toText());
+        splitResult.setWkt(wgs84UnionGeometry.toText());
+        splitResult.setMu(parts.stream().mapToDouble(Part::getMu).sum());
+        splitResult.setParts(parts);
+        log.info("地块总面积={}亩 共 {} 个地块", splitResult.getMu(), clustersUnionGaussGeometry.getNumGeometries());
 
         log.info("拆分完成，耗时 {} 毫秒", System.currentTimeMillis() - splitRoadStartTime);
         return splitResult;

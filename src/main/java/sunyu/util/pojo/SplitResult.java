@@ -1,6 +1,7 @@
 package sunyu.util.pojo;
 
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 
 /**
@@ -51,6 +52,7 @@ public class SplitResult {
     }
 
     public List<Part> getParts() {
+        parts.sort(Comparator.comparing(Part::getStartTime));
         return parts;
     }
 
