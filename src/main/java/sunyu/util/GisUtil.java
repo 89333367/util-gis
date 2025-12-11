@@ -637,6 +637,72 @@ public class GisUtil implements AutoCloseable {
         return segments;
     }
 
+    /**
+     * 过滤异常点位信息
+     *
+     * @param wgs84Points 轨迹点列表（Wgs84Point类型）
+     *
+     * @return 过滤后的轨迹点列表（Wgs84Point类型）
+     */
+    public List<Wgs84Point> filterWgs84Points(List<Wgs84Point> wgs84Points) {
+        log.debug("准备过滤异常点位信息");
+        log.debug("准备过滤时间为空的点位信息");
+        wgs84Points.removeIf(p -> p.getGpsTime() == null);
+        log.debug("过滤时间为空的点位完成，剩余点位数量：{}", wgs84Points.size());
+        log.debug("准备对轨迹点按时间升序排序");
+        wgs84Points.sort(Comparator.comparing(Wgs84Point::getGpsTime));
+        log.debug("轨迹点按时间升序排序完成");
+        wgs84Points = wgs84Points.stream().filter(p -> {
+            // 时间不能为空
+            if (p.getGpsTime() == null) {
+                log.warn("轨迹点时间为空，抛弃");
+                return false;
+            }
+            // 经纬度不能为0（无效坐标）
+            if (p.getLongitude() == 0.0 && p.getLatitude() == 0.0) {
+                log.warn("定位时间: {} 轨迹点经纬度为 0 ，抛弃", p.getGpsTime());
+                return false;
+            }
+            // 经纬度必须在合理范围内
+            if (p.getLongitude() < -180.0 || p.getLongitude() > 180.0 || p.getLatitude() < -90.0 || p.getLatitude() > 90.0) {
+                log.warn("定位时间: {} 轨迹点经纬度超出范围：[{},{}] 抛弃", p.getGpsTime(), p.getLongitude(), p.getLatitude());
+                return false;
+            }
+            // GPS点位必须是已定位的点位
+            if (p.getGpsStatus() != 0 && p.getGpsStatus() != 1) {
+                log.warn("定位时间: {} 轨迹点GPS状态为 {} ，抛弃", p.getGpsTime(), p.getGpsStatus());
+                return false;
+            }
+            // 必须是作业状态
+            if (p.getJobStatus() != 0 && p.getJobStatus() != 1) {
+                log.warn("定位时间: {} 轨迹点作业状态为 {} ，抛弃", p.getGpsTime(), p.getJobStatus());
+                return false;
+            }
+            return true;
+        }).collect(Collectors.toList());
+        log.debug("过滤异常点位信息完成，剩余点位数量：{}", wgs84Points.size());
+
+        log.debug("准备去重前后两个经纬度点完全一致的轨迹点");
+        List<Wgs84Point> filteredPoints = new ArrayList<>();
+        Wgs84Point pre = null;
+        for (Wgs84Point wgs84Point : wgs84Points) {
+            if (pre == null) {
+                pre = wgs84Point;
+                filteredPoints.add(pre);
+                continue;
+            }
+            if (wgs84Point.getLongitude() == pre.getLongitude() && wgs84Point.getLatitude() == pre.getLatitude()) {
+                log.warn("定位时间: {} 轨迹点经纬度与前一个点 {} 重复，抛弃", wgs84Point.getGpsTime(), pre.getGpsTime());
+                continue;
+            }
+            pre = wgs84Point;
+            filteredPoints.add(pre);
+        }
+        wgs84Points = filteredPoints;
+        log.debug("去重前后两个经纬度点完全一致的轨迹点完成，剩余点位数量：{}", wgs84Points.size());
+        return wgs84Points;
+    }
+
 
     /**
      * 使用Haversine公式计算WGS84坐标系下两点之间的球面距离。
@@ -1055,56 +1121,6 @@ public class GisUtil implements AutoCloseable {
             return new ArrayList<>();
         }
 
-        log.debug("准备过滤异常点位信息");
-        wgs84Points = wgs84Points.stream().filter(p -> {
-            // 时间不能为空
-            if (p.getGpsTime() == null) {
-                log.warn("轨迹点时间为空，抛弃");
-                return false;
-            }
-            // 经纬度不能为0（无效坐标）
-            if (p.getLongitude() == 0.0 && p.getLatitude() == 0.0) {
-                log.warn("定位时间: {} 轨迹点经纬度为 0 ，抛弃", p.getGpsTime());
-                return false;
-            }
-            // 经纬度必须在合理范围内
-            if (p.getLongitude() < -180.0 || p.getLongitude() > 180.0 || p.getLatitude() < -90.0 || p.getLatitude() > 90.0) {
-                log.warn("定位时间: {} 轨迹点经纬度超出范围：[{},{}] 抛弃", p.getGpsTime(), p.getLongitude(), p.getLatitude());
-                return false;
-            }
-            // GPS点位必须是已定位的点位
-            if (p.getGpsStatus() != 0 && p.getGpsStatus() != 1) {
-                log.warn("定位时间: {} 轨迹点GPS状态为 {} ，抛弃", p.getGpsTime(), p.getGpsStatus());
-                return false;
-            }
-            // 必须是作业状态
-            if (p.getJobStatus() != 0 && p.getJobStatus() != 1) {
-                log.warn("定位时间: {} 轨迹点作业状态为 {} ，抛弃", p.getGpsTime(), p.getJobStatus());
-                return false;
-            }
-            return true;
-        }).collect(Collectors.toList());
-        log.debug("过滤异常点位信息完成，剩余点位数量：{}", wgs84Points.size());
-
-        log.debug("准备去重前后两个经纬度点完全一致的轨迹点");
-        List<Wgs84Point> filteredPoints = new ArrayList<>();
-        Wgs84Point pre = null;
-        for (Wgs84Point wgs84Point : wgs84Points) {
-            if (pre == null) {
-                pre = wgs84Point;
-                filteredPoints.add(pre);
-                continue;
-            }
-            if (wgs84Point.getLongitude() == pre.getLongitude() && wgs84Point.getLatitude() == pre.getLatitude()) {
-                log.warn("定位时间: {} 轨迹点经纬度与前一个点 {} 重复，抛弃", wgs84Point.getGpsTime(), pre.getGpsTime());
-                continue;
-            }
-            pre = wgs84Point;
-            filteredPoints.add(pre);
-        }
-        wgs84Points = filteredPoints;
-        log.debug("去重前后两个经纬度点完全一致的轨迹点完成，剩余点位数量：{}", wgs84Points.size());
-
         List<GaussPoint> gaussPoints = new ArrayList<>(wgs84Points.size());
         try {
             // 优化1：按投影带分组，批量处理同一投影带的点
@@ -1311,6 +1327,9 @@ public class GisUtil implements AutoCloseable {
         }
         log.debug("最小有效上报时间间隔 {} 秒", minEffectiveInterval);
 
+        // 过滤异常点位信息
+        wgs84Points = filterWgs84Points(wgs84Points);
+
         // 转换为高斯投影坐标
         List<GaussPoint> gaussPoints = toGaussPointList(wgs84Points);
         if (gaussPoints.size() < 2) {
@@ -1481,5 +1500,6 @@ public class GisUtil implements AutoCloseable {
         log.info("拆分完成，耗时 {} 毫秒", System.currentTimeMillis() - splitRoadStartTime);
         return splitResult;
     }
+
 
 }

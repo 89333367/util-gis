@@ -148,14 +148,13 @@ public class TestUtilGis {
         FileUtil.writeUtf8Lines(partsInfo, partsFile);
 
         fileName = path + StrUtil.format("/{}_{}_{}_gauss.txt", did, startTime, endTime);
-        if (!FileUtil.exist(fileName)) {
-            List<GaussPoint> gaussPointList = gisUtil.toGaussPointList(l);
-            List<String> gaussXyList = new ArrayList<>();
-            for (GaussPoint gaussPoint : gaussPointList) {
-                gaussXyList.add(StrUtil.format("{},{}", gaussPoint.getGaussX(), gaussPoint.getGaussY()));
-            }
-            FileUtil.writeUtf8Lines(gaussXyList, fileName);
+        l = gisUtil.filterWgs84Points(l);
+        List<GaussPoint> gaussPointList = gisUtil.toGaussPointList(l);
+        List<String> gaussXyList = new ArrayList<>();
+        for (GaussPoint gaussPoint : gaussPointList) {
+            gaussXyList.add(StrUtil.format("{},{}", gaussPoint.getGaussX(), gaussPoint.getGaussY()));
         }
+        FileUtil.writeUtf8Lines(gaussXyList, fileName);
     }
 
     void 生成HTML(String did, String startTime, String endTime) {
