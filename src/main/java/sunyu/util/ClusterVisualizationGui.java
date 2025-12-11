@@ -456,11 +456,11 @@ public class ClusterVisualizationGui extends JFrame {
                     isSelecting[0] = false;
                     chartPanel.setCursor(Cursor.getDefaultCursor());
 
-                    // 计算框选矩形的屏幕坐标
-                    int x = Math.min(selectionStartPoint[0].x, selectionEndPoint[0].x);
-                    int y = Math.min(selectionStartPoint[0].y, selectionEndPoint[0].y);
-                    int width = Math.abs(selectionEndPoint[0].x - selectionStartPoint[0].x);
-                    int height = Math.abs(selectionEndPoint[0].y - selectionStartPoint[0].y);
+                    // 使用实际绘制的正方形框选区域坐标
+                    int x = selectionRectangle[0].x;
+                    int y = selectionRectangle[0].y;
+                    int width = selectionRectangle[0].width;
+                    int height = selectionRectangle[0].height;
 
                     // 确保框选区域足够大（避免误操作）
                     if (width > 10 && height > 10) {
