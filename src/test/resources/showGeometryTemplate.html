@@ -514,6 +514,10 @@
                     </select>
                 </label>
             </div>
+            <div class="time-range-settings" style="margin-bottom:8px;font-size:12px;color:#333;">
+                <label>时间范围（格式：2025-10-23T13:56:49 - 2025-10-23T15:51:31）：</label>
+                <input type="text" id="timeRangeInput" style="width:100%;margin-top:4px;padding:4px;border:1px solid #ddd;border-radius:4px;font-size:12px;" placeholder="留空则显示所有轨迹">
+            </div>
             <textarea id="trackTextarea" style="width:100%;height:120px;margin-bottom:10px;padding:8px;border:1px solid #ddd;border-radius:4px;font-family:monospace;resize:vertical;box-sizing:border-box;">${trace}</textarea>
             <div class="button-group">
                 <button id="drawTrackButton" disabled style="flex: 1;">绘制轨迹</button>
@@ -1506,7 +1510,45 @@
             try {
                 const text = ta.value.trim();
                 if (!text) { alert('请粘贴轨迹文本（时间戳,经度,纬度）'); return; }
-                const points = parseTrackText(text);
+                const pointsWithTime = parseTrackTextWithTime(text);
+                
+                // 解析时间范围
+                const timeRangeInput = document.getElementById('timeRangeInput');
+                const timeRangeText = timeRangeInput ? timeRangeInput.value.trim() : '';
+                let filteredPoints = pointsWithTime;
+                
+                if (timeRangeText) {
+                    // 解析时间范围：格式如 "2025-10-23T13:56:49 - 2025-10-23T15:51:31"
+                    const timeRangeMatch = timeRangeText.match(/^([\d-]+T[\d:]+)\s*-\s*([\d-]+T[\d:]+)$/);
+                    if (timeRangeMatch) {
+                        const startTimeStr = timeRangeMatch[1];
+                        const endTimeStr = timeRangeMatch[2];
+                        
+                        const startTime = new Date(startTimeStr);
+                        const endTime = new Date(endTimeStr);
+                        
+                        if (!isNaN(startTime.getTime()) && !isNaN(endTime.getTime())) {
+                            filteredPoints = pointsWithTime.filter(point => 
+                                point.time >= startTime && point.time <= endTime
+                            );
+                            
+                            if (filteredPoints.length < 2) {
+                                alert('该时间范围内的有效轨迹点不足，至少需要两点');
+                                return;
+                            }
+                        } else {
+                            alert('时间范围格式不正确，请使用格式：2025-10-23T13:56:49 - 2025-10-23T15:51:31');
+                            return;
+                        }
+                    } else {
+                        alert('时间范围格式不正确，请使用格式：2025-10-23T13:56:49 - 2025-10-23T15:51:31');
+                        return;
+                    }
+                }
+                
+                // 提取坐标点
+                const points = filteredPoints.map(point => point.ll);
+                
                 if (points.length < 2) { alert('有效轨迹点不足，至少需要两点'); return; }
                 drawTrackFromPoints(points);
                 fitViewportToTrack(points);
