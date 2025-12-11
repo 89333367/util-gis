@@ -1320,6 +1320,7 @@ public class GisUtil implements AutoCloseable {
 
         double halfWorkingWidth = workingWidth / 2.0;
 
+        log.debug("准备计算平均距离");
         List<Double> distancesAtMinInterval = new ArrayList<>();
         for (int i = 1; i < gaussPoints.size(); i++) {
             GaussPoint prevPoint = gaussPoints.get(i - 1);
@@ -1352,7 +1353,6 @@ public class GisUtil implements AutoCloseable {
         Database db = new StaticArrayDatabase(new ArrayAdapterDatabaseConnection(coords), null);
         db.initialize();
 
-        // 使用欧几里得距离
         double eps = config.MAX_WORK_DISTANCE * minEffectiveInterval;
         int minPts = config.MIN_DBSCAN_POINTS;
         log.info("使用空间密集聚类参数 eps={} 米, minPts={}", String.format("%.2f", eps), minPts);
@@ -1386,7 +1386,7 @@ public class GisUtil implements AutoCloseable {
         }
 
         log.debug("循环所有聚类");
-        List<Geometry> unionGaussGeometries = new ArrayList<>();
+        List<Geometry> clusterUnionGaussGeometries = new ArrayList<>();
         for (List<GaussPoint> cluster : clusters) {
             log.debug("聚类簇包含 {} 个点", cluster.size());
             if (cluster.size() > 2) {
@@ -1396,8 +1396,9 @@ public class GisUtil implements AutoCloseable {
 
                 //List<List<GaussPoint>> segments = splitClusterBySeconds(cluster, minEffectiveInterval * 5);
                 //List<List<GaussPoint>> segments = splitClusterByDistance(cluster, avgDistance * 6.5);
+                log.debug("按距离切分聚类");
                 List<List<GaussPoint>> segments = splitClusterByDistance(cluster, minEffectiveInterval * config.MAX_WORK_DISTANCE);
-                log.debug("时间切分后得到 {} 个子段", segments.size());
+                log.debug("切分后得到 {} 个子段", segments.size());
 
                 List<Geometry> segmentGeometries = new ArrayList<>();
                 for (List<GaussPoint> segment : segments) {
@@ -1424,28 +1425,31 @@ public class GisUtil implements AutoCloseable {
                     }
                 }
                 Geometry segmentGeometriesUnion = config.GEOMETRY_FACTORY.createGeometryCollection(segmentGeometries.toArray(new Geometry[0])).union().buffer(bufferSmoothingDistance).buffer(-bufferSmoothingDistance);
-                unionGaussGeometries.add(segmentGeometriesUnion);
+                clusterUnionGaussGeometries.add(segmentGeometriesUnion);
             }
         }
 
-        unionGaussGeometries.sort(Comparator.comparing(Geometry::getArea).reversed());
-        unionGaussGeometries = unionGaussGeometries.subList(0, Math.min(config.MAX_SPLIT_RETURN_SIZE, unionGaussGeometries.size()));
-        unionGaussGeometries.removeIf(geometry -> geometry.getArea() < config.MIN_RETURN_MU * config.MU_TO_SQUARE_METER);
+        log.debug("按面积倒序排序");
+        clusterUnionGaussGeometries.sort(Comparator.comparing(Geometry::getArea).reversed());
+        log.debug("取前 {} 个最大面积的几何图形", config.MAX_SPLIT_RETURN_SIZE);
+        clusterUnionGaussGeometries = clusterUnionGaussGeometries.subList(0, Math.min(config.MAX_SPLIT_RETURN_SIZE, clusterUnionGaussGeometries.size()));
+        log.debug("移除面积小于 {} 平方米的几何图形", config.MIN_RETURN_MU * config.MU_TO_SQUARE_METER);
+        clusterUnionGaussGeometries.removeIf(geometry -> geometry.getArea() < config.MIN_RETURN_MU * config.MU_TO_SQUARE_METER);
 
         log.info("使用膨胀、收缩参数 {}米 合并所有几何图形", bufferSmoothingDistance);
-        Geometry unionGaussGeometry = config.GEOMETRY_FACTORY.createGeometryCollection(unionGaussGeometries.toArray(new Geometry[0])).union().buffer(bufferSmoothingDistance).buffer(-bufferSmoothingDistance);
-        log.debug("合并后几何图形的面积（平方米）：{}", unionGaussGeometry.getArea());
-        if (unionGaussGeometry.getArea() < config.MIN_RETURN_MU * config.MU_TO_SQUARE_METER) {
+        Geometry clustersUnionGaussGeometry = config.GEOMETRY_FACTORY.createGeometryCollection(clusterUnionGaussGeometries.toArray(new Geometry[0])).union().buffer(bufferSmoothingDistance).buffer(-bufferSmoothingDistance);
+        log.debug("合并后几何图形的面积（平方米）：{}", clustersUnionGaussGeometry.getArea());
+        if (clustersUnionGaussGeometry.getArea() < config.MIN_RETURN_MU * config.MU_TO_SQUARE_METER) {
             return splitResult;
         }
-        Geometry wgs84UnionGeometry = toWgs84Geometry(unionGaussGeometry);
+        Geometry wgs84UnionGeometry = toWgs84Geometry(clustersUnionGaussGeometry);
         //log.debug("合并后的几何图形：{}", wgs84UnionGeometry.toText());
         splitResult.setWkt(wgs84UnionGeometry.toText());
         splitResult.setMu(calcMu(wgs84UnionGeometry));
-        log.info("地块总面积={}亩 共 {} 个地块", splitResult.getMu(), unionGaussGeometry.getNumGeometries());
+        log.info("地块总面积={}亩 共 {} 个地块", splitResult.getMu(), clustersUnionGaussGeometry.getNumGeometries());
 
-        for (int i = 0; i < unionGaussGeometry.getNumGeometries(); i++) {
-            Geometry partGaussGeometry = unionGaussGeometry.getGeometryN(i);
+        for (int i = 0; i < clustersUnionGaussGeometry.getNumGeometries(); i++) {
+            Geometry partGaussGeometry = clustersUnionGaussGeometry.getGeometryN(i);
             Geometry wgs84PartGeometry = toWgs84Geometry(partGaussGeometry);
             //log.debug("子几何图形{}：{}", i + 1, wgs84PartGeometry.toText());
             Part part = new Part();
