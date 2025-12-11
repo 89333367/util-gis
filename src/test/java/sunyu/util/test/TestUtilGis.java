@@ -269,6 +269,7 @@ public class TestUtilGis {
 
     @Test
     void 测试1秒间隔001() {
+        // 一块地，有镂空，膨胀1米还有缝隙
         String did = "EC71BT2406060220";
         String startTime = "20251102154200";
         String endTime = "20251102172202";
@@ -280,6 +281,7 @@ public class TestUtilGis {
 
     @Test
     void 测试1秒间隔002() {
+        // 有镂空，地块之间的距离非常小，所以合并成一个大地块
         String did = "EC71BT2406060220";
         String startTime = "20251102130028";
         String endTime = "20251102153804";
@@ -291,6 +293,7 @@ public class TestUtilGis {
 
     @Test
     void 测试1秒间隔003() {
+        // 高密度地块，轨迹缝隙特别多，最终合并成一块地
         String did = "EC73BD2509060398";
         String startTime = "20251103130852";
         String endTime = "20251103151309";
@@ -302,6 +305,7 @@ public class TestUtilGis {
 
     @Test
     void 测试1秒间隔004() {
+        // 高密度地块，三块地，有镂空，膨胀1米后还有一个缝隙，有两块地中间距离特别小，所以最终合并成两块大地块
         String did = "EC71BT2406060220";
         String startTime = "20251103102528";
         String endTime = "20251103150242";
@@ -391,6 +395,7 @@ public class TestUtilGis {
 
     @Test
     void 测试1秒间隔011() {
+        // 三块地，路稍微有一点点粘连
         String did = "NJ4GNBSAX0000693";
         String startTime = "20250505080044";
         String endTime = "20250505173658";
@@ -402,6 +407,8 @@ public class TestUtilGis {
 
     @Test
     void 测试1秒间隔012() {
+        // 执行稍慢
+        // 三块地，路有一些粘连，地中有一点断开
         String did = "NJ4GNBSAX0000693";
         String startTime = "20250507073041";
         String endTime = "20250507162457";
@@ -413,6 +420,7 @@ public class TestUtilGis {
 
     @Test
     void 测试1秒间隔013() {
+        // 一块地，加上很长的路
         String did = "NJ4GNBSAX0000693";
         String startTime = "20250509092721";
         String endTime = "20250509111620";
@@ -424,6 +432,7 @@ public class TestUtilGis {
 
     @Test
     void 测试1秒间隔014() {
+        // 三块地，中间有路，有些粘连
         String did = "EC71BT2404140062";
         String yyyyMMdd = "20240426";
         String startTime = yyyyMMdd + "000000";
