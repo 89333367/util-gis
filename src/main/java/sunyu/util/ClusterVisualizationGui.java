@@ -278,18 +278,18 @@ public class ClusterVisualizationGui extends JFrame {
         chartPanel.setPreferredSize(new Dimension(800, 600));
         chartPanel.setMouseWheelEnabled(false);
         chartPanel.setMouseZoomable(false);
-        chartPanel.setFillZoomRectangle(false);
-        chartPanel.setMaximumDrawWidth(800);
-        chartPanel.setMaximumDrawHeight(600);
-        chartPanel.setMinimumDrawWidth(800);
-        chartPanel.setMinimumDrawHeight(600);
-        chartPanel.setDomainZoomable(false);
-        chartPanel.setRangeZoomable(false);
+        chartPanel.setFillZoomRectangle(false);  // 禁用内置缩放矩形，使用自定义框选
+        chartPanel.setMaximumDrawWidth(32768);
+        chartPanel.setMaximumDrawHeight(32768);
+        chartPanel.setMinimumDrawWidth(100);
+        chartPanel.setMinimumDrawHeight(100);
+        chartPanel.setDomainZoomable(false);    // 禁用内置X轴缩放，使用自定义框选
+        chartPanel.setRangeZoomable(false);    // 禁用内置Y轴缩放，使用自定义框选
         chartPanel.setPopupMenu(null);
         chartPanel.setRefreshBuffer(true);
         chartPanel.setDoubleBuffered(true);
 
-        setupRightClickDrag(chartPanel);
+        setupUnifiedMouseHandler(chartPanel);  // 使用统一的鼠标处理器
         setupMouseHoverZoom(chartPanel);
     }
 
@@ -401,22 +401,30 @@ public class ClusterVisualizationGui extends JFrame {
     }
 
     /**
-     * 配置右键拖拽功能
-     * 实现图表的右键拖拽平移功能
+     * 配置统一鼠标处理器
+     * 整合右键拖拽平移和左键框选放大功能，避免事件冲突
      *
      * @param chartPanel 图表面板组件
      */
-    private void setupRightClickDrag(ChartPanel chartPanel) {
-        // 使用共享变量来避免重复初始化
+    private void setupUnifiedMouseHandler(ChartPanel chartPanel) {
+        // 右键拖拽相关变量
         final java.awt.Point[] dragStartPoint = new java.awt.Point[1]; // 拖拽起始点
         final double[] dragStartDomain = new double[2]; // X轴范围 [min, max]
         final double[] dragStartRange = new double[2];  // Y轴范围 [min, max]
         final boolean[] isDragging = new boolean[1]; // 是否正在拖拽
 
-        chartPanel.addMouseListener(new java.awt.event.MouseAdapter() {
+        // 左键框选相关变量
+        final java.awt.Point[] selectionStartPoint = new java.awt.Point[1]; // 框选起始点
+        final java.awt.Point[] selectionEndPoint = new java.awt.Point[1];   // 框选结束点
+        final boolean[] isSelecting = new boolean[1]; // 是否正在框选
+        final Rectangle[] selectionRectangle = new Rectangle[1]; // 框选矩形
+
+        // 创建统一的鼠标处理器
+        java.awt.event.MouseAdapter mouseAdapter = new java.awt.event.MouseAdapter() {
             @Override
             public void mousePressed(java.awt.event.MouseEvent e) {
                 if (SwingUtilities.isRightMouseButton(e)) {
+                    // 右键拖拽开始
                     dragStartPoint[0] = e.getPoint();
                     XYPlot plot = chart.getXYPlot();
                     dragStartDomain[0] = plot.getDomainAxis().getLowerBound();
@@ -425,28 +433,110 @@ public class ClusterVisualizationGui extends JFrame {
                     dragStartRange[1] = plot.getRangeAxis().getUpperBound();
                     isDragging[0] = true;
                     chartPanel.setCursor(Cursor.getPredefinedCursor(Cursor.MOVE_CURSOR));
+                    e.consume(); // 消费事件，防止冒泡
+                } else if (SwingUtilities.isLeftMouseButton(e) && coordinates.size() > 0) {
+                    // 左键框选开始
+                    selectionStartPoint[0] = e.getPoint();
+                    selectionEndPoint[0] = e.getPoint();
+                    isSelecting[0] = true;
+                    chartPanel.setCursor(Cursor.getPredefinedCursor(Cursor.CROSSHAIR_CURSOR));
+                    e.consume(); // 消费事件，防止冒泡
                 }
             }
 
             @Override
             public void mouseReleased(java.awt.event.MouseEvent e) {
-                if (SwingUtilities.isRightMouseButton(e)) {
+                if (SwingUtilities.isRightMouseButton(e) && isDragging[0]) {
+                    // 右键拖拽结束
                     isDragging[0] = false;
                     chartPanel.setCursor(Cursor.getDefaultCursor());
+                    e.consume(); // 消费事件，防止冒泡
+                } else if (SwingUtilities.isLeftMouseButton(e) && isSelecting[0] && selectionStartPoint[0] != null) {
+                    // 左键框选结束，执行放大
+                    isSelecting[0] = false;
+                    chartPanel.setCursor(Cursor.getDefaultCursor());
+
+                    // 计算框选矩形的屏幕坐标
+                    int x = Math.min(selectionStartPoint[0].x, selectionEndPoint[0].x);
+                    int y = Math.min(selectionStartPoint[0].y, selectionEndPoint[0].y);
+                    int width = Math.abs(selectionEndPoint[0].x - selectionStartPoint[0].x);
+                    int height = Math.abs(selectionEndPoint[0].y - selectionStartPoint[0].y);
+
+                    // 确保框选区域足够大（避免误操作）
+                    if (width > 10 && height > 10) {
+                        // 将屏幕坐标转换为数据坐标
+                        Rectangle2D dataArea = chartPanel.getScreenDataArea();
+                        if (dataArea != null) {
+                            XYPlot plot = chart.getXYPlot();
+                            org.jfree.chart.axis.ValueAxis domainAxis = plot.getDomainAxis();
+                            org.jfree.chart.axis.ValueAxis rangeAxis = plot.getRangeAxis();
+
+                            // 计算框选区域的数据坐标范围
+                            double domainMin = domainAxis.java2DToValue(x, dataArea, plot.getDomainAxisEdge());
+                            double domainMax = domainAxis.java2DToValue(x + width, dataArea, plot.getDomainAxisEdge());
+                            double rangeMin = rangeAxis.java2DToValue(y + height, dataArea, plot.getRangeAxisEdge()); // 注意Y轴方向
+                            double rangeMax = rangeAxis.java2DToValue(y, dataArea, plot.getRangeAxisEdge()); // 注意Y轴方向
+
+                            // 确保坐标顺序正确
+                            if (domainMin > domainMax) {
+                                double temp = domainMin;
+                                domainMin = domainMax;
+                                domainMax = temp;
+                            }
+                            if (rangeMin > rangeMax) {
+                                double temp = rangeMin;
+                                rangeMin = rangeMax;
+                                rangeMax = temp;
+                            }
+
+                            // 计算框选区域和图表区域的比例，保持XY比例锁定
+                            double selectedDomainRange = domainMax - domainMin;
+                            double selectedRangeRange = rangeMax - rangeMin;
+                            double dataAspectRatio = selectedDomainRange / selectedRangeRange;
+                            double panelAspectRatio = dataArea.getWidth() / dataArea.getHeight();
+
+                            // 调整范围以保持比例，模拟地图效果
+                            if (dataAspectRatio > panelAspectRatio) {
+                                // 域范围相对较大，需要扩展范围范围
+                                double newRangeRange = selectedDomainRange / panelAspectRatio;
+                                double rangeCenter = (rangeMin + rangeMax) / 2;
+                                rangeMin = rangeCenter - newRangeRange / 2;
+                                rangeMax = rangeCenter + newRangeRange / 2;
+                            } else {
+                                // 范围范围相对较大，需要扩展域范围
+                                double newDomainRange = selectedRangeRange * panelAspectRatio;
+                                double domainCenter = (domainMin + domainMax) / 2;
+                                domainMin = domainCenter - newDomainRange / 2;
+                                domainMax = domainCenter + newDomainRange / 2;
+                            }
+
+                            // 应用放大到框选区域，充满整个窗口
+                            plot.getDomainAxis().setRange(domainMin, domainMax);
+                            plot.getRangeAxis().setRange(rangeMin, rangeMax);
+                        }
+                    }
+
+                    // 清除框选矩形
+                    if (selectionRectangle[0] != null) {
+                        Graphics g = chartPanel.getGraphics();
+                        if (g != null) {
+                            g.setXORMode(chartPanel.getBackground());
+                            g.drawRect(selectionRectangle[0].x, selectionRectangle[0].y, selectionRectangle[0].width, selectionRectangle[0].height);
+                            g.setPaintMode();
+                        }
+                        selectionRectangle[0] = null;
+                    }
+                    e.consume(); // 消费事件，防止冒泡
                 }
             }
-        });
+        };
 
-        /**
-         * 处理鼠标拖拽事件
-         * 实现图表的右键拖拽平移功能
-         *
-         * @param e 鼠标事件对象，包含当前鼠标位置信息
-         */
-        chartPanel.addMouseMotionListener(new java.awt.event.MouseMotionAdapter() {
+        // 创建统一的鼠标移动处理器
+        java.awt.event.MouseMotionAdapter mouseMotionAdapter = new java.awt.event.MouseMotionAdapter() {
             @Override
             public void mouseDragged(java.awt.event.MouseEvent e) {
                 if (SwingUtilities.isRightMouseButton(e) && isDragging[0] && dragStartPoint[0] != null) {
+                    // 右键拖拽处理
                     java.awt.Point currentPoint = e.getPoint();
 
                     // 计算像素移动距离
@@ -471,9 +561,44 @@ public class ClusterVisualizationGui extends JFrame {
                         plot.getDomainAxis().setRange(dragStartDomain[0] + domainDelta, dragStartDomain[1] + domainDelta); // 更新X轴范围
                         plot.getRangeAxis().setRange(dragStartRange[0] + rangeDelta, dragStartRange[1] + rangeDelta); // 更新Y轴范围
                     }
+                    e.consume(); // 消费事件，防止冒泡
+                } else if (SwingUtilities.isLeftMouseButton(e) && isSelecting[0] && selectionStartPoint[0] != null) {
+                    // 左键框选拖拽处理
+                    selectionEndPoint[0] = e.getPoint();
+
+                    // 清除之前的框选矩形
+                    if (selectionRectangle[0] != null) {
+                        Graphics g = chartPanel.getGraphics();
+                        if (g != null) {
+                            g.setXORMode(chartPanel.getBackground());
+                            g.drawRect(selectionRectangle[0].x, selectionRectangle[0].y, selectionRectangle[0].width, selectionRectangle[0].height);
+                            g.setPaintMode();
+                        }
+                    }
+
+                    // 绘制新的框选矩形
+                    int x = Math.min(selectionStartPoint[0].x, selectionEndPoint[0].x);
+                    int y = Math.min(selectionStartPoint[0].y, selectionEndPoint[0].y);
+                    int width = Math.abs(selectionEndPoint[0].x - selectionStartPoint[0].x);
+                    int height = Math.abs(selectionEndPoint[0].y - selectionStartPoint[0].y);
+
+                    selectionRectangle[0] = new Rectangle(x, y, width, height);
+
+                    // 绘制框选矩形
+                    Graphics g = chartPanel.getGraphics();
+                    if (g != null) {
+                        g.setXORMode(Color.WHITE);
+                        g.drawRect(x, y, width, height);
+                        g.setPaintMode();
+                    }
+                    e.consume(); // 消费事件，防止冒泡
                 }
             }
-        });
+        };
+
+        // 添加统一的鼠标处理器
+        chartPanel.addMouseListener(mouseAdapter);
+        chartPanel.addMouseMotionListener(mouseMotionAdapter);
     }
 
     /**
@@ -557,6 +682,7 @@ public class ClusterVisualizationGui extends JFrame {
             }
         });
     }
+
 
     /**
      * 配置事件监听
