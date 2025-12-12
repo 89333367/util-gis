@@ -1571,6 +1571,10 @@ public class GisUtil implements AutoCloseable {
                         break;
                     }
                 }
+                if (tmpTrackPoints.size() == part.getTrackPoints().size()) {
+                    // 最后一个part没有改变点位信息，不需要处理
+                    break;
+                }
                 part.setTrackPoints(tmpTrackPoints);
                 part.setStartTime(part.getTrackPoints().get(0).getGpsTime());
                 part.setEndTime(part.getTrackPoints().get(part.getTrackPoints().size() - 1).getGpsTime());
