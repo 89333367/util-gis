@@ -1485,6 +1485,10 @@ public class GisUtil implements AutoCloseable {
             part.setMu(calcMu(wgs84PartGeometry));
             parts.add(part);
         }
+        if (parts.isEmpty()) {
+            log.debug("没有保留任何几何图形");
+            return splitResult;
+        }
 
         log.debug("循环所有parts，修正作业时间交叉问题");
         parts.sort(Comparator.comparing(Part::getStartTime));

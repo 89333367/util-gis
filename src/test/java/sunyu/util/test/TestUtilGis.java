@@ -281,7 +281,7 @@ public class TestUtilGis {
 
     @Test
     void 测试1秒间隔002() {
-        // 有镂空，地块之间的距离非常小，所以合并成一个大地块
+        // 有镂空，本来有3个地块，但是地块之间的距离非常小，所以合并成一个大地块
         String did = "EC71BT2406060220";
         String startTime = "20251102130028";
         String endTime = "20251102153804";
@@ -293,7 +293,7 @@ public class TestUtilGis {
 
     @Test
     void 测试1秒间隔003() {
-        // 高密度地块，轨迹缝隙特别多，最终合并成一块地
+        // 高密度地块，轨迹缝隙特别多，最终合并成一块地，这个轨迹真的非常乱，看起来像乱跑的
         String did = "EC73BD2509060398";
         String startTime = "20251103130852";
         String endTime = "20251103151309";
@@ -363,7 +363,7 @@ public class TestUtilGis {
 
     @Test
     void 测试1秒间隔008() {
-        // 一天干了9块地
+        // 一天干了好多块地
         String did = "EC73BD2508220055";
         String yyyyMMdd = "20251013";
         String startTime = yyyyMMdd + "000000";
