@@ -476,6 +476,7 @@ public class TestUtilGis {
 
     @Test
     void 测试10秒间隔003() {
+        // 形成不了作业地块，不是正常的作业轨迹
         String did = "EM9101B8F5AZT0041";
         String yyyyMMdd = "20250903";
         String startTime = yyyyMMdd + "000000";
@@ -488,6 +489,7 @@ public class TestUtilGis {
 
     @Test
     void 测试10秒间隔004() {
+        // 应该是四块地，但是有一条轨迹也被识别为了小地块，稍微还带了点路
         String did = "EM9101B8F5AZT0041";
         String yyyyMMdd = "20251025";
         String startTime = yyyyMMdd + "000000";
@@ -500,6 +502,7 @@ public class TestUtilGis {
 
     @Test
     void 测试10秒间隔005() {
+        // 这个粘连了很多路，需要更多优化才行
         String did = "EM9101B8F5AZT0041";
         String yyyyMMdd = "20251026";
         String startTime = yyyyMMdd + "000000";

@@ -3,6 +3,7 @@ package sunyu.util.pojo;
 import cn.hutool.core.collection.CollUtil;
 import cn.hutool.core.date.LocalDateTimeUtil;
 import cn.hutool.core.util.StrUtil;
+import org.locationtech.jts.geom.Geometry;
 
 import java.time.LocalDateTime;
 import java.util.Comparator;
@@ -13,31 +14,36 @@ import java.util.List;
  */
 public class Part {
     /**
-     * 区块的起始时间
+     * 地块的起始时间
      */
     private LocalDateTime startTime;
     /**
-     * 区块的结束时间
+     * 地块的结束时间
      */
     private LocalDateTime endTime;
     /**
-     * 区块面积（亩）
+     * 地块面积（亩）
      */
     private double mu;
     /**
-     * 区块的WKT表示（WGS84坐标系）
+     * 地块的WKT表示（WGS84坐标系）
      */
     private String wkt;
     /**
-     * 区块内的轨迹点集合（WGS84坐标系）
+     * 地块内的轨迹点集合（WGS84坐标系）
      */
     private List<Wgs84Point> trackPoints;
     /**
-     * 区块内的轨迹点字符串表示形式（经度,纬度,定位时间#经度,纬度,定位时间#）
+     * 地块内的轨迹点字符串表示形式（经度,纬度,定位时间#经度,纬度,定位时间#）
      * <p>
      * 定位时间格式yyyyMMddHHmmss
      */
     private String trackStr;
+
+    /**
+     * 地块的高斯投影几何图形（高斯投影坐标系）
+     */
+    private Geometry gaussGeometry;
 
     public LocalDateTime getStartTime() {
         return startTime;
@@ -95,4 +101,11 @@ public class Part {
         this.trackStr = trackStr;
     }
 
+    public Geometry getGaussGeometry() {
+        return gaussGeometry;
+    }
+
+    public void setGaussGeometry(Geometry gaussGeometry) {
+        this.gaussGeometry = gaussGeometry;
+    }
 }
