@@ -1503,6 +1503,42 @@ public class GisUtil implements AutoCloseable {
                     part.setTrackPoints(tmpTrackPoints);
                     part.setStartTime(part.getTrackPoints().get(0).getGpsTime());
                     part.setEndTime(part.getTrackPoints().get(part.getTrackPoints().size() - 1).getGpsTime());
+
+                    log.debug("由于改变了part的点位信息，需要重新计算轮廓和面积");
+                    List<GaussPoint> cluster = toGaussPointList(tmpTrackPoints);
+                    log.debug("按距离切分聚类");
+                    List<List<GaussPoint>> segments = splitClusterByDistance(cluster, minEffectiveInterval * config.MAX_WORK_DISTANCE);
+                    log.debug("切分后得到 {} 个子段", segments.size());
+                    List<Geometry> segmentGeometries = new ArrayList<>();
+                    for (List<GaussPoint> segment : segments) {
+                        log.debug("处理子段：{} 个点", segment.size());
+                        if (segment.size() > 2) {
+                            log.debug("创建线缓冲，缓冲半径：{} 米", halfWorkingWidth);
+                            Coordinate[] coordinates = segment.stream().map(point -> new Coordinate(point.getGaussX(), point.getGaussY())).toArray(Coordinate[]::new);
+                            if (coordinates.length > 500) {
+                                LineString lineString = config.GEOMETRY_FACTORY.createLineString(coordinates);
+                                Geometry simplifiedGeometry = DouglasPeuckerSimplifier.simplify(lineString, 0.1);//0.1米容差
+                                Coordinate[] simplifiedCoords = simplifiedGeometry.getCoordinates();
+                                if (simplifiedCoords.length > 500) {
+                                    Geometry gaussGeometry = processLargeSegmentInChunks(segment, halfWorkingWidth);
+                                    segmentGeometries.add(gaussGeometry);
+                                } else {
+                                    Geometry gaussGeometry = simplifiedGeometry.buffer(halfWorkingWidth);
+                                    segmentGeometries.add(gaussGeometry);
+                                }
+                            } else {
+                                LineString lineString = config.GEOMETRY_FACTORY.createLineString(coordinates);
+                                Geometry gaussGeometry = lineString.buffer(halfWorkingWidth);
+                                segmentGeometries.add(gaussGeometry);
+                            }
+                        }
+                    }
+                    log.info("使用膨胀、收缩参数 {}米 合并几何图形", bufferSmoothingDistance);
+                    Geometry segmentGeometriesUnion = config.GEOMETRY_FACTORY.createGeometryCollection(segmentGeometries.toArray(new Geometry[0])).union().buffer(bufferSmoothingDistance).buffer(-bufferSmoothingDistance);
+                    part.setGaussGeometry(segmentGeometriesUnion);
+                    Geometry wgs84PartGeometry = toWgs84Geometry(segmentGeometriesUnion);
+                    part.setWkt(wgs84PartGeometry.toText());
+                    part.setMu(calcMu(wgs84PartGeometry));
                 }
             }
         }
@@ -1513,7 +1549,7 @@ public class GisUtil implements AutoCloseable {
         Geometry wgs84UnionGeometry = toWgs84Geometry(clustersUnionGaussGeometry);
         //log.debug("合并后的几何图形：{}", wgs84UnionGeometry.toText());
         splitResult.setWkt(wgs84UnionGeometry.toText());
-        splitResult.setMu(parts.stream().mapToDouble(Part::getMu).sum());
+        splitResult.setMu(Math.round(parts.stream().mapToDouble(Part::getMu).sum() * 10000.0) / 10000.0);
         splitResult.setParts(parts);
         log.info("地块总面积={}亩 共 {} 个地块，耗时 {} 毫秒", splitResult.getMu(), clustersUnionGaussGeometry.getNumGeometries(), System.currentTimeMillis() - splitRoadStartTime);
         return splitResult;
