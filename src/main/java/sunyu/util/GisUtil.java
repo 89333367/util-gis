@@ -132,14 +132,6 @@ public class GisUtil implements AutoCloseable {
         private final int MIN_DBSCAN_POINTS = 20;
 
         /**
-         * 轨迹点聚类分割参数（秒）
-         * <p>
-         * 一类中相邻两点的时间间隔超过此值，则将其分为不同的聚类
-         * </p>
-         */
-        private final int CLUSTER_POINT_SPLIT_TIME_SECOND = 60 * 10;
-
-        /**
          * 几何图形膨胀收缩距离（米）
          * <p>
          * 用于几何图形的膨胀-收缩优化操作。
@@ -1492,6 +1484,27 @@ public class GisUtil implements AutoCloseable {
             part.setWkt(wgs84PartGeometry.toText());
             part.setMu(calcMu(wgs84PartGeometry));
             parts.add(part);
+        }
+
+        log.debug("循环所有parts，修正作业时间交叉问题");
+        parts.sort(Comparator.comparing(Part::getStartTime));
+        for (int i = 0; i < parts.size(); i++) {
+            if (i < parts.size() - 1) {
+                Part part = parts.get(i);
+                Part nextPart = parts.get(i + 1);
+                // 如果part的结束时间大于等于nextPart的起始时间，说明时间有交叉
+                if (part.getEndTime().isAfter(nextPart.getStartTime())) {
+                    List<Wgs84Point> tmpTrackPoints = new ArrayList<>();
+                    for (Wgs84Point trackPoint : part.getTrackPoints()) {
+                        if (trackPoint.getGpsTime().isBefore(nextPart.getStartTime())) {
+                            tmpTrackPoints.add(trackPoint);
+                        }
+                    }
+                    part.setTrackPoints(tmpTrackPoints);
+                    part.setStartTime(part.getTrackPoints().get(0).getGpsTime());
+                    part.setEndTime(part.getTrackPoints().get(part.getTrackPoints().size() - 1).getGpsTime());
+                }
+            }
         }
 
         log.debug("合并所有Part几何图形");

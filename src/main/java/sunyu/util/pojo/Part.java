@@ -6,7 +6,6 @@ import cn.hutool.core.util.StrUtil;
 import org.locationtech.jts.geom.Geometry;
 
 import java.time.LocalDateTime;
-import java.util.Comparator;
 import java.util.List;
 
 /**
@@ -82,7 +81,6 @@ public class Part {
     }
 
     public void setTrackPoints(List<Wgs84Point> trackPoints) {
-        trackPoints.sort(Comparator.comparing(Wgs84Point::getGpsTime));
         this.trackPoints = trackPoints;
     }
 
