@@ -160,6 +160,11 @@ public class GisUtil implements AutoCloseable {
          * 亩到平方米的转换系数
          */
         private final double MU_TO_SQUARE_METER = 666.6666666667;
+
+        /**
+         * 拆分时间间隔（秒）
+         */
+        private final int SPLIT_TIME_SECOND = 60 * 60;
     }
 
     public static class Builder {
@@ -1539,13 +1544,80 @@ public class GisUtil implements AutoCloseable {
                     }
                     log.info("使用膨胀、收缩参数 {}米 合并几何图形", bufferSmoothingDistance);
                     Geometry segmentGeometriesUnion = config.GEOMETRY_FACTORY.createGeometryCollection(segmentGeometries.toArray(new Geometry[0])).union().buffer(bufferSmoothingDistance).buffer(-bufferSmoothingDistance);
+                    if (segmentGeometriesUnion.getArea() < config.MIN_RETURN_MU * config.MU_TO_SQUARE_METER) {
+                        part.setGaussGeometry(null);//这里面积太小，先设置null，后面会根据null删掉这个part
+                        continue;
+                    }
                     part.setGaussGeometry(segmentGeometriesUnion);
                     Geometry wgs84PartGeometry = toWgs84Geometry(segmentGeometriesUnion);
                     part.setWkt(wgs84PartGeometry.toText());
                     part.setMu(calcMu(wgs84PartGeometry));
                 }
+            } else if (i == parts.size() - 1) {
+                // 最后一个part，特殊处理
+                List<Wgs84Point> tmpTrackPoints = new ArrayList<>();
+                Part part = parts.get(parts.size() - 1);
+                for (Wgs84Point trackPoint : part.getTrackPoints()) {
+                    if (tmpTrackPoints.isEmpty()) {
+                        tmpTrackPoints.add(trackPoint);
+                        continue;
+                    }
+                    Wgs84Point prePoint = tmpTrackPoints.get(tmpTrackPoints.size() - 1);
+                    Duration duration = Duration.between(prePoint.getGpsTime(), trackPoint.getGpsTime());
+                    if (duration.getSeconds() < config.SPLIT_TIME_SECOND) {
+                        tmpTrackPoints.add(trackPoint);
+                    } else {
+                        log.debug("由于时间超过了 {} 秒，后面的点位应该是回来的作业点，抛弃掉", config.SPLIT_TIME_SECOND);
+                        break;
+                    }
+                }
+                part.setTrackPoints(tmpTrackPoints);
+                part.setStartTime(part.getTrackPoints().get(0).getGpsTime());
+                part.setEndTime(part.getTrackPoints().get(part.getTrackPoints().size() - 1).getGpsTime());
+
+                log.debug("由于改变了part的点位信息，需要重新计算轮廓和面积");
+                List<GaussPoint> cluster = toGaussPointList(tmpTrackPoints);
+                log.debug("按距离切分聚类");
+                List<List<GaussPoint>> segments = splitClusterByDistance(cluster, minEffectiveInterval * config.MAX_WORK_DISTANCE);
+                log.debug("切分后得到 {} 个子段", segments.size());
+                List<Geometry> segmentGeometries = new ArrayList<>();
+                for (List<GaussPoint> segment : segments) {
+                    log.debug("处理子段：{} 个点", segment.size());
+                    if (segment.size() > 2) {
+                        log.debug("创建线缓冲，缓冲半径：{} 米", halfWorkingWidth);
+                        Coordinate[] coordinates = segment.stream().map(point -> new Coordinate(point.getGaussX(), point.getGaussY())).toArray(Coordinate[]::new);
+                        if (coordinates.length > 500) {
+                            LineString lineString = config.GEOMETRY_FACTORY.createLineString(coordinates);
+                            Geometry simplifiedGeometry = DouglasPeuckerSimplifier.simplify(lineString, 0.1);//0.1米容差
+                            Coordinate[] simplifiedCoords = simplifiedGeometry.getCoordinates();
+                            if (simplifiedCoords.length > 500) {
+                                Geometry gaussGeometry = processLargeSegmentInChunks(segment, halfWorkingWidth);
+                                segmentGeometries.add(gaussGeometry);
+                            } else {
+                                Geometry gaussGeometry = simplifiedGeometry.buffer(halfWorkingWidth);
+                                segmentGeometries.add(gaussGeometry);
+                            }
+                        } else {
+                            LineString lineString = config.GEOMETRY_FACTORY.createLineString(coordinates);
+                            Geometry gaussGeometry = lineString.buffer(halfWorkingWidth);
+                            segmentGeometries.add(gaussGeometry);
+                        }
+                    }
+                }
+                log.info("使用膨胀、收缩参数 {}米 合并几何图形", bufferSmoothingDistance);
+                Geometry segmentGeometriesUnion = config.GEOMETRY_FACTORY.createGeometryCollection(segmentGeometries.toArray(new Geometry[0])).union().buffer(bufferSmoothingDistance).buffer(-bufferSmoothingDistance);
+                if (segmentGeometriesUnion.getArea() < config.MIN_RETURN_MU * config.MU_TO_SQUARE_METER) {
+                    part.setGaussGeometry(null);//这里面积太小，先设置null，后面会根据null删掉这个part
+                    break;
+                }
+                part.setGaussGeometry(segmentGeometriesUnion);
+                Geometry wgs84PartGeometry = toWgs84Geometry(segmentGeometriesUnion);
+                part.setWkt(wgs84PartGeometry.toText());
+                part.setMu(calcMu(wgs84PartGeometry));
             }
         }
+        // 移除面积太小的part
+        parts.removeIf(part -> part.getGaussGeometry() == null);
 
         log.debug("合并所有Part几何图形");
         clustersUnionGaussGeometry = config.GEOMETRY_FACTORY.createGeometryCollection(parts.stream().map(Part::getGaussGeometry).toArray(Geometry[]::new)).union().buffer(0);
