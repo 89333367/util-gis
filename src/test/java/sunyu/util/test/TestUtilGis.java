@@ -135,7 +135,7 @@ public class TestUtilGis {
         List<String> partsInfo = new ArrayList<>();
         SplitResult splitResult = gisUtil.splitRoad(l, jobWidth);
         partsInfo.add(StrUtil.format("作业总幅宽（米）: {}", splitResult.getWorkingWidth()));
-        partsInfo.add(StrUtil.format("WKT: {}", splitResult.getWkt()));
+        partsInfo.add(StrUtil.format("总WKT: {}", splitResult.getWkt()));
         partsInfo.add(StrUtil.format("作业总面积（亩）: {}", splitResult.getMu()));
         partsInfo.add(StrUtil.format("合并后有 {} 个地块", splitResult.getGaussGeometry().getNumGeometries()));
         partsInfo.add(StrUtil.format("拆分后有 {} 个地块", splitResult.getParts().size()));
@@ -144,7 +144,7 @@ public class TestUtilGis {
         for (Part part : splitResult.getParts()) {
             List<String> partInfo = new ArrayList<>();
             partInfo.add(StrUtil.format("地块 {}:", partIndex++));
-            partInfo.add(StrUtil.format("WKT: {}", part.getWkt()));
+            partInfo.add(StrUtil.format("子WKT: {}", part.getWkt()));
             partInfo.add(StrUtil.format("点数量：{}", part.getTrackPoints().size()));
             partInfo.add(StrUtil.format("轨迹点字符串: {}", part.getTrackStr()));
             partInfo.add(StrUtil.format("作业面积（亩）: {}", part.getMu()));
@@ -173,8 +173,15 @@ public class TestUtilGis {
         String trace = FileUtil.readUtf8String(fileName);
         html = StrUtil.replace(html, "${trace}", trace);
 
-        String outline = FileUtil.readUtf8Lines(path + StrUtil.format("/{}_{}_{}_parts.txt", did, startTime, endTime)).get(1);
-        html = StrUtil.replace(html, "${outline}", outline.replace("WKT: ", ""));
+        //String outline = FileUtil.readUtf8Lines(path + StrUtil.format("/{}_{}_{}_parts.txt", did, startTime, endTime)).get(1);
+        //html = StrUtil.replace(html, "${outline}", outline.replace("WKT: ", ""));
+        List<String> outlineList = new ArrayList<>();
+        for (String line : FileUtil.readUtf8Lines(path + StrUtil.format("/{}_{}_{}_parts.txt", did, startTime, endTime))) {
+            if (line.startsWith("子WKT")) {
+                outlineList.add(line.replace("子WKT: ", ""));
+            }
+        }
+        html = StrUtil.replace(html, "${outline}", StrUtil.join("\n", outlineList));
 
         FileUtil.writeUtf8String(html, path + StrUtil.format("/{}_{}_{}.html", did, startTime, endTime));
     }

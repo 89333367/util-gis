@@ -430,7 +430,7 @@
             <button class="tab-btn" id="tabBatchBtn">合并器</button>
         </div>
         <div class="tab-pane active" id="tabDraw">
-            <div class="tip">请输入WKT字符串（支持POLYGON/MULTIPOLYGON）：</div>
+            <div class="tip">请输入WKT字符串（支持POLYGON/MULTIPOLYGON，支持多行输入，每行一个多边形）：</div>
             <textarea id="wktTextarea">${outline}</textarea>
             <div class="coord-settings" style="margin-bottom:8px;font-size:12px;color:#333;">
                 <label>WKT坐标系：
@@ -754,23 +754,53 @@
             isDrawing = true;
             showLoading();
             try {
-                const wktStr = document.getElementById("wktTextarea").value.trim();
-                if (!wktStr) { alert("请输入WKT字符串！"); return; }
+                const wktText = document.getElementById("wktTextarea").value.trim();
+                if (!wktText) { alert("请输入WKT字符串！"); return; }
+                
                 clearOverlays();
-                const geojson = parseWkt(wktStr);
-    
-                const polygonData = [];
-                if (geojson.type === "Polygon") {
-                    polygonData.push({ index: 1, coordinates: geojson.coordinates });
-                } else if (geojson.type === "MultiPolygon") {
-                    geojson.coordinates.forEach((polygon, index) => {
-                        polygonData.push({ index: index + 1, coordinates: polygon });
+                
+                // 检查是否为多行WKT
+                const wktLines = wktText.split('\n').filter(line => line.trim());
+                let polygonData = [];
+                
+                if (wktLines.length === 1) {
+                    // 单行WKT - 使用原始逻辑
+                    const geojson = parseWkt(wktLines[0].trim());
+                    if (geojson.type === "Polygon") {
+                        polygonData.push({ index: 1, coordinates: geojson.coordinates, colorIndex: 0 });
+                    } else if (geojson.type === "MultiPolygon") {
+                        geojson.coordinates.forEach((polygon, index) => {
+                            polygonData.push({ index: index + 1, coordinates: polygon, colorIndex: index });
+                        });
+                    }
+                } else {
+                    // 多行WKT - 每行一个多边形
+                    wktLines.forEach((line, index) => {
+                        if (line.trim()) {
+                            try {
+                                const geojson = parseWkt(line.trim());
+                                if (geojson.type === "Polygon") {
+                                    polygonData.push({ index: index + 1, coordinates: geojson.coordinates, colorIndex: index });
+                                } else if (geojson.type === "MultiPolygon") {
+                                    // 如果一行是MultiPolygon，拆分成多个Polygon
+                                    geojson.coordinates.forEach((polygon, subIndex) => {
+                                        polygonData.push({ 
+                                            index: index + 1 + subIndex * 0.1, 
+                                            coordinates: polygon, 
+                                            colorIndex: index 
+                                        });
+                                    });
+                                }
+                            } catch (e) {
+                                console.warn(`第${index + 1}行WKT解析失败:`, e);
+                            }
+                        }
                     });
                 }
-    
+                
                 // 重置并绘制
                 polygonInfoList = [];
-                polygonData.forEach(pd => processPolygon(pd.index, pd.coordinates));
+                polygonData.forEach(pd => processPolygon(pd.index, pd.coordinates, pd.colorIndex));
     
                 // 视图居中到所有已绘制轮廓
                 try { fitViewportToPolygons(); } catch (e) { console.warn('视图居中失败', e); }
@@ -808,8 +838,11 @@
     let polygonInfoList = [];
 
     // 处理单个多边形的绘制和面积计算
-    function processPolygon(actualPolygonIndex, polygonCoords) {
+    function processPolygon(actualPolygonIndex, polygonCoords, colorIndex = 0) {
         console.log('开始处理多边形', actualPolygonIndex);
+
+        // 根据颜色索引获取颜色方案
+        const colorScheme = polygonColors[colorIndex % polygonColors.length];
 
         // 坐标系选择（绘制始终使用WGS84坐标）
         const coordSys = (document.getElementById('coordSysSelect') && document.getElementById('coordSysSelect').value) || 'wgs84';
@@ -838,11 +871,11 @@
 
          // 创建半透明填充的多边形（无边框）
           const polygon = new T.Polygon(rings, {
-              color: currentOutlineColor,
+              color: colorScheme.outline,
               weight: 1,
               opacity: 1,
-              fillColor: currentFillColor,
-              fillOpacity: currentFillOpacity
+              fillColor: colorScheme.fill,
+              fillOpacity: colorScheme.opacity
           });
  
           // 使用WGS84坐标计算面积（更准确的面积计算）
@@ -2891,6 +2924,20 @@
     let currentOutlineColor = "#FFD700"; // 默认边框颜色（固定）
     let currentFillColor = "#FFFF00";   // 默认填充颜色（固定）
     let currentFillOpacity = 0.35;       // 默认透明度（固定）
+    
+    // 多行WKT颜色方案 - 用于为每个多边形分配不同颜色
+    const polygonColors = [
+        { outline: "#FFD700", fill: "#FFFF00", opacity: 0.35 }, // 黄色
+        { outline: "#FF0000", fill: "#FF6666", opacity: 0.35 }, // 红色
+        { outline: "#00FF00", fill: "#66FF66", opacity: 0.35 }, // 绿色
+        { outline: "#0000FF", fill: "#6666FF", opacity: 0.35 }, // 蓝色
+        { outline: "#FF00FF", fill: "#FF66FF", opacity: 0.35 }, // 紫色
+        { outline: "#00FFFF", fill: "#66FFFF", opacity: 0.35 }, // 青色
+        { outline: "#FFA500", fill: "#FFCC66", opacity: 0.35 }, // 橙色
+        { outline: "#800080", fill: "#CC66CC", opacity: 0.35 }, // 深紫色
+        { outline: "#008000", fill: "#66CC66", opacity: 0.35 }, // 深绿色
+        { outline: "#800000", fill: "#CC6666", opacity: 0.35 }  // 深红色
+    ];
     
     // 轨迹颜色相关变量
     let currentTrackLineColor = "#FF0000"; // 默认轨迹线颜色
