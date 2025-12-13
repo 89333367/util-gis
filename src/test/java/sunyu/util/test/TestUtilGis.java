@@ -296,26 +296,6 @@ public class TestUtilGis {
     }
 
     @Test
-    void 测试单个点的投影转换2() {
-        Wgs84Point p = new Wgs84Point(107.79342153, 22.54082875);
-        log.debug("原始wgs84点");
-        log.info("{} {} {}", p.getGpsTime(), p.getLongitude(), p.getLatitude());
-        GaussPoint gaussPoint = gisUtil.toGaussPointList(new ArrayList<Wgs84Point>() {{
-            add(p);
-        }}).get(0);
-        log.debug("转换后的高斯投影点");
-        log.info("{} {} {}", gaussPoint.getGpsTime(), gaussPoint.getGaussX(), gaussPoint.getGaussY());
-        Wgs84Point p1 = gisUtil.toWgs84PointList(new Coordinate[]{new Coordinate(gaussPoint.getGaussX(), gaussPoint.getGaussY())}).get(0);
-        log.debug("转换后的wgs84点");
-        log.info("{} {} {}", p1.getGpsTime(), p1.getLongitude(), p1.getLatitude());
-        Wgs84Point closestPoint = gisUtil.findClosestPoint(p1, new ArrayList<Wgs84Point>() {{
-            add(p);
-        }}, 0.1);
-        log.debug("找到最接近的wgs84点");
-        log.info("{} {} {}", closestPoint.getGpsTime(), closestPoint.getLongitude(), closestPoint.getLatitude());
-    }
-
-    @Test
     void 测试点是否在圆中() {
         Wgs84Point p = new Wgs84Point(100.401807, 23.443696);
         Wgs84Point center = new Wgs84Point(100.27786, 23.60424);

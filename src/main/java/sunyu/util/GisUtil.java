@@ -136,16 +136,6 @@ public class GisUtil implements AutoCloseable {
         private final int MIN_DBSCAN_POINTS = 20;
 
         /**
-         * 几何图形膨胀收缩距离（米）
-         * <p>
-         * 用于几何图形的膨胀-收缩优化操作。
-         * 该距离影响几何图形的平滑效果，较大值平滑效果更强，较小值保持更多原始细节。
-         * 先正向膨胀再反向收缩，用于去除小孔洞、平滑边界等几何优化。
-         * </p>
-         */
-        private final double BUFFER_SMOOTHING_DISTANCE = 1;
-
-        /**
          * 最大拆分返回数量
          * <p>
          * 用于限制拆分轨迹点时返回的最大数量。
@@ -1293,86 +1283,6 @@ public class GisUtil implements AutoCloseable {
         return closestPoint;
     }
 
-
-    public List<Wgs84Point> toWgs84PointList(Coordinate[] gaussCoordinates) {
-        log.debug("转换高斯投影坐标数组为WGS84点列表，坐标数量={}", gaussCoordinates.length);
-        if (gaussCoordinates.length == 0) {
-            return new ArrayList<>();
-        }
-
-        List<Wgs84Point> wgs84Points = new ArrayList<>(gaussCoordinates.length);
-
-        try {
-            // 按投影带分组，批量处理同一投影带的坐标
-            Map<Integer, List<Coordinate>> coordsByZone = new HashMap<>();
-            for (Coordinate coord : gaussCoordinates) {
-                // 从高斯投影坐标计算投影带号
-                double gaussX = coord.x;
-                int zone = (int) Math.floor((gaussX - 500000.0) / 1000000.0);
-
-                // 验证投影带号的合理性
-                if (zone >= 1 && zone <= 60) {
-                    coordsByZone.computeIfAbsent(zone, k -> new ArrayList<>()).add(coord);
-                }
-            }
-
-            // 对每个投影带批量处理
-            for (Map.Entry<Integer, List<Coordinate>> entry : coordsByZone.entrySet()) {
-                int zone = entry.getKey();
-                List<Coordinate> zoneCoords = entry.getValue();
-
-                // 计算投影参数
-                double centralMeridian = (zone - 1) * 6 - 180 + 3;
-                double falseEasting = zone * 1000000.0 + 500000.0;
-
-                CoordinateReferenceSystem gaussCRS = getGaussCRS(zone, falseEasting, centralMeridian);
-                if (gaussCRS == null) {
-                    continue;
-                }
-
-                // 获取或创建坐标转换对象（高斯->WGS84）
-                String cacheKey = String.format(config.CACHE_KEY_FORMAT, zone, falseEasting, centralMeridian);
-                log.debug("获取高斯投影到WGS84的坐标转换器：缓存键 {}", cacheKey);
-
-                // 从缓存获取或创建高斯到WGS84的坐标转换
-                MathTransform gaussToWgs84Transform = config.GAUSS_TO_WGS84_TRANSFORM_CACHE.computeIfAbsent(cacheKey, key -> {
-                    try {
-                        return CRS.findMathTransform(gaussCRS, config.WGS84_CRS, true);
-                    } catch (Exception e) {
-                        log.warn("创建高斯到WGS84坐标转换失败：zone={}, falseEasting={}, centralMeridian={}, 错误={}", zone, falseEasting, centralMeridian, e.getMessage());
-                        return null;
-                    }
-                });
-
-                if (gaussToWgs84Transform == null) {
-                    continue;
-                }
-
-                // 批量转换同一投影带的坐标
-                for (Coordinate coord : zoneCoords) {
-                    try {
-                        Coordinate targetCoord = new Coordinate();
-                        JTS.transform(coord, targetCoord, gaussToWgs84Transform);
-
-                        // 验证转换结果的合理性（经纬度范围）
-                        if (targetCoord.x >= -180 && targetCoord.x <= 180 && targetCoord.y >= -90 && targetCoord.y <= 90) {
-                            Wgs84Point result = new Wgs84Point(targetCoord.x, targetCoord.y);
-                            wgs84Points.add(result);
-                        }
-                    } catch (Exception e) {
-                        log.warn("转换高斯投影坐标到WGS84失败：zone={}, gaussX={}, gaussY={}, 错误={}", zone, coord.x, coord.y, e.getMessage());
-                    }
-                }
-            }
-
-            log.debug("成功转换 {} 个高斯投影坐标到WGS84坐标系", wgs84Points.size());
-        } catch (Exception e) {
-            log.warn("高斯投影坐标数组转换为WGS84失败: {}", e.getMessage());
-        }
-
-        return wgs84Points;
-    }
-
     public List<Wgs84Point> toWgs84PointList(List<GaussPoint> gaussPoints) {
         log.debug("转换高斯投影点列表为WGS84点列表，点数量={}", gaussPoints.size());
         if (CollUtil.isEmpty(gaussPoints)) {
@@ -1384,14 +1294,21 @@ public class GisUtil implements AutoCloseable {
             // 按投影带分组，批量处理同一投影带的点
             Map<Integer, List<GaussPoint>> pointsByZone = new HashMap<>();
             for (GaussPoint gaussPoint : gaussPoints) {
-                // 从高斯投影坐标计算投影带号（更准确的方式）
-                double gaussX = gaussPoint.getGaussX();
-                int zone = (int) Math.floor((gaussX - 500000.0) / 1000000.0);
+                // 从WGS84经度计算投影带号（正确的方式）
+                double longitude = gaussPoint.getLongitude();
+                int zone = (int) Math.floor((longitude + 180) / 6) + 1;
 
                 // 验证投影带号的合理性
                 if (zone >= 1 && zone <= 60) {
                     pointsByZone.computeIfAbsent(zone, k -> new ArrayList<>()).add(gaussPoint);
+                } else {
+                    log.warn("计算得到的投影带号不合理：经度={}, 投影带号={}", longitude, zone);
                 }
+            }
+
+            log.debug("按投影带分组结果：{} 个投影带", pointsByZone.size());
+            for (Map.Entry<Integer, List<GaussPoint>> entry : pointsByZone.entrySet()) {
+                log.debug("投影带 {}：{} 个点", entry.getKey(), entry.getValue().size());
             }
 
             // 对每个投影带批量处理
@@ -1403,8 +1320,11 @@ public class GisUtil implements AutoCloseable {
                 double centralMeridian = (zone - 1) * 6 - 180 + 3;
                 double falseEasting = zone * 1000000.0 + 500000.0;
 
+                log.debug("处理投影带 {}：中央经线={}, 假东距={}", zone, centralMeridian, falseEasting);
+
                 CoordinateReferenceSystem gaussCRS = getGaussCRS(zone, falseEasting, centralMeridian);
                 if (gaussCRS == null) {
+                    log.warn("获取高斯投影CRS失败：投影带号={}", zone);
                     continue;
                 }
 
@@ -1423,10 +1343,12 @@ public class GisUtil implements AutoCloseable {
                 });
 
                 if (gaussToWgs84Transform == null) {
+                    log.warn("获取坐标转换器失败，跳过投影带 {} 的处理", zone);
                     continue;
                 }
 
                 // 批量转换同一投影带的点
+                int convertedCount = 0;
                 for (GaussPoint gaussPoint : zonePoints) {
                     try {
                         Coordinate sourceCoord = new Coordinate(gaussPoint.getGaussX(), gaussPoint.getGaussY());
@@ -1437,14 +1359,18 @@ public class GisUtil implements AutoCloseable {
                         if (targetCoord.x >= -180 && targetCoord.x <= 180 && targetCoord.y >= -90 && targetCoord.y <= 90) {
                             Wgs84Point result = new Wgs84Point(gaussPoint.getGpsTime(), targetCoord.x, targetCoord.y);
                             wgs84Points.add(result);
+                            convertedCount++;
+                        } else {
+                            log.warn("转换结果超出合理范围：经度={}, 纬度={}", targetCoord.x, targetCoord.y);
                         }
                     } catch (Exception e) {
                         log.warn("转换高斯投影点到WGS84失败：zone={}, gaussX={}, gaussY={}, 错误={}", zone, gaussPoint.getGaussX(), gaussPoint.getGaussY(), e.getMessage());
                     }
                 }
+                log.debug("投影带 {} 成功转换 {} 个点", zone, convertedCount);
             }
 
-            log.debug("成功转换 {} 个高斯投影点到WGS84坐标系", wgs84Points.size());
+            log.debug("总计成功转换 {} 个高斯投影点到WGS84坐标系", wgs84Points.size());
         } catch (Exception e) {
             log.warn("高斯投影点转换为WGS84失败: {}", e.getMessage());
         }
@@ -1727,11 +1653,6 @@ public class GisUtil implements AutoCloseable {
         }
         log.debug("经过时间切割后，总共有 {} 个聚类簇", splitClustersBySeconds.size());
 
-        double bufferSmoothingDistance = config.BUFFER_SMOOTHING_DISTANCE;
-        if (minEffectiveInterval > 5) {
-            bufferSmoothingDistance = config.BUFFER_SMOOTHING_DISTANCE * 2;
-        }
-
         log.debug("循环所有聚类簇，生成几何图形");
         List<Geometry> clusterGaussGeometries = new ArrayList<>();//聚类的几何图形列表
         List<List<GaussPoint>> clusterGaussPoints = new ArrayList<>();//每一个几何图形的点位列表
@@ -1765,8 +1686,8 @@ public class GisUtil implements AutoCloseable {
                             LineString lineString = config.GEOMETRY_FACTORY.createLineString(coordinates);
                             gaussGeometry = lineString.buffer(halfWorkingWidth);
                         }
-                        log.info("使用膨胀、收缩参数 {}米 合并几何图形", bufferSmoothingDistance);
-                        gaussGeometry.buffer(bufferSmoothingDistance).buffer(-bufferSmoothingDistance);
+                        log.info("使用膨胀、收缩参数 {}米 降低地块缝隙", workingWidth);
+                        gaussGeometry = gaussGeometry.buffer(workingWidth).buffer(-workingWidth);
                         clusterGaussGeometries.add(gaussGeometry);
                         clusterGaussPoints.add(segment);
                     }
