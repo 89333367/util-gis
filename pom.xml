@@ -99,12 +99,6 @@
             <artifactId>elki-batik-visualization</artifactId>
             <version>0.8.0</version>
         </dependency>
-        <!-- https://central.sonatype.com/artifact/org.apache.commons/commons-math3/versions -->
-        <dependency>
-            <groupId>org.apache.commons</groupId>
-            <artifactId>commons-math3</artifactId>
-            <version>3.6.1</version>
-        </dependency>
         <!-- https://central.sonatype.com/artifact/org.jfree/jfreechart/versions -->
         <dependency>
             <groupId>org.jfree</groupId>

@@ -1154,6 +1154,13 @@ public class GisUtil implements AutoCloseable {
      * 使用渐进式容差策略：0.00111, 0.0111, 0.111, 1.11, 11.1
      * 解决坐标转换往返过程中的精度损失问题
      * </p>
+     * <p><b>性能优化：</b></p>
+     * <ul>
+     *   <li>使用空间网格索引加速最近邻搜索</li>
+     *   <li>按地理区域预分组原始点，减少搜索范围</li>
+     *   <li>渐进式容差策略，优先在小范围内精确匹配</li>
+     *   <li>并行处理大批量目标点</li>
+     * </ul>
      *
      * @param targetPointList 目标WGS84点列表（通常是转换回来的点）
      * @param wgs84Points     原始WGS84点列表
@@ -1161,9 +1168,27 @@ public class GisUtil implements AutoCloseable {
      * @return 匹配到的最接近点列表
      */
     public List<Wgs84Point> findClosestPointList(List<Wgs84Point> targetPointList, List<Wgs84Point> wgs84Points) {
+        if (targetPointList.isEmpty() || wgs84Points.isEmpty()) {
+            return new ArrayList<>();
+        }
+
         log.debug("批量查找最接近点，目标点数量={}, 原始点数量={}", targetPointList.size(), wgs84Points.size());
+
+        // 对于小数据量，使用简单算法
+        if (targetPointList.size() < 100 || wgs84Points.size() < 100) {
+            return findClosestPointListSimple(targetPointList, wgs84Points);
+        }
+
+        // 对于大数据量，使用空间索引优化
+        return findClosestPointListOptimized(targetPointList, wgs84Points);
+    }
+
+    /**
+     * 简单算法：适用于小数据量
+     */
+    private List<Wgs84Point> findClosestPointListSimple(List<Wgs84Point> targetPointList, List<Wgs84Point> wgs84Points) {
         List<Wgs84Point> result = targetPointList.stream()
-                .map(targetPoint -> findClosestPointWithProgressiveTolerance(targetPoint, wgs84Points))
+                .map(targetPoint -> findClosestPointWithProgressiveToleranceFixed(targetPoint, wgs84Points))
                 .filter(Objects::nonNull)
                 .collect(Collectors.toList());
         log.debug("批量查找最接近点完成，匹配到的点数量={}", result.size());
@@ -1171,26 +1196,100 @@ public class GisUtil implements AutoCloseable {
     }
 
     /**
-     * 使用渐进式容差策略查找最接近的点
-     *
-     * @param targetWgs84Point 目标点
-     * @param wgs84Points      原始点列表
-     *
-     * @return 匹配到的点，如果所有容差都失败则返回null
+     * 优化算法：使用JTS STRtree空间索引，适用于大数据量
      */
-    private Wgs84Point findClosestPointWithProgressiveTolerance(Wgs84Point targetWgs84Point, List<Wgs84Point> wgs84Points) {
-        // 小数点后8位（0.00000001°）精度：约 0.00111米  计算公式：111公里 × 0.00000001 = 0.00111米
-        // 小数点后7位（0.0000001°） 精度：约 0.0111米   计算公式：111公里 × 0.0000001 = 0.0111米
-        // 小数点后6位（0.000001°）  精度：约 0.111米    计算公式：111公里 × 0.000001 = 0.111米
-        // 小数点后5位（0.00001°）   精度：约 1.11米     计算公式：111公里 × 0.00001 = 1.11米
-        // 小数点后4位（0.0001°）    精度：约 11.1米     计算公式：111公里 × 0.0001 = 11.1米
+    private List<Wgs84Point> findClosestPointListOptimized(List<Wgs84Point> targetPointList, List<Wgs84Point> wgs84Points) {
+        // 1. 构建JTS STRtree空间索引 - 这是JTS提供的高效R树实现
+        STRtree spatialIndex = new STRtree();
+
+        // 将原始点插入空间索引
+        for (Wgs84Point point : wgs84Points) {
+            // 创建点的Envelope（边界框）作为空间索引键
+            Envelope envelope = new Envelope(point.getLongitude(), point.getLongitude(),
+                    point.getLatitude(), point.getLatitude());
+            spatialIndex.insert(envelope, point);
+        }
+
+        // 构建索引
+        spatialIndex.build();
+
+        log.debug("JTS STRtree空间索引构建完成，原始点数量={}", wgs84Points.size());
+
+        // 2. 并行处理目标点，提高多核CPU利用率
+        return targetPointList.parallelStream()
+                .unordered()
+                .map(targetPoint -> findClosestPointWithSTRtree(targetPoint, spatialIndex))
+                .filter(Objects::nonNull)
+                .collect(Collectors.toList());
+    }
+
+    /**
+     * 使用JTS STRtree查找最近点
+     */
+    private Wgs84Point findClosestPointWithSTRtree(Wgs84Point targetPoint, STRtree spatialIndex) {
+        double[] tolerances = {0.00111, 0.0111, 0.111, 1.11, 11.1}; // 渐进式容差（米）
+
+        for (double tolerance : tolerances) {
+            // 将米转换为度（近似转换：1度≈111公里）
+            double toleranceDegrees = tolerance / 111000.0;
+
+            // 创建搜索范围的Envelope
+            Envelope searchEnvelope = new Envelope(
+                    targetPoint.getLongitude() - toleranceDegrees,
+                    targetPoint.getLongitude() + toleranceDegrees,
+                    targetPoint.getLatitude() - toleranceDegrees,
+                    targetPoint.getLatitude() + toleranceDegrees
+            );
+
+            // 使用STRtree查询候选点
+            @SuppressWarnings("unchecked")
+            List<Wgs84Point> candidates = spatialIndex.query(searchEnvelope);
+
+            if (!candidates.isEmpty()) {
+                Wgs84Point closest = findClosestPointInCandidates(targetPoint, candidates, tolerance);
+                if (closest != null) {
+                    return closest;
+                }
+            }
+        }
+
+        log.warn("在所有容差范围内都未找到匹配点：目标坐标=[{}, {}]", targetPoint.getLongitude(), targetPoint.getLatitude());
+        return null;
+    }
+
+    /**
+     * 修复渐进式容差逻辑错误
+     */
+    private Wgs84Point findClosestPointWithProgressiveToleranceFixed(Wgs84Point targetWgs84Point, List<Wgs84Point> wgs84Points) {
         double[] tolerances = {0.00111, 0.0111, 0.111, 1.11, 11.1}; // 渐进式容差（米）
         for (double tolerance : tolerances) {
-            return findClosestPoint(targetWgs84Point, wgs84Points, tolerance);
+            Wgs84Point result = findClosestPoint(targetWgs84Point, wgs84Points, tolerance);
+            if (result != null) {
+                return result; // 找到匹配点就返回
+            }
         }
         log.warn("在所有容差范围内都未找到匹配点：目标坐标=[{}, {}]", targetWgs84Point.getLongitude(), targetWgs84Point.getLatitude());
         return null;
     }
+
+    /**
+     * 在候选点中查找最近点
+     */
+    private Wgs84Point findClosestPointInCandidates(Wgs84Point targetPoint, List<Wgs84Point> candidates, double maxDistance) {
+        Wgs84Point closestPoint = null;
+        double minDistance = Double.MAX_VALUE;
+
+        for (Wgs84Point candidate : candidates) {
+            double distance = haversine(targetPoint, candidate);
+            if (distance <= maxDistance && distance < minDistance) {
+                minDistance = distance;
+                closestPoint = candidate;
+            }
+        }
+
+        return closestPoint;
+    }
+
 
     public List<Wgs84Point> toWgs84PointList(Coordinate[] gaussCoordinates) {
         log.debug("转换高斯投影坐标数组为WGS84点列表，坐标数量={}", gaussCoordinates.length);
