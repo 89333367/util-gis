@@ -1161,10 +1161,13 @@ public class GisUtil implements AutoCloseable {
      * @return 匹配到的最接近点列表
      */
     public List<Wgs84Point> findClosestPointList(List<Wgs84Point> targetPointList, List<Wgs84Point> wgs84Points) {
-        return targetPointList.stream()
+        log.debug("批量查找最接近点，目标点数量={}, 原始点数量={}", targetPointList.size(), wgs84Points.size());
+        List<Wgs84Point> result = targetPointList.stream()
                 .map(targetPoint -> findClosestPointWithProgressiveTolerance(targetPoint, wgs84Points))
                 .filter(Objects::nonNull)
                 .collect(Collectors.toList());
+        log.debug("批量查找最接近点完成，匹配到的点数量={}", result.size());
+        return result;
     }
 
     /**
