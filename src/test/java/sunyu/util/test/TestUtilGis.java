@@ -14,7 +14,6 @@ import cn.hutool.log.level.Level;
 import com.zaxxer.hikari.HikariConfig;
 import com.zaxxer.hikari.HikariDataSource;
 import org.junit.jupiter.api.Test;
-import org.locationtech.jts.geom.Coordinate;
 import org.locationtech.jts.geom.Geometry;
 import sunyu.util.GisUtil;
 import sunyu.util.TDengineUtil;
@@ -165,8 +164,7 @@ public class TestUtilGis {
     }
 
     void 生成HTML(String did, String startTime, String endTime) {
-        // 利用 showGeometryTemplate.html 当做模版，将trace输出到轨迹的TAB中
-        String html = ResourceUtil.readUtf8Str("showGeometryTemplate.html");
+        String html = ResourceUtil.readUtf8Str("showGeometrysTemplate.html");
 
         String fileName = path + StrUtil.format("/{}_{}_{}_trace.txt", did, startTime, endTime);
         if (!FileUtil.exist(fileName)) {
