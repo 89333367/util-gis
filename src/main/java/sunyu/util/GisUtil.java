@@ -666,12 +666,6 @@ public class GisUtil implements AutoCloseable {
      */
     public List<Wgs84Point> filterWgs84Points(List<Wgs84Point> wgs84Points) {
         log.debug("准备过滤异常点位信息");
-        log.debug("准备过滤时间为空的点位信息");
-        wgs84Points.removeIf(p -> p.getGpsTime() == null);
-        log.debug("过滤时间为空的点位完成，剩余点位数量：{}", wgs84Points.size());
-        log.debug("准备对轨迹点按时间升序排序");
-        wgs84Points.sort(Comparator.comparing(Wgs84Point::getGpsTime));
-        log.debug("轨迹点按时间升序排序完成");
         wgs84Points = wgs84Points.stream().filter(p -> {
             // 时间不能为空
             if (p.getGpsTime() == null) {
@@ -701,6 +695,8 @@ public class GisUtil implements AutoCloseable {
             return true;
         }).collect(Collectors.toList());
         log.debug("过滤异常点位信息完成，剩余点位数量：{}", wgs84Points.size());
+
+        wgs84Points.sort(Comparator.comparing(Wgs84Point::getGpsTime));
 
         log.debug("准备去重完全重复的轨迹点");
         Map<String, Wgs84Point> pointMap = new LinkedHashMap<>();
@@ -1638,17 +1634,10 @@ public class GisUtil implements AutoCloseable {
         }
         log.info("道路拆分入参 wgs84点位集合大小：{} 幅宽：{}米", wgs84Points.size(), workingWidth);
 
-        log.debug("准备过滤时间为空的点位信息");
-        wgs84Points.removeIf(p -> p.getGpsTime() == null);
-        log.debug("过滤时间为空的点位完成，剩余点位数量：{}", wgs84Points.size());
-        if (wgs84Points.size() < config.MIN_DBSCAN_POINTS) {
-            log.error("作业轨迹点列表必须包含至少 {} 个有效点位", config.MIN_DBSCAN_POINTS);
-            return splitResult;
-        }
+        // 过滤异常点位信息
+        wgs84Points = filterWgs84Points(wgs84Points);
 
-        log.debug("准备对轨迹点按时间升序排序");
-        wgs84Points.sort(Comparator.comparing(Wgs84Point::getGpsTime));
-        log.debug("轨迹点按时间升序排序完成");
+        double halfWorkingWidth = workingWidth / 2.0;
 
         log.debug("准备计算上报时间间隔分布");
         int minEffectiveInterval = 1; // 默认值
@@ -1676,17 +1665,12 @@ public class GisUtil implements AutoCloseable {
         }
         log.debug("最小有效上报时间间隔 {} 秒", minEffectiveInterval);
 
-        // 过滤异常点位信息
-        wgs84Points = filterWgs84Points(wgs84Points);
-
         // 转换为高斯投影坐标
         List<GaussPoint> gaussPoints = toGaussPointList(wgs84Points);
         if (gaussPoints.size() < config.MIN_DBSCAN_POINTS) {
             log.error("作业轨迹点列表必须包含至少 {} 个有效点位", config.MIN_DBSCAN_POINTS);
             return splitResult;
         }
-
-        double halfWorkingWidth = workingWidth / 2.0;
 
         log.debug("从高斯投影中提取坐标数组");
         double[][] coords = new double[gaussPoints.size()][2];
@@ -1759,7 +1743,7 @@ public class GisUtil implements AutoCloseable {
                 log.debug("创建线缓冲，缓冲半径：{} 米", halfWorkingWidth);
 
                 log.debug("按距离切分聚类");
-                List<List<GaussPoint>> segments = splitClusterByDistance(cluster, minEffectiveInterval * config.MAX_WORK_DISTANCE);
+                List<List<GaussPoint>> segments = splitClusterByDistance(cluster, minEffectiveInterval * config.MAX_WORK_DISTANCE * 2);
                 log.debug("切分后得到 {} 个子段", segments.size());
 
                 for (List<GaussPoint> segment : segments) {
@@ -1832,6 +1816,7 @@ public class GisUtil implements AutoCloseable {
         log.debug("合并后几何图形的面积（平方米）：{}", unionPartsGaussGeometry.getArea());
         Geometry wgs84UnionGeometry = toWgs84Geometry(unionPartsGaussGeometry);
         //log.debug("合并后的几何图形：{}", wgs84UnionGeometry.toText());
+        splitResult.setGaussGeometry(unionPartsGaussGeometry);
         splitResult.setWkt(wgs84UnionGeometry.toText());
         splitResult.setMu(Math.round(parts.stream().mapToDouble(Part::getMu).sum() * 10000.0) / 10000.0);
         splitResult.setParts(parts);

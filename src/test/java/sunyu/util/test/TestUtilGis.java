@@ -138,7 +138,8 @@ public class TestUtilGis {
         partsInfo.add(StrUtil.format("作业总幅宽（米）: {}", splitResult.getWorkingWidth()));
         partsInfo.add(StrUtil.format("WKT: {}", splitResult.getWkt()));
         partsInfo.add(StrUtil.format("作业总面积（亩）: {}", splitResult.getMu()));
-        partsInfo.add(StrUtil.format("共有 {} 个地块", splitResult.getParts().size()));
+        partsInfo.add(StrUtil.format("合并后有 {} 个地块", splitResult.getGaussGeometry().getNumGeometries()));
+        partsInfo.add(StrUtil.format("拆分后有 {} 个地块", splitResult.getParts().size()));
         partsInfo.add("\n");
         int partIndex = 1;
         for (Part part : splitResult.getParts()) {

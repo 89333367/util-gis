@@ -1,5 +1,7 @@
 package sunyu.util.pojo;
 
+import org.locationtech.jts.geom.Geometry;
+
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
@@ -26,6 +28,11 @@ public class SplitResult {
      * 拆分后的地块列表
      */
     private List<Part> parts = new ArrayList<>();
+
+    /**
+     * 地块的高斯投影几何图形（高斯投影坐标系）
+     */
+    private Geometry gaussGeometry;
 
     public String getWkt() {
         return wkt;
@@ -58,5 +65,13 @@ public class SplitResult {
 
     public void setParts(List<Part> parts) {
         this.parts = parts;
+    }
+
+    public Geometry getGaussGeometry() {
+        return gaussGeometry;
+    }
+
+    public void setGaussGeometry(Geometry gaussGeometry) {
+        this.gaussGeometry = gaussGeometry;
     }
 }
