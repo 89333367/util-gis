@@ -1788,6 +1788,9 @@ public class GisUtil implements AutoCloseable {
             tmpGaussPoints.sort(Comparator.comparing(GaussPoint::getGpsTime));
             List<Wgs84Point> wgs84PointList = toWgs84PointList(tmpGaussPoints);
             wgs84PointList = findClosestPointList(wgs84PointList, wgs84Points);
+            if (wgs84PointList.isEmpty()) {
+                continue;
+            }
             Part part = new Part();
             part.setGaussGeometry(clusterGaussGeometry);
             part.setTrackPoints(wgs84PointList);
