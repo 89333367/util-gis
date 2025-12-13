@@ -153,7 +153,7 @@ public class GisUtil implements AutoCloseable {
          * 该参数可以有效控制内存占用和处理时间，避免处理过大数据集时内存溢出。
          * </p>
          */
-        private final int MAX_SPLIT_RETURN_SIZE = 9;
+        private final int MAX_SPLIT_RETURN_SIZE = 24;
 
         /**
          * 最小返回面积（亩）
