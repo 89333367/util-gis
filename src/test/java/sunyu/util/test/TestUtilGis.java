@@ -137,9 +137,13 @@ public class TestUtilGis {
         SplitResult splitResult = gisUtil.splitRoad(l, jobWidth);
         partsInfo.add(StrUtil.format("作业总幅宽（米）: {}", splitResult.getWorkingWidth()));
         partsInfo.add(StrUtil.format("WKT: {}", splitResult.getWkt()));
-        partsInfo.add(StrUtil.format("作业总面积（亩）: {}\n", splitResult.getMu()));
+        partsInfo.add(StrUtil.format("作业总面积（亩）: {}", splitResult.getMu()));
+        partsInfo.add(StrUtil.format("共有 {} 个地块", splitResult.getParts().size()));
+        partsInfo.add("\n");
+        int partIndex = 1;
         for (Part part : splitResult.getParts()) {
             List<String> partInfo = new ArrayList<>();
+            partInfo.add(StrUtil.format("地块 {}:", partIndex++));
             partInfo.add(StrUtil.format("WKT: {}", part.getWkt()));
             partInfo.add(StrUtil.format("点数量：{}", part.getTrackPoints().size()));
             partInfo.add(StrUtil.format("轨迹点字符串: {}", part.getTrackStr()));
