@@ -2727,13 +2727,48 @@
         // 初始按钮状态
         updatePlaybackButtonsState('idle');
 
-        startBtn.addEventListener('click', function(){
+        startBtn.addEventListener('click', function(){            
             try {
                 const text = (ta && ta.value || '').trim();
                 if (!text) { alert('请粘贴轨迹文本（时间戳,经度,纬度）'); return; }
                 const pts = parseTrackTextWithTime(text);
                 if (pts.length < 2) { alert('有效轨迹点不足，至少需要两点'); return; }
-                startPlayback(pts);
+                
+                // 解析时间范围
+                const timeRangeInput = document.getElementById('timeRangeInput');
+                const timeRangeText = timeRangeInput ? timeRangeInput.value.trim() : '';
+                let filteredPoints = pts;
+                
+                if (timeRangeText) {
+                    // 解析时间范围：格式如 "2025-10-23T13:56:49 - 2025-10-23T15:51:31"
+                    const timeRangeMatch = timeRangeText.match(/^([\d-]+T[\d:]+)\s*-\s*([\d-]+T[\d:]+)$/);
+                    if (timeRangeMatch) {
+                        const startTimeStr = timeRangeMatch[1];
+                        const endTimeStr = timeRangeMatch[2];
+                        
+                        const startTime = new Date(startTimeStr);
+                        const endTime = new Date(endTimeStr);
+                        
+                        if (!isNaN(startTime.getTime()) && !isNaN(endTime.getTime())) {
+                            filteredPoints = pts.filter(point => 
+                                point.time >= startTime && point.time <= endTime
+                            );
+                            
+                            if (filteredPoints.length < 2) {
+                                alert('该时间范围内的有效轨迹点不足，至少需要两点');
+                                return;
+                            }
+                        } else {
+                            alert('时间范围格式不正确，请使用格式：2025-10-23T13:56:49 - 2025-10-23T15:51:31');
+                            return;
+                        }
+                    } else {
+                        alert('时间范围格式不正确，请使用格式：2025-10-23T13:56:49 - 2025-10-23T15:51:31');
+                        return;
+                    }
+                }
+                
+                startPlayback(filteredPoints);
                 // 状态在startPlayback中已设置为playing
             } catch (e) {
                 alert('开始回放失败：' + (e && e.message ? e.message : e));

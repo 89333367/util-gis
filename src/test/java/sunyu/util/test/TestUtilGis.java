@@ -14,6 +14,7 @@ import cn.hutool.log.level.Level;
 import com.zaxxer.hikari.HikariConfig;
 import com.zaxxer.hikari.HikariDataSource;
 import org.junit.jupiter.api.Test;
+import org.locationtech.jts.geom.Coordinate;
 import org.locationtech.jts.geom.Geometry;
 import sunyu.util.GisUtil;
 import sunyu.util.TDengineUtil;
@@ -214,6 +215,99 @@ public class TestUtilGis {
         for (int i = 0; i < 100; i++) {
             gisUtil.splitRoad(l, jobWidth);
         }
+    }
+
+    @Test
+    void 测试批量投影转换() {
+        String fileName = path + "/EC73BD2509061335_20251104100606_20251104101419_protocol.txt";
+        List<Wgs84Point> l = new ArrayList<>();
+        for (String protocolStr : FileUtil.readUtf8Lines(fileName)) {
+            Map<String, String> protocol = protocolSdk.parseProtocolString(protocolStr);
+            Wgs84Point wgs84Point = new Wgs84Point();
+            wgs84Point.setGpsTime(LocalDateTimeUtil.parse(protocol.get("3014"), "yyyyMMddHHmmss"));
+            wgs84Point.setLongitude(Double.parseDouble(protocol.get("2602")));
+            wgs84Point.setLatitude(Double.parseDouble(protocol.get("2603")));
+            if (protocol.containsKey("2601")) {// 定位状态,0已定位，1未定位
+                if (protocol.get("2601").equals("0")) {
+                    wgs84Point.setGpsStatus(1);
+                } else {
+                    wgs84Point.setGpsStatus(2);
+                }
+            }
+            if (protocol.containsKey("3020")) {// 终端ACC状态,0关闭，1开启
+                if (Convert.toStr(protocol.get("3020")).equals("0")) {
+                    wgs84Point.setJobStatus(2);//ACC关闭，认为是没有作业
+                }
+            }
+            if (protocol.containsKey("4031")) {// 作业标识,1作业,0非作业,2暂停
+                if (!Convert.toStr(protocol.get("4031")).equals("1")) {
+                    wgs84Point.setJobStatus(2);//作业标识不是1，认为是没有作业
+                }
+            }
+            l.add(wgs84Point);
+        }
+        List<Wgs84Point> wgs84Points = gisUtil.filterWgs84Points(l);
+        log.debug("过滤后的wgs84点");
+        for (Wgs84Point wgs84Point : wgs84Points) {
+            log.debug("{} {} {}", wgs84Point.getGpsTime(), wgs84Point.getLongitude(), wgs84Point.getLatitude());
+        }
+        List<GaussPoint> gaussPoints = gisUtil.toGaussPointList(wgs84Points);
+        log.debug("转换后的高斯投影点");
+        for (GaussPoint gaussPoint : gaussPoints) {
+            log.debug("{} {} {}", gaussPoint.getGpsTime(), gaussPoint.getGaussX(), gaussPoint.getGaussY());
+        }
+        List<Wgs84Point> wgs84Points1 = gisUtil.toWgs84PointList(gaussPoints);
+        log.debug("转换后的wgs84点");
+        for (Wgs84Point wgs84Point : wgs84Points1) {
+            log.debug("{} {} {}", wgs84Point.getGpsTime(), wgs84Point.getLongitude(), wgs84Point.getLatitude());
+        }
+        List<Wgs84Point> closestPoints = gisUtil.findClosestPointList(wgs84Points1, wgs84Points);
+        log.debug("容差点");
+        for (Wgs84Point closestPoint : closestPoints) {
+            log.debug("{} {} {}", closestPoint.getGpsTime(), closestPoint.getLongitude(), closestPoint.getLatitude());
+        }
+    }
+
+    @Test
+    void 测试单个点的投影转换1() {
+        Wgs84Point p = new Wgs84Point(107.79342153, 22.54082875);
+        log.debug("原始wgs84点");
+        log.info("{} {} {}", p.getGpsTime(), p.getLongitude(), p.getLatitude());
+        GaussPoint gaussPoint = gisUtil.toGaussPointList(new ArrayList<Wgs84Point>() {{
+            add(p);
+        }}).get(0);
+        log.debug("转换后的高斯投影点");
+        log.info("{} {} {}", gaussPoint.getGpsTime(), gaussPoint.getGaussX(), gaussPoint.getGaussY());
+        Wgs84Point p1 = gisUtil.toWgs84PointList(new ArrayList<GaussPoint>() {{
+            add(gaussPoint);
+        }}).get(0);
+        log.debug("转换后的wgs84点");
+        log.info("{} {} {}", p1.getGpsTime(), p1.getLongitude(), p1.getLatitude());
+        Wgs84Point closestPoint = gisUtil.findClosestPoint(p1, new ArrayList<Wgs84Point>() {{
+            add(p);
+        }}, 0.1);
+        log.debug("找到最接近的wgs84点");
+        log.info("{} {} {}", closestPoint.getGpsTime(), closestPoint.getLongitude(), closestPoint.getLatitude());
+    }
+
+    @Test
+    void 测试单个点的投影转换2() {
+        Wgs84Point p = new Wgs84Point(107.79342153, 22.54082875);
+        log.debug("原始wgs84点");
+        log.info("{} {} {}", p.getGpsTime(), p.getLongitude(), p.getLatitude());
+        GaussPoint gaussPoint = gisUtil.toGaussPointList(new ArrayList<Wgs84Point>() {{
+            add(p);
+        }}).get(0);
+        log.debug("转换后的高斯投影点");
+        log.info("{} {} {}", gaussPoint.getGpsTime(), gaussPoint.getGaussX(), gaussPoint.getGaussY());
+        Wgs84Point p1 = gisUtil.toWgs84PointList(new Coordinate[]{new Coordinate(gaussPoint.getGaussX(), gaussPoint.getGaussY())}).get(0);
+        log.debug("转换后的wgs84点");
+        log.info("{} {} {}", p1.getGpsTime(), p1.getLongitude(), p1.getLatitude());
+        Wgs84Point closestPoint = gisUtil.findClosestPoint(p1, new ArrayList<Wgs84Point>() {{
+            add(p);
+        }}, 0.1);
+        log.debug("找到最接近的wgs84点");
+        log.info("{} {} {}", closestPoint.getGpsTime(), closestPoint.getLongitude(), closestPoint.getLatitude());
     }
 
     @Test
