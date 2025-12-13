@@ -169,6 +169,11 @@ public class GisUtil implements AutoCloseable {
          * 拆分时间间隔（秒）
          */
         private final int SPLIT_TIME_SECOND = 60 * 40;
+
+        /**
+         * 渐进式容差（米）
+         */
+        private final double[] TOLERANCES = {0.00111, 0.0111, 0.111, 1.11, 11.1}; // 渐进式容差（米）
     }
 
     public static class Builder {
@@ -1227,9 +1232,7 @@ public class GisUtil implements AutoCloseable {
      * 使用JTS STRtree查找最近点
      */
     private Wgs84Point findClosestPointWithSTRtree(Wgs84Point targetPoint, STRtree spatialIndex) {
-        double[] tolerances = {0.00111, 0.0111, 0.111, 1.11, 11.1}; // 渐进式容差（米）
-
-        for (double tolerance : tolerances) {
+        for (double tolerance : config.TOLERANCES) {
             // 将米转换为度（近似转换：1度≈111公里）
             double toleranceDegrees = tolerance / 111000.0;
 
@@ -1261,8 +1264,7 @@ public class GisUtil implements AutoCloseable {
      * 修复渐进式容差逻辑错误
      */
     private Wgs84Point findClosestPointWithProgressiveToleranceFixed(Wgs84Point targetWgs84Point, List<Wgs84Point> wgs84Points) {
-        double[] tolerances = {0.00111, 0.0111, 0.111, 1.11, 11.1}; // 渐进式容差（米）
-        for (double tolerance : tolerances) {
+        for (double tolerance : config.TOLERANCES) {
             Wgs84Point result = findClosestPoint(targetWgs84Point, wgs84Points, tolerance);
             if (result != null) {
                 return result; // 找到匹配点就返回
