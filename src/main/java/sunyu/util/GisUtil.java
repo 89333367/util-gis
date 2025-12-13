@@ -174,6 +174,11 @@ public class GisUtil implements AutoCloseable {
          * 渐进式容差（米）
          */
         private final double[] TOLERANCES = {0.00111, 0.0111, 0.111, 1.11, 11.1}; // 渐进式容差（米）
+
+        /**
+         * 米到度的转换系数 将米转换为度（近似转换：1度≈111公里）
+         */
+        private final double MI_TO_DEGREE = 111000.0;
     }
 
     public static class Builder {
@@ -1234,7 +1239,7 @@ public class GisUtil implements AutoCloseable {
     private Wgs84Point findClosestPointWithSTRtree(Wgs84Point targetPoint, STRtree spatialIndex) {
         for (double tolerance : config.TOLERANCES) {
             // 将米转换为度（近似转换：1度≈111公里）
-            double toleranceDegrees = tolerance / 111000.0;
+            double toleranceDegrees = tolerance / config.MI_TO_DEGREE;
 
             // 创建搜索范围的Envelope
             Envelope searchEnvelope = new Envelope(
