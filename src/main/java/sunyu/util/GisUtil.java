@@ -1762,11 +1762,10 @@ public class GisUtil implements AutoCloseable {
                 List<List<GaussPoint>> segments = splitClusterByDistance(cluster, minEffectiveInterval * config.MAX_WORK_DISTANCE);
                 log.debug("切分后得到 {} 个子段", segments.size());
 
-                List<Geometry> segmentGeometries = new ArrayList<>();
-                List<GaussPoint> tmpGaussPoints = new ArrayList<>();
                 for (List<GaussPoint> segment : segments) {
                     log.debug("处理子段：{} 个点", segment.size());
                     if (segment.size() > 2) {
+                        Geometry gaussGeometry;
                         log.debug("创建线缓冲，缓冲半径：{} 米", halfWorkingWidth);
                         Coordinate[] coordinates = segment.stream().map(point -> new Coordinate(point.getGaussX(), point.getGaussY())).toArray(Coordinate[]::new);
                         if (coordinates.length > 500) {
@@ -1774,24 +1773,20 @@ public class GisUtil implements AutoCloseable {
                             Geometry simplifiedGeometry = DouglasPeuckerSimplifier.simplify(lineString, 0.1);//0.1米容差
                             Coordinate[] simplifiedCoords = simplifiedGeometry.getCoordinates();
                             if (simplifiedCoords.length > 500) {
-                                Geometry gaussGeometry = processLargeSegmentInChunks(segment, halfWorkingWidth);
-                                segmentGeometries.add(gaussGeometry);
+                                gaussGeometry = processLargeSegmentInChunks(segment, halfWorkingWidth);
                             } else {
-                                Geometry gaussGeometry = simplifiedGeometry.buffer(halfWorkingWidth);
-                                segmentGeometries.add(gaussGeometry);
+                                gaussGeometry = simplifiedGeometry.buffer(halfWorkingWidth);
                             }
                         } else {
                             LineString lineString = config.GEOMETRY_FACTORY.createLineString(coordinates);
-                            Geometry gaussGeometry = lineString.buffer(halfWorkingWidth);
-                            segmentGeometries.add(gaussGeometry);
+                            gaussGeometry = lineString.buffer(halfWorkingWidth);
                         }
-                        tmpGaussPoints.addAll(segment);
+                        log.info("使用膨胀、收缩参数 {}米 合并几何图形", bufferSmoothingDistance);
+                        gaussGeometry.buffer(bufferSmoothingDistance).buffer(-bufferSmoothingDistance);
+                        clusterGaussGeometries.add(gaussGeometry);
+                        clusterGaussPoints.add(segment);
                     }
                 }
-                log.info("使用膨胀、收缩参数 {}米 合并几何图形", bufferSmoothingDistance);
-                Geometry segmentGeometriesUnion = config.GEOMETRY_FACTORY.createGeometryCollection(segmentGeometries.toArray(new Geometry[0])).union().buffer(bufferSmoothingDistance).buffer(-bufferSmoothingDistance);
-                clusterGaussGeometries.add(segmentGeometriesUnion);
-                clusterGaussPoints.add(tmpGaussPoints);
             }
         }
         log.debug("生成了 {} 个几何图形，生成了 {} 组点位列表", clusterGaussGeometries.size(), clusterGaussPoints.size());
