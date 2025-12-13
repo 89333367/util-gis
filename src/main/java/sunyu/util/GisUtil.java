@@ -1812,6 +1812,19 @@ public class GisUtil implements AutoCloseable {
             parts.add(part);
         }
 
+        log.debug("按面积倒序排序");
+        parts.sort(Comparator.comparing(Part::getMu).reversed());
+        log.debug("取前 {} 个最大面积的几何图形", config.MAX_SPLIT_RETURN_SIZE);
+        parts = parts.subList(0, Math.min(config.MAX_SPLIT_RETURN_SIZE, parts.size()));
+        log.debug("移除面积小于 {} 平方米的几何图形", config.MIN_RETURN_MU * config.MU_TO_SQUARE_METER);
+        parts.removeIf(part -> part.getMu() < config.MIN_RETURN_MU);
+        log.info("最终保留 {} 个地块", parts.size());
+        if (parts.isEmpty()) {
+            log.debug("没有保留任何地块");
+            return splitResult;
+        }
+        parts.sort(Comparator.comparing(Part::getStartTime));
+
         log.debug("合并所有Part几何图形");
         Geometry unionPartsGaussGeometry = config.GEOMETRY_FACTORY.createGeometryCollection(parts.stream().map(Part::getGaussGeometry).toArray(Geometry[]::new)).union().buffer(0);
         log.debug("合并后几何图形的面积（平方米）：{}", unionPartsGaussGeometry.getArea());
