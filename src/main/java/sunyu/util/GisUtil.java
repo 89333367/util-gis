@@ -638,6 +638,183 @@ public class GisUtil implements AutoCloseable {
         return segments;
     }
 
+
+    /**
+     * 简单算法：适用于小数据量
+     */
+    private List<Wgs84Point> findClosestPointListSimple(List<Wgs84Point> targetPointList, List<Wgs84Point> wgs84Points) {
+        List<Wgs84Point> result = targetPointList.stream()
+                .map(targetPoint -> findClosestPointWithProgressiveToleranceFixed(targetPoint, wgs84Points))
+                .filter(Objects::nonNull)
+                .collect(Collectors.toList());
+        log.debug("批量查找最接近点完成，匹配到的点数量={}", result.size());
+        return result;
+    }
+
+    /**
+     * 优化算法：使用JTS STRtree空间索引，适用于大数据量
+     */
+    private List<Wgs84Point> findClosestPointListOptimized(List<Wgs84Point> targetPointList, List<Wgs84Point> wgs84Points) {
+        // 1. 构建JTS STRtree空间索引 - 这是JTS提供的高效R树实现
+        STRtree spatialIndex = new STRtree();
+
+        // 将原始点插入空间索引
+        for (Wgs84Point point : wgs84Points) {
+            // 创建点的Envelope（边界框）作为空间索引键
+            Envelope envelope = new Envelope(point.getLongitude(), point.getLongitude(),
+                    point.getLatitude(), point.getLatitude());
+            spatialIndex.insert(envelope, point);
+        }
+
+        // 构建索引
+        spatialIndex.build();
+
+        log.debug("JTS STRtree空间索引构建完成，原始点数量={}", wgs84Points.size());
+
+        // 2. 并行处理目标点，提高多核CPU利用率
+        return targetPointList.parallelStream()
+                .unordered()
+                .map(targetPoint -> findClosestPointWithSTRtree(targetPoint, spatialIndex))
+                .filter(Objects::nonNull)
+                .collect(Collectors.toList());
+    }
+
+    /**
+     * 使用JTS STRtree查找最近点
+     */
+    private Wgs84Point findClosestPointWithSTRtree(Wgs84Point targetPoint, STRtree spatialIndex) {
+        for (double tolerance : config.TOLERANCES) {
+            // 将米转换为度（近似转换：1度≈111公里）
+            double toleranceDegrees = tolerance / config.MI_TO_DEGREE;
+
+            // 创建搜索范围的Envelope
+            Envelope searchEnvelope = new Envelope(
+                    targetPoint.getLongitude() - toleranceDegrees,
+                    targetPoint.getLongitude() + toleranceDegrees,
+                    targetPoint.getLatitude() - toleranceDegrees,
+                    targetPoint.getLatitude() + toleranceDegrees
+            );
+
+            // 使用STRtree查询候选点
+            @SuppressWarnings("unchecked")
+            List<Wgs84Point> candidates = spatialIndex.query(searchEnvelope);
+
+            if (!candidates.isEmpty()) {
+                Wgs84Point closest = findClosestPointInCandidates(targetPoint, candidates, tolerance);
+                if (closest != null) {
+                    return closest;
+                }
+            }
+        }
+
+        log.warn("在所有容差范围内都未找到匹配点：目标坐标=[{}, {}]", targetPoint.getLongitude(), targetPoint.getLatitude());
+        return null;
+    }
+
+    /**
+     * 修复渐进式容差逻辑错误
+     */
+    private Wgs84Point findClosestPointWithProgressiveToleranceFixed(Wgs84Point targetWgs84Point, List<Wgs84Point> wgs84Points) {
+        for (double tolerance : config.TOLERANCES) {
+            Wgs84Point result = findClosestPoint(targetWgs84Point, wgs84Points, tolerance);
+            if (result != null) {
+                return result; // 找到匹配点就返回
+            }
+        }
+        log.warn("在所有容差范围内都未找到匹配点：目标坐标=[{}, {}]", targetWgs84Point.getLongitude(), targetWgs84Point.getLatitude());
+        return null;
+    }
+
+    /**
+     * 在候选点中查找最近点
+     */
+    private Wgs84Point findClosestPointInCandidates(Wgs84Point targetPoint, List<Wgs84Point> candidates, double maxDistance) {
+        Wgs84Point closestPoint = null;
+        double minDistance = Double.MAX_VALUE;
+
+        for (Wgs84Point candidate : candidates) {
+            double distance = haversine(targetPoint, candidate);
+            if (distance <= maxDistance && distance < minDistance) {
+                minDistance = distance;
+                closestPoint = candidate;
+            }
+        }
+
+        return closestPoint;
+    }
+
+    private int getMinEffectiveInterval(List<Wgs84Point> wgs84Points) {
+        log.debug("准备计算上报时间间隔分布");
+        int minEffectiveInterval = 1; // 默认值
+        Map<Integer, Integer> intervalDistribution = new HashMap<>();
+        for (int i = 1; i < wgs84Points.size(); i++) {
+            Wgs84Point prevPoint = wgs84Points.get(i - 1);
+            Wgs84Point currPoint = wgs84Points.get(i);
+
+            // 计算时间间隔（秒）- LocalDateTime使用Duration
+            Duration duration = Duration.between(prevPoint.getGpsTime(), currPoint.getGpsTime());
+            int timeDiffSeconds = (int) duration.getSeconds();
+            // 统计每个间隔的出现次数
+            intervalDistribution.put(timeDiffSeconds, intervalDistribution.getOrDefault(timeDiffSeconds, 0) + 1);
+        }
+        // 获取最小有效时间间隔
+        if (!intervalDistribution.isEmpty()) {
+            // 找到点数最多的时间间隔，如果点数相同则选择时间间隔更小的
+            minEffectiveInterval = intervalDistribution.entrySet().stream().max((e1, e2) -> {
+                int countCompare = Integer.compare(e1.getValue(), e2.getValue());
+                if (countCompare != 0) {
+                    return countCompare; // 点数多的优先
+                }
+                return Integer.compare(e2.getKey(), e1.getKey()); // 点数相同时，时间间隔小的优先（降序比较）
+            }).map(Map.Entry::getKey).orElse(1);
+        }
+        log.debug("最小有效上报时间间隔 {} 秒", minEffectiveInterval);
+        return minEffectiveInterval;
+    }
+
+    private List<List<GaussPoint>> dbScanClusters(List<GaussPoint> gaussPoints, int minEffectiveInterval) {
+        log.debug("从高斯投影中提取坐标数组");
+        double[][] coords = new double[gaussPoints.size()][2];
+        for (int i = 0; i < gaussPoints.size(); i++) {
+            coords[i][0] = gaussPoints.get(i).getGaussX();
+            coords[i][1] = gaussPoints.get(i).getGaussY();
+        }
+
+        log.debug("创建StaticArrayDatabase");
+        Database db = new StaticArrayDatabase(new ArrayAdapterDatabaseConnection(coords), null);
+        db.initialize();
+
+        double eps = config.MAX_WORK_DISTANCE * minEffectiveInterval;
+        int minPts = config.MIN_DBSCAN_POINTS;
+        log.info("使用空间密集聚类参数 eps={} 米, minPts={}", String.format("%.2f", eps), minPts);
+        DBSCAN<DoubleVector> dbscan = new DBSCAN<>(EuclideanDistance.STATIC, eps, minPts);
+
+        log.debug("获取Relation对象并执行空间密集聚类");
+        Relation<DoubleVector> relation = db.getRelation(TypeUtil.DOUBLE_VECTOR_FIELD);
+        Clustering<Model> dbscanCluster = dbscan.run(relation);
+
+        log.debug("映射结果");
+        DBIDRange ids = (DBIDRange) relation.getDBIDs();
+        List<List<GaussPoint>> clusters = new ArrayList<>();
+        for (Cluster<Model> cluster : dbscanCluster.getAllClusters()) {
+            log.debug("聚类信息： 聚类名称: {} 点数量: {}", cluster.getNameAutomatic(), cluster.size());
+            if (!cluster.getNameAutomatic().equals("Cluster")) {
+                // 如果不是聚类簇，跳过
+                continue;
+            }
+            List<GaussPoint> gaussPointList = new ArrayList<>();
+            for (DBIDIter iter = cluster.getIDs().iter(); iter.valid(); iter.advance()) {
+                int offset = ids.getOffset(iter);
+                GaussPoint gaussPoint = gaussPoints.get(offset);
+                gaussPointList.add(gaussPoint);
+            }
+            // 保持返回的聚类的点位是按时间升序排序
+            gaussPointList.sort(Comparator.comparing(GaussPoint::getGpsTime));
+            clusters.add(gaussPointList);
+        }
+        return clusters;
+    }
+
     /**
      * 过滤异常点位信息
      *
@@ -1159,110 +1336,6 @@ public class GisUtil implements AutoCloseable {
         return findClosestPointListOptimized(targetPointList, wgs84Points);
     }
 
-    /**
-     * 简单算法：适用于小数据量
-     */
-    private List<Wgs84Point> findClosestPointListSimple(List<Wgs84Point> targetPointList, List<Wgs84Point> wgs84Points) {
-        List<Wgs84Point> result = targetPointList.stream()
-                .map(targetPoint -> findClosestPointWithProgressiveToleranceFixed(targetPoint, wgs84Points))
-                .filter(Objects::nonNull)
-                .collect(Collectors.toList());
-        log.debug("批量查找最接近点完成，匹配到的点数量={}", result.size());
-        return result;
-    }
-
-    /**
-     * 优化算法：使用JTS STRtree空间索引，适用于大数据量
-     */
-    private List<Wgs84Point> findClosestPointListOptimized(List<Wgs84Point> targetPointList, List<Wgs84Point> wgs84Points) {
-        // 1. 构建JTS STRtree空间索引 - 这是JTS提供的高效R树实现
-        STRtree spatialIndex = new STRtree();
-
-        // 将原始点插入空间索引
-        for (Wgs84Point point : wgs84Points) {
-            // 创建点的Envelope（边界框）作为空间索引键
-            Envelope envelope = new Envelope(point.getLongitude(), point.getLongitude(),
-                    point.getLatitude(), point.getLatitude());
-            spatialIndex.insert(envelope, point);
-        }
-
-        // 构建索引
-        spatialIndex.build();
-
-        log.debug("JTS STRtree空间索引构建完成，原始点数量={}", wgs84Points.size());
-
-        // 2. 并行处理目标点，提高多核CPU利用率
-        return targetPointList.parallelStream()
-                .unordered()
-                .map(targetPoint -> findClosestPointWithSTRtree(targetPoint, spatialIndex))
-                .filter(Objects::nonNull)
-                .collect(Collectors.toList());
-    }
-
-    /**
-     * 使用JTS STRtree查找最近点
-     */
-    private Wgs84Point findClosestPointWithSTRtree(Wgs84Point targetPoint, STRtree spatialIndex) {
-        for (double tolerance : config.TOLERANCES) {
-            // 将米转换为度（近似转换：1度≈111公里）
-            double toleranceDegrees = tolerance / config.MI_TO_DEGREE;
-
-            // 创建搜索范围的Envelope
-            Envelope searchEnvelope = new Envelope(
-                    targetPoint.getLongitude() - toleranceDegrees,
-                    targetPoint.getLongitude() + toleranceDegrees,
-                    targetPoint.getLatitude() - toleranceDegrees,
-                    targetPoint.getLatitude() + toleranceDegrees
-            );
-
-            // 使用STRtree查询候选点
-            @SuppressWarnings("unchecked")
-            List<Wgs84Point> candidates = spatialIndex.query(searchEnvelope);
-
-            if (!candidates.isEmpty()) {
-                Wgs84Point closest = findClosestPointInCandidates(targetPoint, candidates, tolerance);
-                if (closest != null) {
-                    return closest;
-                }
-            }
-        }
-
-        log.warn("在所有容差范围内都未找到匹配点：目标坐标=[{}, {}]", targetPoint.getLongitude(), targetPoint.getLatitude());
-        return null;
-    }
-
-    /**
-     * 修复渐进式容差逻辑错误
-     */
-    private Wgs84Point findClosestPointWithProgressiveToleranceFixed(Wgs84Point targetWgs84Point, List<Wgs84Point> wgs84Points) {
-        for (double tolerance : config.TOLERANCES) {
-            Wgs84Point result = findClosestPoint(targetWgs84Point, wgs84Points, tolerance);
-            if (result != null) {
-                return result; // 找到匹配点就返回
-            }
-        }
-        log.warn("在所有容差范围内都未找到匹配点：目标坐标=[{}, {}]", targetWgs84Point.getLongitude(), targetWgs84Point.getLatitude());
-        return null;
-    }
-
-    /**
-     * 在候选点中查找最近点
-     */
-    private Wgs84Point findClosestPointInCandidates(Wgs84Point targetPoint, List<Wgs84Point> candidates, double maxDistance) {
-        Wgs84Point closestPoint = null;
-        double minDistance = Double.MAX_VALUE;
-
-        for (Wgs84Point candidate : candidates) {
-            double distance = haversine(targetPoint, candidate);
-            if (distance <= maxDistance && distance < minDistance) {
-                minDistance = distance;
-                closestPoint = candidate;
-            }
-        }
-
-        return closestPoint;
-    }
-
     public List<Wgs84Point> toWgs84PointList(List<GaussPoint> gaussPoints) {
         log.debug("转换高斯投影点列表为WGS84点列表，点数量={}", gaussPoints.size());
         if (CollUtil.isEmpty(gaussPoints)) {
@@ -1512,6 +1585,7 @@ public class GisUtil implements AutoCloseable {
         return calcMu(toWgs84Geometry(wgs84Wkt));
     }
 
+
     /**
      * 道路拆分，将道路轨迹拆分掉，只保留作业信息
      *
@@ -1551,43 +1625,8 @@ public class GisUtil implements AutoCloseable {
             return splitResult;
         }
 
-        log.debug("从高斯投影中提取坐标数组");
-        double[][] coords = new double[gaussPoints.size()][2];
-        for (int i = 0; i < gaussPoints.size(); i++) {
-            coords[i][0] = gaussPoints.get(i).getGaussX();
-            coords[i][1] = gaussPoints.get(i).getGaussY();
-        }
-
-        log.debug("创建StaticArrayDatabase");
-        Database db = new StaticArrayDatabase(new ArrayAdapterDatabaseConnection(coords), null);
-        db.initialize();
-
-        double eps = config.MAX_WORK_DISTANCE * minEffectiveInterval;
-        int minPts = config.MIN_DBSCAN_POINTS;
-        log.info("使用空间密集聚类参数 eps={} 米, minPts={}", String.format("%.2f", eps), minPts);
-        DBSCAN<DoubleVector> dbscan = new DBSCAN<>(EuclideanDistance.STATIC, eps, minPts);
-
-        log.debug("获取Relation对象并执行空间密集聚类");
-        Relation<DoubleVector> relation = db.getRelation(TypeUtil.DOUBLE_VECTOR_FIELD);
-        Clustering<Model> result = dbscan.run(relation);
-
-        log.debug("映射结果");
-        DBIDRange ids = (DBIDRange) relation.getDBIDs();
-        List<List<GaussPoint>> clusters = new ArrayList<>();
-        for (Cluster<Model> cluster : result.getAllClusters()) {
-            log.debug("聚类信息： 聚类名称: {} 点数量: {}", cluster.getNameAutomatic(), cluster.size());
-            if (!cluster.getNameAutomatic().equals("Cluster")) {
-                // 如果不是聚类簇，跳过
-                continue;
-            }
-            List<GaussPoint> gaussPointList = new ArrayList<>();
-            for (DBIDIter iter = cluster.getIDs().iter(); iter.valid(); iter.advance()) {
-                int offset = ids.getOffset(iter);
-                GaussPoint gaussPoint = gaussPoints.get(offset);
-                gaussPointList.add(gaussPoint);
-            }
-            clusters.add(gaussPointList);
-        }
+        // 执行聚类，并且返回高斯投影的坐标
+        List<List<GaussPoint>> clusters = dbScanClusters(gaussPoints, minEffectiveInterval);
         log.info("聚类完成，总共有 {} 个聚类簇", clusters.size());
         if (clusters.isEmpty()) {
             log.debug("没有聚类簇");
@@ -1699,35 +1738,6 @@ public class GisUtil implements AutoCloseable {
         splitResult.setParts(parts);
         log.info("地块总面积={}亩 共 {} 个地块，耗时 {} 毫秒", splitResult.getMu(), unionPartsGaussGeometry.getNumGeometries(), System.currentTimeMillis() - splitRoadStartTime);
         return splitResult;
-    }
-
-    private int getMinEffectiveInterval(List<Wgs84Point> wgs84Points) {
-        log.debug("准备计算上报时间间隔分布");
-        int minEffectiveInterval = 1; // 默认值
-        Map<Integer, Integer> intervalDistribution = new HashMap<>();
-        for (int i = 1; i < wgs84Points.size(); i++) {
-            Wgs84Point prevPoint = wgs84Points.get(i - 1);
-            Wgs84Point currPoint = wgs84Points.get(i);
-
-            // 计算时间间隔（秒）- LocalDateTime使用Duration
-            Duration duration = Duration.between(prevPoint.getGpsTime(), currPoint.getGpsTime());
-            int timeDiffSeconds = (int) duration.getSeconds();
-            // 统计每个间隔的出现次数
-            intervalDistribution.put(timeDiffSeconds, intervalDistribution.getOrDefault(timeDiffSeconds, 0) + 1);
-        }
-        // 获取最小有效时间间隔
-        if (!intervalDistribution.isEmpty()) {
-            // 找到点数最多的时间间隔，如果点数相同则选择时间间隔更小的
-            minEffectiveInterval = intervalDistribution.entrySet().stream().max((e1, e2) -> {
-                int countCompare = Integer.compare(e1.getValue(), e2.getValue());
-                if (countCompare != 0) {
-                    return countCompare; // 点数多的优先
-                }
-                return Integer.compare(e2.getKey(), e1.getKey()); // 点数相同时，时间间隔小的优先（降序比较）
-            }).map(Map.Entry::getKey).orElse(1);
-        }
-        log.debug("最小有效上报时间间隔 {} 秒", minEffectiveInterval);
-        return minEffectiveInterval;
     }
 
 
