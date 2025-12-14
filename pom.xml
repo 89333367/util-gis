@@ -99,6 +99,12 @@
             <artifactId>elki-batik-visualization</artifactId>
             <version>0.8.0</version>
         </dependency>
+        <!-- https://central.sonatype.com/artifact/org.apache.commons/commons-math3/versions -->
+        <dependency>
+            <groupId>org.apache.commons</groupId>
+            <artifactId>commons-math3</artifactId>
+            <version>3.6.1</version>
+        </dependency>
         <!-- https://central.sonatype.com/artifact/org.jfree/jfreechart/versions -->
         <dependency>
             <groupId>org.jfree</groupId>
@@ -133,12 +139,11 @@
             <version>4.0.3</version>
             <scope>test</scope>
         </dependency>
+        <!-- https://central.sonatype.com/artifact/com.taosdata.jdbc/taos-jdbcdriver/3.4.0/versions -->
         <dependency>
-            <groupId>sunyu.util</groupId>
-            <artifactId>util-tdengine</artifactId>
-            <!-- {taos-jdbcdriver.version}_{util.version}_{jdk.version}_{architecture.version} -->
-            <version>3.4.0_1.0_jdk8_x64</version>
-            <classifier>shaded</classifier>
+            <groupId>com.taosdata.jdbc</groupId>
+            <artifactId>taos-jdbcdriver</artifactId>
+            <version>3.4.0</version>
             <scope>test</scope>
         </dependency>
     </dependencies>
