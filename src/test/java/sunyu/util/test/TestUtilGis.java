@@ -5,6 +5,7 @@ import cn.hutool.core.date.DateUtil;
 import cn.hutool.core.date.LocalDateTimeUtil;
 import cn.hutool.core.io.FileUtil;
 import cn.hutool.core.io.resource.ResourceUtil;
+import cn.hutool.core.util.ReUtil;
 import cn.hutool.core.util.StrUtil;
 import cn.hutool.db.Db;
 import cn.hutool.db.DbUtil;
@@ -20,16 +21,53 @@ import sunyu.util.GisUtil;
 import sunyu.util.pojo.*;
 
 import javax.sql.DataSource;
+import java.nio.charset.StandardCharsets;
 import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.TreeMap;
 
 public class TestUtilGis {
     Log log = LogFactory.get();
     GisUtil gisUtil = GisUtil.builder().build();
-    ProtocolSdk protocolSdk = new ProtocolSdk(FileUtil.getInputStream(FileUtil.file("d:/tmp/config.xml")));
     String path = "D:/GitLab/util-gis/testFiles";
+    private final String DID_REG = "[a-zA-Z0-9]+[ ]?[a-zA-Z0-9]+";
+
+    private TreeMap<String, String> parseProtocolString(String protocolString) {
+        if (StrUtil.isNotBlank(protocolString)) {
+            String[] data = protocolString.split("\\$");
+            // 1. 消息元数据间使用一个“$”为分隔符。
+            // 2. 消息结构：消息前缀;序列号;终端 ID;命令标识;参数明细。固定 5 列。
+            // 3. 前缀主要有 SUBMIT 和 REPORT 两种，SUBMIT 表示主动发送，REPORT 表示应答。
+            // 4. 序列号主要用于下行指令的状态通知匹配，主动上传的消息序列号默认为 1。
+            // 5. 国标终端的 VIN 用于终端 ID，其它终端 ID 为博创自定义 ID。
+            // 6. 参数明细包含多个参数，单个参数以 KEY:VALUE 形式，多个参数以半角逗号分隔。
+            // 7. 车辆登入示例： SUBMIT$1$LVBV4J0B2AJ063987$LOGIN$TIME:20150623120000,1001:1
+            if (data.length == 5 && StrUtil.isNotBlank(data[2]) && ReUtil.isMatch(DID_REG, data[2])) {
+                // 如果是内部协议的5段，并且，设备编号不为空
+                TreeMap<String, String> params = new TreeMap<>();
+                params.put("params0", data[0]);// 前缀,SUBMIT 和REPORT 两种，SUBMIT 表示主动发送，REPORT 表示应答
+                params.put("params1", data[1]);// 消息id
+                params.put("params2", data[2]);// 终端编号
+                params.put("params3", data[3]);// 命令标识,PACKET,LINKSTATUS,TERMIN,TERMOUT,REALTIME,HISTORY,GETARG,SETARG,CONTROL,UPDATE,NOTIFY
+                params.put("did", params.get("params2"));// 冗余key，便于检索
+                String[] datas = data[4].split(",");// 数据部分
+                for (String kv : datas) {// 拼装内部协议key数据
+                    String[] keyValue = kv.split(":");
+                    if (keyValue.length == 2) {// key和value都有，例如：key:value
+                        String id = keyValue[0];// 内部协议数字key
+                        String value = keyValue[1];// 网关转换后的值
+                        if (StrUtil.isNotBlank(id) && StrUtil.isNotBlank(value)) {
+                            params.put(id, value);// 使用内部协议的数字key
+                        }
+                    }
+                }
+                return params;
+            }
+        }
+        return null;
+    }
 
     private DataSource getMySqlDatasource() {
         HikariConfig config = new HikariConfig();
@@ -84,11 +122,12 @@ public class TestUtilGis {
             List<String> traceList = new ArrayList<>();
             List<String> protocolList = new ArrayList<>();
             for (Entity row : rows) {
-                Map<String, String> protocol = protocolSdk.parseProtocolString(row.getStr("protocol"));
+                String protocolStr = new String(row.getBytes("protocol"), StandardCharsets.UTF_8);
+                Map<String, String> protocol = parseProtocolString(protocolStr);
                 if (!protocol.containsKey("3014") || !protocol.containsKey("2602") || !protocol.containsKey("2603")) {
                     continue;
                 }
-                protocolList.add(row.get("protocol").toString());//只要有定位时间和经纬度信息就添加到协议列表
+                protocolList.add(protocolStr);//只要有定位时间和经纬度信息就添加到协议列表
                 if (protocol.containsKey("2601") && !protocol.get("2601").equals("0")) {// 定位状态,0已定位，1未定位
                     continue;
                 }
@@ -115,7 +154,7 @@ public class TestUtilGis {
         }
         List<Wgs84Point> l = new ArrayList<>();
         for (String protocolStr : FileUtil.readUtf8Lines(fileName)) {
-            Map<String, String> protocol = protocolSdk.parseProtocolString(protocolStr);
+            Map<String, String> protocol = parseProtocolString(protocolStr);
             Wgs84Point wgs84Point = new Wgs84Point();
             wgs84Point.setGpsTime(LocalDateTimeUtil.parse(protocol.get("3014"), "yyyyMMddHHmmss"));
             wgs84Point.setLongitude(Double.parseDouble(protocol.get("2602")));
@@ -169,7 +208,7 @@ public class TestUtilGis {
 
     void 生成HTML(String did, String startTime, String endTime) {
         // 利用 showGeometryTemplate.html 当做模版，将trace输出到轨迹的TAB中
-        String html = ResourceUtil.readUtf8Str("showGeometryTemplate.html");
+        String html = ResourceUtil.readUtf8Str("showGeometrysTemplate.html");
 
         String fileName = path + StrUtil.format("/{}_{}_{}_trace.txt", did, startTime, endTime);
         if (!FileUtil.exist(fileName)) {
@@ -196,7 +235,7 @@ public class TestUtilGis {
         }
         List<Wgs84Point> l = new ArrayList<>();
         for (String protocolStr : FileUtil.readUtf8Lines(fileName)) {
-            Map<String, String> protocol = protocolSdk.parseProtocolString(protocolStr);
+            Map<String, String> protocol = parseProtocolString(protocolStr);
             Wgs84Point wgs84Point = new Wgs84Point();
             wgs84Point.setGpsTime(LocalDateTimeUtil.parse(protocol.get("3014"), "yyyyMMddHHmmss"));
             wgs84Point.setLongitude(Double.parseDouble(protocol.get("2602")));
