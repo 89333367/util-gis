@@ -1748,7 +1748,7 @@ public class GisUtil implements AutoCloseable {
         parts.sort(Comparator.comparing(Part::getMu).reversed());
         log.debug("取前 {} 个最大面积的几何图形", config.MAX_SPLIT_RETURN_SIZE);
         parts = parts.subList(0, Math.min(config.MAX_SPLIT_RETURN_SIZE, parts.size()));
-        log.debug("移除面积小于 {} 平方米的几何图形", config.MIN_RETURN_MU * config.MU_TO_SQUARE_METER);
+        log.debug("移除面积小于 {} 亩的几何图形", config.MIN_RETURN_MU);
         parts.removeIf(part -> part.getMu() < config.MIN_RETURN_MU);
         log.info("最终保留 {} 个地块", parts.size());
         if (parts.isEmpty()) {
