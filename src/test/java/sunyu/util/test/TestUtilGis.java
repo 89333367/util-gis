@@ -401,7 +401,7 @@ public class TestUtilGis {
 
     @Test
     void 测试1秒间隔001() {
-        // 一块地，有镂空，膨胀1米还有缝隙
+        // 一块地，有镂空
         String did = "EC71BT2406060220";
         String startTime = "20251102154200";
         String endTime = "20251102172202";
@@ -413,7 +413,7 @@ public class TestUtilGis {
 
     @Test
     void 测试1秒间隔002() {
-        // 有镂空，本来有3个地块，但是地块之间的距离非常小，所以合并成一个大地块
+        // 三块地，但有两块地之间的路的距离过小，所以合并成两块地
         String did = "EC71BT2406060220";
         String startTime = "20251102130028";
         String endTime = "20251102153804";
@@ -425,7 +425,7 @@ public class TestUtilGis {
 
     @Test
     void 测试1秒间隔003() {
-        // 高密度地块，轨迹缝隙特别多，最终合并成一块地，这个轨迹真的非常乱，看起来像乱跑的
+        // 按时间切割后形成了5块地，重合了好几次，这种按理说直接合并成一个大地块即可，还是需要再解决一下
         String did = "EC73BD2509060398";
         String startTime = "20251103130852";
         String endTime = "20251103151309";
@@ -437,7 +437,7 @@ public class TestUtilGis {
 
     @Test
     void 测试1秒间隔004() {
-        // 高密度地块，三块地，有镂空，膨胀1米后还有一个缝隙，有两块地中间距离特别小，所以最终合并成两块大地块
+        // 识别出了三块地，有镂空，有大石头
         String did = "EC71BT2406060220";
         String startTime = "20251103102528";
         String endTime = "20251103150242";

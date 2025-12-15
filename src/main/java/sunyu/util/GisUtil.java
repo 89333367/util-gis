@@ -158,7 +158,7 @@ public class GisUtil implements AutoCloseable {
         /**
          * 拆分时间间隔（秒）
          */
-        private final int SPLIT_TIME_SECOND = 60 * 40;
+        private final int SPLIT_TIME_SECOND = 60 * 30;
 
         /**
          * 渐进式容差（米）
@@ -1664,8 +1664,6 @@ public class GisUtil implements AutoCloseable {
         for (List<GaussPoint> cluster : clusters) {
             log.debug("聚类簇包含 {} 个点", cluster.size());
             if (cluster.size() >= config.MIN_DBSCAN_POINTS) {
-                log.debug("聚类后，按时间升序排序");
-                cluster.sort(Comparator.comparing(GaussPoint::getGpsTime));
                 splitClustersBySeconds.addAll(splitClusterBySeconds(cluster, config.SPLIT_TIME_SECOND));
             }
         }
@@ -1723,12 +1721,9 @@ public class GisUtil implements AutoCloseable {
         for (int i = 0; i < clusterGaussGeometries.size(); i++) {
             Geometry clusterGaussGeometry = clusterGaussGeometries.get(i);
             Geometry wgs84PartGeometry = toWgs84Geometry(clusterGaussGeometry);
-            List<GaussPoint> tmpGaussPoints = clusterGaussPoints.get(i);
-            tmpGaussPoints.sort(Comparator.comparing(GaussPoint::getGpsTime));
-            List<Wgs84Point> wgs84PointList = toWgs84PointList(tmpGaussPoints);
-            wgs84PointList = findClosestPointList(wgs84PointList, wgs84Points);
-            if (wgs84PointList.isEmpty()) {
-                continue;
+            List<Wgs84Point> wgs84PointList = new ArrayList<>();
+            for (GaussPoint gaussPoint : clusterGaussPoints.get(i)) {
+                wgs84PointList.add(new Wgs84Point(gaussPoint.getGpsTime(), gaussPoint.getLongitude(), gaussPoint.getLatitude()));
             }
             Part part = new Part();
             part.setGaussGeometry(clusterGaussGeometry);
