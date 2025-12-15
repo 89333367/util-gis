@@ -1755,7 +1755,7 @@ public class GisUtil implements AutoCloseable {
         //log.debug("合并后的几何图形：{}", wgs84UnionGeometry.toText());
         splitResult.setGaussGeometry(unionPartsGaussGeometry);
         splitResult.setWkt(wgs84UnionGeometry.toText());
-        splitResult.setMu(Math.round(parts.stream().mapToDouble(Part::getMu).sum() * 10000.0) / 10000.0);
+        splitResult.setMu(calcMu(wgs84UnionGeometry));
         splitResult.setParts(parts);
 
         log.debug("再次检查合并后的几何图形，如果合并后是一个几何图形，那么修改parts信息");
