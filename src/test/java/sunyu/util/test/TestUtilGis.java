@@ -425,7 +425,7 @@ public class TestUtilGis {
 
     @Test
     void 测试1秒间隔003() {
-        // 按时间切割后形成了5块地，重合了好几次，这种按理说直接合并成一个大地块即可，还是需要再解决一下
+        // 一块地，轨迹很乱
         String did = "EC73BD2509060398";
         String startTime = "20251103130852";
         String endTime = "20251103151309";
@@ -473,8 +473,8 @@ public class TestUtilGis {
 
     @Test
     void 计算重复亩数0018_1335() throws Exception {
-        String wkt1 = FileUtil.readUtf8Lines(path + "/EC73BD2506050018_20251104090717_20251104092257_parts.txt").get(1).replace("WKT: ", "");
-        String wkt2 = FileUtil.readUtf8Lines(path + "/EC73BD2509061335_20251104100606_20251104101419_parts.txt").get(1).replace("WKT: ", "");
+        String wkt1 = FileUtil.readUtf8Lines(path + "/EC73BD2506050018_20251104090717_20251104092257_parts.txt").get(1).replace("总WKT: ", "");
+        String wkt2 = FileUtil.readUtf8Lines(path + "/EC73BD2509061335_20251104100606_20251104101419_parts.txt").get(1).replace("总WKT: ", "");
         WktIntersectionResult r = gisUtil.intersection(wkt1, wkt2);
         log.info("相交轮廓WKT: {}", r.getWkt());
         log.info("相交面积：{} 亩", r.getMu());
