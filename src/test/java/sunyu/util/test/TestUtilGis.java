@@ -183,11 +183,16 @@ public class TestUtilGis {
         List<String> partsInfo = new ArrayList<>();
         SplitResult splitResult = gisUtil.splitRoad(l, jobWidth);
         partsInfo.add(StrUtil.format("作业总幅宽（米）: {}", splitResult.getWorkingWidth()));
-        partsInfo.add(StrUtil.format("WKT: {}", splitResult.getWkt()));
-        partsInfo.add(StrUtil.format("作业总面积（亩）: {}\n", splitResult.getMu()));
+        partsInfo.add(StrUtil.format("总WKT: {}", splitResult.getWkt()));
+        partsInfo.add(StrUtil.format("作业总面积（亩）: {}", splitResult.getMu()));
+        partsInfo.add(StrUtil.format("合并后有 {} 个地块", splitResult.getGaussGeometry().getNumGeometries()));
+        partsInfo.add(StrUtil.format("拆分后有 {} 个地块", splitResult.getParts().size()));
+        partsInfo.add("\n");
+        int partIndex = 1;
         for (Part part : splitResult.getParts()) {
             List<String> partInfo = new ArrayList<>();
-            partInfo.add(StrUtil.format("WKT: {}", part.getWkt()));
+            partInfo.add(StrUtil.format("地块 {}:", partIndex++));
+            partInfo.add(StrUtil.format("子WKT: {}", part.getWkt()));
             partInfo.add(StrUtil.format("点数量：{}", part.getTrackPoints().size()));
             partInfo.add(StrUtil.format("轨迹点字符串: {}", part.getTrackStr()));
             partInfo.add(StrUtil.format("作业面积（亩）: {}", part.getMu()));
@@ -207,7 +212,6 @@ public class TestUtilGis {
     }
 
     void 生成HTML(String did, String startTime, String endTime) {
-        // 利用 showGeometryTemplate.html 当做模版，将trace输出到轨迹的TAB中
         String html = ResourceUtil.readUtf8Str("showGeometrysTemplate.html");
 
         String fileName = path + StrUtil.format("/{}_{}_{}_trace.txt", did, startTime, endTime);
@@ -217,8 +221,15 @@ public class TestUtilGis {
         String trace = FileUtil.readUtf8String(fileName);
         html = StrUtil.replace(html, "${trace}", trace);
 
-        String outline = FileUtil.readUtf8Lines(path + StrUtil.format("/{}_{}_{}_parts.txt", did, startTime, endTime)).get(1);
-        html = StrUtil.replace(html, "${outline}", outline.replace("WKT: ", ""));
+        //String outline = FileUtil.readUtf8Lines(path + StrUtil.format("/{}_{}_{}_parts.txt", did, startTime, endTime)).get(1);
+        //html = StrUtil.replace(html, "${outline}", outline.replace("WKT: ", ""));
+        List<String> outlineList = new ArrayList<>();
+        for (String line : FileUtil.readUtf8Lines(path + StrUtil.format("/{}_{}_{}_parts.txt", did, startTime, endTime))) {
+            if (line.startsWith("子WKT")) {
+                outlineList.add(line.replace("子WKT: ", ""));
+            }
+        }
+        html = StrUtil.replace(html, "${outline}", StrUtil.join("\n", outlineList));
 
         FileUtil.writeUtf8String(html, path + StrUtil.format("/{}_{}_{}.html", did, startTime, endTime));
     }
@@ -262,6 +273,79 @@ public class TestUtilGis {
         for (int i = 0; i < 100; i++) {
             gisUtil.splitRoad(l, jobWidth);
         }
+    }
+
+    @Test
+    void 测试批量投影转换() {
+        String fileName = path + "/EC73BD2509061335_20251104100606_20251104101419_protocol.txt";
+        List<Wgs84Point> l = new ArrayList<>();
+        for (String protocolStr : FileUtil.readUtf8Lines(fileName)) {
+            Map<String, String> protocol = parseProtocolString(protocolStr);
+            Wgs84Point wgs84Point = new Wgs84Point();
+            wgs84Point.setGpsTime(LocalDateTimeUtil.parse(protocol.get("3014"), "yyyyMMddHHmmss"));
+            wgs84Point.setLongitude(Double.parseDouble(protocol.get("2602")));
+            wgs84Point.setLatitude(Double.parseDouble(protocol.get("2603")));
+            if (protocol.containsKey("2601")) {// 定位状态,0已定位，1未定位
+                if (protocol.get("2601").equals("0")) {
+                    wgs84Point.setGpsStatus(1);
+                } else {
+                    wgs84Point.setGpsStatus(2);
+                }
+            }
+            if (protocol.containsKey("3020")) {// 终端ACC状态,0关闭，1开启
+                if (Convert.toStr(protocol.get("3020")).equals("0")) {
+                    wgs84Point.setJobStatus(2);//ACC关闭，认为是没有作业
+                }
+            }
+            if (protocol.containsKey("4031")) {// 作业标识,1作业,0非作业,2暂停
+                if (!Convert.toStr(protocol.get("4031")).equals("1")) {
+                    wgs84Point.setJobStatus(2);//作业标识不是1，认为是没有作业
+                }
+            }
+            l.add(wgs84Point);
+        }
+        List<Wgs84Point> wgs84Points = gisUtil.filterWgs84Points(l);
+        log.debug("过滤后的wgs84点");
+        for (Wgs84Point wgs84Point : wgs84Points) {
+            log.debug("{} {} {}", wgs84Point.getGpsTime(), wgs84Point.getLongitude(), wgs84Point.getLatitude());
+        }
+        List<GaussPoint> gaussPoints = gisUtil.toGaussPointList(wgs84Points);
+        log.debug("转换后的高斯投影点");
+        for (GaussPoint gaussPoint : gaussPoints) {
+            log.debug("{} {} {}", gaussPoint.getGpsTime(), gaussPoint.getGaussX(), gaussPoint.getGaussY());
+        }
+        List<Wgs84Point> wgs84Points1 = gisUtil.toWgs84PointList(gaussPoints);
+        log.debug("转换后的wgs84点");
+        for (Wgs84Point wgs84Point : wgs84Points1) {
+            log.debug("{} {} {}", wgs84Point.getGpsTime(), wgs84Point.getLongitude(), wgs84Point.getLatitude());
+        }
+        List<Wgs84Point> closestPoints = gisUtil.findClosestPointList(wgs84Points1, wgs84Points);
+        log.debug("容差点");
+        for (Wgs84Point closestPoint : closestPoints) {
+            log.debug("{} {} {}", closestPoint.getGpsTime(), closestPoint.getLongitude(), closestPoint.getLatitude());
+        }
+    }
+
+    @Test
+    void 测试单个点的投影转换1() {
+        Wgs84Point p = new Wgs84Point(107.79342153, 22.54082875);
+        log.debug("原始wgs84点");
+        log.info("{} {} {}", p.getGpsTime(), p.getLongitude(), p.getLatitude());
+        GaussPoint gaussPoint = gisUtil.toGaussPointList(new ArrayList<Wgs84Point>() {{
+            add(p);
+        }}).get(0);
+        log.debug("转换后的高斯投影点");
+        log.info("{} {} {}", gaussPoint.getGpsTime(), gaussPoint.getGaussX(), gaussPoint.getGaussY());
+        Wgs84Point p1 = gisUtil.toWgs84PointList(new ArrayList<GaussPoint>() {{
+            add(gaussPoint);
+        }}).get(0);
+        log.debug("转换后的wgs84点");
+        log.info("{} {} {}", p1.getGpsTime(), p1.getLongitude(), p1.getLatitude());
+        Wgs84Point closestPoint = gisUtil.findClosestPoint(p1, new ArrayList<Wgs84Point>() {{
+            add(p);
+        }}, 0.1);
+        log.debug("找到最接近的wgs84点");
+        log.info("{} {} {}", closestPoint.getGpsTime(), closestPoint.getLongitude(), closestPoint.getLatitude());
     }
 
     @Test
