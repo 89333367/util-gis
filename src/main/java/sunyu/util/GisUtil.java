@@ -151,9 +151,18 @@ public class GisUtil implements AutoCloseable {
         private final double MIN_RETURN_MU = 0.5;
 
         /**
-         * 亩到平方米的转换系数
+         * 亩到平方米的转换系数(亩 * 这个数)
+         * <p>
+         * 1亩 = 2000/3平方米
          */
-        private final double MU_TO_SQUARE_METER = 666.6666666667;
+        private final double MU_TO_SQUARE_METER = 2000.0 / 3.0;
+
+        /**
+         * 平方米到亩的转换系数(平方米 * 这个数)
+         * <p>
+         * 1平方米 = 3/2000亩
+         */
+        private final double SQUARE_TO_MU_METER = 3.0 / 2000.0;
 
         /**
          * 拆分时间间隔（秒）
@@ -1569,7 +1578,7 @@ public class GisUtil implements AutoCloseable {
      * 计算WGS84坐标系下几何图形的面积（亩）
      * <p>
      * 该方法利用球面面积算法计算WGS84坐标系下的几何图形面积（平方米），
-     * 并将其转换为亩（1亩 = 2000/3平方米），结果四舍五入保留4位小数。
+     * 并将其转换为亩，结果四舍五入保留4位小数。
      * </p>
      *
      * @param wgs84Geometry 输入的WGS84坐标系下的几何图形对象（Polygon或MultiPolygon类型）
@@ -1581,9 +1590,9 @@ public class GisUtil implements AutoCloseable {
             // 步骤1：使用球面面积算法计算平方米面积
             double areaSqm = calculateSphericalArea(wgs84Geometry);
 
-            // 步骤2：平方米转换为亩（1亩 = 2000/3平方米）
+            // 步骤2：平方米转换为亩
             // 四舍五入保留4位小数
-            double mu = Math.round((areaSqm / (2000.0 / 3.0)) * 10000.0) / 10000.0;
+            double mu = Math.round((areaSqm * (config.SQUARE_TO_MU_METER)) * 10000.0) / 10000.0;
 
             log.trace("计算几何图形面积（亩）: {}亩", mu);
             return mu;
@@ -1774,6 +1783,30 @@ public class GisUtil implements AutoCloseable {
             part.setWkt(wgs84UnionGeometry.toText());
             part.setMu(calcMu(wgs84UnionGeometry));
             parts.add(part);
+        }
+        log.debug("检查完毕");
+
+        log.debug("检查是否有地块相交");
+        if (parts.size() > 1) {
+            // 判断每一个地块是否有相交，相交了多少平方米、相交了多少亩
+            for (int i = 0; i < parts.size(); i++) {
+                Part part = parts.get(i);
+                for (int j = i + 1; j < parts.size(); j++) {
+                    Part part2 = parts.get(j);
+                    Geometry intersectionGeometry = part.getGaussGeometry().intersection(part2.getGaussGeometry());
+                    if (intersectionGeometry.getArea() > 0) {
+                        double area = intersectionGeometry.getArea();
+                        double areaRounded = Math.round(area * 10000.0) / 10000.0;
+                        double mu = area * config.SQUARE_TO_MU_METER;
+                        double muRounded = Math.round(mu * 10000.0) / 10000.0;
+                        log.debug("第 {} 个地块和第 {} 个地块相交了 {} 平方米，{} 亩",
+                                i + 1, j + 1,
+                                String.format("%.4f", areaRounded),
+                                String.format("%.4f", muRounded)
+                        );
+                    }
+                }
+            }
         }
         log.debug("检查完毕");
 
