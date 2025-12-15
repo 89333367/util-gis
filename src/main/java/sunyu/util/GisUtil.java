@@ -1757,6 +1757,26 @@ public class GisUtil implements AutoCloseable {
         splitResult.setWkt(wgs84UnionGeometry.toText());
         splitResult.setMu(Math.round(parts.stream().mapToDouble(Part::getMu).sum() * 10000.0) / 10000.0);
         splitResult.setParts(parts);
+
+        log.debug("再次检查合并后的几何图形，如果合并后是一个几何图形，那么修改parts信息");
+        if (parts.size() > 1 && wgs84UnionGeometry.getNumGeometries() == 1) {
+            List<Wgs84Point> wgs84PointList = new ArrayList<>();
+            for (Part part : parts) {
+                wgs84PointList.addAll(part.getTrackPoints());
+            }
+            wgs84PointList.sort(Comparator.comparing(Wgs84Point::getGpsTime));
+            parts.clear();
+            Part part = new Part();
+            part.setGaussGeometry(unionPartsGaussGeometry);
+            part.setTrackPoints(wgs84PointList);
+            part.setStartTime(part.getTrackPoints().get(0).getGpsTime());
+            part.setEndTime(part.getTrackPoints().get(part.getTrackPoints().size() - 1).getGpsTime());
+            part.setWkt(wgs84UnionGeometry.toText());
+            part.setMu(calcMu(wgs84UnionGeometry));
+            parts.add(part);
+        }
+        log.debug("检查完毕");
+
         log.info("地块总面积={}亩 共 {} 个地块，耗时 {} 毫秒", splitResult.getMu(), unionPartsGaussGeometry.getNumGeometries(), System.currentTimeMillis() - splitRoadStartTime);
         return splitResult;
     }
