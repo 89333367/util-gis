@@ -1810,22 +1810,46 @@ public class GisUtil implements AutoCloseable {
             if (clusterGaussGeometry instanceof MultiPolygon) {
                 List<GaussPoint> clusterGaussPoints = clusterGaussPointsMap.get(index);
                 MultiPolygon multiPolygon = (MultiPolygon) clusterGaussGeometry;
-                for (int i = 0; i < multiPolygon.getNumGeometries(); i++) {
-                    Geometry geometry = multiPolygon.getGeometryN(i);
-                    if (geometry.getArea() < config.MIN_RETURN_MU * config.MU_TO_SQUARE_METER) {
-                        log.debug("索引 {} 的第 {} 个子几何图形 面积：{}亩，小于最小返回面积 {}亩，直接删除", index, i, geometry.getArea() * config.SQUARE_TO_MU_METER, config.MIN_RETURN_MU);
+                log.debug("索引 {} 的多多边形几何图形，包含 {} 个子多边形", index, multiPolygon.getNumGeometries());
+
+                // 给每个点打“属于第几个子多边形”的标签
+                int[] tag = new int[clusterGaussPoints.size()];
+                for (int ptIdx = 0; ptIdx < clusterGaussPoints.size(); ptIdx++) {
+                    GaussPoint p = clusterGaussPoints.get(ptIdx);
+                    Point point = config.GEOMETRY_FACTORY.createPoint(new Coordinate(p.getGaussX(), p.getGaussY()));
+                    for (int polyIdx = 0; polyIdx < multiPolygon.getNumGeometries(); polyIdx++) {
+                        if (multiPolygon.getGeometryN(polyIdx).contains(point)) {
+                            tag[ptIdx] = polyIdx;
+                            break;
+                        }
+                    }
+                }
+
+                // 顺序扫，同标签连续就合并成一段，当场生成 Part
+                int left = 0;
+                while (left < tag.length) {
+                    int curPoly = tag[left];
+                    int right = left;
+                    while (right + 1 < tag.length && tag[right + 1] == curPoly) {
+                        right++;
+                    }
+                    Geometry subGeo = multiPolygon.getGeometryN(curPoly);
+                    if (subGeo.getArea() < config.MIN_RETURN_MU * config.MU_TO_SQUARE_METER) {
+                        log.debug("索引 {} 子多边形 {} 面积过小，跳过", index, curPoly);
+                        left = right + 1;
                         continue;
                     }
-                    Geometry wgs84PartGeometry = toWgs84Geometry(geometry);
-                    List<Wgs84Point> wgs84PointList = new ArrayList<>(clusterGaussPoints);
+                    List<GaussPoint> subPts = clusterGaussPoints.subList(left, right + 1);
+                    Geometry wgs84PartGeometry = toWgs84Geometry(subGeo);
                     Part part = new Part();
-                    part.setGaussGeometry(geometry);
-                    part.setTrackPoints(wgs84PointList);
+                    part.setGaussGeometry(subGeo);
+                    part.setTrackPoints(new ArrayList<>(subPts));// 只放这段连续点
                     part.setStartTime(part.getTrackPoints().get(0).getGpsTime());
                     part.setEndTime(part.getTrackPoints().get(part.getTrackPoints().size() - 1).getGpsTime());
                     part.setWkt(wgs84PartGeometry.toText());
                     part.setMu(calcMu(wgs84PartGeometry));
                     parts.add(part);
+                    left = right + 1;
                 }
             } else if (clusterGaussGeometry instanceof Polygon) {
                 List<GaussPoint> clusterGaussPoints = clusterGaussPointsMap.get(index);
