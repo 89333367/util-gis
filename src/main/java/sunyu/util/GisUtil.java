@@ -1744,6 +1744,35 @@ public class GisUtil implements AutoCloseable {
             parts.add(part);
         }
 
+        log.debug("去除地块相交部分，保大去小原则");
+        if (parts.size() > 1) {
+            parts.sort(Comparator.comparing(Part::getMu).reversed());
+            Geometry accumulatedUnion = null;
+            Iterator<Part> iterator = parts.iterator();
+            while (iterator.hasNext()) {
+                Part part = iterator.next();
+                Geometry currentGeom = part.getGaussGeometry();
+                if (accumulatedUnion != null) {
+                    currentGeom = currentGeom.difference(accumulatedUnion);
+                }
+                if (!currentGeom.isEmpty()) {
+                    part.setGaussGeometry(currentGeom);
+                    Geometry wgs84Geometry = toWgs84Geometry(currentGeom);
+                    part.setWkt(wgs84Geometry.toText());
+                    part.setMu(calcMu(wgs84Geometry));
+                    // 只有保留的几何才加入并集
+                    if (accumulatedUnion == null) {
+                        accumulatedUnion = currentGeom;
+                    } else {
+                        accumulatedUnion = accumulatedUnion.union(currentGeom);
+                    }
+                } else {
+                    iterator.remove(); // 不加入accumulatedUnion
+                }
+            }
+        }
+        log.debug("去除相交地块完毕，剩余 {} 个地块", parts.size());
+
         log.debug("按面积倒序排序");
         parts.sort(Comparator.comparing(Part::getMu).reversed());
         log.debug("取前 {} 个最大面积的几何图形", config.MAX_SPLIT_RETURN_SIZE);
@@ -1783,30 +1812,6 @@ public class GisUtil implements AutoCloseable {
             part.setWkt(wgs84UnionGeometry.toText());
             part.setMu(calcMu(wgs84UnionGeometry));
             parts.add(part);
-        }
-        log.debug("检查完毕");
-
-        log.debug("检查是否有地块相交");
-        if (parts.size() > 1) {
-            // 判断每一个地块是否有相交，相交了多少平方米、相交了多少亩
-            for (int i = 0; i < parts.size(); i++) {
-                Part part = parts.get(i);
-                for (int j = i + 1; j < parts.size(); j++) {
-                    Part part2 = parts.get(j);
-                    Geometry intersectionGeometry = part.getGaussGeometry().intersection(part2.getGaussGeometry());
-                    if (intersectionGeometry.getArea() > 0) {
-                        double area = intersectionGeometry.getArea();
-                        double areaRounded = Math.round(area * 10000.0) / 10000.0;
-                        double mu = area * config.SQUARE_TO_MU_METER;
-                        double muRounded = Math.round(mu * 10000.0) / 10000.0;
-                        log.debug("第 {} 个地块和第 {} 个地块相交了 {} 平方米，{} 亩",
-                                i + 1, j + 1,
-                                String.format("%.4f", areaRounded),
-                                String.format("%.4f", muRounded)
-                        );
-                    }
-                }
-            }
         }
         log.debug("检查完毕");
 
