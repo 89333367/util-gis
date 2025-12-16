@@ -1742,9 +1742,79 @@ public class GisUtil implements AutoCloseable {
         }
 
         if (clusterGaussGeometryMap.size() > 1) {
-            log.debug("地块相交修复，两两地块进行判断，如果有相交，则保留地块面积大的，然后将面积小的地块抠掉相交的部分");
+            log.debug("地块相交修复，时间优先+空间裁剪：先来的地块保留，后到的地块抠掉重叠部分");
 
-            log.info("地块相交修复完毕");
+            // 按时间正序取出所有索引，保证先作业的先处理
+            List<Integer> indexList = new ArrayList<>(clusterGaussGeometryMap.keySet());   // 已有序，直接拿来用
+            // 累积并集：前面所有已保留地块的并集（只保留非空几何）
+            Geometry accumulatedUnion = null;
+
+            // 顺序处理
+            Iterator<Integer> it = indexList.iterator();
+            while (it.hasNext()) {
+                Integer key = it.next();
+                Geometry currGeom = clusterGaussGeometryMap.get(key);
+
+                // 减掉前面已占地盘
+                if (accumulatedUnion != null) {
+                    currGeom = currGeom.difference(accumulatedUnion);
+                }
+
+                // 空几何直接删除，同时清掉两个map
+                if (currGeom.isEmpty()) {
+                    it.remove();                                 // 从索引列表删除
+                    clusterGaussGeometryMap.remove(key);         // 删除几何
+                    clusterGaussPointsMap.remove(key);         // 删除对应点位
+                    continue;
+                }
+
+                // 如果相减后变成 MULTIPOLYGON，只保留最大子几何
+                if (currGeom instanceof MultiPolygon) {
+                    MultiPolygon mp = (MultiPolygon) currGeom;
+                    double maxArea = 0;
+                    Geometry largest = null;
+                    for (int i = 0; i < mp.getNumGeometries(); i++) {
+                        Geometry g = mp.getGeometryN(i);
+                        double area = g.getArea();
+                        if (area > maxArea) {
+                            maxArea = area;
+                            largest = g;
+                        }
+                    }
+                    currGeom = largest; // 只保留最大一块
+                    if (currGeom == null || currGeom.isEmpty()) {
+                        // 最大子几何也是空，直接删
+                        it.remove();
+                        clusterGaussGeometryMap.remove(key);
+                        clusterGaussPointsMap.remove(key);
+                        continue;
+                    }
+                }
+
+                // 非空：更新自身几何
+                clusterGaussGeometryMap.put(key, currGeom);
+                // 把保留下来的部分加入并集
+                if (accumulatedUnion == null) {
+                    accumulatedUnion = currGeom;
+                } else {
+                    accumulatedUnion = accumulatedUnion.union(currGeom);
+                }
+            }
+
+            log.info("地块相交修复完毕，剩余 {} 个地块", clusterGaussGeometryMap.size());
+        }
+
+        List<Integer> indexList = new ArrayList<>(clusterGaussGeometryMap.keySet());
+        Iterator<Integer> it = indexList.iterator();
+        while (it.hasNext()) {
+            Integer key = it.next();
+            Geometry currGeom = clusterGaussGeometryMap.get(key);
+            if (currGeom.getArea() < config.MIN_RETURN_MU * config.MU_TO_SQUARE_METER) {
+                log.debug("索引 {} 的几何图形面积：{}亩，小于最小返回面积 {}亩，直接删除", key, currGeom.getArea() * config.SQUARE_TO_MU_METER, config.MIN_RETURN_MU);
+                it.remove();
+                clusterGaussGeometryMap.remove(key);
+                clusterGaussPointsMap.remove(key);
+            }
         }
 
         log.debug("创建part对象集合");
