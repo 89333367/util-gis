@@ -1768,29 +1768,6 @@ public class GisUtil implements AutoCloseable {
                     continue;
                 }
 
-                // 如果相减后变成 MULTIPOLYGON，只保留最大子几何
-                /*if (currGeom instanceof MultiPolygon) {
-                    MultiPolygon mp = (MultiPolygon) currGeom;
-                    double maxArea = 0;
-                    Geometry largest = null;
-                    for (int i = 0; i < mp.getNumGeometries(); i++) {
-                        Geometry g = mp.getGeometryN(i);
-                        double area = g.getArea();
-                        if (area > maxArea) {
-                            maxArea = area;
-                            largest = g;
-                        }
-                    }
-                    currGeom = largest; // 只保留最大一块
-                    if (currGeom == null || currGeom.isEmpty()) {
-                        // 最大子几何也是空，直接删
-                        it.remove();
-                        clusterGaussGeometryMap.remove(key);
-                        clusterGaussPointsMap.remove(key);
-                        continue;
-                    }
-                }*/
-
                 // 非空：更新自身几何
                 clusterGaussGeometryMap.put(key, currGeom);
                 // 把保留下来的部分加入并集
@@ -1826,20 +1803,48 @@ public class GisUtil implements AutoCloseable {
         for (Map.Entry<Integer, Geometry> geometryEntry : clusterGaussGeometryMap.entrySet()) {
             int index = geometryEntry.getKey();
             Geometry clusterGaussGeometry = geometryEntry.getValue();
-            List<GaussPoint> clusterGaussPoints = clusterGaussPointsMap.get(index);
-            Geometry wgs84PartGeometry = toWgs84Geometry(clusterGaussGeometry);
-            List<Wgs84Point> wgs84PointList = new ArrayList<>();
-            for (GaussPoint gaussPoint : clusterGaussPoints) {
-                wgs84PointList.add(new Wgs84Point(gaussPoint.getGpsTime(), gaussPoint.getLongitude(), gaussPoint.getLatitude()));
+            if (clusterGaussGeometry.getArea() < config.MIN_RETURN_MU * config.MU_TO_SQUARE_METER) {
+                log.debug("索引 {} 的几何图形面积：{}亩，小于最小返回面积 {}亩，直接删除", index, clusterGaussGeometry.getArea() * config.SQUARE_TO_MU_METER, config.MIN_RETURN_MU);
+                continue;
             }
-            Part part = new Part();
-            part.setGaussGeometry(clusterGaussGeometry);
-            part.setTrackPoints(wgs84PointList);
-            part.setStartTime(part.getTrackPoints().get(0).getGpsTime());
-            part.setEndTime(part.getTrackPoints().get(part.getTrackPoints().size() - 1).getGpsTime());
-            part.setWkt(wgs84PartGeometry.toText());
-            part.setMu(calcMu(wgs84PartGeometry));
-            parts.add(part);
+            if (clusterGaussGeometry instanceof MultiPolygon) {
+                List<GaussPoint> clusterGaussPoints = clusterGaussPointsMap.get(index);
+                MultiPolygon mp = (MultiPolygon) clusterGaussGeometry;
+                Geometry bigGeometry = null;
+                for (int i = 0; i < mp.getNumGeometries(); i++) {
+                    Geometry g = mp.getGeometryN(i);
+                    if (g.getArea() < config.MIN_RETURN_MU * config.MU_TO_SQUARE_METER) {
+                        log.debug("索引 {} 的第 {} 个子几何图形 面积：{}亩，小于最小返回面积 {}亩，直接删除", index, i, g.getArea() * config.SQUARE_TO_MU_METER, config.MIN_RETURN_MU);
+                        continue;
+                    }
+                    //这里还需要想办法怎样处理轮廓内的点信息，现在先直接获取最大轮廓吧
+                    if (bigGeometry == null || g.getArea() > bigGeometry.getArea()) {
+                        bigGeometry = g;
+                    }
+                }
+                Geometry wgs84PartGeometry = toWgs84Geometry(bigGeometry);
+                List<Wgs84Point> wgs84PointList = new ArrayList<>(clusterGaussPoints);
+                Part part = new Part();
+                part.setGaussGeometry(bigGeometry);
+                part.setTrackPoints(wgs84PointList);
+                part.setStartTime(part.getTrackPoints().get(0).getGpsTime());
+                part.setEndTime(part.getTrackPoints().get(part.getTrackPoints().size() - 1).getGpsTime());
+                part.setWkt(wgs84PartGeometry.toText());
+                part.setMu(calcMu(wgs84PartGeometry));
+                parts.add(part);
+            } else if (clusterGaussGeometry instanceof Polygon) {
+                List<GaussPoint> clusterGaussPoints = clusterGaussPointsMap.get(index);
+                Geometry wgs84PartGeometry = toWgs84Geometry(clusterGaussGeometry);
+                List<Wgs84Point> wgs84PointList = new ArrayList<>(clusterGaussPoints);
+                Part part = new Part();
+                part.setGaussGeometry(clusterGaussGeometry);
+                part.setTrackPoints(wgs84PointList);
+                part.setStartTime(part.getTrackPoints().get(0).getGpsTime());
+                part.setEndTime(part.getTrackPoints().get(part.getTrackPoints().size() - 1).getGpsTime());
+                part.setWkt(wgs84PartGeometry.toText());
+                part.setMu(calcMu(wgs84PartGeometry));
+                parts.add(part);
+            }
         }
 
         if (parts.size() > 1) {
