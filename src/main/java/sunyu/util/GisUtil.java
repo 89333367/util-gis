@@ -151,6 +151,11 @@ public class GisUtil implements AutoCloseable {
         private final double MIN_RETURN_MU = 0.5;
 
         /**
+         * 最小缓冲区距离（米）
+         */
+        private final double MIN_BUFFER_DISTANCE = 1.0;
+
+        /**
          * 亩到平方米的转换系数(亩 * 这个数)
          * <p>
          * 1亩 = 2000/3平方米
@@ -1691,18 +1696,19 @@ public class GisUtil implements AutoCloseable {
         log.info("经过时间切割后，总共有 {} 个聚类簇", splitClustersBySeconds.size());
 
         log.debug("循环所有聚类簇，生成几何图形");
-        List<Geometry> clusterGaussGeometries = new ArrayList<>();//聚类的几何图形列表
-        List<List<GaussPoint>> clusterGaussPoints = new ArrayList<>();//每一个几何图形的点位列表
+        int clusterIndex = 1;
+        Map<Integer, Geometry> clusterGaussGeometryMap = new LinkedHashMap<>();//集合图形列表，key是几何图形索引，value是几何图形
+        Map<Integer, List<GaussPoint>> clusterGaussPointsMap = new LinkedHashMap<>();//每一个集合图形的点位列表，key是几何图形索引，value是几何图形内的点位列表
         for (List<GaussPoint> cluster : splitClustersBySeconds) {
             log.debug("聚类簇包含 {} 个点", cluster.size());
 
-            log.debug("按距离切分聚类");
+            log.debug("按距离切分聚类簇");
             List<List<GaussPoint>> segments = splitClusterByDistance(cluster, minEffectiveInterval * config.MAX_WORK_DISTANCE * 2);
             log.info("距离切分后得到 {} 个子段", segments.size());
 
             for (List<GaussPoint> segment : segments) {
                 log.debug("处理子段：{} 个点", segment.size());
-                if (segment.size() > 2) {
+                if (segment.size() >= config.MIN_DBSCAN_POINTS) {
                     Geometry gaussGeometry;
                     log.debug("创建线缓冲，缓冲半径：{} 米", halfWorkingWidth);
                     Coordinate[] coordinates = segment.stream().map(point -> new Coordinate(point.getGaussX(), point.getGaussY())).toArray(Coordinate[]::new);
@@ -1719,26 +1725,37 @@ public class GisUtil implements AutoCloseable {
                         LineString lineString = config.GEOMETRY_FACTORY.createLineString(coordinates);
                         gaussGeometry = lineString.buffer(halfWorkingWidth);
                     }
-                    log.debug("使用膨胀、收缩参数 {}米 降低地块缝隙", workingWidth);
-                    gaussGeometry = gaussGeometry.buffer(workingWidth).buffer(-workingWidth);
-                    clusterGaussGeometries.add(gaussGeometry);
-                    clusterGaussPoints.add(segment);
+                    //最少膨胀MIN_BUFFER_DISTANCE米，减少地块缝隙
+                    double bufferDistance = Math.max(config.MIN_BUFFER_DISTANCE, halfWorkingWidth);
+                    log.debug("使用膨胀、收缩参数 {}米 减少地块缝隙", bufferDistance);
+                    gaussGeometry = gaussGeometry.buffer(bufferDistance).buffer(-bufferDistance);
+                    clusterGaussGeometryMap.put(clusterIndex, gaussGeometry);
+                    clusterGaussPointsMap.put(clusterIndex, segment);
+                    clusterIndex++;
                 }
             }
         }
-        log.info("生成了 {} 个几何图形，生成了 {} 组点位列表", clusterGaussGeometries.size(), clusterGaussPoints.size());
-        if (clusterGaussGeometries.isEmpty()) {
+        log.info("生成了 {} 个几何图形，生成了 {} 组点位列表", clusterGaussGeometryMap.size(), clusterGaussPointsMap.size());
+        if (clusterGaussGeometryMap.isEmpty()) {
             log.debug("没有生成任何几何图形");
             return splitResult;
         }
 
+        if (clusterGaussGeometryMap.size() > 1) {
+            log.debug("地块相交修复，两两地块进行判断，如果有相交，则保留地块面积大的，然后将面积小的地块抠掉相交的部分");
+
+            log.info("地块相交修复完毕");
+        }
+
         log.debug("创建part对象集合");
         List<Part> parts = new ArrayList<>();
-        for (int i = 0; i < clusterGaussGeometries.size(); i++) {
-            Geometry clusterGaussGeometry = clusterGaussGeometries.get(i);
+        for (Map.Entry<Integer, Geometry> geometryEntry : clusterGaussGeometryMap.entrySet()) {
+            int index = geometryEntry.getKey();
+            Geometry clusterGaussGeometry = geometryEntry.getValue();
+            List<GaussPoint> clusterGaussPoints = clusterGaussPointsMap.get(index);
             Geometry wgs84PartGeometry = toWgs84Geometry(clusterGaussGeometry);
             List<Wgs84Point> wgs84PointList = new ArrayList<>();
-            for (GaussPoint gaussPoint : clusterGaussPoints.get(i)) {
+            for (GaussPoint gaussPoint : clusterGaussPoints) {
                 wgs84PointList.add(new Wgs84Point(gaussPoint.getGpsTime(), gaussPoint.getLongitude(), gaussPoint.getLatitude()));
             }
             Part part = new Part();
@@ -1751,78 +1768,45 @@ public class GisUtil implements AutoCloseable {
             parts.add(part);
         }
 
-        log.debug("去除地块相交部分，保大去小原则");
         if (parts.size() > 1) {
-            parts.sort(Comparator.comparing(Part::getMu).reversed());
-            Geometry accumulatedUnion = null;
-            Iterator<Part> iterator = parts.iterator();
-            while (iterator.hasNext()) {
-                Part part = iterator.next();
-                Geometry currentGeom = part.getGaussGeometry();
-                if (accumulatedUnion != null) {
-                    currentGeom = currentGeom.difference(accumulatedUnion);
+            log.debug("合并所有Part几何图形");
+            Geometry unionPartsGaussGeometry = config.GEOMETRY_FACTORY.createGeometryCollection(parts.stream().map(Part::getGaussGeometry).toArray(Geometry[]::new)).union().buffer(0);
+            log.debug("合并后几何图形的面积（平方米）：{}", unionPartsGaussGeometry.getArea());
+            Geometry wgs84UnionGeometry = toWgs84Geometry(unionPartsGaussGeometry);
+            //log.debug("合并后的几何图形：{}", wgs84UnionGeometry.toText());
+            splitResult.setGaussGeometry(unionPartsGaussGeometry);
+            splitResult.setWkt(wgs84UnionGeometry.toText());
+            splitResult.setMu(calcMu(wgs84UnionGeometry));
+            splitResult.setParts(parts);
+
+            if (wgs84UnionGeometry.getNumGeometries() == 1) {
+                log.debug("合并后是一个几何图形，那么修改parts信息");
+                List<Wgs84Point> wgs84PointList = new ArrayList<>();
+                for (Part part : parts) {
+                    wgs84PointList.addAll(part.getTrackPoints());
                 }
-                if (!currentGeom.isEmpty()) {
-                    part.setGaussGeometry(currentGeom);
-                    Geometry wgs84Geometry = toWgs84Geometry(currentGeom);
-                    part.setWkt(wgs84Geometry.toText());
-                    part.setMu(calcMu(wgs84Geometry));
-                    // 只有保留的几何才加入并集
-                    if (accumulatedUnion == null) {
-                        accumulatedUnion = currentGeom;
-                    } else {
-                        accumulatedUnion = accumulatedUnion.union(currentGeom);
-                    }
-                } else {
-                    iterator.remove(); // 不加入accumulatedUnion
-                }
+                wgs84PointList.sort(Comparator.comparing(Wgs84Point::getGpsTime));
+                parts.clear();
+                Part part = new Part();
+                part.setGaussGeometry(unionPartsGaussGeometry);
+                part.setTrackPoints(wgs84PointList);
+                part.setStartTime(part.getTrackPoints().get(0).getGpsTime());
+                part.setEndTime(part.getTrackPoints().get(part.getTrackPoints().size() - 1).getGpsTime());
+                part.setWkt(wgs84UnionGeometry.toText());
+                part.setMu(calcMu(wgs84UnionGeometry));
+                parts.add(part);
+                log.debug("修改parts信息完毕");
             }
+        } else {
+            Part p = parts.get(0);
+            splitResult.setGaussGeometry(p.getGaussGeometry());
+            splitResult.setWkt(p.getWkt());
+            splitResult.setMu(p.getMu());
+            splitResult.setParts(parts);
         }
-        log.debug("去除相交地块完毕，剩余 {} 个地块", parts.size());
 
-        log.debug("按面积倒序排序");
-        parts.sort(Comparator.comparing(Part::getMu).reversed());
-        log.debug("取前 {} 个最大面积的几何图形", config.MAX_SPLIT_RETURN_SIZE);
-        parts = parts.subList(0, Math.min(config.MAX_SPLIT_RETURN_SIZE, parts.size()));
-        log.debug("移除面积小于 {} 亩的几何图形", config.MIN_RETURN_MU);
-        parts.removeIf(part -> part.getMu() < config.MIN_RETURN_MU);
-        log.info("最终保留 {} 个地块", parts.size());
-        if (parts.isEmpty()) {
-            log.debug("没有保留任何地块");
-            return splitResult;
-        }
-        parts.sort(Comparator.comparing(Part::getStartTime));
 
-        log.debug("合并所有Part几何图形");
-        Geometry unionPartsGaussGeometry = config.GEOMETRY_FACTORY.createGeometryCollection(parts.stream().map(Part::getGaussGeometry).toArray(Geometry[]::new)).union().buffer(0);
-        log.debug("合并后几何图形的面积（平方米）：{}", unionPartsGaussGeometry.getArea());
-        Geometry wgs84UnionGeometry = toWgs84Geometry(unionPartsGaussGeometry);
-        //log.debug("合并后的几何图形：{}", wgs84UnionGeometry.toText());
-        splitResult.setGaussGeometry(unionPartsGaussGeometry);
-        splitResult.setWkt(wgs84UnionGeometry.toText());
-        splitResult.setMu(calcMu(wgs84UnionGeometry));
-        splitResult.setParts(parts);
-
-        log.debug("再次检查合并后的几何图形，如果合并后是一个几何图形，那么修改parts信息");
-        if (parts.size() > 1 && wgs84UnionGeometry.getNumGeometries() == 1) {
-            List<Wgs84Point> wgs84PointList = new ArrayList<>();
-            for (Part part : parts) {
-                wgs84PointList.addAll(part.getTrackPoints());
-            }
-            wgs84PointList.sort(Comparator.comparing(Wgs84Point::getGpsTime));
-            parts.clear();
-            Part part = new Part();
-            part.setGaussGeometry(unionPartsGaussGeometry);
-            part.setTrackPoints(wgs84PointList);
-            part.setStartTime(part.getTrackPoints().get(0).getGpsTime());
-            part.setEndTime(part.getTrackPoints().get(part.getTrackPoints().size() - 1).getGpsTime());
-            part.setWkt(wgs84UnionGeometry.toText());
-            part.setMu(calcMu(wgs84UnionGeometry));
-            parts.add(part);
-        }
-        log.debug("检查完毕");
-
-        log.info("地块总面积={}亩 共 {} 个地块，耗时 {} 毫秒", splitResult.getMu(), unionPartsGaussGeometry.getNumGeometries(), System.currentTimeMillis() - splitRoadStartTime);
+        log.info("地块总面积={}亩 共 {} 个地块，耗时 {} 毫秒", splitResult.getMu(), splitResult.getGaussGeometry().getNumGeometries(), System.currentTimeMillis() - splitRoadStartTime);
         return splitResult;
     }
 
