@@ -413,7 +413,7 @@ public class TestUtilGis {
 
     @Test
     void 测试1秒间隔002() {
-        // 三块地，但有两块地之间的路的距离过小，所以合并成两块地
+        // 三块地
         String did = "EC71BT2406060220";
         String startTime = "20251102130028";
         String endTime = "20251102153804";
