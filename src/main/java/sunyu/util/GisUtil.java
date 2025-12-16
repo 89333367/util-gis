@@ -1769,7 +1769,7 @@ public class GisUtil implements AutoCloseable {
                 }
 
                 // 如果相减后变成 MULTIPOLYGON，只保留最大子几何
-                if (currGeom instanceof MultiPolygon) {
+                /*if (currGeom instanceof MultiPolygon) {
                     MultiPolygon mp = (MultiPolygon) currGeom;
                     double maxArea = 0;
                     Geometry largest = null;
@@ -1789,7 +1789,7 @@ public class GisUtil implements AutoCloseable {
                         clusterGaussPointsMap.remove(key);
                         continue;
                     }
-                }
+                }*/
 
                 // 非空：更新自身几何
                 clusterGaussGeometryMap.put(key, currGeom);
