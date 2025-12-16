@@ -1663,6 +1663,8 @@ public class GisUtil implements AutoCloseable {
 
         // 作业机具的左右幅宽
         double halfWorkingWidth = workingWidth / 2.0;
+        //最少膨胀MIN_BUFFER_DISTANCE米，减少地块缝隙
+        double bufferDistance = Math.max(config.MIN_BUFFER_DISTANCE, halfWorkingWidth);
 
         // 过滤异常点位信息
         wgs84Points = filterWgs84Points(wgs84Points);
@@ -1725,8 +1727,6 @@ public class GisUtil implements AutoCloseable {
                         LineString lineString = config.GEOMETRY_FACTORY.createLineString(coordinates);
                         gaussGeometry = lineString.buffer(halfWorkingWidth);
                     }
-                    //最少膨胀MIN_BUFFER_DISTANCE米，减少地块缝隙
-                    double bufferDistance = Math.max(config.MIN_BUFFER_DISTANCE, halfWorkingWidth);
                     log.debug("使用膨胀、收缩参数 {}米 减少地块缝隙", bufferDistance);
                     gaussGeometry = gaussGeometry.buffer(bufferDistance).buffer(-bufferDistance);
                     clusterGaussGeometryMap.put(clusterIndex, gaussGeometry);
@@ -1759,6 +1759,9 @@ public class GisUtil implements AutoCloseable {
                 if (accumulatedUnion != null) {
                     currGeom = currGeom.difference(accumulatedUnion);
                 }
+
+                // 做一次 负缓冲→正缓冲 把毛刺吃掉
+                currGeom = currGeom.buffer(-bufferDistance).buffer(bufferDistance);
 
                 // 空几何直接删除，同时清掉两个map
                 if (currGeom.isEmpty()) {
