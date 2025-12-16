@@ -211,7 +211,7 @@ public class GisUtil implements AutoCloseable {
     private CoordinateReferenceSystem getGaussCRS(int zone, double falseEasting, double centralMeridian) {
         // 创建缓存键，使用带号、假东距和中央经线作为唯一标识
         String cacheKey = String.format(config.CACHE_KEY_FORMAT, zone, falseEasting, centralMeridian);
-        log.debug("获取高斯投影CRS：缓存键 {}", cacheKey);
+        log.trace("获取高斯投影CRS：缓存键 {}", cacheKey);
 
         // 使用computeIfAbsent实现线程安全的缓存机制，只在缓存未命中时创建新CRS
         return config.GAUSS_CRS_CACHE.computeIfAbsent(cacheKey, key -> {
@@ -790,6 +790,14 @@ public class GisUtil implements AutoCloseable {
         return minEffectiveInterval;
     }
 
+    /**
+     * 使用DBSCAN算法进行空间密集聚类
+     *
+     * @param gaussPoints          高斯投影点列表
+     * @param minEffectiveInterval 最小有效上报时间间隔（秒）
+     *
+     * @return 聚类结果列表，每个聚类包含多个GaussPoint，每个GaussPoint包含原始Wgs84Point信息，并按时间升序排序
+     */
     private List<List<GaussPoint>> dbScanClusters(List<GaussPoint> gaussPoints, int minEffectiveInterval) {
         log.debug("从高斯投影中提取坐标数组");
         double[][] coords = new double[gaussPoints.size()][2];
@@ -817,7 +825,11 @@ public class GisUtil implements AutoCloseable {
         for (Cluster<Model> cluster : dbscanCluster.getAllClusters()) {
             log.debug("聚类信息： 聚类名称: {} 点数量: {}", cluster.getNameAutomatic(), cluster.size());
             if (!cluster.getNameAutomatic().equals("Cluster")) {
-                // 如果不是聚类簇，跳过
+                log.debug("噪声聚类，跳过");
+                continue;
+            }
+            if (cluster.size() < config.MIN_DBSCAN_POINTS) {
+                log.debug("聚类点数量小于 {} 个，跳过", config.MIN_DBSCAN_POINTS);
                 continue;
             }
             List<GaussPoint> gaussPointList = new ArrayList<>();
@@ -838,34 +850,34 @@ public class GisUtil implements AutoCloseable {
      *
      * @param wgs84Points 轨迹点列表（Wgs84Point类型）
      *
-     * @return 过滤后的轨迹点列表（Wgs84Point类型）
+     * @return 过滤后的轨迹点列表（Wgs84Point类型），返回的点位按时间升序排序
      */
     public List<Wgs84Point> filterWgs84Points(List<Wgs84Point> wgs84Points) {
         log.debug("准备过滤异常点位信息");
         wgs84Points = wgs84Points.stream().filter(p -> {
             // 时间不能为空
             if (p.getGpsTime() == null) {
-                log.warn("轨迹点时间为空，抛弃");
+                log.trace("轨迹点时间为空，抛弃");
                 return false;
             }
             // 经纬度不能为0（无效坐标）
             if (p.getLongitude() == 0.0 && p.getLatitude() == 0.0) {
-                log.warn("定位时间: {} 轨迹点经纬度为 0 ，抛弃", p.getGpsTime());
+                log.trace("定位时间: {} 轨迹点经纬度为 0 ，抛弃", p.getGpsTime());
                 return false;
             }
             // 经纬度必须在合理范围内
             if (p.getLongitude() < -180.0 || p.getLongitude() > 180.0 || p.getLatitude() < -90.0 || p.getLatitude() > 90.0) {
-                log.warn("定位时间: {} 轨迹点经纬度超出范围：[{},{}] 抛弃", p.getGpsTime(), p.getLongitude(), p.getLatitude());
+                log.trace("定位时间: {} 轨迹点经纬度超出范围：[{},{}] 抛弃", p.getGpsTime(), p.getLongitude(), p.getLatitude());
                 return false;
             }
             // GPS点位必须是已定位的点位
             if (p.getGpsStatus() != 0 && p.getGpsStatus() != 1) {
-                log.warn("定位时间: {} 轨迹点GPS状态为 {} ，抛弃", p.getGpsTime(), p.getGpsStatus());
+                log.trace("定位时间: {} 轨迹点GPS状态为 {} ，抛弃", p.getGpsTime(), p.getGpsStatus());
                 return false;
             }
             // 必须是作业状态
             if (p.getJobStatus() != 0 && p.getJobStatus() != 1) {
-                log.warn("定位时间: {} 轨迹点作业状态为 {} ，抛弃", p.getGpsTime(), p.getJobStatus());
+                log.trace("定位时间: {} 轨迹点作业状态为 {} ，抛弃", p.getGpsTime(), p.getJobStatus());
                 return false;
             }
             return true;
@@ -1091,7 +1103,7 @@ public class GisUtil implements AutoCloseable {
 
             // 构建缓存key（用于transform缓存）
             String cacheKey = String.format(config.CACHE_KEY_FORMAT, zone, falseEasting, centralMeridian);
-            log.debug("获取WGS84到高斯投影的坐标转换器：缓存键 {}", cacheKey);
+            log.trace("获取WGS84到高斯投影的坐标转换器：缓存键 {}", cacheKey);
 
             // 从缓存获取或创建WGS84到高斯投影的坐标转换
             MathTransform transform = config.WGS84_TO_GAUSS_TRANSFORM_CACHE.computeIfAbsent(cacheKey, key -> {
@@ -1256,7 +1268,7 @@ public class GisUtil implements AutoCloseable {
 
             // 构建缓存key（用于transform缓存）
             String cacheKey = String.format(config.CACHE_KEY_FORMAT, zone, falseEasting, centralMeridian);
-            log.debug("获取高斯投影到WGS84的坐标转换器：缓存键 {}", cacheKey);
+            log.trace("获取高斯投影到WGS84的坐标转换器：缓存键 {}", cacheKey);
 
             // 从缓存获取或创建高斯投影到WGS84的坐标转换
             final int finalZone = zone;
@@ -1412,7 +1424,7 @@ public class GisUtil implements AutoCloseable {
 
                 // 获取或创建坐标转换对象（高斯->WGS84）
                 String cacheKey = String.format(config.CACHE_KEY_FORMAT, zone, falseEasting, centralMeridian);
-                log.debug("获取高斯投影到WGS84的坐标转换器：缓存键 {}", cacheKey);
+                log.trace("获取高斯投影到WGS84的坐标转换器：缓存键 {}", cacheKey);
 
                 // 从缓存获取或创建高斯到WGS84的坐标转换
                 MathTransform gaussToWgs84Transform = config.GAUSS_TO_WGS84_TRANSFORM_CACHE.computeIfAbsent(cacheKey, key -> {
@@ -1503,7 +1515,7 @@ public class GisUtil implements AutoCloseable {
 
                 // 获取或创建坐标转换对象
                 String cacheKey = String.format(config.CACHE_KEY_FORMAT, zone, falseEasting, centralMeridian);
-                log.debug("获取WGS84到高斯投影的坐标转换器：缓存键 {}", cacheKey);
+                log.trace("获取WGS84到高斯投影的坐标转换器：缓存键 {}", cacheKey);
 
                 MathTransform transform = config.WGS84_TO_GAUSS_TRANSFORM_CACHE.computeIfAbsent(cacheKey, key -> {
                     try {
@@ -1668,7 +1680,7 @@ public class GisUtil implements AutoCloseable {
             return splitResult;
         }
 
-        log.debug("使用时间再次切割聚类");
+        log.debug("使用时间差切割聚类簇的点列表");
         List<List<GaussPoint>> splitClustersBySeconds = new ArrayList<>();
         for (List<GaussPoint> cluster : clusters) {
             log.debug("聚类簇包含 {} 个点", cluster.size());
@@ -1676,50 +1688,45 @@ public class GisUtil implements AutoCloseable {
                 splitClustersBySeconds.addAll(splitClusterBySeconds(cluster, config.SPLIT_TIME_SECOND));
             }
         }
-        log.debug("经过时间切割后，总共有 {} 个聚类簇", splitClustersBySeconds.size());
+        log.info("经过时间切割后，总共有 {} 个聚类簇", splitClustersBySeconds.size());
 
         log.debug("循环所有聚类簇，生成几何图形");
         List<Geometry> clusterGaussGeometries = new ArrayList<>();//聚类的几何图形列表
         List<List<GaussPoint>> clusterGaussPoints = new ArrayList<>();//每一个几何图形的点位列表
         for (List<GaussPoint> cluster : splitClustersBySeconds) {
             log.debug("聚类簇包含 {} 个点", cluster.size());
-            if (cluster.size() >= config.MIN_DBSCAN_POINTS) {
-                log.debug("聚类后，按时间升序排序");
-                cluster.sort(Comparator.comparing(GaussPoint::getGpsTime));
-                log.debug("创建线缓冲，缓冲半径：{} 米", halfWorkingWidth);
 
-                log.debug("按距离切分聚类");
-                List<List<GaussPoint>> segments = splitClusterByDistance(cluster, minEffectiveInterval * config.MAX_WORK_DISTANCE * 2);
-                log.debug("切分后得到 {} 个子段", segments.size());
+            log.debug("按距离切分聚类");
+            List<List<GaussPoint>> segments = splitClusterByDistance(cluster, minEffectiveInterval * config.MAX_WORK_DISTANCE * 2);
+            log.info("距离切分后得到 {} 个子段", segments.size());
 
-                for (List<GaussPoint> segment : segments) {
-                    log.debug("处理子段：{} 个点", segment.size());
-                    if (segment.size() > 2) {
-                        Geometry gaussGeometry;
-                        log.debug("创建线缓冲，缓冲半径：{} 米", halfWorkingWidth);
-                        Coordinate[] coordinates = segment.stream().map(point -> new Coordinate(point.getGaussX(), point.getGaussY())).toArray(Coordinate[]::new);
-                        if (coordinates.length > 500) {
-                            LineString lineString = config.GEOMETRY_FACTORY.createLineString(coordinates);
-                            Geometry simplifiedGeometry = DouglasPeuckerSimplifier.simplify(lineString, 0.1);//0.1米容差
-                            Coordinate[] simplifiedCoords = simplifiedGeometry.getCoordinates();
-                            if (simplifiedCoords.length > 500) {
-                                gaussGeometry = processLargeSegmentInChunks(segment, halfWorkingWidth);
-                            } else {
-                                gaussGeometry = simplifiedGeometry.buffer(halfWorkingWidth);
-                            }
+            for (List<GaussPoint> segment : segments) {
+                log.debug("处理子段：{} 个点", segment.size());
+                if (segment.size() > 2) {
+                    Geometry gaussGeometry;
+                    log.debug("创建线缓冲，缓冲半径：{} 米", halfWorkingWidth);
+                    Coordinate[] coordinates = segment.stream().map(point -> new Coordinate(point.getGaussX(), point.getGaussY())).toArray(Coordinate[]::new);
+                    if (coordinates.length > 500) {
+                        LineString lineString = config.GEOMETRY_FACTORY.createLineString(coordinates);
+                        Geometry simplifiedGeometry = DouglasPeuckerSimplifier.simplify(lineString, 0.1);//0.1米容差
+                        Coordinate[] simplifiedCoords = simplifiedGeometry.getCoordinates();
+                        if (simplifiedCoords.length > 500) {
+                            gaussGeometry = processLargeSegmentInChunks(segment, halfWorkingWidth);
                         } else {
-                            LineString lineString = config.GEOMETRY_FACTORY.createLineString(coordinates);
-                            gaussGeometry = lineString.buffer(halfWorkingWidth);
+                            gaussGeometry = simplifiedGeometry.buffer(halfWorkingWidth);
                         }
-                        log.info("使用膨胀、收缩参数 {}米 降低地块缝隙", workingWidth);
-                        gaussGeometry = gaussGeometry.buffer(workingWidth).buffer(-workingWidth);
-                        clusterGaussGeometries.add(gaussGeometry);
-                        clusterGaussPoints.add(segment);
+                    } else {
+                        LineString lineString = config.GEOMETRY_FACTORY.createLineString(coordinates);
+                        gaussGeometry = lineString.buffer(halfWorkingWidth);
                     }
+                    log.debug("使用膨胀、收缩参数 {}米 降低地块缝隙", workingWidth);
+                    gaussGeometry = gaussGeometry.buffer(workingWidth).buffer(-workingWidth);
+                    clusterGaussGeometries.add(gaussGeometry);
+                    clusterGaussPoints.add(segment);
                 }
             }
         }
-        log.debug("生成了 {} 个几何图形，生成了 {} 组点位列表", clusterGaussGeometries.size(), clusterGaussPoints.size());
+        log.info("生成了 {} 个几何图形，生成了 {} 组点位列表", clusterGaussGeometries.size(), clusterGaussPoints.size());
         if (clusterGaussGeometries.isEmpty()) {
             log.debug("没有生成任何几何图形");
             return splitResult;
