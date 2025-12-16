@@ -1760,9 +1760,6 @@ public class GisUtil implements AutoCloseable {
                     currGeom = currGeom.difference(accumulatedUnion);
                 }
 
-                // 做一次 负缓冲→正缓冲 把毛刺吃掉
-                currGeom = currGeom.buffer(-bufferDistance).buffer(bufferDistance);
-
                 // 空几何直接删除，同时清掉两个map
                 if (currGeom.isEmpty()) {
                     it.remove();// 从索引列表删除
@@ -1812,12 +1809,16 @@ public class GisUtil implements AutoCloseable {
         while (it.hasNext()) {
             Integer key = it.next();
             Geometry currGeom = clusterGaussGeometryMap.get(key);
+            // 做一次 负缓冲→正缓冲 把毛刺吃掉
+            currGeom = currGeom.buffer(-bufferDistance).buffer(bufferDistance);
             if (currGeom.getArea() < config.MIN_RETURN_MU * config.MU_TO_SQUARE_METER) {
                 log.debug("索引 {} 的几何图形面积：{}亩，小于最小返回面积 {}亩，直接删除", key, currGeom.getArea() * config.SQUARE_TO_MU_METER, config.MIN_RETURN_MU);
                 it.remove();
                 clusterGaussGeometryMap.remove(key);
                 clusterGaussPointsMap.remove(key);
+                continue;
             }
+            clusterGaussGeometryMap.put(key, currGeom);
         }
 
         log.debug("创建part对象集合");
