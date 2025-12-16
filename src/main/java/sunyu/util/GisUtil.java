@@ -1810,19 +1810,20 @@ public class GisUtil implements AutoCloseable {
             Envelope geometryEnvelope = partGeometry.getEnvelopeInternal();
             // 使用PreparedGeometry预优化，大幅提升空间判断性能（10-100倍）
             PreparedGeometry preparedWgs84Geometry = PreparedGeometryFactory.prepare(partGeometry);
-            List<Wgs84Point> wgs84TrackPoints = gaussPoints.stream().filter(point -> {
+            List<Wgs84Point> wgs84TrackPoints = new ArrayList<>();
+            for (GaussPoint point : gaussPoints) {
                 try {
                     // 第一步：边界框快速过滤 - 使用简单的数值比较，性能极高
-                    if (!geometryEnvelope.contains(point.getGaussX(), point.getGaussY())) {
-                        return false;
+                    if (geometryEnvelope.contains(point.getGaussX(), point.getGaussY())) {
+                        // 第二步：使用PreparedGeometry进行精确空间判断
+                        if (preparedWgs84Geometry.contains(config.GEOMETRY_FACTORY.createPoint(new Coordinate(point.getGaussX(), point.getGaussY())))) {
+                            wgs84TrackPoints.add(point);
+                        }
                     }
-                    // 第二步：使用PreparedGeometry进行精确空间判断
-                    return preparedWgs84Geometry.contains(config.GEOMETRY_FACTORY.createPoint(new Coordinate(point.getGaussX(), point.getGaussY())));
                 } catch (Exception e) {
                     log.warn("点位空间判断失败：错误：{}", e.getMessage());
-                    return false;
                 }
-            }).collect(Collectors.toList());
+            }
             Geometry wgs84PartGeometry = toWgs84Geometry(partGeometry);
             Part part = new Part();
             part.setGaussGeometry(partGeometry);
