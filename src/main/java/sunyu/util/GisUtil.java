@@ -1745,7 +1745,7 @@ public class GisUtil implements AutoCloseable {
             log.debug("地块相交修复，时间优先+空间裁剪：先来的地块保留，后到的地块抠掉重叠部分");
 
             // 按时间正序取出所有索引，保证先作业的先处理
-            List<Integer> indexList = new ArrayList<>(clusterGaussGeometryMap.keySet());   // 已有序，直接拿来用
+            List<Integer> indexList = new ArrayList<>(clusterGaussGeometryMap.keySet());// 已有序，直接拿来用
             // 累积并集：前面所有已保留地块的并集（只保留非空几何）
             Geometry accumulatedUnion = null;
 
@@ -1765,9 +1765,9 @@ public class GisUtil implements AutoCloseable {
 
                 // 空几何直接删除，同时清掉两个map
                 if (currGeom.isEmpty()) {
-                    it.remove();                                 // 从索引列表删除
-                    clusterGaussGeometryMap.remove(key);         // 删除几何
-                    clusterGaussPointsMap.remove(key);         // 删除对应点位
+                    it.remove();// 从索引列表删除
+                    clusterGaussGeometryMap.remove(key);// 删除几何
+                    clusterGaussPointsMap.remove(key);// 删除对应点位
                     continue;
                 }
 
