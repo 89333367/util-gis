@@ -172,7 +172,7 @@ public class GisUtil implements AutoCloseable {
         /**
          * 拆分时间间隔（秒）
          */
-        private final int SPLIT_TIME_SECOND = 60 * 30;
+        private final int SPLIT_TIME_SECOND = 60;
 
         /**
          * 渐进式容差（米）
@@ -658,6 +658,50 @@ public class GisUtil implements AutoCloseable {
         segments.add(currentSegment);
 
         log.debug("时间切分完成：原始 {} 个点 -> {} 个子段，最大时间阈值 {} 秒", cluster.size(), segments.size(), maxSeconds);
+        return segments;
+    }
+
+    /**
+     * 按最大时间间隔或最大距离切分轨迹点集群，生成多个子轨迹段
+     *
+     * @param cluster     轨迹点集群（GaussPoint类型）
+     * @param maxSeconds  最大时间间隔阈值（秒），超过此时间间隔的点将被视为不同轨迹段的起始点
+     * @param maxDistance 最大距离阈值（米），超过此距离的点将被视为不同轨迹段的起始点
+     *
+     * @return 切分后的轨迹段列表（每个元素为一个子轨迹段的GaussPoint列表）
+     */
+    private List<List<GaussPoint>> splitClusterByTimeOrDistance(List<GaussPoint> cluster, double maxSeconds, double maxDistance) {
+        List<List<GaussPoint>> segments = new ArrayList<>();
+        if (cluster == null || cluster.isEmpty()) {
+            return segments;
+        }
+
+        List<GaussPoint> currentSegment = new ArrayList<>();
+        currentSegment.add(cluster.get(0));
+
+        for (int i = 1; i < cluster.size(); i++) {
+            GaussPoint prevPoint = cluster.get(i - 1);
+            GaussPoint currPoint = cluster.get(i);
+
+            // 计算两点之间的时间间隔（秒）
+            Duration duration = Duration.between(prevPoint.getGpsTime(), currPoint.getGpsTime());
+            long seconds = duration.getSeconds();
+
+            // 计算欧几里得距离
+            double distance = Math.sqrt(Math.pow(currPoint.getGaussX() - prevPoint.getGaussX(), 2) + Math.pow(currPoint.getGaussY() - prevPoint.getGaussY(), 2));
+
+            if (seconds > maxSeconds || distance > maxDistance) {
+                // 时间间隔或距离超过阈值，结束当前段，开始新段
+                segments.add(new ArrayList<>(currentSegment));
+                currentSegment = new ArrayList<>();
+            }
+            currentSegment.add(currPoint);
+        }
+
+        // 处理最后一段
+        segments.add(currentSegment);
+
+        log.debug("时间或距离切分完成：原始 {} 个点 切分出 {} 个子段，最大时间阈值 {} 秒，最大距离阈值 {} 米", cluster.size(), segments.size(), maxSeconds, maxDistance);
         return segments;
     }
 
@@ -1687,26 +1731,16 @@ public class GisUtil implements AutoCloseable {
             return splitResult;
         }
 
-        log.debug("使用时间差切割聚类簇的点列表");
-        List<List<GaussPoint>> splitClustersBySeconds = new ArrayList<>();
-        for (List<GaussPoint> cluster : clusters) {
-            log.debug("聚类簇包含 {} 个点", cluster.size());
-            if (cluster.size() >= config.MIN_DBSCAN_POINTS) {
-                splitClustersBySeconds.addAll(splitClusterBySeconds(cluster, config.SPLIT_TIME_SECOND));
-            }
-        }
-        log.info("经过时间切割后，总共有 {} 个聚类簇", splitClustersBySeconds.size());
-
         log.debug("循环所有聚类簇，生成几何图形");
         int clusterIndex = 1;
         Map<Integer, Geometry> clusterGaussGeometryMap = new LinkedHashMap<>();//集合图形列表，key是几何图形索引，value是几何图形
         Map<Integer, List<GaussPoint>> clusterGaussPointsMap = new LinkedHashMap<>();//每一个集合图形的点位列表，key是几何图形索引，value是几何图形内的点位列表
-        for (List<GaussPoint> cluster : splitClustersBySeconds) {
+        for (List<GaussPoint> cluster : clusters) {
             log.debug("聚类簇包含 {} 个点", cluster.size());
 
-            log.debug("按距离切分聚类簇");
+            log.debug("按策略切分聚类簇");
             List<List<GaussPoint>> segments = splitClusterByDistance(cluster, minEffectiveInterval * config.MAX_WORK_DISTANCE * 2);
-            log.info("距离切分后得到 {} 个子段", segments.size());
+            log.info("切分后得到 {} 个子段", segments.size());
 
             for (List<GaussPoint> segment : segments) {
                 log.debug("处理子段：{} 个点", segment.size());
@@ -1807,49 +1841,27 @@ public class GisUtil implements AutoCloseable {
                 log.debug("索引 {} 的几何图形面积：{}亩，小于最小返回面积 {}亩，直接删除", index, clusterGaussGeometry.getArea() * config.SQUARE_TO_MU_METER, config.MIN_RETURN_MU);
                 continue;
             }
+            // 其实不应该出现多几何图形，但是上面由于进行了重复地块的裁剪处理，导致出现了多几何图形的情况
             if (clusterGaussGeometry instanceof MultiPolygon) {
-                List<GaussPoint> clusterGaussPoints = clusterGaussPointsMap.get(index);
                 MultiPolygon multiPolygon = (MultiPolygon) clusterGaussGeometry;
-                log.debug("索引 {} 的多多边形几何图形，包含 {} 个子多边形", index, multiPolygon.getNumGeometries());
-
-                // 给每个点打“属于第几个子多边形”的标签
-                int[] tag = new int[clusterGaussPoints.size()];
-                for (int ptIdx = 0; ptIdx < clusterGaussPoints.size(); ptIdx++) {
-                    GaussPoint p = clusterGaussPoints.get(ptIdx);
-                    Point point = config.GEOMETRY_FACTORY.createPoint(new Coordinate(p.getGaussX(), p.getGaussY()));
-                    for (int polyIdx = 0; polyIdx < multiPolygon.getNumGeometries(); polyIdx++) {
-                        if (multiPolygon.getGeometryN(polyIdx).contains(point)) {
-                            tag[ptIdx] = polyIdx;
-                            break;
-                        }
-                    }
-                }
-
-                // 顺序扫，同标签连续就合并成一段，当场生成 Part
-                int left = 0;
-                while (left < tag.length) {
-                    int curPoly = tag[left];
-                    int right = left;
-                    while (right + 1 < tag.length && tag[right + 1] == curPoly) {
-                        right++;
-                    }
-                    Geometry subGeo = multiPolygon.getGeometryN(curPoly);
-                    if (subGeo.getArea() < config.MIN_RETURN_MU * config.MU_TO_SQUARE_METER) {
-                        log.debug("索引 {} 子多边形 {} 面积过小，跳过", index, curPoly);
-                        left = right + 1;
+                log.debug("索引 {} 的多边形，包含 {} 个子多边形", index, multiPolygon.getNumGeometries());
+                for (int i = 0; i < multiPolygon.getNumGeometries(); i++) {
+                    Geometry subGeometry = multiPolygon.getGeometryN(i);
+                    if (subGeometry.getArea() < config.MIN_RETURN_MU * config.MU_TO_SQUARE_METER) {
+                        log.debug("索引 {} 的子多边形 {} 面积：{}亩，小于最小返回面积 {}亩，直接删除", index, i, subGeometry.getArea() * config.SQUARE_TO_MU_METER, config.MIN_RETURN_MU);
                         continue;
                     }
-                    List<GaussPoint> subPts = clusterGaussPoints.subList(left, right + 1);
-                    Geometry wgs84PartGeometry = toWgs84Geometry(subGeo);
+                    List<GaussPoint> clusterGaussPoints = clusterGaussPointsMap.get(index);
+                    Geometry wgs84PartGeometry = toWgs84Geometry(subGeometry);
+                    List<Wgs84Point> wgs84PointList = new ArrayList<>(clusterGaussPoints);
                     Part part = new Part();
-                    part.setGaussGeometry(subGeo);
-                    part.setTrackPoints(new ArrayList<>(subPts));// 只放这段连续点
+                    part.setGaussGeometry(subGeometry);
+                    part.setTrackPoints(wgs84PointList);
                     part.setStartTime(part.getTrackPoints().get(0).getGpsTime());
                     part.setEndTime(part.getTrackPoints().get(part.getTrackPoints().size() - 1).getGpsTime());
                     part.setWkt(wgs84PartGeometry.toText());
                     part.setMu(calcMu(wgs84PartGeometry));
                     parts.add(part);
-                    left = right + 1;
                 }
             } else if (clusterGaussGeometry instanceof Polygon) {
                 List<GaussPoint> clusterGaussPoints = clusterGaussPointsMap.get(index);
@@ -1876,25 +1888,6 @@ public class GisUtil implements AutoCloseable {
             splitResult.setWkt(wgs84UnionGeometry.toText());
             splitResult.setMu(calcMu(wgs84UnionGeometry));
             splitResult.setParts(parts);
-
-            if (wgs84UnionGeometry.getNumGeometries() == 1) {
-                log.debug("合并后是一个几何图形，那么修改parts信息");
-                List<Wgs84Point> wgs84PointList = new ArrayList<>();
-                for (Part part : parts) {
-                    wgs84PointList.addAll(part.getTrackPoints());
-                }
-                wgs84PointList.sort(Comparator.comparing(Wgs84Point::getGpsTime));
-                parts.clear();
-                Part part = new Part();
-                part.setGaussGeometry(unionPartsGaussGeometry);
-                part.setTrackPoints(wgs84PointList);
-                part.setStartTime(part.getTrackPoints().get(0).getGpsTime());
-                part.setEndTime(part.getTrackPoints().get(part.getTrackPoints().size() - 1).getGpsTime());
-                part.setWkt(wgs84UnionGeometry.toText());
-                part.setMu(calcMu(wgs84UnionGeometry));
-                parts.add(part);
-                log.debug("修改parts信息完毕");
-            }
         } else {
             Part p = parts.get(0);
             splitResult.setGaussGeometry(p.getGaussGeometry());
@@ -1902,7 +1895,6 @@ public class GisUtil implements AutoCloseable {
             splitResult.setMu(p.getMu());
             splitResult.setParts(parts);
         }
-
 
         log.info("地块总面积={}亩 共 {} 个地块，耗时 {} 毫秒", splitResult.getMu(), splitResult.getGaussGeometry().getNumGeometries(), System.currentTimeMillis() - splitRoadStartTime);
         return splitResult;
