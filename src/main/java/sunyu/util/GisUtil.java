@@ -1860,7 +1860,7 @@ public class GisUtil implements AutoCloseable {
         log.debug("生成 {} 个part对象", splitParts.size());
         splitParts.sort(Comparator.comparing(SplitPart::getStartTime));
 
-        Geometry unionPartsGaussGeometry = config.GEOMETRY_FACTORY.createGeometryCollection(splitParts.stream().map(SplitPart::getGaussGeometry).toArray(Geometry[]::new)).union().buffer(0.5).buffer(-0.5);
+        Geometry unionPartsGaussGeometry = config.GEOMETRY_FACTORY.createGeometryCollection(splitParts.stream().map(SplitPart::getGaussGeometry).toArray(Geometry[]::new)).union().buffer(0.1).buffer(-0.1);
         Geometry wgs84UnionGeometry = toWgs84Geometry(unionPartsGaussGeometry);
         splitResult.setGaussGeometry(unionPartsGaussGeometry);
         splitResult.setWkt(wgs84UnionGeometry.toText());
