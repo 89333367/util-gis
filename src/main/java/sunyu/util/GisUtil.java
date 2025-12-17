@@ -1879,15 +1879,36 @@ public class GisUtil implements AutoCloseable {
         }
 
         if (parts.size() > 1) {
-            log.debug("合并所有Part几何图形");
-            Geometry unionPartsGaussGeometry = config.GEOMETRY_FACTORY.createGeometryCollection(parts.stream().map(Part::getGaussGeometry).toArray(Geometry[]::new)).union().buffer(0);
-            log.debug("合并后几何图形的面积（平方米）：{}", unionPartsGaussGeometry.getArea());
+            // 再次修复时间交叉问题，如果多个地块的作业时间有交叉，那么将有交叉的地块进行合并，合并成一个MultiPolygon
+            List<Part> partList = new ArrayList<>();
+            Part mergePart = parts.get(0);
+            for (int i = 1; i < parts.size(); i++) {
+                Part currPart = parts.get(i);
+                if (mergePart.getEndTime().isAfter(currPart.getStartTime())) {
+                    Geometry union = mergePart.getGaussGeometry().union(currPart.getGaussGeometry()).buffer(0);
+                    List<Wgs84Point> mergedPoints = new ArrayList<>(mergePart.getTrackPoints());
+                    mergedPoints.addAll(currPart.getTrackPoints());
+                    mergedPoints.sort(Comparator.comparing(Wgs84Point::getGpsTime));
+                    Geometry wgs84Union = toWgs84Geometry(union);
+                    mergePart.setGaussGeometry(union);
+                    mergePart.setTrackPoints(mergedPoints);
+                    mergePart.setStartTime(mergedPoints.get(0).getGpsTime());
+                    mergePart.setEndTime(mergedPoints.get(mergedPoints.size() - 1).getGpsTime());
+                    mergePart.setWkt(wgs84Union.toText());
+                    mergePart.setMu(calcMu(wgs84Union));
+                } else {
+                    partList.add(mergePart);
+                    mergePart = currPart;
+                }
+            }
+            partList.add(mergePart);
+
+            Geometry unionPartsGaussGeometry = config.GEOMETRY_FACTORY.createGeometryCollection(partList.stream().map(Part::getGaussGeometry).toArray(Geometry[]::new)).union().buffer(0);
             Geometry wgs84UnionGeometry = toWgs84Geometry(unionPartsGaussGeometry);
-            //log.debug("合并后的几何图形：{}", wgs84UnionGeometry.toText());
             splitResult.setGaussGeometry(unionPartsGaussGeometry);
             splitResult.setWkt(wgs84UnionGeometry.toText());
             splitResult.setMu(calcMu(wgs84UnionGeometry));
-            splitResult.setParts(parts);
+            splitResult.setParts(partList);
         } else {
             Part p = parts.get(0);
             splitResult.setGaussGeometry(p.getGaussGeometry());
