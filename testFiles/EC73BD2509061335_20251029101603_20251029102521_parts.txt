@@ -1,0 +1,7 @@
+作业总幅宽（米）: 2.0
+总WKT: GEOMETRYCOLLECTION EMPTY
+作业总面积（亩）: 0.0
+作业时间范围: null - null
+合并后有 0 个地块
+拆分后有 0 个地块
+

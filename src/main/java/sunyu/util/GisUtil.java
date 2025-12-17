@@ -1677,6 +1677,7 @@ public class GisUtil implements AutoCloseable {
     public SplitResult splitRoad(List<Wgs84Point> wgs84Points, double workingWidth) {
         long splitRoadStartTime = System.currentTimeMillis();
         SplitResult splitResult = new SplitResult();
+        splitResult.setGaussGeometry(config.EMPTY_GEOMETRY);
         splitResult.setWorkingWidth(workingWidth);
         splitResult.setWkt(config.EMPTY_GEOMETRY.toText());
 
@@ -1858,6 +1859,9 @@ public class GisUtil implements AutoCloseable {
             }
         }
         log.debug("生成 {} 个part对象", splitParts.size());
+        if (splitParts.isEmpty()) {
+            return splitResult;
+        }
         splitParts.sort(Comparator.comparing(SplitPart::getStartTime));
 
         Geometry unionPartsGaussGeometry = config.GEOMETRY_FACTORY.createGeometryCollection(splitParts.stream().map(SplitPart::getGaussGeometry).toArray(Geometry[]::new)).union().buffer(0.1).buffer(-0.1);
