@@ -1845,23 +1845,75 @@ public class GisUtil implements AutoCloseable {
             if (clusterGaussGeometry instanceof MultiPolygon) {
                 MultiPolygon multiPolygon = (MultiPolygon) clusterGaussGeometry;
                 log.debug("索引 {} 的多边形，包含 {} 个子多边形", index, multiPolygon.getNumGeometries());
+
+                /* 1. 所有点按时间升序 */
+                List<GaussPoint> allPoints = clusterGaussPointsMap.get(index);
+                int n = allPoints.size();
+                if (n == 0) continue;
+
+                /* 2. 缓存每块地“点在内”的 BitSet，并过滤面积过小的 */
+                List<Polygon> polyList = new ArrayList<>();
+                List<BitSet> insideCache = new ArrayList<>();
                 for (int i = 0; i < multiPolygon.getNumGeometries(); i++) {
-                    Geometry subGeometry = multiPolygon.getGeometryN(i);
-                    if (subGeometry.getArea() < config.MIN_RETURN_MU * config.MU_TO_SQUARE_METER) {
-                        log.debug("索引 {} 的子多边形 {} 面积：{}亩，小于最小返回面积 {}亩，直接删除", index, i, subGeometry.getArea() * config.SQUARE_TO_MU_METER, config.MIN_RETURN_MU);
+                    Polygon p = (Polygon) multiPolygon.getGeometryN(i);
+                    if (p.getArea() < config.MIN_RETURN_MU * config.MU_TO_SQUARE_METER) continue;
+                    polyList.add(p);
+                    BitSet bs = new BitSet(n);
+                    for (int k = 0; k < n; k++) {
+                        GaussPoint gp = allPoints.get(k);
+                        Point pt = config.GEOMETRY_FACTORY.createPoint(new Coordinate(gp.getGaussX(), gp.getGaussY()));
+                        if (p.contains(pt)) bs.set(k);
+                    }
+                    insideCache.add(bs);
+                }
+                int m = polyList.size();
+                if (m == 0) continue;
+
+                /* 3. 时间轴单向推进：每块地最多吃一段，吃完即弃 */
+                boolean[] used = new boolean[m];
+                int ptr = 0;
+                while (ptr < n) {
+                    /* 3.1 从 ptr 开始，每块地往后吃到第一个 false 为止，算能吃多少点 */
+                    int bestPoly = -1;
+                    int bestLeft = -1;
+                    int bestRight = -1;
+                    int bestCnt = 0;
+                    for (int i = 0; i < m; i++) {
+                        if (used[i]) continue;
+                        BitSet ic = insideCache.get(i);
+                        if (!ic.get(ptr)) continue;
+                        int left = ptr;
+                        int right = ic.nextClearBit(left) - 1;
+                        if (right < 0) right = n - 1;
+                        int cnt = right - left + 1;
+                        if (cnt > bestCnt) {
+                            bestCnt = cnt;
+                            bestPoly = i;
+                            bestLeft = left;
+                            bestRight = right;
+                        }
+                    }
+                    if (bestPoly == -1) {   // 当前 ptr 不属于任何未用地块
+                        ptr++;
                         continue;
                     }
-                    List<GaussPoint> clusterGaussPoints = clusterGaussPointsMap.get(index);
-                    Geometry wgs84PartGeometry = toWgs84Geometry(subGeometry);
-                    List<Wgs84Point> wgs84PointList = new ArrayList<>(clusterGaussPoints);
+                    /* 3.2 创建 Part：整块地几何 + 仅内部点 */
+                    Polygon poly = polyList.get(bestPoly);
+                    List<GaussPoint> subGauss = allPoints.subList(bestLeft, bestRight + 1);
+                    List<Wgs84Point> subWgs84 = new ArrayList<>(subGauss);
+                    Geometry wgs84Geometry = toWgs84Geometry(poly);
+
                     Part part = new Part();
-                    part.setGaussGeometry(subGeometry);
-                    part.setTrackPoints(wgs84PointList);
-                    part.setStartTime(part.getTrackPoints().get(0).getGpsTime());
-                    part.setEndTime(part.getTrackPoints().get(part.getTrackPoints().size() - 1).getGpsTime());
-                    part.setWkt(wgs84PartGeometry.toText());
-                    part.setMu(calcMu(wgs84PartGeometry));
+                    part.setGaussGeometry(poly);
+                    part.setTrackPoints(subWgs84);
+                    part.setStartTime(subWgs84.get(0).getGpsTime());
+                    part.setEndTime(subWgs84.get(subWgs84.size() - 1).getGpsTime());
+                    part.setWkt(wgs84Geometry.toText());
+                    part.setMu(calcMu(wgs84Geometry));
                     parts.add(part);
+
+                    used[bestPoly] = true;   // 吃完即弃
+                    ptr = bestRight + 1;     // 直接跳到段尾+1，避免重复扫描
                 }
             } else if (clusterGaussGeometry instanceof Polygon) {
                 List<GaussPoint> clusterGaussPoints = clusterGaussPointsMap.get(index);
