@@ -20,12 +20,12 @@ def read_coordinate_file(file_path):
             for line in f:
                 line = line.strip()
                 if line:  # 跳过空行
-                    parts = line.split(',')
-                    if len(parts) >= 2:
+                    splitParts = line.split(',')
+                    if len(splitParts) >= 2:
                         try:
                             # 处理科学计数法
-                            x = float(parts[0].strip())
-                            y = float(parts[1].strip())
+                            x = float(splitParts[0].strip())
+                            y = float(splitParts[1].strip())
                             coordinates.append([x, y])
                         except ValueError:
                             continue

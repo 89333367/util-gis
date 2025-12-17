@@ -136,16 +136,6 @@ public class GisUtil implements AutoCloseable {
         private final int MIN_DBSCAN_POINTS = 20;
 
         /**
-         * 最大拆分返回数量
-         * <p>
-         * 用于限制拆分轨迹点时返回的最大数量。
-         * 当轨迹点数量超过此阈值时，会对轨迹进行拆分，返回多个子轨迹。
-         * 该参数可以有效控制内存占用和处理时间，避免处理过大数据集时内存溢出。
-         * </p>
-         */
-        private final int MAX_SPLIT_RETURN_SIZE = 24;
-
-        /**
          * 最小返回面积（亩）
          */
         private final double MIN_RETURN_MU = 0.5;
@@ -168,11 +158,6 @@ public class GisUtil implements AutoCloseable {
          * 1平方米 = 3/2000亩
          */
         private final double SQUARE_TO_MU_METER = 3.0 / 2000.0;
-
-        /**
-         * 拆分时间间隔（秒）
-         */
-        private final int SPLIT_TIME_SECOND = 60;
 
         /**
          * 渐进式容差（米）
@@ -1833,7 +1818,7 @@ public class GisUtil implements AutoCloseable {
         }
 
         log.debug("创建part对象集合");
-        List<Part> parts = new ArrayList<>();
+        List<SplitPart> splitParts = new ArrayList<>();
         for (Map.Entry<Integer, Geometry> geometryEntry : clusterGaussGeometryMap.entrySet()) {
             int index = geometryEntry.getKey();
             Geometry clusterGaussGeometry = geometryEntry.getValue();
@@ -1841,6 +1826,7 @@ public class GisUtil implements AutoCloseable {
                 log.debug("索引 {} 的几何图形面积：{}亩，小于最小返回面积 {}亩，直接删除", index, clusterGaussGeometry.getArea() * config.SQUARE_TO_MU_METER, config.MIN_RETURN_MU);
                 continue;
             }
+            List<GaussPoint> clusterGaussPoints = clusterGaussPointsMap.get(index);
             // 其实不应该出现多几何图形，但是上面由于进行了重复地块的裁剪处理，导致出现了多几何图形的情况
             if (clusterGaussGeometry instanceof MultiPolygon) {
                 MultiPolygon multiPolygon = (MultiPolygon) clusterGaussGeometry;
@@ -1851,71 +1837,37 @@ public class GisUtil implements AutoCloseable {
                         log.debug("索引 {} 的子多边形 {} 面积：{}亩，小于最小返回面积 {}亩，直接删除", index, i, subGeometry.getArea() * config.SQUARE_TO_MU_METER, config.MIN_RETURN_MU);
                         continue;
                     }
-                    List<GaussPoint> clusterGaussPoints = clusterGaussPointsMap.get(index);
                     Geometry wgs84PartGeometry = toWgs84Geometry(subGeometry);
-                    List<Wgs84Point> wgs84PointList = new ArrayList<>(clusterGaussPoints);
-                    Part part = new Part();
+                    SplitPart part = new SplitPart();
                     part.setGaussGeometry(subGeometry);
-                    part.setTrackPoints(wgs84PointList);
-                    part.setStartTime(part.getTrackPoints().get(0).getGpsTime());
-                    part.setEndTime(part.getTrackPoints().get(part.getTrackPoints().size() - 1).getGpsTime());
+                    part.setStartTime(clusterGaussPoints.get(0).getGpsTime());
+                    part.setEndTime(clusterGaussPoints.get(clusterGaussPoints.size() - 1).getGpsTime());
                     part.setWkt(wgs84PartGeometry.toText());
                     part.setMu(calcMu(wgs84PartGeometry));
-                    parts.add(part);
+                    splitParts.add(part);
                 }
             } else if (clusterGaussGeometry instanceof Polygon) {
-                List<GaussPoint> clusterGaussPoints = clusterGaussPointsMap.get(index);
                 Geometry wgs84PartGeometry = toWgs84Geometry(clusterGaussGeometry);
-                List<Wgs84Point> wgs84PointList = new ArrayList<>(clusterGaussPoints);
-                Part part = new Part();
+                SplitPart part = new SplitPart();
                 part.setGaussGeometry(clusterGaussGeometry);
-                part.setTrackPoints(wgs84PointList);
-                part.setStartTime(part.getTrackPoints().get(0).getGpsTime());
-                part.setEndTime(part.getTrackPoints().get(part.getTrackPoints().size() - 1).getGpsTime());
+                part.setStartTime(clusterGaussPoints.get(0).getGpsTime());
+                part.setEndTime(clusterGaussPoints.get(clusterGaussPoints.size() - 1).getGpsTime());
                 part.setWkt(wgs84PartGeometry.toText());
                 part.setMu(calcMu(wgs84PartGeometry));
-                parts.add(part);
+                splitParts.add(part);
             }
         }
+        log.debug("生成 {} 个part对象", splitParts.size());
+        splitParts.sort(Comparator.comparing(SplitPart::getStartTime));
 
-        if (parts.size() > 1) {
-            // 再次修复时间交叉问题，如果多个地块的作业时间有交叉，那么将有交叉的地块进行合并，合并成一个MultiPolygon
-            List<Part> partList = new ArrayList<>();
-            Part mergePart = parts.get(0);
-            for (int i = 1; i < parts.size(); i++) {
-                Part currPart = parts.get(i);
-                if (mergePart.getEndTime().isAfter(currPart.getStartTime())) {
-                    Geometry union = mergePart.getGaussGeometry().union(currPart.getGaussGeometry()).buffer(0);
-                    List<Wgs84Point> mergedPoints = new ArrayList<>(mergePart.getTrackPoints());
-                    mergedPoints.addAll(currPart.getTrackPoints());
-                    mergedPoints.sort(Comparator.comparing(Wgs84Point::getGpsTime));
-                    Geometry wgs84Union = toWgs84Geometry(union);
-                    mergePart.setGaussGeometry(union);
-                    mergePart.setTrackPoints(mergedPoints);
-                    mergePart.setStartTime(mergedPoints.get(0).getGpsTime());
-                    mergePart.setEndTime(mergedPoints.get(mergedPoints.size() - 1).getGpsTime());
-                    mergePart.setWkt(wgs84Union.toText());
-                    mergePart.setMu(calcMu(wgs84Union));
-                } else {
-                    partList.add(mergePart);
-                    mergePart = currPart;
-                }
-            }
-            partList.add(mergePart);
-
-            Geometry unionPartsGaussGeometry = config.GEOMETRY_FACTORY.createGeometryCollection(partList.stream().map(Part::getGaussGeometry).toArray(Geometry[]::new)).union().buffer(0);
-            Geometry wgs84UnionGeometry = toWgs84Geometry(unionPartsGaussGeometry);
-            splitResult.setGaussGeometry(unionPartsGaussGeometry);
-            splitResult.setWkt(wgs84UnionGeometry.toText());
-            splitResult.setMu(calcMu(wgs84UnionGeometry));
-            splitResult.setParts(partList);
-        } else {
-            Part p = parts.get(0);
-            splitResult.setGaussGeometry(p.getGaussGeometry());
-            splitResult.setWkt(p.getWkt());
-            splitResult.setMu(p.getMu());
-            splitResult.setParts(parts);
-        }
+        Geometry unionPartsGaussGeometry = config.GEOMETRY_FACTORY.createGeometryCollection(splitParts.stream().map(SplitPart::getGaussGeometry).toArray(Geometry[]::new)).union().buffer(0.5).buffer(-0.5);
+        Geometry wgs84UnionGeometry = toWgs84Geometry(unionPartsGaussGeometry);
+        splitResult.setGaussGeometry(unionPartsGaussGeometry);
+        splitResult.setWkt(wgs84UnionGeometry.toText());
+        splitResult.setMu(calcMu(wgs84UnionGeometry));
+        splitResult.setStartTime(splitParts.get(0).getStartTime());
+        splitResult.setEndTime(splitParts.get(splitParts.size() - 1).getEndTime());
+        splitResult.setSplitParts(splitParts);
 
         log.info("地块总面积={}亩 共 {} 个地块，耗时 {} 毫秒", splitResult.getMu(), splitResult.getGaussGeometry().getNumGeometries(), System.currentTimeMillis() - splitRoadStartTime);
         return splitResult;

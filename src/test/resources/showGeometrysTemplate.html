@@ -1745,10 +1745,10 @@
             if (!raw) continue;
             const line = raw.trim();
             if (!line) continue;
-            const parts = line.split(',');
-            if (parts.length < 3) continue;
-            let lng = parseFloat((parts[isHash ? 0 : 1] || '').trim());
-            let lat = parseFloat((parts[isHash ? 1 : 2] || '').trim());
+            const splitParts = line.split(',');
+            if (splitParts.length < 3) continue;
+            let lng = parseFloat((splitParts[isHash ? 0 : 1] || '').trim());
+            let lat = parseFloat((splitParts[isHash ? 1 : 2] || '').trim());
             // 初步过滤：数值合法性与正常范围
             if (!isFinite(lng) || !isFinite(lat)) continue;
             if (lng === 0 || lat === 0) continue; // 丢弃0.0异常点
@@ -1925,12 +1925,12 @@
             if (!raw) continue;
             const line = raw.trim();
             if (!line) continue;
-            const parts = line.split(',');
-            if (parts.length < 3) continue;
-            const tsRaw = (parts[isHash ? 2 : 0] || '').trim();
+            const splitParts = line.split(',');
+            if (splitParts.length < 3) continue;
+            const tsRaw = (splitParts[isHash ? 2 : 0] || '').trim();
             const ts = (tsRaw || '').replace(/\D/g,'');
-            let lng = parseFloat((parts[isHash ? 0 : 1] || '').trim());
-            let lat = parseFloat((parts[isHash ? 1 : 2] || '').trim());
+            let lng = parseFloat((splitParts[isHash ? 0 : 1] || '').trim());
+            let lat = parseFloat((splitParts[isHash ? 1 : 2] || '').trim());
             if (!isFinite(lng) || !isFinite(lat)) continue;
             if (lng === 0 || lat === 0) continue;
             if (lng < -180 || lng > 180 || lat < -90 || lat > 90) continue;

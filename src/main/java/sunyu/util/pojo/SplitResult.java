@@ -2,6 +2,7 @@ package sunyu.util.pojo;
 
 import org.locationtech.jts.geom.Geometry;
 
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
@@ -10,6 +11,14 @@ import java.util.List;
  * 道路拆分结果
  */
 public class SplitResult {
+    /**
+     * 地块的起始时间
+     */
+    private LocalDateTime startTime;
+    /**
+     * 地块的结束时间
+     */
+    private LocalDateTime endTime;
     /**
      * 轮廓的WKT表示（WGS84坐标系）
      */
@@ -27,7 +36,7 @@ public class SplitResult {
     /**
      * 拆分后的地块列表
      */
-    private List<Part> parts = new ArrayList<>();
+    private List<SplitPart> splitParts = new ArrayList<>();
 
     /**
      * 地块的高斯投影几何图形（高斯投影坐标系）
@@ -58,13 +67,13 @@ public class SplitResult {
         this.mu = mu;
     }
 
-    public List<Part> getParts() {
-        parts.sort(Comparator.comparing(Part::getStartTime));
-        return parts;
+    public List<SplitPart> getParts() {
+        splitParts.sort(Comparator.comparing(SplitPart::getStartTime));
+        return splitParts;
     }
 
-    public void setParts(List<Part> parts) {
-        this.parts = parts;
+    public void setParts(List<SplitPart> splitParts) {
+        this.splitParts = splitParts;
     }
 
     public Geometry getGaussGeometry() {
@@ -73,5 +82,29 @@ public class SplitResult {
 
     public void setGaussGeometry(Geometry gaussGeometry) {
         this.gaussGeometry = gaussGeometry;
+    }
+
+    public LocalDateTime getStartTime() {
+        return startTime;
+    }
+
+    public void setStartTime(LocalDateTime startTime) {
+        this.startTime = startTime;
+    }
+
+    public LocalDateTime getEndTime() {
+        return endTime;
+    }
+
+    public void setEndTime(LocalDateTime endTime) {
+        this.endTime = endTime;
+    }
+
+    public List<SplitPart> getSplitParts() {
+        return splitParts;
+    }
+
+    public void setSplitParts(List<SplitPart> splitParts) {
+        this.splitParts = splitParts;
     }
 }
