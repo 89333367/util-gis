@@ -575,7 +575,7 @@ public class TestUtilGis {
 
     @Test
     void 测试1秒间隔014() {
-        // 高密度地块，点位非常多，三块地，中间有路，有些粘连
+        // 时间有交叉
         String did = "EC71BT2404140062";
         String yyyyMMdd = "20240426";
         String startTime = yyyyMMdd + "000000";
