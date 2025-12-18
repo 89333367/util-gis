@@ -144,7 +144,7 @@ public class GisUtil implements AutoCloseable {
         /**
          * 最小返回面积（亩）
          */
-        private final double MIN_RETURN_MU = 0.5;
+        private final double MIN_RETURN_MU = 0.51;
 
         /**
          * 最小缓冲区距离（米）
