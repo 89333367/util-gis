@@ -31,6 +31,7 @@ import org.opengis.referencing.operation.MathTransform;
 import sunyu.util.pojo.*;
 
 import java.time.Duration;
+import java.time.LocalDateTime;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
@@ -1864,14 +1865,48 @@ public class GisUtil implements AutoCloseable {
         }
         splitParts.sort(Comparator.comparing(SplitPart::getStartTime));
 
-        Geometry unionPartsGaussGeometry = config.GEOMETRY_FACTORY.createGeometryCollection(splitParts.stream().map(SplitPart::getGaussGeometry).toArray(Geometry[]::new)).union().buffer(0.1).buffer(-0.1);
+        // 解决子地块时间交叉：扫描线合并
+        List<SplitPart> unionParts = new ArrayList<>();
+        int i = 0, n = splitParts.size();
+        while (i < n) {
+            SplitPart seed = splitParts.get(i);
+            Geometry unionGeo = seed.getGaussGeometry();
+            LocalDateTime groupStart = seed.getStartTime();
+            LocalDateTime groupEnd = seed.getEndTime();
+
+            // 向后吃所有与当前组最晚结束时间重叠的 Part
+            int j = i + 1;
+            while (j < n && splitParts.get(j).getStartTime().isBefore(groupEnd)) {
+                SplitPart curr = splitParts.get(j);
+                unionGeo = unionGeo.union(curr.getGaussGeometry()).buffer(0);
+                if (curr.getEndTime().isAfter(groupEnd)) {
+                    groupEnd = curr.getEndTime();   // 扩张结束时间
+                }
+                j++;
+            }
+
+            // 生成合并后的 SplitPart
+            Geometry wgs84Union = toWgs84Geometry(unionGeo);
+            SplitPart merged = new SplitPart();
+            merged.setGaussGeometry(unionGeo);
+            merged.setStartTime(groupStart);
+            merged.setEndTime(groupEnd);
+            merged.setWkt(wgs84Union.toText());
+            merged.setMu(calcMu(wgs84Union));
+            unionParts.add(merged);
+
+            i = j;   // 跳到未处理区间
+        }
+        log.debug("解决时间交叉后，共生成 {} 个part对象", unionParts.size());
+
+        Geometry unionPartsGaussGeometry = config.GEOMETRY_FACTORY.createGeometryCollection(unionParts.stream().map(SplitPart::getGaussGeometry).toArray(Geometry[]::new)).union().buffer(0);
         Geometry wgs84UnionGeometry = toWgs84Geometry(unionPartsGaussGeometry);
         splitResult.setGaussGeometry(unionPartsGaussGeometry);
         splitResult.setWkt(wgs84UnionGeometry.toText());
         splitResult.setMu(calcMu(wgs84UnionGeometry));
-        splitResult.setStartTime(splitParts.get(0).getStartTime());
-        splitResult.setEndTime(splitParts.get(splitParts.size() - 1).getEndTime());
-        splitResult.setSplitParts(splitParts);
+        splitResult.setStartTime(unionParts.get(0).getStartTime());
+        splitResult.setEndTime(unionParts.get(unionParts.size() - 1).getEndTime());
+        splitResult.setSplitParts(unionParts);
 
         log.info("地块总面积={}亩 共 {} 个地块，耗时 {} 毫秒", splitResult.getMu(), splitResult.getGaussGeometry().getNumGeometries(), System.currentTimeMillis() - splitRoadStartTime);
         return splitResult;

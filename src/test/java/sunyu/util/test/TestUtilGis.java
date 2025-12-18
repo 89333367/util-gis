@@ -220,15 +220,15 @@ public class TestUtilGis {
         String trace = FileUtil.readUtf8String(fileName);
         html = StrUtil.replace(html, "${trace}", trace);
 
-        String outline = FileUtil.readUtf8Lines(path + StrUtil.format("/{}_{}_{}_parts.txt", did, startTime, endTime)).get(1);
-        html = StrUtil.replace(html, "${outline}", outline.replace("总WKT: ", ""));
-        /*List<String> outlineList = new ArrayList<>();
+        /*String outline = FileUtil.readUtf8Lines(path + StrUtil.format("/{}_{}_{}_parts.txt", did, startTime, endTime)).get(1);
+        html = StrUtil.replace(html, "${outline}", outline.replace("总WKT: ", ""));*/
+        List<String> outlineList = new ArrayList<>();
         for (String line : FileUtil.readUtf8Lines(path + StrUtil.format("/{}_{}_{}_parts.txt", did, startTime, endTime))) {
             if (line.startsWith("子WKT")) {
                 outlineList.add(line.replace("子WKT: ", ""));
             }
         }
-        html = StrUtil.replace(html, "${outline}", StrUtil.join("\n", outlineList));*/
+        html = StrUtil.replace(html, "${outline}", StrUtil.join("\n", outlineList));
 
         FileUtil.writeUtf8String(html, path + StrUtil.format("/{}_{}_{}.html", did, startTime, endTime));
     }
