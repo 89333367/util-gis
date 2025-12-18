@@ -128,6 +128,11 @@ public class GisUtil implements AutoCloseable {
         private final double MAX_WORK_DISTANCE = 18 / 3.6;
 
         /**
+         * 最大切分时间间隔（秒）
+         */
+        private final double MAX_SPLIT_SECONDS = 3600 * 4;
+
+        /**
          * DBSCAN最小点数
          * <p>
          * 用于DBSCAN聚类算法的最小点阈值。
@@ -1726,7 +1731,7 @@ public class GisUtil implements AutoCloseable {
             log.debug("聚类簇包含 {} 个点", cluster.size());
 
             log.debug("按策略切分聚类簇");
-            List<List<GaussPoint>> segments = splitClusterByDistance(cluster, minEffectiveInterval * config.MAX_WORK_DISTANCE * 2);
+            List<List<GaussPoint>> segments = splitClusterByTimeOrDistance(cluster, config.MAX_SPLIT_SECONDS, minEffectiveInterval * config.MAX_WORK_DISTANCE * 2);
             log.info("切分后得到 {} 个子段", segments.size());
 
             for (List<GaussPoint> segment : segments) {
@@ -1881,7 +1886,7 @@ public class GisUtil implements AutoCloseable {
             int j = i + 1;
             while (j < n && splitParts.get(j).getStartTime().isBefore(groupEnd)) {
                 SplitPart curr = splitParts.get(j);
-                unionGeo = unionGeo.union(curr.getGaussGeometry()).buffer(0);
+                unionGeo = unionGeo.union(curr.getGaussGeometry()).buffer(halfWorkingWidth).buffer(-halfWorkingWidth);
                 if (curr.getEndTime().isAfter(groupEnd)) {
                     groupEnd = curr.getEndTime();   // 扩张结束时间
                 }
