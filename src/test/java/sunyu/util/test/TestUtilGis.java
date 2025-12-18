@@ -17,6 +17,7 @@ import com.zaxxer.hikari.HikariConfig;
 import com.zaxxer.hikari.HikariDataSource;
 import org.junit.jupiter.api.Test;
 import org.locationtech.jts.geom.Geometry;
+import org.locationtech.jts.geom.MultiPolygon;
 import sunyu.util.GisUtil;
 import sunyu.util.pojo.*;
 
@@ -196,6 +197,9 @@ public class TestUtilGis {
             partInfo.add(StrUtil.format("子WKT: {}", splitPart.getWkt()));
             partInfo.add(StrUtil.format("作业面积（亩）: {}", splitPart.getMu()));
             partInfo.add(StrUtil.format("作业时间范围: {} - {}", splitPart.getStartTime(), splitPart.getEndTime()));
+            if (splitPart.getGaussGeometry() instanceof MultiPolygon) {
+                partInfo.add(StrUtil.format("有 {} 个子地块", splitPart.getGaussGeometry().getNumGeometries()));
+            }
             partsInfo.add(StrUtil.join("\n", partInfo) + "\n");
         }
         FileUtil.writeUtf8Lines(partsInfo, partsFile);
@@ -220,15 +224,18 @@ public class TestUtilGis {
         String trace = FileUtil.readUtf8String(fileName);
         html = StrUtil.replace(html, "${trace}", trace);
 
-        /*String outline = FileUtil.readUtf8Lines(path + StrUtil.format("/{}_{}_{}_parts.txt", did, startTime, endTime)).get(1);
-        html = StrUtil.replace(html, "${outline}", outline.replace("总WKT: ", ""));*/
         List<String> outlineList = new ArrayList<>();
         for (String line : FileUtil.readUtf8Lines(path + StrUtil.format("/{}_{}_{}_parts.txt", did, startTime, endTime))) {
             if (line.startsWith("子WKT")) {
                 outlineList.add(line.replace("子WKT: ", ""));
             }
         }
-        html = StrUtil.replace(html, "${outline}", StrUtil.join("\n", outlineList));
+        if (!outlineList.isEmpty()) {
+            html = StrUtil.replace(html, "${outline}", StrUtil.join("\n", outlineList));
+        } else {
+            String outline = FileUtil.readUtf8Lines(path + StrUtil.format("/{}_{}_{}_parts.txt", did, startTime, endTime)).get(1);
+            html = StrUtil.replace(html, "${outline}", outline.replace("总WKT: ", ""));
+        }
 
         FileUtil.writeUtf8String(html, path + StrUtil.format("/{}_{}_{}.html", did, startTime, endTime));
     }

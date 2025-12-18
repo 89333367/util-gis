@@ -1818,6 +1818,9 @@ public class GisUtil implements AutoCloseable {
             }
             clusterGaussGeometryMap.put(key, currGeom);
         }
+        if (clusterGaussGeometryMap.isEmpty()) {
+            return splitResult;
+        }
 
         log.debug("创建part对象集合");
         List<SplitPart> splitParts = new ArrayList<>();
