@@ -25,6 +25,8 @@ import org.locationtech.jts.geom.*;
 import org.locationtech.jts.index.strtree.STRtree;
 import org.locationtech.jts.io.ParseException;
 import org.locationtech.jts.io.WKTReader;
+import org.locationtech.jts.operation.union.UnaryUnionOp;
+import org.locationtech.jts.precision.GeometryPrecisionReducer;
 import org.locationtech.jts.simplify.DouglasPeuckerSimplifier;
 import org.opengis.referencing.crs.CoordinateReferenceSystem;
 import org.opengis.referencing.operation.MathTransform;
@@ -1771,37 +1773,55 @@ public class GisUtil implements AutoCloseable {
         if (clusterGaussGeometryMap.size() > 1) {
             log.debug("地块相交修复，时间优先+空间裁剪：先来的地块保留，后到的地块抠掉重叠部分");
 
-            // 按时间正序取出所有索引，保证先作业的先处理
-            List<Integer> indexList = new ArrayList<>(clusterGaussGeometryMap.keySet());// 已有序，直接拿来用
-            // 累积并集：前面所有已保留地块的并集（只保留非空几何）
+            List<Integer> indexList = new ArrayList<>(clusterGaussGeometryMap.keySet());
             Geometry accumulatedUnion = null;
+            PrecisionModel pm = new PrecisionModel(1000);   // 1 mm 精度
 
-            // 顺序处理
             Iterator<Integer> it = indexList.iterator();
             while (it.hasNext()) {
                 Integer key = it.next();
-                Geometry currGeom = clusterGaussGeometryMap.get(key);
-
-                // 减掉前面已占地盘
-                if (accumulatedUnion != null) {
-                    currGeom = currGeom.difference(accumulatedUnion);
-                }
-
-                // 空几何直接删除，同时清掉两个map
-                if (currGeom.isEmpty()) {
-                    it.remove();// 从索引列表删除
-                    clusterGaussGeometryMap.remove(key);// 删除几何
-                    clusterGaussPointsMap.remove(key);// 删除对应点位
+                Geometry curr = clusterGaussGeometryMap.get(key);
+                if (curr == null || curr.isEmpty()) {
+                    it.remove();
+                    clusterGaussGeometryMap.remove(key);
+                    clusterGaussPointsMap.remove(key);
                     continue;
                 }
 
-                // 非空：更新自身几何
-                clusterGaussGeometryMap.put(key, currGeom);
-                // 把保留下来的部分加入并集
+                /* ---------- 抽干重建 ---------- */
+                curr = GeometryPrecisionReducer.reduce(curr, pm);
+                curr = UnaryUnionOp.union(curr);
+                curr = curr.buffer(0);
+                if (!(curr instanceof Polygon || curr instanceof MultiPolygon)) {
+                    curr = curr.union();
+                    curr = curr.buffer(0);
+                }
+                if (curr.isEmpty()) {
+                    it.remove();
+                    clusterGaussGeometryMap.remove(key);
+                    clusterGaussPointsMap.remove(key);
+                    continue;
+                }
+
+                /* ---------- 剪掉前面已占地盘 ---------- */
+                if (accumulatedUnion != null) {
+                    accumulatedUnion = GeometryPrecisionReducer.reduce(accumulatedUnion, pm);
+                    accumulatedUnion = UnaryUnionOp.union(accumulatedUnion).buffer(0);
+                    curr = curr.difference(accumulatedUnion).buffer(0);
+                    if (curr.isEmpty()) {
+                        it.remove();
+                        clusterGaussGeometryMap.remove(key);
+                        clusterGaussPointsMap.remove(key);
+                        continue;
+                    }
+                }
+
+                /* ---------- 更新自身并累积 ---------- */
+                clusterGaussGeometryMap.put(key, curr);
                 if (accumulatedUnion == null) {
-                    accumulatedUnion = currGeom;
+                    accumulatedUnion = curr;
                 } else {
-                    accumulatedUnion = accumulatedUnion.union(currGeom);
+                    accumulatedUnion = accumulatedUnion.union(curr).buffer(0);
                 }
             }
 
