@@ -29,6 +29,11 @@ public class SplitPart {
      */
     private Geometry gaussGeometry;
 
+    /**
+     * 最小有效时间间隔（秒）
+     */
+    private int minEffectiveInterval;
+
     public LocalDateTime getStartTime() {
         return startTime;
     }
@@ -67,5 +72,13 @@ public class SplitPart {
 
     public void setGaussGeometry(Geometry gaussGeometry) {
         this.gaussGeometry = gaussGeometry;
+    }
+
+    public int getMinEffectiveInterval() {
+        return minEffectiveInterval;
+    }
+
+    public void setMinEffectiveInterval(int minEffectiveInterval) {
+        this.minEffectiveInterval = minEffectiveInterval;
     }
 }

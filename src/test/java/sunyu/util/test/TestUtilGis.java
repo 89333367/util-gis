@@ -187,6 +187,7 @@ public class TestUtilGis {
         partsInfo.add(StrUtil.format("总WKT: {}", splitResult.getWkt()));
         partsInfo.add(StrUtil.format("作业总面积（亩）: {}", splitResult.getMu()));
         partsInfo.add(StrUtil.format("作业时间范围: {} - {}", splitResult.getStartTime(), splitResult.getEndTime()));
+        partsInfo.add(StrUtil.format("最小有效时间间隔（秒）: {}", splitResult.getMinEffectiveInterval()));
         partsInfo.add(StrUtil.format("合并后有 {} 个地块", splitResult.getGaussGeometry().getNumGeometries()));
         partsInfo.add(StrUtil.format("拆分后有 {} 个地块", splitResult.getParts().size()));
         partsInfo.add("\n");
@@ -197,6 +198,7 @@ public class TestUtilGis {
             partInfo.add(StrUtil.format("子WKT: {}", splitPart.getWkt()));
             partInfo.add(StrUtil.format("作业面积（亩）: {}", splitPart.getMu()));
             partInfo.add(StrUtil.format("作业时间范围: {} - {}", splitPart.getStartTime(), splitPart.getEndTime()));
+            partInfo.add(StrUtil.format("最小有效时间间隔（秒）: {}", splitPart.getMinEffectiveInterval()));
             if (splitPart.getGaussGeometry() instanceof MultiPolygon) {
                 partInfo.add(StrUtil.format("有 {} 个子地块", splitPart.getGaussGeometry().getNumGeometries()));
             }
@@ -581,6 +583,30 @@ public class TestUtilGis {
         String startTime = yyyyMMdd + "000000";
         String endTime = yyyyMMdd + "235959";
         double jobWidth = 3.5;
+        生成数据文件(did, startTime, endTime);
+        测试拆分数据(did, startTime, endTime, jobWidth);
+        生成HTML(did, startTime, endTime);
+    }
+
+    @Test
+    void 测试1秒间隔015() {
+        // 骗补
+        String did = "NJ4GNBZAX0000160";
+        String startTime = "20250603144925";
+        String endTime = "20250603155017";
+        double jobWidth = 2.4;
+        生成数据文件(did, startTime, endTime);
+        测试拆分数据(did, startTime, endTime, jobWidth);
+        生成HTML(did, startTime, endTime);
+    }
+
+    @Test
+    void 测试1秒间隔016() {
+        String did = "NJ4GNBZAX0000273";
+        String yyyyMMdd = "20250531";
+        String startTime = yyyyMMdd + "000000";
+        String endTime = yyyyMMdd + "235959";
+        double jobWidth = 2.3;
         生成数据文件(did, startTime, endTime);
         测试拆分数据(did, startTime, endTime, jobWidth);
         生成HTML(did, startTime, endTime);

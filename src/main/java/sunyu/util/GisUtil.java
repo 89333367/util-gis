@@ -1707,6 +1707,7 @@ public class GisUtil implements AutoCloseable {
 
         // 获得最小上报时间间隔
         int minEffectiveInterval = getMinEffectiveInterval(wgs84Points);
+        splitResult.setMinEffectiveInterval(minEffectiveInterval);
 
         // 转换为高斯投影坐标
         List<GaussPoint> gaussPoints = toGaussPointList(wgs84Points);
@@ -1907,6 +1908,12 @@ public class GisUtil implements AutoCloseable {
         }
         log.debug("解决时间交叉后，共生成 {} 个part对象", unionParts.size());
 
+        // 补充最小有效间隔
+        for (SplitPart unionPart : unionParts) {
+            unionPart.setMinEffectiveInterval(splitResult.getMinEffectiveInterval());
+        }
+
+        // 聚合一天的地块
         Geometry unionPartsGaussGeometry = config.GEOMETRY_FACTORY.createGeometryCollection(unionParts.stream().map(SplitPart::getGaussGeometry).toArray(Geometry[]::new)).union().buffer(0);
         Geometry wgs84UnionGeometry = toWgs84Geometry(unionPartsGaussGeometry);
         splitResult.setGaussGeometry(unionPartsGaussGeometry);
