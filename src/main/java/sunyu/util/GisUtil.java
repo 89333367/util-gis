@@ -124,15 +124,13 @@ public class GisUtil implements AutoCloseable {
         private final double EARTH_RADIUS = 6378137.0;
 
         /**
-         * 两点间最大作业距离(米)
-         * <p>对应18km/h的作业速度（5米/秒），用于判断轨迹点之间的合理性</p>
+         * DBSCAN半径（米）
+         * <p>
+         * 用于DBSCAN聚类算法的半径阈值。
+         * 当两个点之间的距离小于此值时，被认为是邻居点，属于同一个聚类。
+         * </p>
          */
-        private final double MAX_WORK_DISTANCE = 18 / 3.6;
-
-        /**
-         * 最大切分时间间隔（秒）
-         */
-        private final double MAX_SPLIT_SECONDS = 3600 * 4;
+        private final double DBSCAN_EPSILON = 5;
 
         /**
          * DBSCAN最小点数
@@ -141,7 +139,12 @@ public class GisUtil implements AutoCloseable {
          * 当一个区域内的点数量小于此值时，被认为是噪声点或异常值，不会被分配到任何聚类中。
          * </p>
          */
-        private final int MIN_DBSCAN_POINTS = 20;
+        private final int DBSCAN_MIN_POINTS = 20;
+
+        /**
+         * 最大切分时间间隔（秒）
+         */
+        private final double MAX_SPLIT_SECONDS = 3600 * 4;
 
         /**
          * 最小返回面积（亩）
@@ -832,15 +835,54 @@ public class GisUtil implements AutoCloseable {
         return minEffectiveInterval;
     }
 
+    private double getSpeedAverage(List<Wgs84Point> wgs84Points, int minEffectiveInterval) {
+        if (wgs84Points == null || wgs84Points.size() < 2) {
+            log.warn("轨迹点不足，无法计算速度");
+            return 0;
+        }
+
+        double totalDist = 0, totalTime = 0;
+
+        for (int i = 1; i < wgs84Points.size(); i++) {
+            Wgs84Point p1 = wgs84Points.get(i - 1);
+            Wgs84Point p2 = wgs84Points.get(i);
+
+            Duration duration = Duration.between(p1.getGpsTime(), p2.getGpsTime());
+            double dtSec = duration.toMillis() / 1000.0;
+            if (dtSec <= 0) continue;                             // 同一时刻或倒流，跳过
+            if (Math.abs(dtSec - minEffectiveInterval) > 0.1) continue; // 只保留固定间隔
+
+            double dist = haversine(p1, p2);                      // 米
+            double ms = dist / dtSec;                            // m/s
+
+            /* ===== 异常段过滤 ===== */
+            if (ms > 200) {                                       // 200 m/s 阈值可再调
+                log.warn("异常段：起点({},{}) 终点({},{}) 段平均速度={} m/s",
+                        p1.getLatitude(), p1.getLongitude(),
+                        p2.getLatitude(), p2.getLongitude(), ms);
+                continue;
+            }
+
+            totalDist += dist;
+            totalTime += duration.toMillis();   // 累计毫秒
+        }
+
+        double weightedAvg = totalTime == 0 ? 0 : totalDist / (totalTime / 1000.0);
+        log.debug("全部切段：加权平均={} m/s", weightedAvg);
+        return weightedAvg;
+    }
+
+
     /**
      * 使用DBSCAN算法进行空间密集聚类
      *
-     * @param gaussPoints          高斯投影点列表
-     * @param minEffectiveInterval 最小有效上报时间间隔（秒）
+     * @param gaussPoints 高斯投影点列表
+     * @param eps         聚类半径（米）
+     * @param minPts      最小点数量
      *
      * @return 聚类结果列表，每个聚类包含多个GaussPoint，每个GaussPoint包含原始Wgs84Point信息，并按时间升序排序
      */
-    private List<List<GaussPoint>> dbScanClusters(List<GaussPoint> gaussPoints, int minEffectiveInterval) {
+    private List<List<GaussPoint>> dbScanClusters(List<GaussPoint> gaussPoints, double eps, int minPts) {
         log.debug("从高斯投影中提取坐标数组");
         double[][] coords = new double[gaussPoints.size()][2];
         for (int i = 0; i < gaussPoints.size(); i++) {
@@ -852,8 +894,6 @@ public class GisUtil implements AutoCloseable {
         Database db = new StaticArrayDatabase(new ArrayAdapterDatabaseConnection(coords), null);
         db.initialize();
 
-        double eps = config.MAX_WORK_DISTANCE * minEffectiveInterval;
-        int minPts = config.MIN_DBSCAN_POINTS;
         log.info("使用空间密集聚类参数 eps={} 米, minPts={}", String.format("%.2f", eps), minPts);
         DBSCAN<DoubleVector> dbscan = new DBSCAN<>(EuclideanDistance.STATIC, eps, minPts);
 
@@ -870,8 +910,8 @@ public class GisUtil implements AutoCloseable {
                 log.debug("噪声聚类，跳过");
                 continue;
             }
-            if (cluster.size() < config.MIN_DBSCAN_POINTS) {
-                log.debug("聚类点数量小于 {} 个，跳过", config.MIN_DBSCAN_POINTS);
+            if (cluster.size() < config.DBSCAN_MIN_POINTS) {
+                log.debug("聚类点数量小于 {} 个，跳过", config.DBSCAN_MIN_POINTS);
                 continue;
             }
             List<GaussPoint> gaussPointList = new ArrayList<>();
@@ -1711,16 +1751,27 @@ public class GisUtil implements AutoCloseable {
         int minEffectiveInterval = getMinEffectiveInterval(wgs84Points);
         splitResult.setMinEffectiveInterval(minEffectiveInterval);
 
+        // 获取最小有效上报时间间隔的点位数据中的平均速度(m/s)
+        //double speedAverage = getSpeedAverage(wgs84Points, minEffectiveInterval);
+
         // 转换为高斯投影坐标
         List<GaussPoint> gaussPoints = toGaussPointList(wgs84Points);
-        if (gaussPoints.size() < config.MIN_DBSCAN_POINTS) {
-            log.error("作业轨迹点列表必须包含至少 {} 个有效点位", config.MIN_DBSCAN_POINTS);
+        if (gaussPoints.size() < config.DBSCAN_MIN_POINTS) {
+            log.error("作业轨迹点列表必须包含至少 {} 个有效点位", config.DBSCAN_MIN_POINTS);
             return splitResult;
         }
 
         // 执行聚类，并且返回高斯投影的坐标
-        List<List<GaussPoint>> clusters = dbScanClusters(gaussPoints, minEffectiveInterval);
+        double eps = config.DBSCAN_EPSILON * minEffectiveInterval;
+        int minPts = config.DBSCAN_MIN_POINTS;
+        List<List<GaussPoint>> clusters = dbScanClusters(gaussPoints, eps, minPts);
         log.info("聚类完成，总共有 {} 个聚类簇", clusters.size());
+        if (clusters.size() > 10) {
+            eps = eps * 2;
+            minPts = minPts * 2;
+            clusters = dbScanClusters(gaussPoints, eps, minPts);
+            log.info("聚类完成，总共有 {} 个聚类簇", clusters.size());
+        }
         if (clusters.isEmpty()) {
             log.debug("没有聚类簇");
             return splitResult;
@@ -1734,12 +1785,12 @@ public class GisUtil implements AutoCloseable {
             log.debug("聚类簇包含 {} 个点", cluster.size());
 
             log.debug("按策略切分聚类簇");
-            List<List<GaussPoint>> segments = splitClusterByTimeOrDistance(cluster, config.MAX_SPLIT_SECONDS, minEffectiveInterval * config.MAX_WORK_DISTANCE * 2);
+            List<List<GaussPoint>> segments = splitClusterByTimeOrDistance(cluster, config.MAX_SPLIT_SECONDS, minEffectiveInterval * config.DBSCAN_EPSILON * 2);
             log.info("切分后得到 {} 个子段", segments.size());
 
             for (List<GaussPoint> segment : segments) {
                 log.debug("处理子段：{} 个点", segment.size());
-                if (segment.size() >= config.MIN_DBSCAN_POINTS) {
+                if (segment.size() >= config.DBSCAN_MIN_POINTS) {
                     Geometry gaussGeometry;
                     log.debug("创建线缓冲，缓冲半径：{} 米", halfWorkingWidth);
                     Coordinate[] coordinates = segment.stream().map(point -> new Coordinate(point.getGaussX(), point.getGaussY())).toArray(Coordinate[]::new);
@@ -1946,6 +1997,5 @@ public class GisUtil implements AutoCloseable {
         log.info("地块总面积={}亩 共 {} 个地块，耗时 {} 毫秒", splitResult.getMu(), splitResult.getGaussGeometry().getNumGeometries(), System.currentTimeMillis() - splitRoadStartTime);
         return splitResult;
     }
-
 
 }

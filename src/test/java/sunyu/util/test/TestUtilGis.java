@@ -24,10 +24,9 @@ import sunyu.util.pojo.*;
 import javax.sql.DataSource;
 import java.nio.charset.StandardCharsets;
 import java.sql.SQLException;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Map;
-import java.util.TreeMap;
+import java.time.Duration;
+import java.time.LocalDateTime;
+import java.util.*;
 
 public class TestUtilGis {
     Log log = LogFactory.get();
@@ -240,6 +239,45 @@ public class TestUtilGis {
         }
 
         FileUtil.writeUtf8String(html, path + StrUtil.format("/{}_{}_{}.html", did, startTime, endTime));
+    }
+
+    void 查看速度(String did, String startTime, String endTime, LocalDateTime aTime, LocalDateTime bTime) {
+        String fileName = path + StrUtil.format("/{}_{}_{}_trace.txt", did, startTime, endTime);
+        if (!FileUtil.exist(fileName)) {
+            return;
+        }
+        List<String> lines = FileUtil.readUtf8Lines(fileName);
+        List<Wgs84Point> points = new ArrayList<>();
+        for (String line : lines) {
+            String[] info = line.split(",");
+            LocalDateTime gpsTime = LocalDateTimeUtil.parse(info[0], "yyyyMMddHHmmss");
+            double longitude = Double.parseDouble(info[1]);
+            double latitude = Double.parseDouble(info[2]);
+            if (aTime.isBefore(gpsTime) && gpsTime.isBefore(bTime)) {
+                points.add(new Wgs84Point(gpsTime, longitude, latitude));
+            }
+        }
+        // 打印 最小速度、最大速度、平均速度、速度中位数
+        double[] speeds = new double[points.size() - 1];
+        for (int i = 0; i < speeds.length; i++) {
+            Wgs84Point p1 = points.get(i);
+            Wgs84Point p2 = points.get(i + 1);
+            double dist = gisUtil.haversine(p1, p2);          // 米
+            double dt = Duration.between(p1.getGpsTime(), p2.getGpsTime()).getSeconds(); // 秒
+            speeds[i] = dt == 0 ? 0 : (dist / 1000.0) / (dt / 3600.0); // km/h
+        }
+        Arrays.sort(speeds);
+        double min = speeds.length > 0 ? speeds[0] : 0;
+        double max = speeds.length > 0 ? speeds[speeds.length - 1] : 0;
+        double avg = Arrays.stream(speeds).average().orElse(0);
+        double median = speeds.length % 2 == 0
+                ? (speeds[speeds.length / 2 - 1] + speeds[speeds.length / 2]) / 2
+                : speeds[speeds.length / 2];
+        log.info("速度统计  min={} km/h, max={} km/h, avg={} km/h, median={} km/h",
+                String.format("%.2f", min),
+                String.format("%.2f", max),
+                String.format("%.2f", avg),
+                String.format("%.2f", median));
     }
 
     @Test
@@ -480,7 +518,7 @@ public class TestUtilGis {
     }
 
     @Test
-    void 计算重复亩数0018_1335() throws Exception {
+    void 计算重复亩数0018_1335() {
         String wkt1 = FileUtil.readUtf8Lines(path + "/EC73BD2506050018_20251104090717_20251104092257_parts.txt").get(1).replace("总WKT: ", "");
         String wkt2 = FileUtil.readUtf8Lines(path + "/EC73BD2509061335_20251104100606_20251104101419_parts.txt").get(1).replace("总WKT: ", "");
         WktIntersectionResult r = gisUtil.intersection(wkt1, wkt2);
@@ -666,10 +704,11 @@ public class TestUtilGis {
         String yyyyMMdd = "20251024";
         String startTime = yyyyMMdd + "000000";
         String endTime = yyyyMMdd + "235959";
-        double jobWidth = 2.5;
+        double jobWidth = 3.5;
         生成数据文件(did, startTime, endTime);
         测试拆分数据(did, startTime, endTime, jobWidth);
         生成HTML(did, startTime, endTime);
+        //查看速度(did, startTime, endTime, LocalDateTimeUtil.parse("20251024065125", "yyyyMMddHHmmss"), LocalDateTimeUtil.parse("20251024071818", "yyyyMMddHHmmss"));
     }
 
     @Test
