@@ -910,8 +910,8 @@ public class GisUtil implements AutoCloseable {
                 log.debug("噪声聚类，跳过");
                 continue;
             }
-            if (cluster.size() < config.DBSCAN_MIN_POINTS) {
-                log.debug("聚类点数量小于 {} 个，跳过", config.DBSCAN_MIN_POINTS);
+            if (cluster.size() < minPts) {
+                log.debug("聚类点数量小于 {} 个，跳过", minPts);
                 continue;
             }
             List<GaussPoint> gaussPointList = new ArrayList<>();
@@ -1754,19 +1754,21 @@ public class GisUtil implements AutoCloseable {
         // 获取最小有效上报时间间隔的点位数据中的平均速度(m/s)
         //double speedAverage = getSpeedAverage(wgs84Points, minEffectiveInterval);
 
+        // 聚类参数
+        double eps = config.DBSCAN_EPSILON * minEffectiveInterval;
+        int minPts = config.DBSCAN_MIN_POINTS;
+
         // 转换为高斯投影坐标
         List<GaussPoint> gaussPoints = toGaussPointList(wgs84Points);
-        if (gaussPoints.size() < config.DBSCAN_MIN_POINTS) {
-            log.error("作业轨迹点列表必须包含至少 {} 个有效点位", config.DBSCAN_MIN_POINTS);
+        if (gaussPoints.size() < minPts) {
+            log.error("作业轨迹点列表必须包含至少 {} 个有效点位", minPts);
             return splitResult;
         }
 
         // 执行聚类，并且返回高斯投影的坐标
-        double eps = config.DBSCAN_EPSILON * minEffectiveInterval;
-        int minPts = config.DBSCAN_MIN_POINTS;
         List<List<GaussPoint>> clusters = dbScanClusters(gaussPoints, eps, minPts);
         log.info("聚类完成，总共有 {} 个聚类簇", clusters.size());
-        if (clusters.size() > 10) {
+        if (clusters.size() > minPts) {
             eps = eps * 2;
             minPts = minPts * 2;
             clusters = dbScanClusters(gaussPoints, eps, minPts);
@@ -1785,12 +1787,12 @@ public class GisUtil implements AutoCloseable {
             log.debug("聚类簇包含 {} 个点", cluster.size());
 
             log.debug("按策略切分聚类簇");
-            List<List<GaussPoint>> segments = splitClusterByTimeOrDistance(cluster, config.MAX_SPLIT_SECONDS, minEffectiveInterval * config.DBSCAN_EPSILON * 2);
+            List<List<GaussPoint>> segments = splitClusterByTimeOrDistance(cluster, config.MAX_SPLIT_SECONDS, eps * 2);
             log.info("切分后得到 {} 个子段", segments.size());
 
             for (List<GaussPoint> segment : segments) {
                 log.debug("处理子段：{} 个点", segment.size());
-                if (segment.size() >= config.DBSCAN_MIN_POINTS) {
+                if (segment.size() >= minPts) {
                     Geometry gaussGeometry;
                     log.debug("创建线缓冲，缓冲半径：{} 米", halfWorkingWidth);
                     Coordinate[] coordinates = segment.stream().map(point -> new Coordinate(point.getGaussX(), point.getGaussY())).toArray(Coordinate[]::new);
