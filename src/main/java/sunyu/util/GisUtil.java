@@ -493,7 +493,7 @@ public class GisUtil implements AutoCloseable {
         double avgDistance = totalDistance / validSegments;
         double density = avgDistance > 0 ? 1.0 / avgDistance : 0.0; // 密度 = 1/平均距离
 
-        log.debug("密度计算：总点数={}, 有效段数={}, 总距离={}米, 平均距离={}米, 密度={}点/米", points.size(), validSegments, totalDistance, avgDistance, density);
+        log.info("密度计算：总点数={}, 有效段数={}, 总距离={}米, 平均距离={}米, 密度={}点/米", points.size(), validSegments, totalDistance, avgDistance, density);
 
         return density;
     }
