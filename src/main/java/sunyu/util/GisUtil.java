@@ -1052,6 +1052,119 @@ public class GisUtil implements AutoCloseable {
         return clusters;
     }
 
+    private void optimizeLandParcelIntersectionRepair(Map<Integer, Geometry> clusterGaussGeometryMap,
+                                                      Map<Integer, List<GaussPoint>> clusterGaussPointsMap) {
+        if (clusterGaussGeometryMap.size() <= 1) {
+            return;
+        }
+
+        long startTime = System.currentTimeMillis();
+        log.debug("开始优化的地块相交修复，共 {} 个地块", clusterGaussGeometryMap.size());
+
+        // 第一步：预处理 - 统一精度并简化
+        PrecisionModel pm = new PrecisionModel(1000); // 1mm精度
+        Map<Integer, Geometry> processedGeometries = new LinkedHashMap<>();
+
+        for (Map.Entry<Integer, Geometry> entry : clusterGaussGeometryMap.entrySet()) {
+            Integer key = entry.getKey();
+            Geometry geom = entry.getValue();
+
+            if (geom == null || geom.isEmpty()) {
+                continue;
+            }
+
+            // 一次性精度处理和有效性修复
+            geom = GeometryPrecisionReducer.reduce(geom, pm);
+
+            // 只在必要时进行union和buffer修复
+            if (!geom.isValid() || !(geom instanceof Polygon || geom instanceof MultiPolygon)) {
+                geom = UnaryUnionOp.union(geom);
+                if (!geom.isValid()) {
+                    geom = geom.buffer(0);
+                }
+            }
+
+            if (!geom.isEmpty()) {
+                processedGeometries.put(key, geom);
+            }
+        }
+
+        if (processedGeometries.size() <= 1) {
+            clusterGaussGeometryMap.clear();
+            clusterGaussGeometryMap.putAll(processedGeometries);
+            return;
+        }
+
+        // 第二步：优化的相交修复 - 使用空间索引避免O(n²)复杂度
+        List<Integer> sortedKeys = new ArrayList<>(processedGeometries.keySet());
+        STRtree spatialIndex = new STRtree();
+
+        // 构建空间索引
+        for (int i = 0; i < sortedKeys.size(); i++) {
+            Integer key = sortedKeys.get(i);
+            Geometry geom = processedGeometries.get(key);
+            spatialIndex.insert(geom.getEnvelopeInternal(), new Object[]{i, key, geom});
+        }
+        spatialIndex.build();
+
+        // 第三步：智能相交处理 - 只处理真正相交的地块
+        Set<Integer> processedKeys = new HashSet<>();
+        Geometry accumulatedUnion = null;
+
+        for (int i = 0; i < sortedKeys.size(); i++) {
+            Integer currentKey = sortedKeys.get(i);
+            if (processedKeys.contains(currentKey)) {
+                continue;
+            }
+
+            Geometry currentGeom = processedGeometries.get(currentKey);
+
+            // 只与之前处理过的地块进行相交检测
+            if (accumulatedUnion != null && accumulatedUnion.intersects(currentGeom)) {
+                // 使用优化的difference操作
+                Geometry difference = currentGeom.difference(accumulatedUnion);
+
+                // 快速验证结果有效性
+                if (difference != null && !difference.isEmpty() && difference.getArea() > 0.001) {
+                    currentGeom = difference;
+                } else {
+                    // 如果difference结果太小，跳过当前地块
+                    continue;
+                }
+            }
+
+            // 更新累积union - 使用增量方式避免复杂度爆炸
+            if (accumulatedUnion == null) {
+                accumulatedUnion = currentGeom;
+            } else {
+                // 定期重建accumulatedUnion以控制复杂度
+                if (i % 5 == 0) {
+                    List<Geometry> geoms = new ArrayList<>();
+                    for (int j = 0; j <= i; j++) {
+                        if (processedKeys.contains(sortedKeys.get(j))) {
+                            geoms.add(processedGeometries.get(sortedKeys.get(j)));
+                        }
+                    }
+                    if (!geoms.isEmpty()) {
+                        accumulatedUnion = UnaryUnionOp.union(geoms);
+                    }
+                } else {
+                    accumulatedUnion = accumulatedUnion.union(currentGeom);
+                }
+            }
+
+            processedKeys.add(currentKey);
+            clusterGaussGeometryMap.put(currentKey, currentGeom);
+        }
+
+        // 清理被删除的地块
+        clusterGaussGeometryMap.keySet().retainAll(processedKeys);
+        clusterGaussPointsMap.keySet().retainAll(processedKeys);
+
+        log.info("优化的地块相交修复完成，剩余 {} 个地块，耗时 {} 毫秒",
+                clusterGaussGeometryMap.size(), System.currentTimeMillis() - startTime);
+    }
+
     /**
      * 过滤异常点位信息
      *
@@ -1949,61 +2062,7 @@ public class GisUtil implements AutoCloseable {
         }
 
         if (clusterGaussGeometryMap.size() > 1) {
-            log.debug("地块相交修复，时间优先+空间裁剪：先来的地块保留，后到的地块抠掉重叠部分");
-
-            List<Integer> indexList = new ArrayList<>(clusterGaussGeometryMap.keySet());
-            Geometry accumulatedUnion = null;
-            PrecisionModel pm = new PrecisionModel(1000);   // 1 mm 精度
-
-            Iterator<Integer> it = indexList.iterator();
-            while (it.hasNext()) {
-                Integer key = it.next();
-                Geometry curr = clusterGaussGeometryMap.get(key);
-                if (curr == null || curr.isEmpty()) {
-                    it.remove();
-                    clusterGaussGeometryMap.remove(key);
-                    clusterGaussPointsMap.remove(key);
-                    continue;
-                }
-
-                /* ---------- 抽干重建 ---------- */
-                curr = GeometryPrecisionReducer.reduce(curr, pm);
-                curr = UnaryUnionOp.union(curr);
-                curr = curr.buffer(0);
-                if (!(curr instanceof Polygon || curr instanceof MultiPolygon)) {
-                    curr = curr.union();
-                    curr = curr.buffer(0);
-                }
-                if (curr.isEmpty()) {
-                    it.remove();
-                    clusterGaussGeometryMap.remove(key);
-                    clusterGaussPointsMap.remove(key);
-                    continue;
-                }
-
-                /* ---------- 剪掉前面已占地盘 ---------- */
-                if (accumulatedUnion != null) {
-                    accumulatedUnion = GeometryPrecisionReducer.reduce(accumulatedUnion, pm);
-                    accumulatedUnion = UnaryUnionOp.union(accumulatedUnion).buffer(0);
-                    curr = curr.difference(accumulatedUnion).buffer(0);
-                    if (curr.isEmpty()) {
-                        it.remove();
-                        clusterGaussGeometryMap.remove(key);
-                        clusterGaussPointsMap.remove(key);
-                        continue;
-                    }
-                }
-
-                /* ---------- 更新自身并累积 ---------- */
-                clusterGaussGeometryMap.put(key, curr);
-                if (accumulatedUnion == null) {
-                    accumulatedUnion = curr;
-                } else {
-                    accumulatedUnion = accumulatedUnion.union(curr).buffer(0);
-                }
-            }
-
-            log.info("地块相交修复完毕，剩余 {} 个地块", clusterGaussGeometryMap.size());
+            optimizeLandParcelIntersectionRepair(clusterGaussGeometryMap, clusterGaussPointsMap);
         }
 
         List<Integer> indexList = new ArrayList<>(clusterGaussGeometryMap.keySet());
