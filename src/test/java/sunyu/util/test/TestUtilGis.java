@@ -712,6 +712,50 @@ public class TestUtilGis {
     }
 
     @Test
+    void 测试1秒间隔022() {
+        String did = "EC73BD2504110767";
+        String startTime = "20250529053827";
+        String endTime = "20250529181257";
+        double jobWidth = 2.6;
+        生成数据文件(did, startTime, endTime);
+        测试拆分数据(did, startTime, endTime, jobWidth);
+        生成HTML(did, startTime, endTime);
+    }
+
+    @Test
+    void 测试1秒间隔023() {
+        String did = "EC73BD2504110765";
+        String startTime = "20250503055242";
+        String endTime = "20250503181644";
+        double jobWidth = 2.6;
+        生成数据文件(did, startTime, endTime);
+        测试拆分数据(did, startTime, endTime, jobWidth);
+        生成HTML(did, startTime, endTime);
+    }
+
+    @Test
+    void 测试1秒间隔024() {
+        String did = "EC73BD2504110478";
+        String startTime = "20250501071158";
+        String endTime = "20250501183529";
+        double jobWidth = 2.6;
+        生成数据文件(did, startTime, endTime);
+        测试拆分数据(did, startTime, endTime, jobWidth);
+        生成HTML(did, startTime, endTime);
+    }
+
+    @Test
+    void 测试1秒间隔025() {
+        String did = "EC73BD2504110477";
+        String startTime = "20250501071207";
+        String endTime = "20250501183550";
+        double jobWidth = 2.6;
+        生成数据文件(did, startTime, endTime);
+        测试拆分数据(did, startTime, endTime, jobWidth);
+        生成HTML(did, startTime, endTime);
+    }
+
+    @Test
     void 测试10秒间隔001() {
         // 一块地，非常多的路
         String did = "EM9101B8F5AZT0041";
