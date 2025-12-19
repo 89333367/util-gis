@@ -943,7 +943,7 @@ public class GisUtil implements AutoCloseable {
                 return false;
             }
             // 经纬度不能为0（无效坐标）
-            if (p.getLongitude() == 0.0 && p.getLatitude() == 0.0) {
+            if (p.getLongitude() == 0.0 || p.getLatitude() == 0.0) {
                 log.trace("定位时间: {} 轨迹点经纬度为 0 ，抛弃", p.getGpsTime());
                 return false;
             }
