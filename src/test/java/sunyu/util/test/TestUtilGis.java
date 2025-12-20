@@ -731,6 +731,8 @@ public class TestUtilGis {
 
     @Test
     void 测试1秒间隔025() {
+        // 执行速度较慢，需要优化
+        // 7块地
         String did = "EC73BD2504110477";
         String startTime = "20250501071207";
         String endTime = "20250501183550";
@@ -755,7 +757,7 @@ public class TestUtilGis {
 
     @Test
     void 测试10秒间隔002() {
-        // 五块地，非常分散，路也非常多，还有一个非常小的轮廓无法去掉
+        // 识别出4块地
         String did = "EM9101B8F5AZT0041";
         String yyyyMMdd = "20251024";
         String startTime = yyyyMMdd + "000000";
