@@ -376,6 +376,18 @@
             width: 40px;
             text-align: right;
         }
+        
+        /* 多边形轮廓增强显示 - 确保不透明 */
+        .tdt-polygon {
+            opacity: 1.0;
+            stroke-opacity: 1.0;
+            fill-opacity: 0.15;
+        }
+        
+        .tdt-polygon-outline {
+            opacity: 1.0;
+            stroke-opacity: 1.0;
+        }
     </style>
     <script src="https://api.tianditu.gov.cn/api?v=4.0&tk=9ed3674d01dd7c129ab38e3c38bf651a"></script>
     <script src="https://cdn.bootcdn.net/ajax/libs/Turf.js/6.5.0/turf.min.js"></script>
@@ -869,13 +881,13 @@
         const rings = coordsWGS84.map(ring => ring.map(([lng, lat]) => new T.LngLat(lng, lat)));
 
 
-         // 创建多边形（优化显示效果：1像素线宽+高对比度）
+         // 创建多边形（优化显示效果：1像素线宽+高对比度+强制不透明）
           const polygon = new T.Polygon(rings, {
               color: colorScheme.outline,
-              weight: 1,  // 保持1像素线宽
-              opacity: 1,  // 轮廓不透明，确保清晰可见
+              weight: 1,  // 恢复为1像素线宽，避免轮廓间缝隙消失
+              opacity: 1.0,  // 轮廓完全不透明
               fillColor: colorScheme.fill,
-              fillOpacity: colorScheme.opacity * 1.5  // 增强填充透明度
+              fillOpacity: Math.min(colorScheme.opacity * 2.0, 0.8)  // 提高填充透明度，避免看到下方轨迹
           });
  
           // 使用WGS84坐标计算面积（更准确的面积计算）
@@ -2934,16 +2946,16 @@
     // 多行WKT颜色方案 - 用于为每个多边形分配不同颜色
     // 优化颜色方案：避免与红色轨迹冲突，使用高对比度颜色
     const polygonColors = [
-        { outline: "#FF0000", fill: "#FFFF00", opacity: 0.15 }, // 纯红色边框+黄色填充（最醒目）
-        { outline: "#000000", fill: "#90EE90", opacity: 0.15 }, // 纯黑色边框+亮绿色填充（最强对比）
-        { outline: "#0000FF", fill: "#ADD8E6", opacity: 0.15 }, // 纯蓝色边框+浅蓝填充（高对比）
-        { outline: "#FF00FF", fill: "#FFB6C1", opacity: 0.15 }, // 品红色边框+粉红填充（鲜艳对比）
-        { outline: "#00FFFF", fill: "#E0FFFF", opacity: 0.15 }, // 青色边框+浅青填充（冷色调对比）
-        { outline: "#FFA500", fill: "#FFE4B5", opacity: 0.15 }, // 橙色边框+浅橙填充（暖色调对比）
-        { outline: "#9400D3", fill: "#DDA0DD", opacity: 0.15 }, // 紫罗兰色边框+浅紫填充（高对比）
-        { outline: "#32CD32", fill: "#98FB98", opacity: 0.15 }, // 酸橙绿边框+浅绿填充（鲜艳对比）
-        { outline: "#1E90FF", fill: "#B0E0E6", opacity: 0.15 }, // 道奇蓝边框+浅蓝填充（明亮对比）
-        { outline: "#FF1493", fill: "#FFB6C1", opacity: 0.15 }  // 深粉色边框+粉红填充（醒目对比）
+        { outline: "#FF0000", fill: "#FFFF00", opacity: 0.35 }, // 纯红色边框+黄色填充（最醒目）
+        { outline: "#000000", fill: "#90EE90", opacity: 0.35 }, // 纯黑色边框+亮绿色填充（最强对比）
+        { outline: "#0000FF", fill: "#ADD8E6", opacity: 0.35 }, // 纯蓝色边框+浅蓝填充（高对比）
+        { outline: "#FF00FF", fill: "#FFB6C1", opacity: 0.35 }, // 品红色边框+粉红填充（鲜艳对比）
+        { outline: "#00FFFF", fill: "#E0FFFF", opacity: 0.35 }, // 青色边框+浅青填充（冷色调对比）
+        { outline: "#FFA500", fill: "#FFE4B5", opacity: 0.35 }, // 橙色边框+浅橙填充（暖色调对比）
+        { outline: "#9400D3", fill: "#DDA0DD", opacity: 0.35 }, // 紫罗兰色边框+浅紫填充（高对比）
+        { outline: "#32CD32", fill: "#98FB98", opacity: 0.35 }, // 酸橙绿边框+浅绿填充（鲜艳对比）
+        { outline: "#1E90FF", fill: "#B0E0E6", opacity: 0.35 }, // 道奇蓝边框+浅蓝填充（明亮对比）
+        { outline: "#FF1493", fill: "#FFB6C1", opacity: 0.35 }  // 深粉色边框+粉红填充（醒目对比）
     ];
     
     // 智能颜色选择器 - 根据索引获取颜色，避免与轨迹和卫星图底色撞色
@@ -2954,21 +2966,21 @@
         
         // 定义所有可用的颜色方案（避免与卫星图绿色底色相似）
         const availableColors = [
-            { outline: "#FF0000", fill: "#FF6666", opacity: 0.25 }, // 红色系
-            { outline: "#000000", fill: "#666666", opacity: 0.25 }, // 黑色系
-            { outline: "#0000FF", fill: "#6666FF", opacity: 0.25 }, // 蓝色系
-            { outline: "#FF00FF", fill: "#FF66FF", opacity: 0.25 }, // 紫色系
-            { outline: "#9400D3", fill: "#DDA0DD", opacity: 0.25 }, // 紫罗兰色系
-            { outline: "#1E90FF", fill: "#87CEEB", opacity: 0.25 }, // 道奇蓝色系
-            { outline: "#FF1493", fill: "#FF69B4", opacity: 0.25 }, // 深粉色系
-            { outline: "#FFA500", fill: "#FFD700", opacity: 0.25 }, // 橙色系
-            { outline: "#8B008B", fill: "#DA70D6", opacity: 0.25 }, // 深紫色系
-            { outline: "#DC143C", fill: "#F08080", opacity: 0.25 },  // 深红色系
-            { outline: "#2F4F4F", fill: "#708090", opacity: 0.25 }, // 深灰色系
-            { outline: "#B22222", fill: "#CD5C5C", opacity: 0.25 }, // 火砖色系
-            { outline: "#4682B4", fill: "#87CEEB", opacity: 0.25 }, // 钢蓝色系
-            { outline: "#DAA520", fill: "#F0E68C", opacity: 0.25 }, // 金黄色系
-            { outline: "#8B4513", fill: "#D2B48C", opacity: 0.25 }  // 马鞍棕色系
+            { outline: "#FF0000", fill: "#FF6666", opacity: 0.4 }, // 红色系
+            { outline: "#000000", fill: "#666666", opacity: 0.4 }, // 黑色系
+            { outline: "#0000FF", fill: "#6666FF", opacity: 0.4 }, // 蓝色系
+            { outline: "#FF00FF", fill: "#FF66FF", opacity: 0.4 }, // 紫色系
+            { outline: "#9400D3", fill: "#DDA0DD", opacity: 0.4 }, // 紫罗兰色系
+            { outline: "#1E90FF", fill: "#87CEEB", opacity: 0.4 }, // 道奇蓝色系
+            { outline: "#FF1493", fill: "#FF69B4", opacity: 0.4 }, // 深粉色系
+            { outline: "#FFA500", fill: "#FFD700", opacity: 0.4 }, // 橙色系
+            { outline: "#8B008B", fill: "#DA70D6", opacity: 0.4 }, // 深紫色系
+            { outline: "#DC143C", fill: "#F08080", opacity: 0.4 },  // 深红色系
+            { outline: "#2F4F4F", fill: "#708090", opacity: 0.4 }, // 深灰色系
+            { outline: "#B22222", fill: "#CD5C5C", opacity: 0.4 }, // 火砖色系
+            { outline: "#4682B4", fill: "#87CEEB", opacity: 0.4 }, // 钢蓝色系
+            { outline: "#DAA520", fill: "#F0E68C", opacity: 0.4 }, // 金黄色系
+            { outline: "#8B4513", fill: "#D2B48C", opacity: 0.4 }  // 马鞍棕色系
         ];
         
         // 过滤掉与轨迹颜色相近的颜色
