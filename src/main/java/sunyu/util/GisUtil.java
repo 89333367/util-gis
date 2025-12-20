@@ -2035,7 +2035,7 @@ public class GisUtil implements AutoCloseable {
         // 转换为高斯投影坐标
         List<GaussPoint> gaussPoints = toGaussPointList(wgs84Points);
         if (gaussPoints.size() < minPts) {
-            log.error("作业轨迹点列表必须包含至少 {} 个有效点位", minPts);
+            log.warn("作业轨迹点列表必须包含至少 {} 个有效点位", minPts);
             return splitResult;
         }
 
