@@ -841,8 +841,8 @@
     function processPolygon(actualPolygonIndex, polygonCoords, colorIndex = 0) {
         console.log('开始处理多边形', actualPolygonIndex);
 
-        // 根据颜色索引获取颜色方案
-        const colorScheme = polygonColors[colorIndex % polygonColors.length];
+        // 智能颜色选择 - 根据索引获取颜色，避免与轨迹和卫星图底色撞色
+        const colorScheme = getSmartPolygonColorByIndex(colorIndex);
 
         // 坐标系选择（绘制始终使用WGS84坐标）
         const coordSys = (document.getElementById('coordSysSelect') && document.getElementById('coordSysSelect').value) || 'wgs84';
@@ -869,13 +869,13 @@
         const rings = coordsWGS84.map(ring => ring.map(([lng, lat]) => new T.LngLat(lng, lat)));
 
 
-         // 创建半透明填充的多边形（无边框）
+         // 创建多边形（优化显示效果：1像素线宽+高对比度）
           const polygon = new T.Polygon(rings, {
               color: colorScheme.outline,
-              weight: 1,
-              opacity: 1,
+              weight: 1,  // 保持1像素线宽
+              opacity: 1,  // 轮廓不透明，确保清晰可见
               fillColor: colorScheme.fill,
-              fillOpacity: colorScheme.opacity
+              fillOpacity: colorScheme.opacity * 1.5  // 增强填充透明度
           });
  
           // 使用WGS84坐标计算面积（更准确的面积计算）
@@ -1146,6 +1146,12 @@
             polygonInfoList.forEach(info => {
                 if (info && info.polygon && map && map.removeOverLay) {
                     try { map.removeOverLay(info.polygon); } catch (e) { console.warn('移除多边形失败:', e); }
+                    // 移除发光效果
+                    if (info.polygon.glowPolygons) {
+                        info.polygon.glowPolygons.forEach(glow => {
+                            try { map.removeOverLay(glow); } catch (e) { console.warn('移除发光效果失败:', e); }
+                        });
+                    }
                 }
                 if (info && info.labelRef && info.labelRef.parentNode) {
                     try { info.labelRef.parentNode.removeChild(info.labelRef); } catch (e) { console.warn('移除DOM标签失败:', e); }
@@ -2926,18 +2932,96 @@
     let currentFillOpacity = 0.35;       // 默认透明度（固定）
     
     // 多行WKT颜色方案 - 用于为每个多边形分配不同颜色
+    // 优化颜色方案：避免与红色轨迹冲突，使用高对比度颜色
     const polygonColors = [
-        { outline: "#FFD700", fill: "#FFFF00", opacity: 0.35 }, // 黄色
-        { outline: "#FF0000", fill: "#FF6666", opacity: 0.35 }, // 红色
-        { outline: "#00FF00", fill: "#66FF66", opacity: 0.35 }, // 绿色
-        { outline: "#0000FF", fill: "#6666FF", opacity: 0.35 }, // 蓝色
-        { outline: "#FF00FF", fill: "#FF66FF", opacity: 0.35 }, // 紫色
-        { outline: "#00FFFF", fill: "#66FFFF", opacity: 0.35 }, // 青色
-        { outline: "#FFA500", fill: "#FFCC66", opacity: 0.35 }, // 橙色
-        { outline: "#800080", fill: "#CC66CC", opacity: 0.35 }, // 深紫色
-        { outline: "#008000", fill: "#66CC66", opacity: 0.35 }, // 深绿色
-        { outline: "#800000", fill: "#CC6666", opacity: 0.35 }  // 深红色
+        { outline: "#FF0000", fill: "#FFFF00", opacity: 0.15 }, // 纯红色边框+黄色填充（最醒目）
+        { outline: "#000000", fill: "#90EE90", opacity: 0.15 }, // 纯黑色边框+亮绿色填充（最强对比）
+        { outline: "#0000FF", fill: "#ADD8E6", opacity: 0.15 }, // 纯蓝色边框+浅蓝填充（高对比）
+        { outline: "#FF00FF", fill: "#FFB6C1", opacity: 0.15 }, // 品红色边框+粉红填充（鲜艳对比）
+        { outline: "#00FFFF", fill: "#E0FFFF", opacity: 0.15 }, // 青色边框+浅青填充（冷色调对比）
+        { outline: "#FFA500", fill: "#FFE4B5", opacity: 0.15 }, // 橙色边框+浅橙填充（暖色调对比）
+        { outline: "#9400D3", fill: "#DDA0DD", opacity: 0.15 }, // 紫罗兰色边框+浅紫填充（高对比）
+        { outline: "#32CD32", fill: "#98FB98", opacity: 0.15 }, // 酸橙绿边框+浅绿填充（鲜艳对比）
+        { outline: "#1E90FF", fill: "#B0E0E6", opacity: 0.15 }, // 道奇蓝边框+浅蓝填充（明亮对比）
+        { outline: "#FF1493", fill: "#FFB6C1", opacity: 0.15 }  // 深粉色边框+粉红填充（醒目对比）
     ];
+    
+    // 智能颜色选择器 - 根据索引获取颜色，避免与轨迹和卫星图底色撞色
+    function getSmartPolygonColorByIndex(index) {
+        // 获取当前轨迹颜色和轨迹点颜色
+        const trackColor = currentTrackLineColor.toLowerCase();
+        const trackPointColor = currentTrackPointColor.toLowerCase();
+        
+        // 定义所有可用的颜色方案（避免与卫星图绿色底色相似）
+        const availableColors = [
+            { outline: "#FF0000", fill: "#FF6666", opacity: 0.25 }, // 红色系
+            { outline: "#000000", fill: "#666666", opacity: 0.25 }, // 黑色系
+            { outline: "#0000FF", fill: "#6666FF", opacity: 0.25 }, // 蓝色系
+            { outline: "#FF00FF", fill: "#FF66FF", opacity: 0.25 }, // 紫色系
+            { outline: "#9400D3", fill: "#DDA0DD", opacity: 0.25 }, // 紫罗兰色系
+            { outline: "#1E90FF", fill: "#87CEEB", opacity: 0.25 }, // 道奇蓝色系
+            { outline: "#FF1493", fill: "#FF69B4", opacity: 0.25 }, // 深粉色系
+            { outline: "#FFA500", fill: "#FFD700", opacity: 0.25 }, // 橙色系
+            { outline: "#8B008B", fill: "#DA70D6", opacity: 0.25 }, // 深紫色系
+            { outline: "#DC143C", fill: "#F08080", opacity: 0.25 },  // 深红色系
+            { outline: "#2F4F4F", fill: "#708090", opacity: 0.25 }, // 深灰色系
+            { outline: "#B22222", fill: "#CD5C5C", opacity: 0.25 }, // 火砖色系
+            { outline: "#4682B4", fill: "#87CEEB", opacity: 0.25 }, // 钢蓝色系
+            { outline: "#DAA520", fill: "#F0E68C", opacity: 0.25 }, // 金黄色系
+            { outline: "#8B4513", fill: "#D2B48C", opacity: 0.25 }  // 马鞍棕色系
+        ];
+        
+        // 过滤掉与轨迹颜色相近的颜色
+        const filteredColors = availableColors.filter(color => {
+            const outline = color.outline.toLowerCase();
+            
+            // 避免与轨迹线颜色相似
+            if (isColorSimilar(outline, trackColor)) return false;
+            
+            // 避免与轨迹点颜色相似
+            if (isColorSimilar(outline, trackPointColor)) return false;
+            
+            // 避免与卫星图绿色底色相似
+            if (isColorSimilar(outline, "#228B22") || isColorSimilar(outline, "#32CD32")) return false;
+            
+            return true;
+        });
+        
+        // 如果有过滤后的颜色，使用索引循环选择；否则使用原始颜色池
+        const colorPool = filteredColors.length > 0 ? filteredColors : availableColors;
+        
+        // 根据索引返回颜色，确保不同轮廓有不同颜色
+        return colorPool[index % colorPool.length];
+    }
+    
+    // 判断两个颜色是否相似
+    function isColorSimilar(color1, color2) {
+        // 将十六进制颜色转换为RGB
+        const rgb1 = hexToRgb(color1);
+        const rgb2 = hexToRgb(color2);
+        
+        if (!rgb1 || !rgb2) return false;
+        
+        // 计算颜色距离（欧几里得距离）
+        const distance = Math.sqrt(
+            Math.pow(rgb1.r - rgb2.r, 2) +
+            Math.pow(rgb1.g - rgb2.g, 2) +
+            Math.pow(rgb1.b - rgb2.b, 2)
+        );
+        
+        // 距离小于阈值认为相似
+        return distance < 60;
+    }
+    
+    // 十六进制颜色转RGB
+    function hexToRgb(hex) {
+        const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+        return result ? {
+            r: parseInt(result[1], 16),
+            g: parseInt(result[2], 16),
+            b: parseInt(result[3], 16)
+        } : null;
+    }
     
     // 轨迹颜色相关变量
     let currentTrackLineColor = "#FF0000"; // 默认轨迹线颜色
