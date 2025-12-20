@@ -469,6 +469,14 @@ POLYGON ((118.79207288514813 28.892494716537506, 118.7920713990593 28.8924991245
             <div class="display-toggles" style="margin-top:8px;font-size:12px;color:#333;">
                 <label><input type="checkbox" id="toggleLabelsCheckbox"> 显示亩数</label>
             </div>
+            <!-- 轮廓透明度控制 -->
+            <div class="outline-opacity-control" style="margin-top:8px;font-size:12px;color:#333;">
+                <div style="margin-bottom:4px;">轮廓透明度：</div>
+                <div style="display:flex;align-items:center;gap:8px;">
+                    <input type="range" id="outlineOpacitySlider" min="0" max="100" value="100" style="flex:1;">
+                    <span id="outlineOpacityValue" style="min-width:30px;text-align:right;">100%</span>
+                </div>
+            </div>
         </div>
 
         <div class="tab-pane" id="tabSplit">
@@ -43034,11 +43042,11 @@ POLYGON ((118.79207288514813 28.892494716537506, 118.7920713990593 28.8924991245
         const rings = coordsWGS84.map(ring => ring.map(([lng, lat]) => new T.LngLat(lng, lat)));
 
 
-         // 创建多边形（优化显示效果：1像素线宽+高对比度+强制不透明）
+         // 创建多边形（优化显示效果：1像素线宽+高对比度+动态轮廓透明度）
           const polygon = new T.Polygon(rings, {
               color: colorScheme.outline,
               weight: 1,  // 恢复为1像素线宽，避免轮廓间缝隙消失
-              opacity: 1.0,  // 轮廓完全不透明
+              opacity: currentOutlineOpacity,  // 使用动态轮廓透明度
               fillColor: colorScheme.fill,
               fillOpacity: Math.min(colorScheme.opacity * 2.0, 0.8)  // 提高填充透明度，避免看到下方轨迹
           });
@@ -43219,6 +43227,38 @@ POLYGON ((118.79207288514813 28.892494716537506, 118.7920713990593 28.8924991245
     }
     // 确保在全局可用（处理第三方库事件回调作用域差异）
     window.updateAllLabelsPosition = updateAllLabelsPosition;
+
+    // 更新所有多边形轮廓透明度
+    function updateAllPolygonOutlinesOpacity() {
+        if (!map) return;
+        
+        // 更新当前显示的多边形轮廓透明度
+        currentPolygons.forEach(item => {
+            if (item && item.polygon) {
+                try {
+                    // 更新多边形轮廓透明度
+                    item.polygon.setOptions({
+                        opacity: currentOutlineOpacity
+                    });
+                } catch (e) {
+                    console.warn('更新多边形轮廓透明度失败:', e);
+                }
+            }
+        });
+        
+        // 同时更新polygonInfoList中的多边形
+        polygonInfoList.forEach(info => {
+            if (info && info.polygon) {
+                try {
+                    info.polygon.setOptions({
+                        opacity: currentOutlineOpacity
+                    });
+                } catch (e) {
+                    console.warn('更新polygonInfoList中的多边形轮廓透明度失败:', e);
+                }
+            }
+        });
+    }
 
     // 绑定“显示亩数标签”开关（默认隐藏）
     function bindLabelsToggle() {
@@ -45095,6 +45135,7 @@ POLYGON ((118.79207288514813 28.892494716537506, 118.7920713990593 28.8924991245
     let currentOutlineColor = "#FFD700"; // 默认边框颜色（固定）
     let currentFillColor = "#FFFF00";   // 默认填充颜色（固定）
     let currentFillOpacity = 0.35;       // 默认透明度（固定）
+    let currentOutlineOpacity = 1.0;     // 轮廓透明度（默认不透明）
     
     // 多行WKT颜色方案 - 用于为每个多边形分配不同颜色
     // 优化颜色方案：避免与红色轨迹冲突，使用高对比度颜色
@@ -45228,6 +45269,18 @@ POLYGON ((118.79207288514813 28.892494716537506, 118.7920713990593 28.8924991245
         //     currentFillOpacity = this.value / 100;
         //     fillOpacityValue.textContent = this.value + '%';
         // });
+        
+        // 轮廓透明度控制
+        const outlineOpacitySlider = document.getElementById('outlineOpacitySlider');
+        const outlineOpacityValue = document.getElementById('outlineOpacityValue');
+        
+        if (outlineOpacitySlider && outlineOpacityValue) {
+            outlineOpacitySlider.addEventListener('input', function() {
+                currentOutlineOpacity = this.value / 100;
+                outlineOpacityValue.textContent = this.value + '%';
+                updateAllPolygonOutlinesOpacity();
+            });
+        }
         
         // 轨迹线颜色选择器
         const trackLineColorPicker = document.getElementById('trackLineColorPicker');
