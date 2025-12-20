@@ -1981,8 +1981,6 @@ public class GisUtil implements AutoCloseable {
         double halfWorkingWidth = workingWidth / 2.0;
         // 正缓冲，一般用于减少地块缝隙
         double positiveBuffer = Math.max(config.MIN_BUFFER_DISTANCE, halfWorkingWidth);
-        // 负缓冲，一般用于切割道路轨迹
-        double negativeBuffer = 2;
 
         // 过滤异常点位信息
         wgs84Points = filterWgs84Points(wgs84Points);
@@ -1990,9 +1988,6 @@ public class GisUtil implements AutoCloseable {
         // 获得最小上报时间间隔
         int minEffectiveInterval = getMinEffectiveInterval(wgs84Points);
         splitResult.setMinEffectiveInterval(minEffectiveInterval);
-
-        // 获取最小有效上报时间间隔的点位数据中的平均速度(m/s)
-        //double speedAverage = getSpeedAverage(wgs84Points, minEffectiveInterval);
 
         // 聚类参数
         double eps = config.DBSCAN_EPSILON * minEffectiveInterval;
@@ -2062,12 +2057,10 @@ public class GisUtil implements AutoCloseable {
         }
 
         log.info("先做 正缓冲->负缓冲 减少地块缝隙，缓冲半径：{} 米", positiveBuffer);
-        //log.info("再做 负缓冲->正缓冲 将细条道路切割掉，缓冲半径：{} 米", negativeBuffer);
         for (Map.Entry<Integer, Geometry> integerGeometryEntry : clusterGaussGeometryMap.entrySet()) {
             Integer key = integerGeometryEntry.getKey();
             Geometry currGeom = integerGeometryEntry.getValue();
             currGeom = currGeom.buffer(positiveBuffer).buffer(-positiveBuffer);
-            //currGeom = currGeom.buffer(-negativeBuffer).buffer(negativeBuffer);
             clusterGaussGeometryMap.put(key, currGeom);
         }
 
