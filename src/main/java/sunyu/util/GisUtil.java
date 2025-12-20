@@ -2062,6 +2062,7 @@ public class GisUtil implements AutoCloseable {
         }
 
         if (clusterGaussGeometryMap.size() > 1) {
+            // 优化地块相交
             optimizeLandParcelIntersectionRepair(clusterGaussGeometryMap, clusterGaussPointsMap);
         }
 

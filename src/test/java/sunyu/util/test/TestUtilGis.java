@@ -187,8 +187,7 @@ public class TestUtilGis {
         partsInfo.add(StrUtil.format("作业总面积（亩）: {}", splitResult.getMu()));
         partsInfo.add(StrUtil.format("作业时间范围: {} - {}", splitResult.getStartTime(), splitResult.getEndTime()));
         partsInfo.add(StrUtil.format("最小有效时间间隔（秒）: {}", splitResult.getMinEffectiveInterval()));
-        partsInfo.add(StrUtil.format("合并后有 {} 个地块", splitResult.getGaussGeometry().getNumGeometries()));
-        partsInfo.add(StrUtil.format("拆分后有 {} 个地块", splitResult.getParts().size()));
+        partsInfo.add(StrUtil.format("共有 {} 个地块", splitResult.getGaussGeometry().getNumGeometries()));
         partsInfo.add("\n");
         int partIndex = 1;
         for (SplitPart splitPart : splitResult.getParts()) {
@@ -199,7 +198,7 @@ public class TestUtilGis {
             partInfo.add(StrUtil.format("作业时间范围: {} - {}", splitPart.getStartTime(), splitPart.getEndTime()));
             partInfo.add(StrUtil.format("最小有效时间间隔（秒）: {}", splitPart.getMinEffectiveInterval()));
             if (splitPart.getGaussGeometry() instanceof MultiPolygon) {
-                partInfo.add(StrUtil.format("有 {} 个子地块", splitPart.getGaussGeometry().getNumGeometries()));
+                partInfo.add(StrUtil.format("包含 {} 个子地块", splitPart.getGaussGeometry().getNumGeometries()));
             }
             partsInfo.add(StrUtil.join("\n", partInfo) + "\n");
         }
