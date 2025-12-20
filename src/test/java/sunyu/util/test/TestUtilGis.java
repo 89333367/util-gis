@@ -446,7 +446,6 @@ public class TestUtilGis {
 
     @Test
     void 测试1秒间隔001() {
-        // 一块地，有镂空
         String did = "EC71BT2406060220";
         String startTime = "20251102154200";
         String endTime = "20251102172202";
@@ -458,7 +457,6 @@ public class TestUtilGis {
 
     @Test
     void 测试1秒间隔002() {
-        // 三块地，但有两块地之间的路的距离过小，所以合并成两块地
         String did = "EC71BT2406060220";
         String startTime = "20251102130028";
         String endTime = "20251102153804";
@@ -470,7 +468,6 @@ public class TestUtilGis {
 
     @Test
     void 测试1秒间隔003() {
-        // 一块地，轨迹很乱
         String did = "EC73BD2509060398";
         String startTime = "20251103130852";
         String endTime = "20251103151309";
@@ -482,7 +479,6 @@ public class TestUtilGis {
 
     @Test
     void 测试1秒间隔004() {
-        // 识别出了三块地，有镂空，有大石头
         String did = "EC71BT2406060220";
         String startTime = "20251103102528";
         String endTime = "20251103150242";
@@ -494,7 +490,6 @@ public class TestUtilGis {
 
     @Test
     void 测试1秒间隔005() {
-        // 广西测试地块，有作业开关状态上报
         String did = "EC73BD2506050018";
         String startTime = "20251104090717";
         String endTime = "20251104092257";
@@ -506,7 +501,6 @@ public class TestUtilGis {
 
     @Test
     void 测试1秒间隔006() {
-        // 广西测试地块，有作业开关状态上报
         String did = "EC73BD2509061335";
         String startTime = "20251104100606";
         String endTime = "20251104101419";
@@ -527,7 +521,6 @@ public class TestUtilGis {
 
     @Test
     void 测试1秒间隔007() {
-        // 两块地，有很长的路，有一块地蝴蝶形状
         String did = "EC73BD2509060248";
         String yyyyMMdd = "20251023";
         String startTime = yyyyMMdd + "000000";
@@ -540,7 +533,6 @@ public class TestUtilGis {
 
     @Test
     void 测试1秒间隔008() {
-        // 一天干了好多块地
         String did = "EC73BD2508220055";
         String yyyyMMdd = "20251013";
         String startTime = yyyyMMdd + "000000";
@@ -553,7 +545,6 @@ public class TestUtilGis {
 
     @Test
     void 测试1秒间隔009() {
-        // 有两块地，非常多的路
         String did = "NJ4GBQSAX0000687";
         String yyyyMMdd = "20250503";
         String startTime = yyyyMMdd + "000000";
@@ -578,7 +569,6 @@ public class TestUtilGis {
 
     @Test
     void 测试1秒间隔011() {
-        // 高密度地块，三块地，路稍微有一点点粘连
         String did = "NJ4GNBSAX0000693";
         String startTime = "20250505080044";
         String endTime = "20250505173658";
@@ -590,7 +580,6 @@ public class TestUtilGis {
 
     @Test
     void 测试1秒间隔012() {
-        // 高密度地块，三块地，路有一些粘连，地中有一点断开，地中有一点缝隙
         String did = "NJ4GNBSAX0000693";
         String startTime = "20250507073041";
         String endTime = "20250507162457";
@@ -602,7 +591,6 @@ public class TestUtilGis {
 
     @Test
     void 测试1秒间隔013() {
-        // 一块地，有很长的路
         String did = "NJ4GNBSAX0000693";
         String startTime = "20250509092721";
         String endTime = "20250509111620";
@@ -614,7 +602,6 @@ public class TestUtilGis {
 
     @Test
     void 测试1秒间隔014() {
-        // 时间有交叉
         String did = "EC71BT2404140062";
         String yyyyMMdd = "20240426";
         String startTime = yyyyMMdd + "000000";
@@ -627,7 +614,6 @@ public class TestUtilGis {
 
     @Test
     void 测试1秒间隔015() {
-        // 骗补
         String did = "NJ4GNBZAX0000160";
         String startTime = "20250603144925";
         String endTime = "20250603155017";

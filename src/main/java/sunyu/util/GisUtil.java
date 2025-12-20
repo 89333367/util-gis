@@ -1059,7 +1059,7 @@ public class GisUtil implements AutoCloseable {
         }
 
         long startTime = System.currentTimeMillis();
-        log.debug("开始优化的地块相交修复，共 {} 个地块", clusterGaussGeometryMap.size());
+        log.debug("地块相交修复，共 {} 个地块", clusterGaussGeometryMap.size());
 
         // 第一步：预处理 - 统一精度并简化
         PrecisionModel pm = new PrecisionModel(1000); // 1mm精度
@@ -1161,7 +1161,7 @@ public class GisUtil implements AutoCloseable {
         clusterGaussGeometryMap.keySet().retainAll(processedKeys);
         clusterGaussPointsMap.keySet().retainAll(processedKeys);
 
-        log.info("优化的地块相交修复完成，剩余 {} 个地块，耗时 {} 毫秒",
+        log.info("地块相交修复完成，剩余 {} 个地块，耗时 {} 毫秒",
                 clusterGaussGeometryMap.size(), System.currentTimeMillis() - startTime);
     }
 
@@ -1979,8 +1979,10 @@ public class GisUtil implements AutoCloseable {
 
         // 作业机具的左右幅宽
         double halfWorkingWidth = workingWidth / 2.0;
-        //最少膨胀MIN_BUFFER_DISTANCE米，减少地块缝隙
-        double bufferDistance = Math.max(config.MIN_BUFFER_DISTANCE, halfWorkingWidth);
+        // 正缓冲，一般用于减少地块缝隙
+        double positiveBuffer = Math.max(config.MIN_BUFFER_DISTANCE, halfWorkingWidth);
+        // 负缓冲，一般用于切割道路轨迹
+        double negativeBuffer = 2;
 
         // 过滤异常点位信息
         wgs84Points = filterWgs84Points(wgs84Points);
@@ -2047,8 +2049,6 @@ public class GisUtil implements AutoCloseable {
                         LineString lineString = config.GEOMETRY_FACTORY.createLineString(coordinates);
                         gaussGeometry = lineString.buffer(halfWorkingWidth);
                     }
-                    log.debug("使用膨胀、收缩参数 {}米 减少地块缝隙", bufferDistance);
-                    gaussGeometry = gaussGeometry.buffer(bufferDistance).buffer(-bufferDistance);
                     clusterGaussGeometryMap.put(clusterIndex, gaussGeometry);
                     clusterGaussPointsMap.put(clusterIndex, segment);
                     clusterIndex++;
@@ -2061,18 +2061,28 @@ public class GisUtil implements AutoCloseable {
             return splitResult;
         }
 
+        log.info("先做 正缓冲->负缓冲 减少地块缝隙，缓冲半径：{} 米", positiveBuffer);
+        //log.info("再做 负缓冲->正缓冲 将细条道路切割掉，缓冲半径：{} 米", negativeBuffer);
+        for (Map.Entry<Integer, Geometry> integerGeometryEntry : clusterGaussGeometryMap.entrySet()) {
+            Integer key = integerGeometryEntry.getKey();
+            Geometry currGeom = integerGeometryEntry.getValue();
+            currGeom = currGeom.buffer(positiveBuffer).buffer(-positiveBuffer);
+            //currGeom = currGeom.buffer(-negativeBuffer).buffer(negativeBuffer);
+            clusterGaussGeometryMap.put(key, currGeom);
+        }
+
         if (clusterGaussGeometryMap.size() > 1) {
-            // 优化地块相交
+            // 地块相交修复
             optimizeLandParcelIntersectionRepair(clusterGaussGeometryMap, clusterGaussPointsMap);
         }
 
+        log.info("做 负缓冲->正缓冲 将细条道路切割掉，缓冲半径：{} 米", workingWidth);
         List<Integer> indexList = new ArrayList<>(clusterGaussGeometryMap.keySet());
         Iterator<Integer> it = indexList.iterator();
         while (it.hasNext()) {
             Integer key = it.next();
             Geometry currGeom = clusterGaussGeometryMap.get(key);
-            // 做一次 负缓冲→正缓冲 把毛刺吃掉
-            currGeom = currGeom.buffer(-bufferDistance).buffer(bufferDistance);
+            currGeom = currGeom.buffer(-workingWidth).buffer(workingWidth);
             if (currGeom.getArea() < config.MIN_RETURN_MU * config.MU_TO_SQUARE_METER) {
                 log.debug("索引 {} 的几何图形面积：{}亩，小于最小返回面积 {}亩，直接删除", key, currGeom.getArea() * config.SQUARE_TO_MU_METER, config.MIN_RETURN_MU);
                 it.remove();
