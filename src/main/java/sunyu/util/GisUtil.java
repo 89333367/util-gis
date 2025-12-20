@@ -2018,6 +2018,8 @@ public class GisUtil implements AutoCloseable {
         double halfWorkingWidth = workingWidth / 2.0;
         // 正缓冲，一般用于减少地块缝隙
         double positiveBuffer = Math.max(config.MIN_BUFFER_DISTANCE, halfWorkingWidth);
+        // 负缓冲，幅宽的一半，但向上取整
+        double negativeBuffer = Math.ceil(halfWorkingWidth);
 
         // 过滤异常点位信息
         wgs84Points = filterWgs84Points(wgs84Points);
@@ -2106,13 +2108,13 @@ public class GisUtil implements AutoCloseable {
             optimizeLandParcelIntersectionRepair(clusterGaussGeometryMap, clusterGaussPointsMap);
         }
 
-        log.info("做 负缓冲->正缓冲 将细条道路切割掉，缓冲半径：{} 米", workingWidth);
+        log.info("做 负缓冲->正缓冲 将细条道路切割掉，缓冲半径：{} 米", negativeBuffer);
         List<Integer> indexList = new ArrayList<>(clusterGaussGeometryMap.keySet());
         Iterator<Integer> it = indexList.iterator();
         while (it.hasNext()) {
             Integer key = it.next();
             Geometry currGeom = clusterGaussGeometryMap.get(key);
-            currGeom = currGeom.buffer(-workingWidth).buffer(workingWidth);
+            currGeom = currGeom.buffer(-negativeBuffer).buffer(negativeBuffer);
             if (currGeom.getArea() < config.MIN_RETURN_MU * config.MU_TO_SQUARE_METER) {
                 log.debug("索引 {} 的几何图形面积：{}亩，小于最小返回面积 {}亩，直接删除", key, currGeom.getArea() * config.SQUARE_TO_MU_METER, config.MIN_RETURN_MU);
                 it.remove();

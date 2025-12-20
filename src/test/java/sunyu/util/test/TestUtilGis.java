@@ -781,7 +781,7 @@ public class TestUtilGis {
 
     @Test
     void 测试10秒间隔004() {
-        // 应该是四块地，但是有一条轨迹也被识别为了小地块，稍微还带了点路
+        // 识别出5块地
         String did = "EM9101B8F5AZT0041";
         String yyyyMMdd = "20251025";
         String startTime = yyyyMMdd + "000000";
@@ -794,7 +794,7 @@ public class TestUtilGis {
 
     @Test
     void 测试10秒间隔005() {
-        // 这个粘连了很多路，需要更多优化才行
+        // 识别出3个地块
         String did = "EM9101B8F5AZT0041";
         String yyyyMMdd = "20251026";
         String startTime = yyyyMMdd + "000000";
@@ -807,6 +807,7 @@ public class TestUtilGis {
 
     @Test
     void 测试10秒间隔006() {
+        // 识别出6个地块
         String did = "EM9101B8F5AZT0041";
         String yyyyMMdd = "20251023";
         String startTime = yyyyMMdd + "000000";
@@ -819,6 +820,7 @@ public class TestUtilGis {
 
     @Test
     void 测试10秒间隔007() {
+        // 就跑了一圈就走了，不符合作业轨迹
         String did = "EM9101B8F4AZR0296";
         String yyyyMMdd = "20251101";
         String startTime = yyyyMMdd + "000000";
