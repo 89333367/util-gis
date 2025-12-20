@@ -149,7 +149,7 @@ public class GisUtil implements AutoCloseable {
         /**
          * 最小返回面积（亩）
          */
-        private final double MIN_RETURN_MU = 0.51;
+        private final double MIN_RETURN_MU = 0.5;
 
         /**
          * 最小缓冲区距离（米）
@@ -1163,6 +1163,43 @@ public class GisUtil implements AutoCloseable {
 
         log.info("地块相交修复完成，剩余 {} 个地块，耗时 {} 毫秒",
                 clusterGaussGeometryMap.size(), System.currentTimeMillis() - startTime);
+    }
+
+    /**
+     * 计算安全缓冲值，防止超出高斯投影范围
+     */
+    private double calculateSafeBuffer(Geometry geometry, double requestedBuffer) {
+        Envelope env = geometry.getEnvelopeInternal();
+
+        // 高斯投影安全边界
+        final double MIN_X = 500000;
+        final double MAX_X = 64000000;
+        final double MIN_Y = -10000000;
+        final double MAX_Y = 10000000;
+
+        // 计算当前几何图形到边界的距离
+        double distanceToMinX = env.getMinX() - MIN_X;
+        double distanceToMaxX = MAX_X - env.getMaxX();
+        double distanceToMinY = env.getMinY() - MIN_Y;
+        double distanceToMaxY = MAX_Y - env.getMaxY();
+
+        // 找到最小的安全缓冲值
+        double maxSafeBuffer = Math.min(
+                Math.min(distanceToMinX, distanceToMaxX),
+                Math.min(distanceToMinY, distanceToMaxY)
+        );
+
+        // 留出10%的安全余量
+        maxSafeBuffer = maxSafeBuffer * 0.9;
+
+        // 返回请求缓冲值和安全缓冲值中的较小者
+        double safeBuffer = Math.min(requestedBuffer, Math.max(maxSafeBuffer, config.MIN_BUFFER_DISTANCE));
+
+        if (safeBuffer < requestedBuffer) {
+            log.warn("缓冲值超出安全范围，已调整：请求缓冲={}米，安全缓冲={}米", requestedBuffer, safeBuffer);
+        }
+
+        return safeBuffer;
     }
 
     /**
