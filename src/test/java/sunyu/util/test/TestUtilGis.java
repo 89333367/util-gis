@@ -446,6 +446,7 @@ public class TestUtilGis {
 
     @Test
     void 测试1秒间隔001() {
+        // 中间有镂空，识别出1个地块
         String did = "EC71BT2406060220";
         String startTime = "20251102154200";
         String endTime = "20251102172202";
@@ -457,6 +458,7 @@ public class TestUtilGis {
 
     @Test
     void 测试1秒间隔002() {
+        // 识别出3个地块
         String did = "EC71BT2406060220";
         String startTime = "20251102130028";
         String endTime = "20251102153804";
@@ -468,6 +470,7 @@ public class TestUtilGis {
 
     @Test
     void 测试1秒间隔003() {
+        // 乱跑的，这个地块处理有些问题
         String did = "EC73BD2509060398";
         String startTime = "20251103130852";
         String endTime = "20251103151309";
@@ -479,6 +482,7 @@ public class TestUtilGis {
 
     @Test
     void 测试1秒间隔004() {
+        // 识别出3个地块，中间有个大石头，有一块地中有一条线被多切割了一点
         String did = "EC71BT2406060220";
         String startTime = "20251103102528";
         String endTime = "20251103150242";
@@ -490,6 +494,7 @@ public class TestUtilGis {
 
     @Test
     void 测试1秒间隔005() {
+        // 广西田测，测试地块，1.26亩
         String did = "EC73BD2506050018";
         String startTime = "20251104090717";
         String endTime = "20251104092257";
@@ -501,6 +506,7 @@ public class TestUtilGis {
 
     @Test
     void 测试1秒间隔006() {
+        // 广西田测，测试地块，0.62亩
         String did = "EC73BD2509061335";
         String startTime = "20251104100606";
         String endTime = "20251104101419";
@@ -521,6 +527,7 @@ public class TestUtilGis {
 
     @Test
     void 测试1秒间隔007() {
+        // 识别出2个地块，有一块类似于蝴蝶形状
         String did = "EC73BD2509060248";
         String yyyyMMdd = "20251023";
         String startTime = yyyyMMdd + "000000";
@@ -533,6 +540,7 @@ public class TestUtilGis {
 
     @Test
     void 测试1秒间隔008() {
+        // 一天轨迹，跑了多个地块，非常分散
         String did = "EC73BD2508220055";
         String yyyyMMdd = "20251013";
         String startTime = yyyyMMdd + "000000";
@@ -545,6 +553,7 @@ public class TestUtilGis {
 
     @Test
     void 测试1秒间隔009() {
+        // 识别出两个地块
         String did = "NJ4GBQSAX0000687";
         String yyyyMMdd = "20250503";
         String startTime = yyyyMMdd + "000000";
@@ -569,6 +578,7 @@ public class TestUtilGis {
 
     @Test
     void 测试1秒间隔011() {
+        // 识别出了5个地块
         String did = "NJ4GNBSAX0000693";
         String startTime = "20250505080044";
         String endTime = "20250505173658";
@@ -580,6 +590,7 @@ public class TestUtilGis {
 
     @Test
     void 测试1秒间隔012() {
+        // 识别出了3个地块，有一个非常小的块，被删掉了
         String did = "NJ4GNBSAX0000693";
         String startTime = "20250507073041";
         String endTime = "20250507162457";
@@ -591,6 +602,7 @@ public class TestUtilGis {
 
     @Test
     void 测试1秒间隔013() {
+        // 识别出1块地
         String did = "NJ4GNBSAX0000693";
         String startTime = "20250509092721";
         String endTime = "20250509111620";
@@ -602,6 +614,7 @@ public class TestUtilGis {
 
     @Test
     void 测试1秒间隔014() {
+        // 交叉干活，时间点交叉，地块交叉，需要多次调试
         String did = "EC71BT2404140062";
         String yyyyMMdd = "20240426";
         String startTime = yyyyMMdd + "000000";
@@ -614,6 +627,7 @@ public class TestUtilGis {
 
     @Test
     void 测试1秒间隔015() {
+        // 虽然路很多，但是都不符合地块作业的形态，所以也算不出来亩数
         String did = "NJ4GNBZAX0000160";
         String startTime = "20250603144925";
         String endTime = "20250603155017";
@@ -625,6 +639,7 @@ public class TestUtilGis {
 
     @Test
     void 测试1秒间隔016() {
+        // 点位比较多，生成几何图形较慢，需要优化，识别出6个地块，还有一个地块由于他是作业关闭状态，所以没有识别出来
         String did = "NJ4GNBZAX0000273";
         String yyyyMMdd = "20250531";
         String startTime = yyyyMMdd + "000000";
@@ -637,6 +652,7 @@ public class TestUtilGis {
 
     @Test
     void 测试1秒间隔017() {
+        // 识别出了4块地，有两块地中间因为路还符合了地块作业的形态，所以连上了
         String did = "EC71BT2404140062";
         String yyyyMMdd = "20240427";
         String startTime = yyyyMMdd + "000000";
@@ -649,8 +665,9 @@ public class TestUtilGis {
 
     @Test
     void 测试1秒间隔018() {
+        // 无作业轨迹点
         String did = "EC71BT2404140062";
-        String yyyyMMdd = "20240427";
+        String yyyyMMdd = "20240501";
         String startTime = yyyyMMdd + "000000";
         String endTime = yyyyMMdd + "235959";
         double jobWidth = 2.1;
@@ -661,6 +678,7 @@ public class TestUtilGis {
 
     @Test
     void 测试1秒间隔019() {
+        // 识别出2块地
         String did = "EC71BT2404140062";
         String yyyyMMdd = "20240428";
         String startTime = yyyyMMdd + "000000";
@@ -673,6 +691,7 @@ public class TestUtilGis {
 
     @Test
     void 测试1秒间隔020() {
+        // 识别出2块地
         String did = "EC71BT2404140062";
         String yyyyMMdd = "20240429";
         String startTime = yyyyMMdd + "000000";
@@ -685,6 +704,7 @@ public class TestUtilGis {
 
     @Test
     void 测试1秒间隔021() {
+        // 第一次聚类结果过多，参数*2后重新聚类，识别出了多个地块，有一个地块由于非常细的一条，所以抛弃了，有一个断块由于点位密集度不够，断开了。
         String did = "JFT3352503S00207";
         String yyyyMMdd = "20251024";
         String startTime = yyyyMMdd + "000000";
@@ -698,6 +718,7 @@ public class TestUtilGis {
 
     @Test
     void 测试1秒间隔022() {
+        // 很多个地块，全都识别出来了，但是有一个地块，边缘少了一点点
         String did = "EC73BD2504110767";
         String startTime = "20250529053827";
         String endTime = "20250529181257";

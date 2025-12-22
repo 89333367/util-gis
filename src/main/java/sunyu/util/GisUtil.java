@@ -2016,9 +2016,9 @@ public class GisUtil implements AutoCloseable {
 
         // 作业机具的左右幅宽
         double halfWorkingWidth = workingWidth / 2.0;
-        // 正缓冲，一般用于减少地块缝隙
-        double positiveBuffer = Math.max(config.MIN_BUFFER_DISTANCE, halfWorkingWidth);
-        // 负缓冲，幅宽的一半，但向上取整
+        // 正缓冲，一般用于减少地块缝隙，幅宽的一半，但向上取整
+        double positiveBuffer = Math.ceil(halfWorkingWidth);
+        // 负缓冲，一般用于切掉道路轨迹，幅宽的一半，但向上取整
         double negativeBuffer = Math.ceil(halfWorkingWidth);
 
         // 过滤异常点位信息

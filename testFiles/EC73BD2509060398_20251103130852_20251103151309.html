@@ -7683,13 +7683,13 @@ POLYGON ((120.34972939136681 29.588564318089016, 120.34972870753859 29.588565919
             try {
                 const wktText = document.getElementById("wktTextarea").value.trim();
                 if (!wktText) { alert("请输入WKT字符串！"); return; }
-                
+
                 clearOverlays();
-                
+
                 // 检查是否为多行WKT
                 const wktLines = wktText.split('\n').filter(line => line.trim());
                 let polygonData = [];
-                
+
                 if (wktLines.length === 1) {
                     // 单行WKT - 使用原始逻辑
                     const geojson = parseWkt(wktLines[0].trim());
@@ -7711,10 +7711,10 @@ POLYGON ((120.34972939136681 29.588564318089016, 120.34972870753859 29.588565919
                                 } else if (geojson.type === "MultiPolygon") {
                                     // 如果一行是MultiPolygon，拆分成多个Polygon
                                     geojson.coordinates.forEach((polygon, subIndex) => {
-                                        polygonData.push({ 
-                                            index: index + 1 + subIndex * 0.1, 
-                                            coordinates: polygon, 
-                                            colorIndex: index 
+                                        polygonData.push({
+                                            index: index + 1 + subIndex * 0.1,
+                                            coordinates: polygon,
+                                            colorIndex: index
                                         });
                                     });
                                 }
@@ -7724,14 +7724,14 @@ POLYGON ((120.34972939136681 29.588564318089016, 120.34972870753859 29.588565919
                         }
                     });
                 }
-                
+
                 // 重置并绘制
                 polygonInfoList = [];
                 polygonData.forEach(pd => processPolygon(pd.index, pd.coordinates, pd.colorIndex));
-    
+
                 // 视图居中到所有已绘制轮廓
                 try { fitViewportToPolygons(); } catch (e) { console.warn('视图居中失败', e); }
-    
+
                 // 在视图稳定后再创建/更新标签
                 setTimeout(() => {
                     if (labelsEnabled) {
@@ -7804,7 +7804,7 @@ POLYGON ((120.34972939136681 29.588564318089016, 120.34972870753859 29.588565919
               fillColor: colorScheme.fill,
               fillOpacity: colorScheme.opacity
           });
- 
+
           // 使用WGS84坐标计算面积（更准确的面积计算）
          let areaSqm;
          let areaMu;
@@ -8450,27 +8450,27 @@ POLYGON ((120.34972939136681 29.588564318089016, 120.34972870753859 29.588565919
                 const text = ta.value.trim();
                 if (!text) { alert('请粘贴轨迹文本（时间戳,经度,纬度）'); return; }
                 const pointsWithTime = parseTrackTextWithTime(text);
-                
+
                 // 解析时间范围
                 const timeRangeInput = document.getElementById('timeRangeInput');
                 const timeRangeText = timeRangeInput ? timeRangeInput.value.trim() : '';
                 let filteredPoints = pointsWithTime;
-                
+
                 if (timeRangeText) {
                     // 解析时间范围：格式如 "2025-10-23T13:56:49 - 2025-10-23T15:51:31"
                     const timeRangeMatch = timeRangeText.match(/^([\d-]+T[\d:]+)\s*-\s*([\d-]+T[\d:]+)$/);
                     if (timeRangeMatch) {
                         const startTimeStr = timeRangeMatch[1];
                         const endTimeStr = timeRangeMatch[2];
-                        
+
                         const startTime = new Date(startTimeStr);
                         const endTime = new Date(endTimeStr);
-                        
+
                         if (!isNaN(startTime.getTime()) && !isNaN(endTime.getTime())) {
-                            filteredPoints = pointsWithTime.filter(point => 
+                            filteredPoints = pointsWithTime.filter(point =>
                                 point.time >= startTime && point.time <= endTime
                             );
-                            
+
                             if (filteredPoints.length < 2) {
                                 alert('该时间范围内的有效轨迹点不足，至少需要两点');
                                 return;
@@ -8484,10 +8484,10 @@ POLYGON ((120.34972939136681 29.588564318089016, 120.34972870753859 29.588565919
                         return;
                     }
                 }
-                
+
                 // 提取坐标点
                 const points = filteredPoints.map(point => point.ll);
-                
+
                 if (points.length < 2) { alert('有效轨迹点不足，至少需要两点'); return; }
                 drawTrackFromPoints(points);
                 fitViewportToTrack(points);
@@ -8503,27 +8503,27 @@ POLYGON ((120.34972939136681 29.588564318089016, 120.34972870753859 29.588565919
                 if (!text) { alert('请粘贴轨迹文本（时间戳,经度,纬度）'); return; }
                 const pointsWithTime = parseTrackTextWithTime(text);
                 if (pointsWithTime.length === 0) { alert('未找到有效轨迹点'); return; }
-                
+
                 // 解析时间范围
                 const timeRangeInput = document.getElementById('timeRangeInput');
                 const timeRangeText = timeRangeInput ? timeRangeInput.value.trim() : '';
                 let filteredPointsWithTime = pointsWithTime;
-                
+
                 if (timeRangeText) {
                     // 解析时间范围：格式如 "2025-10-23T13:56:49 - 2025-10-23T15:51:31"
                     const timeRangeMatch = timeRangeText.match(/^([\d-]+T[\d:]+)\s*-\s*([\d-]+T[\d:]+)$/);
                     if (timeRangeMatch) {
                         const startTimeStr = timeRangeMatch[1];
                         const endTimeStr = timeRangeMatch[2];
-                        
+
                         const startTime = new Date(startTimeStr);
                         const endTime = new Date(endTimeStr);
-                        
+
                         if (!isNaN(startTime.getTime()) && !isNaN(endTime.getTime())) {
-                            filteredPointsWithTime = pointsWithTime.filter(point => 
+                            filteredPointsWithTime = pointsWithTime.filter(point =>
                                 point.time >= startTime && point.time <= endTime
                             );
-                            
+
                             if (filteredPointsWithTime.length === 0) {
                                 alert('该时间范围内没有找到轨迹点');
                                 return;
@@ -8537,10 +8537,10 @@ POLYGON ((120.34972939136681 29.588564318089016, 120.34972870753859 29.588565919
                         return;
                     }
                 }
-                
+
                 // 传递包含时间信息的点对象
                 showTrackPoints(filteredPointsWithTime);
-                
+
                 // 提取坐标点用于地图适配
                 const points = filteredPointsWithTime.map(point => point.ll);
                 fitViewportToTrack(points);
@@ -8559,14 +8559,14 @@ POLYGON ((120.34972939136681 29.588564318089016, 120.34972870753859 29.588565919
     function showTrackPoints(pointsWithTime) {
         // 先移除旧轨迹（不影响轮廓）
         clearTrackOverlays(false);
-        
+
         if (!map || !pointsWithTime || pointsWithTime.length === 0) {
             console.log('无轨迹点可显示');
             return;
         }
-        
+
         console.log(`准备显示${pointsWithTime.length}个轨迹点`);
-        
+
         // 使用批量处理和更小的图标来提高性能
         // 创建一个更小的自定义颜色点SVG图标
         const smallColoredDotIcon = new T.Icon({
@@ -8574,11 +8574,11 @@ POLYGON ((120.34972939136681 29.588564318089016, 120.34972870753859 29.588565919
             iconSize: new T.Point(1, 1),
             iconAnchor: new T.Point(0.5, 0.5)
         });
-        
+
         // 优化批量添加点的速度
         const batchSize = 2000; // 增加每批处理的点数
         const concurrentBatches = 4; // 并发批次数量
-        
+
         // 预创建点击事件处理函数，避免重复创建
         function createClickHandler(pointWithTime, index) {
             return function() {
@@ -8592,7 +8592,7 @@ POLYGON ((120.34972939136681 29.588564318089016, 120.34972870753859 29.588565919
                     second: '2-digit',
                     hour12: false
                 });
-                
+
                 const infoWindow = new T.InfoWindow({
                     content: `点${index + 1}<br/>经度: ${pointWithTime.ll.lng.toFixed(6)}<br/>纬度: ${pointWithTime.ll.lat.toFixed(6)}<br/>时间: ${formattedTime}`,
                     offset: new T.Point(0, -20)
@@ -8600,54 +8600,54 @@ POLYGON ((120.34972939136681 29.588564318089016, 120.34972870753859 29.588565919
                 infoWindow.open(map, pointWithTime.ll);
             };
         }
-        
+
         // 使用setTimeout实现更高效的批量添加，避免阻塞UI
         let currentIndex = 0;
-        
+
         function addBatch() {
             if (currentIndex >= pointsWithTime.length) {
                 console.log(`已显示${pointsWithTime.length}个轨迹点`);
                 return;
             }
-            
+
             // 添加当前批次的点
             const endIndex = Math.min(currentIndex + batchSize, pointsWithTime.length);
             const markersToAdd = [];
-            
+
             // 先创建所有标记
             for (let i = currentIndex; i < endIndex; i++) {
                 const pointWithTime = pointsWithTime[i];
                 const index = i;
-                
+
                 const marker = new T.Marker(pointWithTime.ll, {
                     icon: smallColoredDotIcon
                 });
-                
+
                 // 添加点击事件
                 marker.addEventListener('click', createClickHandler(pointWithTime, index));
-                
+
                 markersToAdd.push(marker);
             }
-            
+
             // 批量添加到地图和数组
             markersToAdd.forEach(marker => {
                 map.addOverLay(marker);
                 currentTracks.push(marker);
             });
-            
+
             currentIndex = endIndex;
-            
+
             // 使用setTimeout而不是requestAnimationFrame，减少对渲染周期的依赖
             // 设置为0，将任务放入微任务队列，但允许UI有短暂的呼吸空间
             setTimeout(addBatch, 0);
         }
-        
+
         // 启动批量添加
         addBatch();
     }
-    
+
     // 恢复原始的clearTrackOverlays函数
-    function clearTrackOverlays(resetArray = true){        
+    function clearTrackOverlays(resetArray = true){
         try {
             currentTracks.forEach(pl => {
                 if (pl && map && map.removeOverLay) {
@@ -8756,33 +8756,33 @@ POLYGON ((120.34972939136681 29.588564318089016, 120.34972870753859 29.588565919
         // 初始按钮状态
         updatePlaybackButtonsState('idle');
 
-        startBtn.addEventListener('click', function(){            
+        startBtn.addEventListener('click', function(){
             try {
                 const text = (ta && ta.value || '').trim();
                 if (!text) { alert('请粘贴轨迹文本（时间戳,经度,纬度）'); return; }
                 const pts = parseTrackTextWithTime(text);
                 if (pts.length < 2) { alert('有效轨迹点不足，至少需要两点'); return; }
-                
+
                 // 解析时间范围
                 const timeRangeInput = document.getElementById('timeRangeInput');
                 const timeRangeText = timeRangeInput ? timeRangeInput.value.trim() : '';
                 let filteredPoints = pts;
-                
+
                 if (timeRangeText) {
                     // 解析时间范围：格式如 "2025-10-23T13:56:49 - 2025-10-23T15:51:31"
                     const timeRangeMatch = timeRangeText.match(/^([\d-]+T[\d:]+)\s*-\s*([\d-]+T[\d:]+)$/);
                     if (timeRangeMatch) {
                         const startTimeStr = timeRangeMatch[1];
                         const endTimeStr = timeRangeMatch[2];
-                        
+
                         const startTime = new Date(startTimeStr);
                         const endTime = new Date(endTimeStr);
-                        
+
                         if (!isNaN(startTime.getTime()) && !isNaN(endTime.getTime())) {
-                            filteredPoints = pts.filter(point => 
+                            filteredPoints = pts.filter(point =>
                                 point.time >= startTime && point.time <= endTime
                             );
-                            
+
                             if (filteredPoints.length < 2) {
                                 alert('该时间范围内的有效轨迹点不足，至少需要两点');
                                 return;
@@ -8796,7 +8796,7 @@ POLYGON ((120.34972939136681 29.588564318089016, 120.34972870753859 29.588565919
                         return;
                     }
                 }
-                
+
                 startPlayback(filteredPoints);
                 // 状态在startPlayback中已设置为playing
             } catch (e) {
@@ -8819,8 +8819,8 @@ POLYGON ((120.34972939136681 29.588564318089016, 120.34972870753859 29.588565919
             }
         });
 
-        stopBtn.addEventListener('click', function(){ 
-            stopPlayback(); 
+        stopBtn.addEventListener('click', function(){
+            stopPlayback();
             updatePlaybackButtonsState('idle');
         });
 
@@ -9179,13 +9179,13 @@ POLYGON ((120.34972939136681 29.588564318089016, 120.34972870753859 29.588565919
     function bindMeasureEvents() {
         const distanceBtn = document.getElementById('measureDistanceBtn');
         const areaBtn = document.getElementById('measureAreaBtn');
-        
+
         if (distanceBtn) {
             distanceBtn.addEventListener('click', function() {
                 startMeasureDistance();
             });
         }
-        
+
         if (areaBtn) {
             areaBtn.addEventListener('click', function() {
                 startMeasureArea();
@@ -9196,7 +9196,7 @@ POLYGON ((120.34972939136681 29.588564318089016, 120.34972870753859 29.588565919
     // 绑定地图类型切换按钮事件
     function bindMapTypeEvent() {
         const mapTypeBtn = document.getElementById('mapTypeBtn');
-        
+
         if (mapTypeBtn) {
             mapTypeBtn.addEventListener('click', function() {
                 toggleMapType();
@@ -9210,7 +9210,7 @@ POLYGON ((120.34972939136681 29.588564318089016, 120.34972870753859 29.588565919
             alert('地图未初始化');
             return;
         }
-        
+
         // 切换地图类型
         if (currentMapType === 'satellite') {
             // 切换到街道地图
@@ -9240,7 +9240,7 @@ POLYGON ((120.34972939136681 29.588564318089016, 120.34972870753859 29.588565919
             alert('地图未初始化');
             return;
         }
-        
+
         // 先移除所有可能存在的事件监听器
         try {
             map.removeEventListener('click', handleMapClick);
@@ -9252,26 +9252,26 @@ POLYGON ((120.34972939136681 29.588564318089016, 120.34972870753859 29.588565919
         } catch(e) {
             console.log('移除事件监听器时出错:', e);
         }
-        
+
         // 重置测量状态
         clearMeasureResult();
-        
+
         // 设置测量状态为激活
         measureState.isActive = true;
         measureState.mode = 'distance'; // 设置为距离测量模式
-        
+
         // 禁用其他按钮
         disableButtons(true);
-        
+
         // 添加地图点击事件监听器
         map.addEventListener('click', handleMapClick);
-        
+
         // 添加鼠标移动事件监听器
         map.addEventListener('mousemove', handleMouseMove);
-        
+
         // 添加双击事件监听器结束测量
         map.addEventListener('dblclick', finishMeasure);
-        
+
         console.log('测距功能已启动');
     }
 
@@ -9281,7 +9281,7 @@ POLYGON ((120.34972939136681 29.588564318089016, 120.34972870753859 29.588565919
             alert('地图未初始化');
             return;
         }
-        
+
         // 先移除所有可能存在的事件监听器
         try {
             map.removeEventListener('click', handleMapClick);
@@ -9293,48 +9293,48 @@ POLYGON ((120.34972939136681 29.588564318089016, 120.34972870753859 29.588565919
         } catch(e) {
             console.log('移除事件监听器时出错:', e);
         }
-        
+
         // 重置测量状态
         clearMeasureResult();
-        
+
         // 设置测量状态为激活
         measureState.isActive = true;
         measureState.mode = 'area'; // 设置为面积测量模式
-        
+
         // 禁用其他按钮
         disableButtons(true);
-        
+
         // 添加地图点击事件监听器
         map.addEventListener('click', handleAreaMapClick);
-        
+
         // 添加鼠标移动事件监听器
         map.addEventListener('mousemove', handleAreaMouseMove);
-        
+
         // 添加双击事件监听器结束测量
         map.addEventListener('dblclick', finishAreaMeasure);
-        
+
         console.log('测面功能已启动');
     }
 
     // 处理地图点击事件
     function handleMapClick(event) {
         if (!measureState.isActive || measureState.mode !== 'distance') return;
-        
+
         const point = event.lnglat;
         measureState.points.push(point);
-        
+
         // 创建小圆点图标
         const smallDotIcon = new T.Icon({
             iconUrl: 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="8" height="8"><circle cx="4" cy="4" r="3" fill="%23FF0000" stroke="%23FFFFFF" stroke-width="1"/></svg>',
             iconSize: new T.Point(8, 8),
             iconAnchor: new T.Point(4, 4)
         });
-        
+
         // 创建点标记
         const marker = new T.Marker(point, {icon: smallDotIcon});
         map.addOverLay(marker);
         measureState.markers.push(marker);
-        
+
         // 如果不是第一个点，创建线段
         if (measureState.points.length > 1) {
             const prevPoint = measureState.points[measureState.points.length - 2];
@@ -9345,12 +9345,12 @@ POLYGON ((120.34972939136681 29.588564318089016, 120.34972870753859 29.588565919
             });
             map.addOverLay(line);
             measureState.lines.push(line);
-            
+
             // 计算距离并显示标签
             const distance = calculateDistance(prevPoint, point);
             showDistanceLabel(point, distance);
         }
-        
+
         // 移除临时线
         if (measureState.tempLine) {
             map.removeOverLay(measureState.tempLine);
@@ -9361,27 +9361,27 @@ POLYGON ((120.34972939136681 29.588564318089016, 120.34972870753859 29.588565919
     // 处理测面地图点击事件
     function handleAreaMapClick(event) {
         if (!measureState.isActive || measureState.mode !== 'area') return;
-        
+
         const point = event.lnglat;
         measureState.points.push(point);
-        
+
         // 创建小圆点图标（与测距功能一致）
         const smallDotIcon = new T.Icon({
             iconUrl: 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="8" height="8"><circle cx="4" cy="4" r="3" fill="%23FF0000" stroke="%23FFFFFF" stroke-width="1"/></svg>',
             iconSize: new T.Point(8, 8),
             iconAnchor: new T.Point(4, 4)
         });
-        
+
         // 创建点标记
         const marker = new T.Marker(point, {icon: smallDotIcon});
         map.addOverLay(marker);
         measureState.markers.push(marker);
-        
+
         // 移除之前的多边形
         if (measureState.polygon) {
             map.removeOverLay(measureState.polygon);
         }
-        
+
         // 如果点数大于2，创建多边形
         if (measureState.points.length >= 3) {
             const polygon = new T.Polygon(measureState.points, {
@@ -9393,12 +9393,12 @@ POLYGON ((120.34972939136681 29.588564318089016, 120.34972870753859 29.588565919
             });
             map.addOverLay(polygon);
             measureState.polygon = polygon;
-            
+
             // 计算面积并显示标签
             const area = calculatePolygonArea(measureState.points);
             showAreaLabel(getPolygonCenter(measureState.points), area);
         }
-        
+
         // 移除临时线
         if (measureState.tempLine) {
             map.removeOverLay(measureState.tempLine);
@@ -9409,15 +9409,15 @@ POLYGON ((120.34972939136681 29.588564318089016, 120.34972870753859 29.588565919
     // 处理鼠标移动事件
     function handleMouseMove(event) {
         if (!measureState.isActive || measureState.mode !== 'distance' || measureState.points.length === 0) return;
-        
+
         const lastPoint = measureState.points[measureState.points.length - 1];
         const currentPoint = event.lnglat;
-        
+
         // 移除之前的临时线
         if (measureState.tempLine) {
             map.removeOverLay(measureState.tempLine);
         }
-        
+
         // 创建新的临时线
         measureState.tempLine = new T.Polyline([lastPoint, currentPoint], {
             color: '#0000FF',
@@ -9431,22 +9431,22 @@ POLYGON ((120.34972939136681 29.588564318089016, 120.34972870753859 29.588565919
     // 处理测面鼠标移动事件
     function handleAreaMouseMove(event) {
         if (!measureState.isActive || measureState.mode !== 'area' || measureState.points.length === 0) return;
-        
+
         const firstPoint = measureState.points[0];
         const lastPoint = measureState.points[measureState.points.length - 1];
         const currentPoint = event.lnglat;
-        
+
         // 移除之前的临时线
         if (measureState.tempLine) {
             map.removeOverLay(measureState.tempLine);
         }
-        
+
         // 创建新的临时线（从最后一个点到当前点，再到第一个点形成闭合效果）
         const tempPoints = [lastPoint, currentPoint];
         if (measureState.points.length >= 2) {
             tempPoints.push(firstPoint);
         }
-        
+
         measureState.tempLine = new T.Polyline(tempPoints, {
             color: '#0000FF',
             weight: 2,
@@ -9459,56 +9459,56 @@ POLYGON ((120.34972939136681 29.588564318089016, 120.34972870753859 29.588565919
     // 结束测量
     function finishMeasure() {
         if (!measureState.isActive || measureState.mode !== 'distance') return;
-        
+
         // 移除事件监听器
         map.removeEventListener('click', handleMapClick);
         map.removeEventListener('mousemove', handleMouseMove);
         map.removeEventListener('dblclick', finishMeasure);
-        
+
         // 移除临时线
         if (measureState.tempLine) {
             map.removeOverLay(measureState.tempLine);
             measureState.tempLine = null;
         }
-        
+
         // 显示总距离
         if (measureState.points.length > 1) {
             const totalDistance = calculateTotalDistance();
             showTotalDistanceLabel(totalDistance);
         }
-        
+
         // 重置测量状态
         measureState.isActive = false;
         measureState.mode = '';
-        
+
         // 恢复其他按钮
         disableButtons(false);
-        
+
         console.log('测距功能已完成');
     }
 
     // 结束测面测量
     function finishAreaMeasure() {
         if (!measureState.isActive || measureState.mode !== 'area') return;
-        
+
         // 移除事件监听器
         map.removeEventListener('click', handleAreaMapClick);
         map.removeEventListener('mousemove', handleAreaMouseMove);
         map.removeEventListener('dblclick', finishAreaMeasure);
-        
+
         // 移除临时线
         if (measureState.tempLine) {
             map.removeOverLay(measureState.tempLine);
             measureState.tempLine = null;
         }
-        
+
         // 如果点数大于等于3，创建最终多边形
         if (measureState.points.length >= 3) {
             // 移除之前的多边形
             if (measureState.polygon) {
                 map.removeOverLay(measureState.polygon);
             }
-            
+
             const polygon = new T.Polygon(measureState.points, {
                 color: currentOutlineColor,
                 weight: 3,
@@ -9518,7 +9518,7 @@ POLYGON ((120.34972939136681 29.588564318089016, 120.34972870753859 29.588565919
             });
             map.addOverLay(polygon);
             measureState.polygon = polygon;
-            
+
             // 计算并显示总面积
             const area = calculatePolygonArea(measureState.points);
             showTotalAreaLabel(getPolygonCenter(measureState.points), area);
@@ -9526,14 +9526,14 @@ POLYGON ((120.34972939136681 29.588564318089016, 120.34972870753859 29.588565919
             // 点数不足3个，移除所有标记
             clearMeasureResult();
         }
-        
+
         // 重置测量状态
         measureState.isActive = false;
         measureState.mode = '';
-        
+
         // 恢复其他按钮
         disableButtons(false);
-        
+
         console.log('测面功能已完成');
     }
 
@@ -9543,14 +9543,14 @@ POLYGON ((120.34972939136681 29.588564318089016, 120.34972870753859 29.588565919
         if (T.CRS && T.CRS.EPSG4326 && T.CRS.EPSG4326.distance) {
             return T.CRS.EPSG4326.distance(point1, point2);
         }
-        
+
         // 如果没有提供，则使用球面距离公式
         const R = 6371000; // 地球半径（米）
         const dLat = (point2.lat - point1.lat) * Math.PI / 180;
         const dLon = (point2.lng - point1.lng) * Math.PI / 180;
-        const a = 
+        const a =
             Math.sin(dLat/2) * Math.sin(dLat/2) +
-            Math.cos(point1.lat * Math.PI / 180) * Math.cos(point2.lat * Math.PI / 180) * 
+            Math.cos(point1.lat * Math.PI / 180) * Math.cos(point2.lat * Math.PI / 180) *
             Math.sin(dLon/2) * Math.sin(dLon/2);
         const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
         return R * c;
@@ -9562,27 +9562,27 @@ POLYGON ((120.34972939136681 29.588564318089016, 120.34972870753859 29.588565919
         if (T.GeometryUtils && T.GeometryUtils.computeArea) {
             return T.GeometryUtils.computeArea(points);
         }
-        
+
         // 如果没有提供，则使用球面多边形面积计算公式
         // 这里使用简单的平面近似计算，对于小面积比较准确
         if (points.length < 3) return 0;
-        
+
         let area = 0;
         const n = points.length;
-        
+
         for (let i = 0; i < n; i++) {
             const j = (i + 1) % n;
             area += points[i].lng * points[j].lat;
             area -= points[j].lng * points[i].lat;
         }
-        
+
         area = Math.abs(area) / 2.0;
-        
+
         // 转换为平方米（这是一个简化的近似值）
         // 更精确的计算需要考虑地球曲率
         const earthRadius = 6371000; // 地球半径（米）
         const degreeToMeter = (2 * Math.PI * earthRadius) / 360; // 每度对应的米数
-        
+
         // 这个转换只是一个粗略的近似
         return area * degreeToMeter * degreeToMeter;
     }
@@ -9590,13 +9590,13 @@ POLYGON ((120.34972939136681 29.588564318089016, 120.34972870753859 29.588565919
     // 获取多边形中心点
     function getPolygonCenter(points) {
         if (points.length === 0) return null;
-        
+
         let x = 0, y = 0;
         for (let i = 0; i < points.length; i++) {
             x += points[i].lng;
             y += points[i].lat;
         }
-        
+
         return new T.LngLat(x / points.length, y / points.length);
     }
 
@@ -9623,7 +9623,7 @@ POLYGON ((120.34972939136681 29.588564318089016, 120.34972870753859 29.588565919
         label.style.boxShadow = '0 1px 2px rgba(0,0,0,0.3)';
         label.style.zIndex = '1000';
         label.style.transform = 'translate(-50%, -50%)';
-        
+
         // 添加删除按钮
         const closeBtn = document.createElement('span');
         closeBtn.innerHTML = '×';
@@ -9636,14 +9636,14 @@ POLYGON ((120.34972939136681 29.588564318089016, 120.34972870753859 29.588565919
             }
         };
         label.appendChild(closeBtn);
-        
+
         document.getElementById('mapContainer').appendChild(label);
-        
+
         // 定位标签（向上偏移20像素）
         const pixel = map.lngLatToContainerPoint(point);
         label.style.left = pixel.x + 'px';
         label.style.top = (pixel.y - 20) + 'px';
-        
+
         measureState.labels.push(label);
     }
 
@@ -9655,7 +9655,7 @@ POLYGON ((120.34972939136681 29.588564318089016, 120.34972870753859 29.588565919
                 measureState.areaLabel.parentNode.removeChild(measureState.areaLabel);
             }
         }
-        
+
         const label = document.createElement('div');
         label.className = 'area-label';
         label.innerHTML = area.toFixed(2) + ' 平方米';
@@ -9667,7 +9667,7 @@ POLYGON ((120.34972939136681 29.588564318089016, 120.34972870753859 29.588565919
         label.style.boxShadow = '0 1px 2px rgba(0,0,0,0.3)';
         label.style.zIndex = '1000';
         label.style.transform = 'translate(-50%, -50%)';
-        
+
         // 添加删除按钮
         const closeBtn = document.createElement('span');
         closeBtn.innerHTML = '×';
@@ -9680,14 +9680,14 @@ POLYGON ((120.34972939136681 29.588564318089016, 120.34972870753859 29.588565919
             }
         };
         label.appendChild(closeBtn);
-        
+
         document.getElementById('mapContainer').appendChild(label);
-        
+
         // 定位标签
         const pixel = map.lngLatToContainerPoint(point);
         label.style.left = pixel.x + 'px';
         label.style.top = (pixel.y - 20) + 'px';
-        
+
         measureState.areaLabel = label;
         measureState.labels.push(label);
     }
@@ -9700,10 +9700,10 @@ POLYGON ((120.34972939136681 29.588564318089016, 120.34972870753859 29.588565919
                 measureState.areaLabel.parentNode.removeChild(measureState.areaLabel);
             }
         }
-        
+
         // 计算亩数（1亩 ≈ 666.6667平方米）
         const areaInMu = area / 666.6667;
-        
+
         const label = document.createElement('div');
         label.className = 'total-area-label';
         label.innerHTML = '总面积: ' + area.toFixed(2) + ' 平方米<br>' + areaInMu.toFixed(2) + ' 亩';
@@ -9718,7 +9718,7 @@ POLYGON ((120.34972939136681 29.588564318089016, 120.34972870753859 29.588565919
         label.style.zIndex = '1000';
         label.style.transform = 'translate(-50%, -50%)';
         label.style.lineHeight = '1.4';
-        
+
         // 添加删除按钮
         const closeBtn = document.createElement('span');
         closeBtn.innerHTML = ' ×';
@@ -9730,14 +9730,14 @@ POLYGON ((120.34972939136681 29.588564318089016, 120.34972870753859 29.588565919
             }
         };
         label.appendChild(closeBtn);
-        
+
         document.getElementById('mapContainer').appendChild(label);
-        
+
         // 定位标签
         const pixel = map.lngLatToContainerPoint(point);
         label.style.left = pixel.x + 'px';
         label.style.top = (pixel.y - 40) + 'px';
-        
+
         measureState.areaLabel = label;
         measureState.labels.push(label);
     }
@@ -9758,7 +9758,7 @@ POLYGON ((120.34972939136681 29.588564318089016, 120.34972870753859 29.588565919
         label.style.boxShadow = '0 2px 4px rgba(0,0,0,0.3)';
         label.style.zIndex = '1000';
         label.style.transform = 'translate(-50%, -50%)';
-        
+
         // 添加删除按钮
         const closeBtn = document.createElement('span');
         closeBtn.innerHTML = ' ×';
@@ -9770,14 +9770,14 @@ POLYGON ((120.34972939136681 29.588564318089016, 120.34972870753859 29.588565919
             }
         };
         label.appendChild(closeBtn);
-        
+
         document.getElementById('mapContainer').appendChild(label);
-        
+
         // 定位标签（向上偏移40像素，比段距离标签更高）
         const pixel = map.lngLatToContainerPoint(lastPoint);
         label.style.left = pixel.x + 'px';
         label.style.top = (pixel.y - 60) + 'px';  // 从-40改为-60，增加间距
-        
+
         measureState.labels.push(label);
     }
 
@@ -9789,21 +9789,21 @@ POLYGON ((120.34972939136681 29.588564318089016, 120.34972870753859 29.588565919
                 try { map.removeOverLay(line); } catch(e) {}
             }
         });
-        
+
         // 移除所有标记
         measureState.markers.forEach(marker => {
             if (map && map.removeOverLay) {
                 try { map.removeOverLay(marker); } catch(e) {}
             }
         });
-        
+
         // 移除所有标签
         measureState.labels.forEach(label => {
             if (label.parentNode) {
                 try { label.parentNode.removeChild(label); } catch(e) {}
             }
         });
-        
+
         // 移除临时线
         if (measureState.tempLine) {
             if (map && map.removeOverLay) {
@@ -9811,7 +9811,7 @@ POLYGON ((120.34972939136681 29.588564318089016, 120.34972870753859 29.588565919
             }
             measureState.tempLine = null;
         }
-        
+
         // 移除多边形
         if (measureState.polygon) {
             if (map && map.removeOverLay) {
@@ -9819,7 +9819,7 @@ POLYGON ((120.34972939136681 29.588564318089016, 120.34972870753859 29.588565919
             }
             measureState.polygon = null;
         }
-        
+
         // 移除面积标签
         if (measureState.areaLabel) {
             if (measureState.areaLabel.parentNode) {
@@ -9827,7 +9827,7 @@ POLYGON ((120.34972939136681 29.588564318089016, 120.34972870753859 29.588565919
             }
             measureState.areaLabel = null;
         }
-        
+
         // 重置状态
         measureState.points = [];
         measureState.lines = [];
@@ -9851,7 +9851,7 @@ POLYGON ((120.34972939136681 29.588564318089016, 120.34972870753859 29.588565919
     let currentOutlineColor = "#FFD700"; // 默认边框颜色（固定）
     let currentFillColor = "#FFFF00";   // 默认填充颜色（固定）
     let currentFillOpacity = 0.35;       // 默认透明度（固定）
-    
+
     // 多行WKT颜色方案 - 用于为每个多边形分配不同颜色
     const polygonColors = [
         { outline: "#FFD700", fill: "#FFFF00", opacity: 0.35 }, // 黄色
