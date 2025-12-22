@@ -720,6 +720,7 @@ public class TestUtilGis {
 
     @Test
     void 测试1秒间隔024() {
+        // 识别出4块地
         String did = "EC73BD2504110478";
         String startTime = "20250501071158";
         String endTime = "20250501183529";
