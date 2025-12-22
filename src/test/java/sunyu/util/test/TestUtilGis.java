@@ -730,6 +730,7 @@ public class TestUtilGis {
 
     @Test
     void 测试1秒间隔023() {
+        // 所有地块都识别出来了，但是有一块地连了一些路
         String did = "EC73BD2504110765";
         String startTime = "20250503055242";
         String endTime = "20250503181644";
@@ -741,7 +742,7 @@ public class TestUtilGis {
 
     @Test
     void 测试1秒间隔024() {
-        // 识别出4块地
+        // 识别出4块地，所有地块都能正确识别
         String did = "EC73BD2504110478";
         String startTime = "20250501071158";
         String endTime = "20250501183529";
@@ -753,8 +754,7 @@ public class TestUtilGis {
 
     @Test
     void 测试1秒间隔025() {
-        // 执行速度较慢，需要优化
-        // 7块地
+        // 执行速度较慢，需要优化，所有地块都能识别出来
         String did = "EC73BD2504110477";
         String startTime = "20250501071207";
         String endTime = "20250501183550";
