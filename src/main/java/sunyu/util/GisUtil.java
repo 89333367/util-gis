@@ -2019,7 +2019,7 @@ public class GisUtil implements AutoCloseable {
         // 正缓冲，一般用于减少地块缝隙，幅宽的一半，但向上取整
         double positiveBuffer = Math.ceil(halfWorkingWidth);
         // 负缓冲，一般用于切掉道路轨迹，幅宽的一半，但向上取整
-        double negativeBuffer = Math.ceil(halfWorkingWidth);
+        double negativeBuffer = workingWidth;
 
         // 过滤异常点位信息
         wgs84Points = filterWgs84Points(wgs84Points);

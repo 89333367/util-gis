@@ -805,12 +805,12 @@ public class TestUtilGis {
 
     @Test
     void 测试10秒间隔004() {
-        // 识别出5块地
+        // 识别出5块地，中间有个环形的地
         String did = "EM9101B8F5AZT0041";
         String yyyyMMdd = "20251025";
         String startTime = yyyyMMdd + "000000";
         String endTime = yyyyMMdd + "235959";
-        double jobWidth = 3.5;
+        double jobWidth = 2.5;
         生成数据文件(did, startTime, endTime);
         测试拆分数据(did, startTime, endTime, jobWidth);
         生成HTML(did, startTime, endTime);
@@ -818,7 +818,7 @@ public class TestUtilGis {
 
     @Test
     void 测试10秒间隔005() {
-        // 识别出3个地块
+        // 识别出3个地块，有一条路，没有删掉，因为宽幅的一半向上取整，切割不掉这个路宽，但切割参数改成幅宽就能切掉这个路
         String did = "EM9101B8F5AZT0041";
         String yyyyMMdd = "20251026";
         String startTime = yyyyMMdd + "000000";
@@ -844,7 +844,7 @@ public class TestUtilGis {
 
     @Test
     void 测试10秒间隔007() {
-        // 就跑了一圈就走了，不符合作业轨迹
+        // 就跑了一圈就走了，不符合作业轨迹形态
         String did = "EM9101B8F4AZR0296";
         String yyyyMMdd = "20251101";
         String startTime = yyyyMMdd + "000000";
