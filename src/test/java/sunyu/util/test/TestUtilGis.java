@@ -691,7 +691,7 @@ public class TestUtilGis {
 
     @Test
     void 测试1秒间隔020() {
-        // 识别出2块地
+        // 识别出3块地
         String did = "EC71BT2404140062";
         String yyyyMMdd = "20240429";
         String startTime = yyyyMMdd + "000000";
@@ -754,7 +754,7 @@ public class TestUtilGis {
 
     @Test
     void 测试1秒间隔025() {
-        // 执行速度较慢，需要优化，所有地块都能识别出来
+        // 所有地块都能识别出来
         String did = "EC73BD2504110477";
         String startTime = "20250501071207";
         String endTime = "20250501183550";

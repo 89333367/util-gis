@@ -184,13 +184,15 @@ public class GisUtil implements AutoCloseable {
 
         /**
          * 抽稀角度（度）
+         * 拐角夹角大于它才保留（保点）
          */
-        private final double SIMPLIFY_ANGLE = 120;
+        private final double SIMPLIFY_ANGLE = 15;
 
         /**
          * 抽稀容差（米）
+         * 两点间距小于它就跳过（删点）
          */
-        private final double SIMPLIFY_TOLERANCE = 1.0;
+        private final double SIMPLIFY_TOLERANCE = 1;
     }
 
     public static class Builder {
@@ -762,7 +764,7 @@ public class GisUtil implements AutoCloseable {
      *
      * @return 切分后的轨迹段列表（每个元素为一个子轨迹段的GaussPoint列表）
      */
-    private List<List<GaussPoint>> splitClusterBySeconds(List<GaussPoint> cluster, double maxSeconds) {
+    private List<List<GaussPoint>> splitClusterByTime(List<GaussPoint> cluster, double maxSeconds) {
         List<List<GaussPoint>> segments = new ArrayList<>();
         if (cluster == null || cluster.isEmpty()) {
             return segments;
@@ -2111,7 +2113,9 @@ public class GisUtil implements AutoCloseable {
             log.debug("聚类簇包含 {} 个点", cluster.size());
 
             log.debug("按策略切分聚类簇");
-            List<List<GaussPoint>> segments = splitClusterByTimeOrDistance(cluster, config.MAX_SPLIT_SECONDS, eps * 2);
+            //List<List<GaussPoint>> segments = splitClusterByTimeOrDistance(cluster, config.MAX_SPLIT_SECONDS, eps * 2);
+            //List<List<GaussPoint>> segments = splitClusterByTime(cluster, config.MAX_SPLIT_SECONDS);
+            List<List<GaussPoint>> segments = splitClusterByDistance(cluster, eps * 2);
             log.info("切分后得到 {} 个子段", segments.size());
 
             for (List<GaussPoint> segment : segments) {
