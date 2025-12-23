@@ -17,6 +17,8 @@ import elki.database.ids.DBIDRange;
 import elki.database.relation.Relation;
 import elki.datasource.ArrayAdapterDatabaseConnection;
 import elki.distance.minkowski.EuclideanDistance;
+import it.unimi.dsi.fastutil.doubles.DoubleArrayList;
+import it.unimi.dsi.fastutil.doubles.DoubleList;
 import org.geotools.geometry.jts.JTS;
 import org.geotools.geometry.jts.JTSFactoryFinder;
 import org.geotools.referencing.CRS;
@@ -1203,6 +1205,44 @@ public class GisUtil implements AutoCloseable {
     }
 
     /**
+     * 保留拐点的快速抽稀
+     *
+     * @param pts         原始点位（高斯投影后）
+     * @param minLen      小于该长度的边直接参与角度计算，但不单独保留端点（单位：米）
+     * @param minAngleDeg 连续三点夹角大于该值则保留中间点（度）
+     *
+     * @return 抽稀后的坐标数组
+     */
+    private Coordinate[] simplifyByAngle(Coordinate[] pts, double minLen, double minAngleDeg) {
+        if (pts.length < 3) return pts;
+        DoubleList keep = new DoubleArrayList();
+        keep.add(pts[0].x);
+        keep.add(pts[0].y);
+        int last = 0;
+        for (int i = 1; i < pts.length - 1; i++) {
+            double dx1 = pts[i].x - pts[last].x;
+            double dy1 = pts[i].y - pts[last].y;
+            double len1 = Math.hypot(dx1, dy1);
+            if (len1 < minLen) continue;                 // 短边直接丢
+            double dx2 = pts[i + 1].x - pts[i].x;
+            double dy2 = pts[i + 1].y - pts[i].y;
+            double angle = Math.abs(Math.PI - Math.abs(Math.atan2(dy1, dx1) - Math.atan2(dy2, dx2)));
+            if (Math.toDegrees(angle) > minAngleDeg) {   // 大拐角保留
+                keep.add(pts[i].x);
+                keep.add(pts[i].y);
+                last = i;
+            }
+        }
+        keep.add(pts[pts.length - 1].x);
+        keep.add(pts[pts.length - 1].y);
+        Coordinate[] out = new Coordinate[keep.size() >> 1];
+        for (int i = 0, j = 0; i < out.length; i++, j += 2) {
+            out[i] = new Coordinate(keep.getDouble(j), keep.getDouble(j + 1));
+        }
+        return out;
+    }
+
+    /**
      * 过滤异常点位信息
      *
      * @param wgs84Points 轨迹点列表（Wgs84Point类型）
@@ -2069,20 +2109,17 @@ public class GisUtil implements AutoCloseable {
                 if (segment.size() >= minPts) {
                     Geometry gaussGeometry;
                     log.debug("创建线缓冲，缓冲半径：{} 米", halfWorkingWidth);
-                    Coordinate[] coordinates = segment.stream().map(point -> new Coordinate(point.getGaussX(), point.getGaussY())).toArray(Coordinate[]::new);
-                    if (coordinates.length > 500) {
-                        LineString lineString = config.GEOMETRY_FACTORY.createLineString(coordinates);
-                        Geometry simplifiedGeometry = DouglasPeuckerSimplifier.simplify(lineString, 0.1);//0.1米容差
-                        Coordinate[] simplifiedCoords = simplifiedGeometry.getCoordinates();
-                        if (simplifiedCoords.length > 500) {
-                            gaussGeometry = processLargeSegmentInChunks(segment, halfWorkingWidth);
-                        } else {
-                            gaussGeometry = simplifiedGeometry.buffer(halfWorkingWidth);
-                        }
-                    } else {
-                        LineString lineString = config.GEOMETRY_FACTORY.createLineString(coordinates);
-                        gaussGeometry = lineString.buffer(halfWorkingWidth);
+                    Coordinate[] coords = segment.stream()
+                            .map(p -> new Coordinate(p.getGaussX(), p.getGaussY()))
+                            .toArray(Coordinate[]::new);
+                    if (coords.length > 1000) {
+                        log.debug("原始点位数量：{}", coords.length);
+                        coords = simplifyByAngle(coords, 1.0, 150);
+                        log.debug("抽稀点位数量：{}", coords.length);
                     }
+                    LineString line = config.GEOMETRY_FACTORY.createLineString(coords);
+                    gaussGeometry = line.buffer(halfWorkingWidth);
+                    log.debug("几何图形创建完毕 {}亩", gaussGeometry.getArea() * config.SQUARE_TO_MU_METER);
                     clusterGaussGeometryMap.put(clusterIndex, gaussGeometry);
                     clusterGaussPointsMap.put(clusterIndex, segment);
                     clusterIndex++;
@@ -2099,6 +2136,7 @@ public class GisUtil implements AutoCloseable {
         for (Map.Entry<Integer, Geometry> integerGeometryEntry : clusterGaussGeometryMap.entrySet()) {
             Integer key = integerGeometryEntry.getKey();
             Geometry currGeom = integerGeometryEntry.getValue();
+            //log.debug("{}", toWgs84Geometry(currGeom).toText());
             currGeom = currGeom.buffer(positiveBuffer).buffer(-positiveBuffer);
             clusterGaussGeometryMap.put(key, currGeom);
         }
