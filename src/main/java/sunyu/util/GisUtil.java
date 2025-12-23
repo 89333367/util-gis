@@ -181,6 +181,16 @@ public class GisUtil implements AutoCloseable {
          * 米到度的转换系数 将米转换为度（近似转换：1度≈111公里）
          */
         private final double MI_TO_DEGREE = 111000.0;
+
+        /**
+         * 抽稀角度（度）
+         */
+        private final double SIMPLIFY_ANGLE = 120;
+
+        /**
+         * 抽稀容差（米）
+         */
+        private final double SIMPLIFY_TOLERANCE = 1.0;
     }
 
     public static class Builder {
@@ -1223,11 +1233,11 @@ public class GisUtil implements AutoCloseable {
             double dx1 = pts[i].x - pts[last].x;
             double dy1 = pts[i].y - pts[last].y;
             double len1 = Math.hypot(dx1, dy1);
-            if (len1 < minLen) continue;                 // 短边直接丢
+            if (len1 < minLen) continue;// 短边直接丢
             double dx2 = pts[i + 1].x - pts[i].x;
             double dy2 = pts[i + 1].y - pts[i].y;
             double angle = Math.abs(Math.PI - Math.abs(Math.atan2(dy1, dx1) - Math.atan2(dy2, dx2)));
-            if (Math.toDegrees(angle) > minAngleDeg) {   // 大拐角保留
+            if (Math.toDegrees(angle) > minAngleDeg) {// 大拐角保留
                 keep.add(pts[i].x);
                 keep.add(pts[i].y);
                 last = i;
@@ -2112,9 +2122,9 @@ public class GisUtil implements AutoCloseable {
                     Coordinate[] coords = segment.stream()
                             .map(p -> new Coordinate(p.getGaussX(), p.getGaussY()))
                             .toArray(Coordinate[]::new);
-                    if (coords.length > 1000) {
+                    if (coords.length > 500) {
                         log.debug("原始点位数量：{}", coords.length);
-                        coords = simplifyByAngle(coords, 1.0, 150);
+                        coords = simplifyByAngle(coords, config.SIMPLIFY_TOLERANCE, config.SIMPLIFY_ANGLE);
                         log.debug("抽稀点位数量：{}", coords.length);
                     }
                     LineString line = config.GEOMETRY_FACTORY.createLineString(coords);
