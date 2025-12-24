@@ -765,6 +765,78 @@ public class TestUtilGis {
     }
 
     @Test
+    void 测试1秒间隔026() {
+        // 所有地块都能识别出来
+        String did = "EC73BD2503190486";
+        String startTime = "20250802055640";
+        String endTime = "20250802164456";
+        double jobWidth = 2.6;
+        生成数据文件(did, startTime, endTime);
+        测试拆分数据(did, startTime, endTime, jobWidth);
+        生成HTML(did, startTime, endTime);
+    }
+
+    @Test
+    void 测试1秒间隔027() {
+        // 所有地块都能识别出来
+        String did = "EC73BD2504110122";
+        String startTime = "20250522065331";
+        String endTime = "20250522184733";
+        double jobWidth = 2.6;
+        生成数据文件(did, startTime, endTime);
+        测试拆分数据(did, startTime, endTime, jobWidth);
+        生成HTML(did, startTime, endTime);
+    }
+
+    @Test
+    void 测试1秒间隔028() {
+        // 所有地块都能识别出来
+        String did = "EC73BD2504110122";
+        String startTime = "20250524115502";
+        String endTime = "20250524220139";
+        double jobWidth = 2.6;
+        生成数据文件(did, startTime, endTime);
+        测试拆分数据(did, startTime, endTime, jobWidth);
+        生成HTML(did, startTime, endTime);
+    }
+
+    @Test
+    void 测试1秒间隔029() {
+        // 所有地块都能识别出来
+        String did = "EC73BD2504110774";
+        String startTime = "20250526072025";
+        String endTime = "20250526172848";
+        double jobWidth = 2.5;
+        生成数据文件(did, startTime, endTime);
+        测试拆分数据(did, startTime, endTime, jobWidth);
+        生成HTML(did, startTime, endTime);
+    }
+
+    @Test
+    void 测试1秒间隔030() {
+        // 所有地块都能识别出来
+        String did = "EC73BD2504110121";
+        String startTime = "20250429063229";
+        String endTime = "20250429175943";
+        double jobWidth = 2.6;
+        生成数据文件(did, startTime, endTime);
+        测试拆分数据(did, startTime, endTime, jobWidth);
+        生成HTML(did, startTime, endTime);
+    }
+
+    @Test
+    void 测试1秒间隔031() {
+        // 所有地块都能识别出来
+        String did = "EC73BD2503190486";
+        String startTime = "20250421063426";
+        String endTime = "20250421164529";
+        double jobWidth = 2.6;
+        生成数据文件(did, startTime, endTime);
+        测试拆分数据(did, startTime, endTime, jobWidth);
+        生成HTML(did, startTime, endTime);
+    }
+
+    @Test
     void 测试10秒间隔001() {
         // 一块地，非常多的路
         String did = "EM9101B8F5AZT0041";
