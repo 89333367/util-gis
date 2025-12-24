@@ -19,10 +19,10 @@ import org.junit.jupiter.api.Test;
 import org.locationtech.jts.geom.Geometry;
 import org.locationtech.jts.geom.MultiPolygon;
 import sunyu.util.GisUtil;
+import sunyu.util.config.TDengineHandler;
 import sunyu.util.pojo.*;
 
 import javax.sql.DataSource;
-import java.nio.charset.StandardCharsets;
 import java.sql.SQLException;
 import java.time.Duration;
 import java.time.LocalDateTime;
@@ -115,14 +115,14 @@ public class TestUtilGis {
             log.debug("{}", tdSql);
             List<Entity> rows = null;
             try {
-                rows = tdengineDb.query(tdSql);
+                rows = tdengineDb.query(tdSql, new TDengineHandler());
             } catch (SQLException e) {
                 throw new RuntimeException(e);
             }
             List<String> traceList = new ArrayList<>();
             List<String> protocolList = new ArrayList<>();
             for (Entity row : rows) {
-                String protocolStr = new String(row.getBytes("protocol"), StandardCharsets.UTF_8);
+                String protocolStr = row.getStr("protocol");
                 Map<String, String> protocol = parseProtocolString(protocolStr);
                 if (!protocol.containsKey("3014") || !protocol.containsKey("2602") || !protocol.containsKey("2603")) {
                     continue;
@@ -830,6 +830,18 @@ public class TestUtilGis {
         String did = "EC73BD2503190486";
         String startTime = "20250421063426";
         String endTime = "20250421164529";
+        double jobWidth = 2.6;
+        生成数据文件(did, startTime, endTime);
+        测试拆分数据(did, startTime, endTime, jobWidth);
+        生成HTML(did, startTime, endTime);
+    }
+
+    @Test
+    void 测试1秒间隔032() {
+        // 所有地块都能识别出来
+        String did = "EC73BD2503190486";
+        String startTime = "20250420065553";
+        String endTime = "20250420175721";
         double jobWidth = 2.6;
         生成数据文件(did, startTime, endTime);
         测试拆分数据(did, startTime, endTime, jobWidth);
