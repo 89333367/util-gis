@@ -51619,7 +51619,7 @@ POLYGON ((111.24489551531572 26.918054171841774, 111.24488929557516 26.918053625
               weight: 1,
               opacity: 1,
               fillColor: colorScheme.fill,
-              fillOpacity: colorScheme.opacity
+              fillOpacity: 0.7
           });
 
           // 使用WGS84坐标计算面积（更准确的面积计算）
@@ -52526,7 +52526,7 @@ POLYGON ((111.24489551531572 26.918054171841774, 111.24488929557516 26.918053625
         const polyline = new T.Polyline(points, {
             color: currentTrackLineColor,
             weight: 1,
-            opacity: 0.9
+            opacity: 1
         });
         if (map) {
             map.addOverLay(polyline);
@@ -53157,8 +53157,8 @@ POLYGON ((111.24489551531572 26.918054171841774, 111.24488929557516 26.918053625
             const prevPoint = measureState.points[measureState.points.length - 2];
             const line = new T.Polyline([prevPoint, point], {
                 color: '#FF0000',
-                weight: 3,
-                opacity: 0.8
+                weight: 1,
+                opacity: 1
             });
             map.addOverLay(line);
             measureState.lines.push(line);
@@ -53203,10 +53203,10 @@ POLYGON ((111.24489551531572 26.918054171841774, 111.24488929557516 26.918053625
         if (measureState.points.length >= 3) {
             const polygon = new T.Polygon(measureState.points, {
                 color: currentOutlineColor,
-                weight: 3,
-                opacity: 0.8,
+                weight: 1,
+                opacity: 1,
                 fillColor: currentFillColor,
-                fillOpacity: currentFillOpacity
+                fillOpacity: 1
             });
             map.addOverLay(polygon);
             measureState.polygon = polygon;
@@ -53238,8 +53238,8 @@ POLYGON ((111.24489551531572 26.918054171841774, 111.24488929557516 26.918053625
         // 创建新的临时线
         measureState.tempLine = new T.Polyline([lastPoint, currentPoint], {
             color: '#0000FF',
-            weight: 2,
-            opacity: 0.6,
+            weight: 1,
+            opacity: 0.5,
             dashArray: [5, 5]
         });
         map.addOverLay(measureState.tempLine);
@@ -53266,8 +53266,8 @@ POLYGON ((111.24489551531572 26.918054171841774, 111.24488929557516 26.918053625
 
         measureState.tempLine = new T.Polyline(tempPoints, {
             color: '#0000FF',
-            weight: 2,
-            opacity: 0.6,
+            weight: 1,
+            opacity: 0.5,
             dashArray: [5, 5]
         });
         map.addOverLay(measureState.tempLine);
@@ -53328,10 +53328,10 @@ POLYGON ((111.24489551531572 26.918054171841774, 111.24488929557516 26.918053625
 
             const polygon = new T.Polygon(measureState.points, {
                 color: currentOutlineColor,
-                weight: 3,
-                opacity: 0.8,
+                weight: 1,
+                opacity: 1,
                 fillColor: currentFillColor,
-                fillOpacity: currentFillOpacity
+                fillOpacity: 1
             });
             map.addOverLay(polygon);
             measureState.polygon = polygon;

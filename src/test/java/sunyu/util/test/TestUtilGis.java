@@ -639,7 +639,7 @@ public class TestUtilGis {
 
     @Test
     void 测试1秒间隔016() {
-        // 点位比较多，生成几何图形较慢，需要优化，识别出6个地块，还有一个地块由于他是作业关闭状态，所以没有识别出来
+        // 识别出6个地块，还有一个地块由于他是作业关闭状态，所以没有识别出来
         String did = "NJ4GNBZAX0000273";
         String yyyyMMdd = "20250531";
         String startTime = yyyyMMdd + "000000";
@@ -875,7 +875,7 @@ public class TestUtilGis {
 
     @Test
     void 测试10秒间隔002() {
-        // 识别出4块地
+        // 识别出4块地，有点漏地，给人家算少了
         String did = "EM9101B8F5AZT0041";
         String yyyyMMdd = "20251024";
         String startTime = yyyyMMdd + "000000";
