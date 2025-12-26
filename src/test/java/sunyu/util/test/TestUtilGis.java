@@ -19,8 +19,8 @@ import org.junit.jupiter.api.Test;
 import org.locationtech.jts.geom.Geometry;
 import org.locationtech.jts.geom.MultiPolygon;
 import sunyu.util.GisUtil;
-import sunyu.util.config.TDengineHandler;
 import sunyu.util.pojo.*;
+import sunyu.util.test.config.TDengineHandler;
 
 import javax.sql.DataSource;
 import java.sql.SQLException;
@@ -855,6 +855,18 @@ public class TestUtilGis {
         String startTime = "20251031085228";
         String endTime = "20251031202509";
         double jobWidth = 2.8;
+        生成数据文件(did, startTime, endTime);
+        测试拆分数据(did, startTime, endTime, jobWidth);
+        生成HTML(did, startTime, endTime);
+    }
+
+    @Test
+    void 测试1秒间隔034() {
+        // 所有地块都能识别出来
+        String did = "NJ4GNBZAX0000273";
+        String startTime = "20250601000000";
+        String endTime = "20250601235959";
+        double jobWidth = 2.3;
         生成数据文件(did, startTime, endTime);
         测试拆分数据(did, startTime, endTime, jobWidth);
         生成HTML(did, startTime, endTime);

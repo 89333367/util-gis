@@ -64,7 +64,7 @@ public class ClusterVisualizationGui extends JFrame {
     private JPanel legendPanel;  // 自定义图例面板
 
     // 数据存储
-    private List<double[]> coordinates = new ArrayList<>();
+    private final List<double[]> coordinates = new ArrayList<>();
     private XYSeriesCollection dataset;
 
     // 聚类颜色配置
@@ -434,7 +434,7 @@ public class ClusterVisualizationGui extends JFrame {
                     isDragging[0] = true;
                     chartPanel.setCursor(Cursor.getPredefinedCursor(Cursor.MOVE_CURSOR));
                     e.consume(); // 消费事件，防止冒泡
-                } else if (SwingUtilities.isLeftMouseButton(e) && coordinates.size() > 0) {
+                } else if (SwingUtilities.isLeftMouseButton(e) && !coordinates.isEmpty()) {
                     // 左键框选开始
                     selectionStartPoint[0] = e.getPoint();
                     selectionEndPoint[0] = e.getPoint();
