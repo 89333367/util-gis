@@ -142,7 +142,7 @@ public class GisUtil implements AutoCloseable {
          * 当一个区域内的点数量小于此值时，被认为是噪声点或异常值，不会被分配到任何聚类中。
          * </p>
          */
-        private final int DBSCAN_MIN_POINTS = 20;
+        private final int DBSCAN_MIN_POINTS = 18;
 
         /**
          * 最大切分时间间隔（秒）
@@ -1551,7 +1551,7 @@ public class GisUtil implements AutoCloseable {
 
             // 跳过噪声聚类：DBSCAN将噪声点标记为"Noise"聚类
             if (!cluster.getNameAutomatic().equals("Cluster")) {
-                log.debug("噪声聚类，跳过");
+                // 噪声聚类，跳过
                 continue;
             }
 
@@ -3803,6 +3803,12 @@ public class GisUtil implements AutoCloseable {
                 LineString line = config.GEOMETRY_FACTORY.createLineString(coords);
                 gaussGeometry = line.buffer(halfWorkingWidth);
                 log.debug("几何图形创建完毕 {}亩", gaussGeometry.getArea() * config.SQUARE_TO_MU_METER);
+
+                if (gaussGeometry.getArea() < config.MIN_RETURN_MU * config.MU_TO_SQUARE_METER) {
+                    log.debug("几何图形面积：{}亩，小于最小返回面积 {}亩，直接删除",
+                            gaussGeometry.getArea() * config.SQUARE_TO_MU_METER, config.MIN_RETURN_MU);
+                    continue;
+                }
 
                 // 【结果存储】缓存生成的几何图形和对应点位
                 clusterGaussGeometryMap.put(clusterIndex, gaussGeometry);

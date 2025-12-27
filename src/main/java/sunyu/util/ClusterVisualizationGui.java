@@ -95,7 +95,7 @@ public class ClusterVisualizationGui extends JFrame {
 
         selectFileButton = new JButton("选择数据文件");
 
-        // eps参数输入验证 - 必须大于1.0的浮点数
+        // eps参数输入验证 - 必须是正整数
         epsField = new JTextField("5", 8);
         ((AbstractDocument) epsField.getDocument()).setDocumentFilter(new DocumentFilter() {
             /**
@@ -141,7 +141,7 @@ public class ClusterVisualizationGui extends JFrame {
 
             /**
              * 验证eps参数的有效性
-             * 检查输入文本是否为有效的浮点数且大于等于1.0
+             * 检查输入文本是否为有效的正整数
              *
              * @param text 要验证的文本
              * @return 如果文本有效返回true，否则返回false
@@ -149,36 +149,24 @@ public class ClusterVisualizationGui extends JFrame {
             private boolean isValidEps(String text) {
                 if (text.isEmpty()) return true; // 允许空字符串
 
-                // 检查是否只包含数字、小数点和负号
+                // 检查是否只包含数字
                 for (int i = 0; i < text.length(); i++) {
                     char c = text.charAt(i);
-                    if (!Character.isDigit(c) && c != '.' && c != '-') {
+                    if (!Character.isDigit(c)) {
                         return false;
                     }
                 }
 
-                // 检查小数点数量
-                int dotCount = 0;
-                for (int i = 0; i < text.length(); i++) {
-                    if (text.charAt(i) == '.') {
-                        dotCount++;
-                    }
-                }
-                if (dotCount > 1) return false;
-
-                // 检查负号位置
-                if (text.indexOf('-') > 0) return false;
-
                 try {
-                    float value = Float.parseFloat(text);
-                    return value >= 1.0f; // eps参数必须大于等于1.0
+                    int value = Integer.parseInt(text);
+                    return value > 0; // eps参数必须是正整数
                 } catch (NumberFormatException e) {
                     return false;
                 }
             }
         });
 
-        minPtsField = new JTextField("20", 8);
+        minPtsField = new JTextField("18", 8);
         // minPts参数输入验证 - 必须是正整数
         ((AbstractDocument) minPtsField.getDocument()).setDocumentFilter(new DocumentFilter() {
             /**
@@ -224,7 +212,7 @@ public class ClusterVisualizationGui extends JFrame {
 
             /**
              * 验证minPts参数的有效性
-             * 检查输入文本是否为有效的正整数且大于等于2
+             * 检查输入文本是否为有效的正整数
              *
              * @param text 要验证的文本
              * @return 如果文本有效返回true，否则返回false
@@ -242,7 +230,7 @@ public class ClusterVisualizationGui extends JFrame {
 
                 try {
                     int value = Integer.parseInt(text);
-                    return value >= 2; // minPts参数必须大于等于2
+                    return value > 0; // minPts参数必须是正整数
                 } catch (NumberFormatException e) {
                     return false;
                 }
