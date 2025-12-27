@@ -1721,6 +1721,7 @@ public class GisUtil implements AutoCloseable {
                     }
                 } else {
                     // 增量更新：将当前地块添加到累积并集中
+                    currentGeom = currentGeom.buffer(0);
                     accumulatedUnion = accumulatedUnion.union(currentGeom);
                 }
             }
@@ -3738,7 +3739,7 @@ public class GisUtil implements AutoCloseable {
         // 【缓冲策略】负缓冲参数：向下取整，精确切除道路轨迹
         double negativeBuffer = Math.floor(workingWidth);
 
-        // 【数据清洗】过滤异常点位（如速度过快、坐标异常等），提高聚类准确性
+        // 【数据清洗】过滤异常点位，提高聚类准确性
         wgs84Points = filterWgs84Points(wgs84Points);
 
         // 【自适应参数】计算最小上报时间间隔，用于动态调整聚类参数
@@ -3776,50 +3777,37 @@ public class GisUtil implements AutoCloseable {
 
         // 【几何生成】循环处理每个聚类簇，生成对应的作业区域
         log.debug("循环所有聚类簇，生成几何图形");
-        int clusterIndex = 1;
+        int clusterIndex = 1;//聚类编号
         // 【数据缓存】存储聚类生成的几何图形和对应点位，key为聚类索引
         Map<Integer, Geometry> clusterGaussGeometryMap = new LinkedHashMap<>();
         Map<Integer, List<GaussPoint>> clusterGaussPointsMap = new LinkedHashMap<>();
-
         for (List<GaussPoint> cluster : clusters) {
             log.debug("聚类簇包含 {} 个点", cluster.size());
+            if (cluster.size() >= minPts) {
+                Geometry gaussGeometry;
+                log.debug("创建线缓冲，缓冲半径：{} 米", halfWorkingWidth);
 
-            // 【簇内切分】按距离策略切分聚类簇，处理长距离作业的情况
-            log.debug("按策略切分聚类簇");
-            //List<List<GaussPoint>> segments = splitClusterByTimeOrDistance(cluster, config.MAX_SPLIT_SECONDS, eps * 2);
-            //List<List<GaussPoint>> segments = splitClusterByTime(cluster, config.MAX_SPLIT_SECONDS);
-            List<List<GaussPoint>> segments = splitClusterByDistance(cluster, eps * 2);
-            log.info("切分后得到 {} 个子段", segments.size());
+                // 【坐标提取】将高斯点转换为JTS坐标数组
+                Coordinate[] coords = cluster.stream()
+                        .map(p -> new Coordinate(p.getGaussX(), p.getGaussY()))
+                        .toArray(Coordinate[]::new);
 
-            // 【线段缓冲】为每个子段创建线缓冲，生成初步作业区域
-            for (List<GaussPoint> segment : segments) {
-                log.debug("处理子段：{} 个点", segment.size());
-                if (segment.size() >= minPts) {
-                    Geometry gaussGeometry;
-                    log.debug("创建线缓冲，缓冲半径：{} 米", halfWorkingWidth);
-
-                    // 【坐标提取】将高斯点转换为JTS坐标数组
-                    Coordinate[] coords = segment.stream()
-                            .map(p -> new Coordinate(p.getGaussX(), p.getGaussY()))
-                            .toArray(Coordinate[]::new);
-
-                    // 【数据优化】点位过多时进行角度抽稀，平衡精度与性能
-                    if (coords.length > 500) {
-                        log.debug("原始点位数量：{}", coords.length);
-                        coords = simplifyByAngle(coords, config.SIMPLIFY_TOLERANCE, config.SIMPLIFY_ANGLE);
-                        log.debug("抽稀点位数量：{}", coords.length);
-                    }
-
-                    // 【几何创建】构建线串并应用缓冲，形成作业区域
-                    LineString line = config.GEOMETRY_FACTORY.createLineString(coords);
-                    gaussGeometry = line.buffer(halfWorkingWidth);
-                    log.debug("几何图形创建完毕 {}亩", gaussGeometry.getArea() * config.SQUARE_TO_MU_METER);
-
-                    // 【结果存储】缓存生成的几何图形和对应点位
-                    clusterGaussGeometryMap.put(clusterIndex, gaussGeometry);
-                    clusterGaussPointsMap.put(clusterIndex, segment);
-                    clusterIndex++;
+                // 【数据优化】点位过多时进行角度抽稀，平衡精度与性能
+                if (coords.length > 500) {
+                    log.debug("原始点位数量：{}", coords.length);
+                    coords = simplifyByAngle(coords, config.SIMPLIFY_TOLERANCE, config.SIMPLIFY_ANGLE);
+                    log.debug("抽稀点位数量：{}", coords.length);
                 }
+
+                // 【几何创建】构建线串并应用缓冲，形成作业区域
+                LineString line = config.GEOMETRY_FACTORY.createLineString(coords);
+                gaussGeometry = line.buffer(halfWorkingWidth);
+                log.debug("几何图形创建完毕 {}亩", gaussGeometry.getArea() * config.SQUARE_TO_MU_METER);
+
+                // 【结果存储】缓存生成的几何图形和对应点位
+                clusterGaussGeometryMap.put(clusterIndex, gaussGeometry);
+                clusterGaussPointsMap.put(clusterIndex, cluster);
+                clusterIndex++;
             }
         }
 
@@ -3838,11 +3826,6 @@ public class GisUtil implements AutoCloseable {
             // 应用双向缓冲：先扩张再收缩，填补细小缝隙
             currGeom = currGeom.buffer(positiveBuffer).buffer(-positiveBuffer);
             clusterGaussGeometryMap.put(key, currGeom);
-        }
-
-        // 【相交处理】多个地块时进行相交修复，避免重复计算面积
-        if (clusterGaussGeometryMap.size() > 1) {
-            optimizeLandParcelIntersectionRepair(clusterGaussGeometryMap, clusterGaussPointsMap);
         }
 
         // 【道路切除】负缓冲→正缓冲策略，切除细条状道路轨迹
@@ -3886,7 +3869,7 @@ public class GisUtil implements AutoCloseable {
 
             List<GaussPoint> clusterGaussPoints = clusterGaussPointsMap.get(index);
 
-            // 【多几何处理】处理MultiPolygon情况，通常由相交修复产生
+            // 【多几何处理】处理MultiPolygon情况
             if (clusterGaussGeometry instanceof MultiPolygon) {
                 MultiPolygon multiPolygon = (MultiPolygon) clusterGaussGeometry;
                 log.debug("索引 {} 的多边形，包含 {} 个子多边形", index, multiPolygon.getNumGeometries());
@@ -3944,7 +3927,7 @@ public class GisUtil implements AutoCloseable {
             while (j < n && splitParts.get(j).getStartTime().isBefore(groupEnd)) {
                 SplitPart curr = splitParts.get(j);
                 // 【几何合并】使用缓冲策略平滑合并边界
-                unionGeo = unionGeo.union(curr.getGaussGeometry()).buffer(halfWorkingWidth).buffer(-halfWorkingWidth);
+                unionGeo = unionGeo.union(curr.getGaussGeometry()).buffer(0);
                 if (curr.getEndTime().isAfter(groupEnd)) {
                     groupEnd = curr.getEndTime();   // 扩张结束时间
                 }

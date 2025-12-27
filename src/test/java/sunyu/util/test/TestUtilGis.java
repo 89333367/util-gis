@@ -1,6 +1,8 @@
 package sunyu.util.test;
 
 import cn.hutool.core.convert.Convert;
+import cn.hutool.core.date.DateField;
+import cn.hutool.core.date.DateTime;
 import cn.hutool.core.date.DateUtil;
 import cn.hutool.core.date.LocalDateTimeUtil;
 import cn.hutool.core.io.FileUtil;
@@ -108,14 +110,14 @@ public class TestUtilGis {
 
     void 生成数据文件(String did, String startTime, String endTime) {
         if (!FileUtil.exist(path + StrUtil.format("/{}_{}_{}_trace.txt", did, startTime, endTime))) {
-            Db tdengineDb = getTdengineDb();
+            Db db = getTdengineDb();
             String jobStartTime = DateUtil.parse(startTime, "yyyyMMddHHmmss").toString("yyyy-MM-dd HH:mm:ss");
             String jobEndTime = DateUtil.parse(endTime, "yyyyMMddHHmmss").toString("yyyy-MM-dd HH:mm:ss");
             String tdSql = StrUtil.format("select protocol from frequent.d_p where did='{}' and _rowts>='{}' and _rowts<='{}'", did, jobStartTime, jobEndTime);
             log.debug("{}", tdSql);
             List<Entity> rows = null;
             try {
-                rows = tdengineDb.query(tdSql, new TDengineHandler());
+                rows = db.query(tdSql, new TDengineHandler());
             } catch (SQLException e) {
                 throw new RuntimeException(e);
             }
@@ -873,6 +875,18 @@ public class TestUtilGis {
     }
 
     @Test
+    void 测试1秒间隔035() {
+        // 所有地块都能识别出来
+        String did = "EC73BD2504030112";
+        String startTime = "20250414000000";
+        String endTime = "20250414235959";
+        double jobWidth = 2.6;
+        生成数据文件(did, startTime, endTime);
+        测试拆分数据(did, startTime, endTime, jobWidth);
+        生成HTML(did, startTime, endTime);
+    }
+
+    @Test
     void 测试10秒间隔001() {
         // 一块地，非常多的路
         String did = "EM9101B8F5AZT0041";
@@ -931,7 +945,7 @@ public class TestUtilGis {
         String yyyyMMdd = "20251026";
         String startTime = yyyyMMdd + "000000";
         String endTime = yyyyMMdd + "235959";
-        double jobWidth = 3.5;
+        double jobWidth = 2.5;
         生成数据文件(did, startTime, endTime);
         测试拆分数据(did, startTime, endTime, jobWidth);
         生成HTML(did, startTime, endTime);
@@ -963,5 +977,41 @@ public class TestUtilGis {
         生成HTML(did, startTime, endTime);
     }
 
+    @Test
+    void 测试EC7设备() throws SQLException {
+        String sql = ResourceUtil.readUtf8Str("EC7.sql");
+        Db db = getMysqlDb();
+        List<Entity> list = db.query(sql);
+        for (Entity entity : list) {
+            log.debug("{}", entity);
+
+            String did = entity.getStr("did");
+            double jobWidth = entity.getDouble("jobWidth");
+            Date jobStartTime = entity.getDate("jobStartTime");
+            Date jobEndTime = entity.getDate("jobEndTime");
+
+            // 判断jobStartTime和jobEndTime是否是在一天中
+            if (DateUtil.isSameDay(jobStartTime, jobEndTime)) {
+                String day = DateUtil.format(jobStartTime, "yyyyMMdd");
+                String startTime = day + "000000";
+                String endTime = day + "235959";
+                log.debug("{} {} {}", did, startTime, endTime);
+                生成数据文件(did, startTime, endTime);
+                测试拆分数据(did, startTime, endTime, jobWidth);
+                生成HTML(did, startTime, endTime);
+            } else {
+                // 如果跨天了，那么按天切割成多段
+                for (DateTime dateTime : DateUtil.range(jobStartTime, jobEndTime, DateField.DAY_OF_YEAR)) {
+                    String day = DateUtil.format(dateTime, "yyyyMMdd");
+                    String startTime = day + "000000";
+                    String endTime = day + "235959";
+                    log.debug("{} {} {}", did, startTime, endTime);
+                    生成数据文件(did, startTime, endTime);
+                    测试拆分数据(did, startTime, endTime, jobWidth);
+                    生成HTML(did, startTime, endTime);
+                }
+            }
+        }
+    }
 
 }
