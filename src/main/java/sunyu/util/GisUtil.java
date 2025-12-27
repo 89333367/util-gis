@@ -3748,7 +3748,7 @@ public class GisUtil implements AutoCloseable {
 
         // 【聚类配置】基于时间间隔计算DBSCAN参数，实现自适应密度聚类
         double eps = config.DBSCAN_EPSILON * minEffectiveInterval;
-        int minPts = config.DBSCAN_MIN_POINTS;
+        int minPts = config.DBSCAN_MIN_POINTS * minEffectiveInterval;
 
         // 【坐标转换】WGS84转高斯投影，保证距离计算和几何操作的精度
         List<GaussPoint> gaussPoints = toGaussPointList(wgs84Points);
@@ -3762,7 +3762,7 @@ public class GisUtil implements AutoCloseable {
         log.info("聚类完成，总共有 {} 个聚类簇", clusters.size());
 
         // 【自适应优化】聚类过多时放宽参数，避免过度分割
-        if (clusters.size() > minPts) {
+        if (clusters.size() > 10) {
             eps = eps * 2;      // 扩大邻域半径
             minPts = minPts * 2; // 增加最小点数
             clusters = dbScanClusters(gaussPoints, eps, minPts);
@@ -3932,7 +3932,6 @@ public class GisUtil implements AutoCloseable {
             int j = i + 1;
             while (j < n && splitParts.get(j).getStartTime().isBefore(groupEnd)) {
                 SplitPart curr = splitParts.get(j);
-                // 【几何合并】使用缓冲策略平滑合并边界
                 unionGeo = unionGeo.union(curr.getGaussGeometry()).buffer(0);
                 if (curr.getEndTime().isAfter(groupEnd)) {
                     groupEnd = curr.getEndTime();   // 扩张结束时间
