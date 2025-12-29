@@ -3794,7 +3794,7 @@ public class GisUtil implements AutoCloseable {
                 Geometry gaussGeometry = config.EMPTY_GEOMETRY;
                 log.debug("创建线缓冲，缓冲半径：{} 米", halfWorkingWidth);
 
-                List<List<GaussPoint>> splitCluster = splitClusterByTimeOrDistance(cluster, config.MAX_SPLIT_SECONDS, eps);
+                List<List<GaussPoint>> splitCluster = splitClusterByTimeOrDistance(cluster, config.MAX_SPLIT_SECONDS, eps * 2);
                 if (splitCluster.size() > 1) {
                     // 类簇被按策略拆分，需要多次创建多边形
                     for (List<GaussPoint> subCluster : splitCluster) {

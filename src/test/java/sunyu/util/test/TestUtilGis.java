@@ -155,6 +155,10 @@ public class TestUtilGis {
     }
 
     void 测试拆分数据(String did, String startTime, String endTime, double jobWidth) {
+        测试拆分数据(did, startTime, endTime, jobWidth, true);
+    }
+
+    void 测试拆分数据(String did, String startTime, String endTime, double jobWidth, boolean check4031) {
         String fileName = path + StrUtil.format("/{}_{}_{}_protocol.txt", did, startTime, endTime);
         if (!FileUtil.exist(fileName)) {
             return;
@@ -178,11 +182,11 @@ public class TestUtilGis {
                     wgs84Point.setJobStatus(2);//ACC关闭，认为是没有作业
                 }
             }
-            /*if (protocol.containsKey("4031")) {// 作业标识,1作业,0非作业,2暂停
+            if (check4031 && protocol.containsKey("4031")) {// 作业标识,1作业,0非作业,2暂停
                 if (!Convert.toStr(protocol.get("4031")).equals("1")) {
                     wgs84Point.setJobStatus(2);//作业标识不是1，认为是没有作业
                 }
-            }*/
+            }
             l.add(wgs84Point);
         }
 
@@ -646,14 +650,14 @@ public class TestUtilGis {
 
     @Test
     void 测试1秒间隔016() {
-        // 识别出6个地块，还有一个地块由于他是作业关闭状态，所以没有识别出来
+        // 有一个地块由于他是作业关闭状态，所以没有识别出来，因为那个非作业状态上报时间间隔是5秒，一天中有两种上报时间间隔，也计算不出来
         String did = "NJ4GNBZAX0000273";
         String yyyyMMdd = "20250531";
         String startTime = yyyyMMdd + "000000";
         String endTime = yyyyMMdd + "235959";
         double jobWidth = 2.3;
         生成数据文件(did, startTime, endTime);
-        测试拆分数据(did, startTime, endTime, jobWidth);
+        测试拆分数据(did, startTime, endTime, jobWidth, false);
         生成HTML(did, startTime, endTime);
     }
 
@@ -716,7 +720,7 @@ public class TestUtilGis {
         String yyyyMMdd = "20251024";
         String startTime = yyyyMMdd + "000000";
         String endTime = yyyyMMdd + "235959";
-        double jobWidth = 3.5;
+        double jobWidth = 4;
         生成数据文件(did, startTime, endTime);
         测试拆分数据(did, startTime, endTime, jobWidth);
         生成HTML(did, startTime, endTime);
@@ -725,7 +729,7 @@ public class TestUtilGis {
 
     @Test
     void 测试1秒间隔022() {
-        // 很多个地块，全都识别出来了，但是有一个地块，边缘少了一点点
+        // 很多个地块，全都识别出来了，但是有一个地块，边缘少了一点点，多识别出来一块路
         String did = "EC73BD2504110767";
         String startTime = "20250529053827";
         String endTime = "20250529181257";
