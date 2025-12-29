@@ -1891,8 +1891,12 @@ public class GisUtil implements AutoCloseable {
      * @see DoubleArrayList
      */
     private Coordinate[] simplifyByAngle(Coordinate[] pts, double minLen, double minAngleDeg) {
+        log.debug("原始点位数量：{}", pts.length);
         // 边界条件处理：少于3个点无法形成夹角，直接返回原数组，确保算法稳定性
         if (pts.length < 3) return pts;
+
+        // 小于500个点就不抽稀，直接返回原数组
+        if (pts.length < 500) return pts;
 
         // 使用FastUtil的DoubleArrayList优化内存分配：避免频繁的数组扩容，提高存储效率
         DoubleList keep = new DoubleArrayList();
@@ -1940,6 +1944,7 @@ public class GisUtil implements AutoCloseable {
             // 批量创建Coordinate对象：每两个double值组成一个坐标点
             out[i] = new Coordinate(keep.getDouble(j), keep.getDouble(j + 1));
         }
+        log.debug("抽稀后点位数量：{}", out.length);
         return out;
     }
 
@@ -3802,22 +3807,17 @@ public class GisUtil implements AutoCloseable {
                         Coordinate[] coords = subCluster.stream()
                                 .map(p -> new Coordinate(p.getGaussX(), p.getGaussY()))
                                 .toArray(Coordinate[]::new);
-                        if (coords.length < minPts) {
-                            continue;
-                        }
 
                         // 【数据优化】点位过多时进行角度抽稀，平衡精度与性能
-                        if (coords.length > 500) {
-                            log.debug("原始点位数量：{}", coords.length);
-                            coords = simplifyByAngle(coords, config.SIMPLIFY_TOLERANCE, config.SIMPLIFY_ANGLE);
-                            log.debug("抽稀点位数量：{}", coords.length);
+                        coords = simplifyByAngle(coords, config.SIMPLIFY_TOLERANCE, config.SIMPLIFY_ANGLE);
+
+                        if (coords.length > minPts) {
+                            // 【几何创建】构建线串并应用缓冲，形成作业区域
+                            LineString line = config.GEOMETRY_FACTORY.createLineString(coords);
+                            Geometry subGaussGeometry = line.buffer(halfWorkingWidth);
+
+                            gaussGeometry = gaussGeometry.union(subGaussGeometry).buffer(0);
                         }
-
-                        // 【几何创建】构建线串并应用缓冲，形成作业区域
-                        LineString line = config.GEOMETRY_FACTORY.createLineString(coords);
-                        Geometry subGaussGeometry = line.buffer(halfWorkingWidth);
-
-                        gaussGeometry = gaussGeometry.union(subGaussGeometry).buffer(0);
                     }
                     log.debug("几何图形创建完毕 {}亩", gaussGeometry.getArea() * config.SQUARE_TO_MU_METER);
                 } else {
@@ -3827,16 +3827,14 @@ public class GisUtil implements AutoCloseable {
                             .toArray(Coordinate[]::new);
 
                     // 【数据优化】点位过多时进行角度抽稀，平衡精度与性能
-                    if (coords.length > 500) {
-                        log.debug("原始点位数量：{}", coords.length);
-                        coords = simplifyByAngle(coords, config.SIMPLIFY_TOLERANCE, config.SIMPLIFY_ANGLE);
-                        log.debug("抽稀点位数量：{}", coords.length);
-                    }
+                    coords = simplifyByAngle(coords, config.SIMPLIFY_TOLERANCE, config.SIMPLIFY_ANGLE);
 
-                    // 【几何创建】构建线串并应用缓冲，形成作业区域
-                    LineString line = config.GEOMETRY_FACTORY.createLineString(coords);
-                    gaussGeometry = line.buffer(halfWorkingWidth);
-                    log.debug("几何图形创建完毕 {}亩", gaussGeometry.getArea() * config.SQUARE_TO_MU_METER);
+                    if (coords.length > minPts) {
+                        // 【几何创建】构建线串并应用缓冲，形成作业区域
+                        LineString line = config.GEOMETRY_FACTORY.createLineString(coords);
+                        gaussGeometry = line.buffer(halfWorkingWidth);
+                        log.debug("几何图形创建完毕 {}亩", gaussGeometry.getArea() * config.SQUARE_TO_MU_METER);
+                    }
                 }
 
                 if (gaussGeometry.getArea() < config.MIN_RETURN_MU * config.MU_TO_SQUARE_METER) {
