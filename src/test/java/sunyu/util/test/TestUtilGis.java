@@ -7,6 +7,7 @@ import cn.hutool.core.date.DateUtil;
 import cn.hutool.core.date.LocalDateTimeUtil;
 import cn.hutool.core.io.FileUtil;
 import cn.hutool.core.io.resource.ResourceUtil;
+import cn.hutool.core.thread.ThreadUtil;
 import cn.hutool.core.util.ReUtil;
 import cn.hutool.core.util.StrUtil;
 import cn.hutool.db.Db;
@@ -116,10 +117,14 @@ public class TestUtilGis {
             String tdSql = StrUtil.format("select protocol from frequent.d_p where did='{}' and _rowts>='{}' and _rowts<='{}'", did, jobStartTime, jobEndTime);
             log.debug("{}", tdSql);
             List<Entity> rows = null;
-            try {
-                rows = db.query(tdSql, new TDengineHandler());
-            } catch (SQLException e) {
-                throw new RuntimeException(e);
+            while (true) {
+                try {
+                    rows = db.query(tdSql, new TDengineHandler());
+                    break;
+                } catch (SQLException e) {
+                    log.warn("{}", e.getMessage());
+                    ThreadUtil.sleep(10 * 1000);
+                }
             }
             List<String> traceList = new ArrayList<>();
             List<String> protocolList = new ArrayList<>();
@@ -173,11 +178,11 @@ public class TestUtilGis {
                     wgs84Point.setJobStatus(2);//ACC关闭，认为是没有作业
                 }
             }
-            if (protocol.containsKey("4031")) {// 作业标识,1作业,0非作业,2暂停
+            /*if (protocol.containsKey("4031")) {// 作业标识,1作业,0非作业,2暂停
                 if (!Convert.toStr(protocol.get("4031")).equals("1")) {
                     wgs84Point.setJobStatus(2);//作业标识不是1，认为是没有作业
                 }
-            }
+            }*/
             l.add(wgs84Point);
         }
 
@@ -886,6 +891,7 @@ public class TestUtilGis {
         生成HTML(did, startTime, endTime);
     }
 
+
     @Test
     void 测试10秒间隔001() {
         // 一块地，非常多的路
@@ -972,6 +978,18 @@ public class TestUtilGis {
         String startTime = yyyyMMdd + "000000";
         String endTime = yyyyMMdd + "235959";
         double jobWidth = 3.5;
+        生成数据文件(did, startTime, endTime);
+        测试拆分数据(did, startTime, endTime, jobWidth);
+        生成HTML(did, startTime, endTime);
+    }
+
+    @Test
+    void 测试15秒间隔001() {
+        // 用户没有点击作业开始和结束，直接使用轨迹计算
+        String did = "EC73BD2504030071";
+        String startTime = "20250526000000";
+        String endTime = "20250526235959";
+        double jobWidth = 2.6;
         生成数据文件(did, startTime, endTime);
         测试拆分数据(did, startTime, endTime, jobWidth);
         生成HTML(did, startTime, endTime);
