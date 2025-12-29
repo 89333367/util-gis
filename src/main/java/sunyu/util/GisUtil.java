@@ -3816,8 +3816,10 @@ public class GisUtil implements AutoCloseable {
                         // 【几何创建】构建线串并应用缓冲，形成作业区域
                         LineString line = config.GEOMETRY_FACTORY.createLineString(coords);
                         Geometry subGaussGeometry = line.buffer(halfWorkingWidth);
+
                         gaussGeometry = gaussGeometry.union(subGaussGeometry).buffer(0);
                     }
+                    log.debug("几何图形创建完毕 {}亩", gaussGeometry.getArea() * config.SQUARE_TO_MU_METER);
                 } else {
                     // 【坐标提取】将高斯点转换为JTS坐标数组
                     Coordinate[] coords = cluster.stream()
