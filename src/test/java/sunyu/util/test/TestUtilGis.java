@@ -891,6 +891,18 @@ public class TestUtilGis {
         生成HTML(did, startTime, endTime);
     }
 
+    @Test
+    void 测试1秒间隔036() {
+        // 所有地块都能识别出来
+        String did = "EC73BD2504110478";
+        String startTime = "20250527000000";
+        String endTime = "20250527235959";
+        double jobWidth = 2.6;
+        生成数据文件(did, startTime, endTime);
+        测试拆分数据(did, startTime, endTime, jobWidth);
+        生成HTML(did, startTime, endTime);
+    }
+
 
     @Test
     void 测试10秒间隔001() {

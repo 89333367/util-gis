@@ -39,6 +39,7 @@ import java.time.LocalDateTime;
 import java.time.temporal.Temporal;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 
 /**
@@ -1887,7 +1888,7 @@ public class GisUtil implements AutoCloseable {
      * @see Math#atan2(double, double)
      * @see Math#toDegrees(double)
      * @see Math#hypot(double, double)
-     * @see it.unimi.dsi.fastutil.doubles.DoubleArrayList
+     * @see DoubleArrayList
      */
     private Coordinate[] simplifyByAngle(Coordinate[] pts, double minLen, double minAngleDeg) {
         // 边界条件处理：少于3个点无法形成夹角，直接返回原数组，确保算法稳定性
@@ -2012,9 +2013,9 @@ public class GisUtil implements AutoCloseable {
      * @see Wgs84Point#getLatitude()
      * @see Wgs84Point#getGpsStatus()
      * @see Wgs84Point#getJobStatus()
-     * @see java.util.stream.Collectors#toList()
-     * @see java.util.Comparator#comparing(java.util.function.Function)
-     * @see java.util.LinkedHashMap
+     * @see Collectors#toList()
+     * @see Comparator#comparing(Function)
+     * @see LinkedHashMap
      */
     public List<Wgs84Point> filterWgs84Points(List<Wgs84Point> wgs84Points) {
         // 【处理开始】记录过滤操作开始，便于性能监控和问题追踪
@@ -2810,7 +2811,7 @@ public class GisUtil implements AutoCloseable {
      * @throws IllegalArgumentException 当输入几何坐标超出高斯投影合理范围时
      * @see #getGaussCRS(int, double, double) 高斯投影CRS获取方法
      * @see #toGaussGeometry(Geometry) 正向WGS84→高斯投影转换方法
-     * @see org.geotools.geometry.jts.JTS#transform(Geometry, MathTransform) 坐标转换工具
+     * @see JTS#transform(Geometry, MathTransform) 坐标转换工具
      * @since 1.0.0
      */
     public Geometry toWgs84Geometry(Geometry gaussGeometry) {
@@ -3790,25 +3791,48 @@ public class GisUtil implements AutoCloseable {
         for (List<GaussPoint> cluster : clusters) {
             log.debug("聚类簇包含 {} 个点", cluster.size());
             if (cluster.size() >= minPts) {
-                Geometry gaussGeometry;
+                Geometry gaussGeometry = config.EMPTY_GEOMETRY;
                 log.debug("创建线缓冲，缓冲半径：{} 米", halfWorkingWidth);
 
-                // 【坐标提取】将高斯点转换为JTS坐标数组
-                Coordinate[] coords = cluster.stream()
-                        .map(p -> new Coordinate(p.getGaussX(), p.getGaussY()))
-                        .toArray(Coordinate[]::new);
+                List<List<GaussPoint>> splitCluster = splitClusterByTimeOrDistance(cluster, config.MAX_SPLIT_SECONDS, eps);
+                if (splitCluster.size() > 1) {
+                    // 类簇被按策略拆分，需要多次创建多边形
+                    for (List<GaussPoint> subCluster : splitCluster) {
+                        // 【坐标提取】将高斯点转换为JTS坐标数组
+                        Coordinate[] coords = subCluster.stream()
+                                .map(p -> new Coordinate(p.getGaussX(), p.getGaussY()))
+                                .toArray(Coordinate[]::new);
 
-                // 【数据优化】点位过多时进行角度抽稀，平衡精度与性能
-                if (coords.length > 500) {
-                    log.debug("原始点位数量：{}", coords.length);
-                    coords = simplifyByAngle(coords, config.SIMPLIFY_TOLERANCE, config.SIMPLIFY_ANGLE);
-                    log.debug("抽稀点位数量：{}", coords.length);
+                        // 【数据优化】点位过多时进行角度抽稀，平衡精度与性能
+                        if (coords.length > 500) {
+                            log.debug("原始点位数量：{}", coords.length);
+                            coords = simplifyByAngle(coords, config.SIMPLIFY_TOLERANCE, config.SIMPLIFY_ANGLE);
+                            log.debug("抽稀点位数量：{}", coords.length);
+                        }
+
+                        // 【几何创建】构建线串并应用缓冲，形成作业区域
+                        LineString line = config.GEOMETRY_FACTORY.createLineString(coords);
+                        Geometry subGaussGeometry = line.buffer(halfWorkingWidth);
+                        gaussGeometry = gaussGeometry.union(subGaussGeometry).buffer(0);
+                    }
+                } else {
+                    // 【坐标提取】将高斯点转换为JTS坐标数组
+                    Coordinate[] coords = cluster.stream()
+                            .map(p -> new Coordinate(p.getGaussX(), p.getGaussY()))
+                            .toArray(Coordinate[]::new);
+
+                    // 【数据优化】点位过多时进行角度抽稀，平衡精度与性能
+                    if (coords.length > 500) {
+                        log.debug("原始点位数量：{}", coords.length);
+                        coords = simplifyByAngle(coords, config.SIMPLIFY_TOLERANCE, config.SIMPLIFY_ANGLE);
+                        log.debug("抽稀点位数量：{}", coords.length);
+                    }
+
+                    // 【几何创建】构建线串并应用缓冲，形成作业区域
+                    LineString line = config.GEOMETRY_FACTORY.createLineString(coords);
+                    gaussGeometry = line.buffer(halfWorkingWidth);
+                    log.debug("几何图形创建完毕 {}亩", gaussGeometry.getArea() * config.SQUARE_TO_MU_METER);
                 }
-
-                // 【几何创建】构建线串并应用缓冲，形成作业区域
-                LineString line = config.GEOMETRY_FACTORY.createLineString(coords);
-                gaussGeometry = line.buffer(halfWorkingWidth);
-                log.debug("几何图形创建完毕 {}亩", gaussGeometry.getArea() * config.SQUARE_TO_MU_METER);
 
                 if (gaussGeometry.getArea() < config.MIN_RETURN_MU * config.MU_TO_SQUARE_METER) {
                     log.debug("几何图形面积：{}亩，小于最小返回面积 {}亩，直接删除",
