@@ -1563,7 +1563,7 @@ public class GisUtil implements AutoCloseable {
 
             // 过滤小聚类：确保聚类满足最小点数要求，避免过小的偶然聚集
             if (cluster.size() < minPts) {
-                log.debug("聚类点数量小于 {} 个，跳过", minPts);
+                log.debug("聚类点数量 {} 小于 {} 个，跳过", cluster.size(), minPts);
                 continue;
             }
 
@@ -3802,7 +3802,7 @@ public class GisUtil implements AutoCloseable {
                         Coordinate[] coords = subCluster.stream()
                                 .map(p -> new Coordinate(p.getGaussX(), p.getGaussY()))
                                 .toArray(Coordinate[]::new);
-                        if (coords.length < 2) {
+                        if (coords.length < minPts) {
                             continue;
                         }
 
