@@ -3802,6 +3802,9 @@ public class GisUtil implements AutoCloseable {
                         Coordinate[] coords = subCluster.stream()
                                 .map(p -> new Coordinate(p.getGaussX(), p.getGaussY()))
                                 .toArray(Coordinate[]::new);
+                        if (coords.length < 2) {
+                            continue;
+                        }
 
                         // 【数据优化】点位过多时进行角度抽稀，平衡精度与性能
                         if (coords.length > 500) {
