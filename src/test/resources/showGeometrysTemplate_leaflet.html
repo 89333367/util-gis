@@ -2410,11 +2410,29 @@
         const currentLatlngs = playbackState.points.slice(0, playbackState.currentIndex + 1).map(p => [p.lat, p.lng]);
         playbackState.polyline.setLatLngs(currentLatlngs);
 
-        // 让地图跟随移动的点居中
-        map.setView([point.lat, point.lng], map.getZoom(), {
-            animate: true,
-            duration: 0.3
-        });
+        // 检查点是否在屏幕可见范围内，只有不在可见范围内时才居中
+        const pointLatLng = L.latLng(point.lat, point.lng);
+        const bounds = map.getBounds();
+        
+        // 如果点不在当前地图边界内，或者距离边界太近（小于地图宽高的10%），则居中
+        if (!bounds.contains(pointLatLng)) {
+            // 点完全不在屏幕内，需要居中
+            map.setView([point.lat, point.lng], map.getZoom(), {
+                animate: true,
+                duration: 0.3
+            });
+        } else {
+            // 点在屏幕内，检查是否靠近边界（距离边界小于地图宽高的10%）
+            const boundsPad = bounds.pad(-0.1); // 内缩10%的边界
+            if (!boundsPad.contains(pointLatLng)) {
+                // 点靠近边界，居中显示
+                map.setView([point.lat, point.lng], map.getZoom(), {
+                    animate: true,
+                    duration: 0.3
+                });
+            }
+            // 点在屏幕中央区域，不需要居中
+        }
 
         // 格式化时间显示函数
         function formatTime(timestamp) {
@@ -2713,11 +2731,29 @@
                 playbackState.polyline.setLatLngs(currentLatlngs);
             }
 
-            // 让地图跟随移动的点居中
-            map.setView([next.lat, next.lng], map.getZoom(), {
-                animate: true,
-                duration: 0.3
-            });
+            // 检查点是否在屏幕可见范围内，只有不在可见范围内时才居中
+            const pointLatLng = L.latLng(next.lat, next.lng);
+            const bounds = map.getBounds();
+            
+            // 如果点不在当前地图边界内，或者距离边界太近（小于地图宽高的10%），则居中
+            if (!bounds.contains(pointLatLng)) {
+                // 点完全不在屏幕内，需要居中
+                map.setView([next.lat, next.lng], map.getZoom(), {
+                    animate: true,
+                    duration: 0.3
+                });
+            } else {
+                // 点在屏幕内，检查是否靠近边界（距离边界小于地图宽高的10%）
+                const boundsPad = bounds.pad(-0.1); // 内缩10%的边界
+                if (!boundsPad.contains(pointLatLng)) {
+                    // 点靠近边界，居中显示
+                    map.setView([next.lat, next.lng], map.getZoom(), {
+                        animate: true,
+                        duration: 0.3
+                    });
+                }
+                // 点在屏幕中央区域，不需要居中
+            }
 
             // 更新进度条和时间显示
             if (playerProgressSlider && playbackState.points.length > 0) {
