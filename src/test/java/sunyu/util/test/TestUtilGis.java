@@ -226,7 +226,7 @@ public class TestUtilGis {
     }
 
     void 生成HTML(String did, String startTime, String endTime) {
-        String html = ResourceUtil.readUtf8Str("showGeometrysTemplate.html");
+        String html = ResourceUtil.readUtf8Str("showGeometrysTemplate_leaflet.html");
 
         String fileName = path + StrUtil.format("/{}_{}_{}_trace.txt", did, startTime, endTime);
         if (!FileUtil.exist(fileName)) {
