@@ -1018,11 +1018,55 @@
         }
     }
 
+    // 应用时间范围过滤
+    function applyTimeRangeFilter() {
+        const timeRangeText = document.getElementById('timeRangeInput').value.trim();
+        
+        if (!timeRangeText) {
+            // 没有时间范围，使用所有点
+            playbackState.filteredPoints = playbackState.points.slice();
+            return;
+        }
+        
+        // 解析时间范围
+        const timeRangeMatch = timeRangeText.match(/^([\d-]+T[\d:]+)\s*-\s*([\d-]+T[\d:]+)$/);
+        if (!timeRangeMatch) {
+            // 格式不正确，使用所有点
+            playbackState.filteredPoints = playbackState.points.slice();
+            return;
+        }
+        
+        const startTimeStr = timeRangeMatch[1];
+        const endTimeStr = timeRangeMatch[2];
+        
+        const startTime = new Date(startTimeStr);
+        const endTime = new Date(endTimeStr);
+        
+        if (isNaN(startTime.getTime()) || isNaN(endTime.getTime())) {
+            // 时间解析失败，使用所有点
+            playbackState.filteredPoints = playbackState.points.slice();
+            return;
+        }
+        
+        // 过滤轨迹点
+        playbackState.filteredPoints = playbackState.points.filter(point => {
+            const pointTime = parseTimestamp(point.timestamp);
+            return pointTime && pointTime >= startTime && pointTime <= endTime;
+        });
+        
+        // 如果过滤后点数不足，使用所有点
+        if (playbackState.filteredPoints.length < 2) {
+            playbackState.filteredPoints = playbackState.points.slice();
+        }
+    }
+
     // 切换播放状态
     function togglePlayback() {
         if (playbackState.isPlaying) {
             pausePlayback();
         } else {
+            // 开始播放前应用时间范围过滤
+            applyTimeRangeFilter();
             startPlayback();
         }
         
@@ -1643,8 +1687,8 @@
         if (playerProgressSlider) {
             playerProgressSlider.addEventListener('input', function() {
                 const percentage = parseInt(this.value);
-                if (playbackState.points && playbackState.points.length > 0) {
-                    const index = Math.floor((percentage / 100) * (playbackState.points.length - 1));
+                if (playbackState.filteredPoints && playbackState.filteredPoints.length > 0) {
+                    const index = Math.floor((percentage / 100) * (playbackState.filteredPoints.length - 1));
                     const wasPlaying = playbackState.isPlaying; // 记录播放状态
                     jumpToPoint(index);
                     // 如果之前在播放，继续播放
@@ -2658,11 +2702,10 @@
             playerProgressSlider.value = 0;
             playerProgressSlider.disabled = true;
         }
-        // 重置两行时间显示
+        // 只重置当前时间，保持结束时间不变
         const currentTimeElement = document.getElementById('currentTime');
-        const totalTimeElement = document.getElementById('totalTime');
         if (currentTimeElement) currentTimeElement.textContent = '00:00:00';
-        if (totalTimeElement) totalTimeElement.textContent = '00:00:00';
+        // 不重置totalTimeElement，保持结束时间显示
 
         updateStatus('轨迹已清除');
     }
@@ -2698,16 +2741,16 @@
                 map.removeLayer(playbackState.polyline);
             }
 
-            // 创建回放轨迹线
-            const latlngs = playbackState.points.map(p => [p.lat, p.lng]);
+            // 创建回放轨迹线（使用过滤后的点）
+            const latlngs = playbackState.filteredPoints.map(p => [p.lat, p.lng]);
             playbackState.polyline = L.polyline(latlngs, {
                 color: currentTrackLineColor,
                 weight: 1,
                 opacity: 0.6
             }).addTo(map);
 
-            // 创建回放标记
-            const firstPoint = playbackState.points[0];
+            // 创建回放标记（使用过滤后的第一个点）
+            const firstPoint = playbackState.filteredPoints[0];
             playbackState.marker = L.circleMarker([firstPoint.lat, firstPoint.lng], {
                 radius: 0.5,
                 fillColor: currentTrackLineColor,
@@ -2731,6 +2774,12 @@
         if (playerProgressSlider) {
             playerProgressSlider.disabled = false;
             playerProgressSlider.max = 100;
+            
+            // 根据过滤后的点设置初始进度
+            if (playbackState.filteredPoints.length > 0) {
+                const initialProgress = Math.round((playbackState.currentIndex / (playbackState.filteredPoints.length - 1)) * 100);
+                playerProgressSlider.value = initialProgress;
+            }
         }
         
         if (playerSpeedValue) {
@@ -2739,15 +2788,31 @@
             playerSpeedValue.textContent = displaySpeed + 'x';
         }
 
+        // 初始化时间显示（使用过滤后的点）
+        if (playbackState.filteredPoints.length > 0) {
+            const currentPoint = playbackState.filteredPoints[playbackState.currentIndex];
+            const lastPoint = playbackState.filteredPoints[playbackState.filteredPoints.length - 1];
+            
+            if (currentPoint && lastPoint) {
+                const currentTime = formatTime(currentPoint.timestamp);
+                const totalTime = formatTime(lastPoint.timestamp);
+                
+                const currentTimeElement = document.getElementById('currentTime');
+                const totalTimeElement = document.getElementById('totalTime');
+                if (currentTimeElement) currentTimeElement.textContent = currentTime;
+                if (totalTimeElement) totalTimeElement.textContent = totalTime;
+            }
+        }
+
         // 开始播放
         playbackNextPoint();
         updateStatus('轨迹回放开始');
     }
 
     function playbackNextPoint() {
-        if (!playbackState.isPlaying || !playbackState.points || playbackState.currentIndex >= playbackState.points.length) {
+        if (!playbackState.isPlaying || !playbackState.filteredPoints || playbackState.currentIndex >= playbackState.filteredPoints.length) {
             // 只有在播放完成时才停止并重置，暂停时不停止
-            if (playbackState.currentIndex >= playbackState.points.length) {
+            if (playbackState.currentIndex >= playbackState.filteredPoints.length) {
                 // 播放完成，只重置状态但不清除轨迹线
                 playbackState.isPlaying = false;
                 playbackState.currentIndex = 0;
@@ -2781,14 +2846,14 @@
             return;
         }
 
-        const point = playbackState.points[playbackState.currentIndex];
+        const point = playbackState.filteredPoints[playbackState.currentIndex];
 
         // 更新标记位置
         playbackState.marker.setLatLng([point.lat, point.lng]);
         playbackState.marker.bindPopup(`回放点 ${playbackState.currentIndex + 1}<br>时间: ${point.timestamp}`);
 
         // 更新轨迹线
-        const currentLatlngs = playbackState.points.slice(0, playbackState.currentIndex + 1).map(p => [p.lat, p.lng]);
+        const currentLatlngs = playbackState.filteredPoints.slice(0, playbackState.currentIndex + 1).map(p => [p.lat, p.lng]);
         playbackState.polyline.setLatLngs(currentLatlngs);
 
         // 检查点是否在屏幕可见范围内，只有不在可见范围内时才居中
@@ -2827,15 +2892,15 @@
         }
 
         // 更新进度条和时间显示
-        if (playerProgressSlider && playbackState.points.length > 0) {
-            const percentage = Math.round((playbackState.currentIndex / (playbackState.points.length - 1)) * 100);
+        if (playerProgressSlider && playbackState.filteredPoints.length > 0) {
+            const percentage = Math.round((playbackState.currentIndex / (playbackState.filteredPoints.length - 1)) * 100);
             playerProgressSlider.value = percentage;
         }
         
         // 更新时间显示（如果播放器元素存在）
-        if (playbackState.points.length > 0) {
-            const currentPoint = playbackState.points[playbackState.currentIndex];
-            const lastPoint = playbackState.points[playbackState.points.length - 1];
+        if (playbackState.filteredPoints.length > 0) {
+            const currentPoint = playbackState.filteredPoints[playbackState.currentIndex];
+            const lastPoint = playbackState.filteredPoints[playbackState.filteredPoints.length - 1];
             
             if (currentPoint && lastPoint) {
                 const currentTime = formatTime(currentPoint.timestamp);
@@ -2850,7 +2915,7 @@
         }
 
         // 更新状态
-        const progress = Math.round((playbackState.currentIndex / (playbackState.points.length - 1)) * 100);
+        const progress = Math.round((playbackState.currentIndex / (playbackState.filteredPoints.length - 1)) * 100);
         updateStatus(`轨迹回放中... ${progress}%`);
 
         playbackState.currentIndex++;
@@ -2903,11 +2968,19 @@
         if (playerProgressSlider) {
             playerProgressSlider.value = 0;
         }
-        // 重置两行时间显示
+        // 重置当前时间为过滤后轨迹点的第一个点时间
         const currentTimeElement = document.getElementById('currentTime');
-        const totalTimeElement = document.getElementById('totalTime');
-        if (currentTimeElement) currentTimeElement.textContent = '00:00:00';
-        if (totalTimeElement) totalTimeElement.textContent = '00:00:00';
+        if (currentTimeElement && playbackState.filteredPoints && playbackState.filteredPoints.length > 0) {
+            const firstPoint = playbackState.filteredPoints[0];
+            if (firstPoint && firstPoint.timestamp) {
+                currentTimeElement.textContent = formatTime(firstPoint.timestamp);
+            } else {
+                currentTimeElement.textContent = '00:00:00';
+            }
+        } else if (currentTimeElement) {
+            currentTimeElement.textContent = '00:00:00';
+        }
+        // 不重置totalTimeElement，保持结束时间显示
         
         // 更新播放器控制状态（如果播放器元素存在）
         if (playbackPlayer) {
@@ -2934,7 +3007,7 @@
     }
 
     function jumpToPoint(index) {
-        if (!playbackState.points || index < 0 || index >= playbackState.points.length) {
+        if (!playbackState.filteredPoints || index < 0 || index >= playbackState.filteredPoints.length) {
             return;
         }
 
@@ -2947,7 +3020,7 @@
 
         // 创建回放元素（如果不存在）
         if (!playbackState.marker) {
-            const point = playbackState.points[0];
+            const point = playbackState.filteredPoints[0];
             playbackState.marker = L.circleMarker([point.lat, point.lng], {
                 radius: 0.5,
                 fillColor: currentTrackLineColor,
@@ -2959,7 +3032,7 @@
         }
 
         if (!playbackState.polyline) {
-            const latlngs = playbackState.points.map(p => [p.lat, p.lng]);
+            const latlngs = playbackState.filteredPoints.map(p => [p.lat, p.lng]);
             playbackState.polyline = L.polyline(latlngs, {
                 color: currentTrackLineColor,
                 weight: 1,
@@ -2968,16 +3041,16 @@
         }
 
         // 跳转到指定点
-        const point = playbackState.points[index];
+        const point = playbackState.filteredPoints[index];
         playbackState.marker.setLatLng([point.lat, point.lng]);
         playbackState.marker.bindPopup(`回放点 ${index + 1}<br>时间: ${point.timestamp}`);
 
         // 更新轨迹线
-        const currentLatlngs = playbackState.points.slice(0, index + 1).map(p => [p.lat, p.lng]);
+        const currentLatlngs = playbackState.filteredPoints.slice(0, index + 1).map(p => [p.lat, p.lng]);
         playbackState.polyline.setLatLngs(currentLatlngs);
 
         // 更新状态
-        const progress = Math.round((index / (playbackState.points.length - 1)) * 100);
+        const progress = Math.round((index / (playbackState.filteredPoints.length - 1)) * 100);
         updateStatus(`轨迹回放已跳转到 ${progress}%`);
     }
 
@@ -2993,6 +3066,15 @@
         }
 
         if (playbackState.isPlaying) {
+            return;
+        }
+
+        // 应用时间范围过滤
+        applyTimeRangeFilter();
+        
+        // 检查过滤后的轨迹点
+        if (!playbackState.filteredPoints || playbackState.filteredPoints.length < 2) {
+            updateStatus('有效轨迹点不足，至少需要两点');
             return;
         }
 
@@ -3015,16 +3097,16 @@
                 map.removeLayer(playbackState.polyline);
             }
 
-            // 创建回放轨迹线
-            const latlngs = playbackState.points.map(p => [p.lat, p.lng]);
+            // 创建回放轨迹线（使用过滤后的点）
+            const latlngs = playbackState.filteredPoints.map(p => [p.lat, p.lng]);
             playbackState.polyline = L.polyline(latlngs, {
                 color: currentTrackLineColor,
                 weight: 1,
                 opacity: 0.6
             }).addTo(map);
 
-            // 创建回放标记
-            const firstPoint = playbackState.points[0];
+            // 创建回放标记（使用过滤后的第一个点）
+            const firstPoint = playbackState.filteredPoints[0];
             playbackState.marker = L.circleMarker([firstPoint.lat, firstPoint.lng], {
                 radius: 0.5,
                 fillColor: currentTrackLineColor,
@@ -3081,12 +3163,21 @@
             playbackState.polyline = null;
         }
 
-        // 停止播放时重置进度条和时间显示
+        // 重置进度条和时间显示
         if (playerProgressSlider) {
             playerProgressSlider.value = 0;
         }
-        if (playerTimeLabel) {
-            playerTimeLabel.textContent = '00:00:00 / 00:00:00';
+        // 重置当前时间为过滤后轨迹点的第一个点时间
+        const currentTimeElement = document.getElementById('currentTime');
+        if (currentTimeElement && playbackState.filteredPoints && playbackState.filteredPoints.length > 0) {
+            const firstPoint = playbackState.filteredPoints[0];
+            if (firstPoint && firstPoint.timestamp) {
+                currentTimeElement.textContent = formatTime(firstPoint.timestamp);
+            } else {
+                currentTimeElement.textContent = '00:00:00';
+            }
+        } else if (currentTimeElement) {
+            currentTimeElement.textContent = '00:00:00';
         }
         
         // 更新播放器控制状态（如果播放器元素存在）
@@ -3098,8 +3189,8 @@
     }
 
     function scheduleNextPlayback() {
-        if (!playbackState.isPlaying || !playbackState.points || playbackState.currentIndex >= playbackState.points.length - 1) {
-            if (playbackState.currentIndex >= playbackState.points.length - 1) {
+        if (!playbackState.isPlaying || !playbackState.filteredPoints || playbackState.currentIndex >= playbackState.filteredPoints.length - 1) {
+            if (playbackState.currentIndex >= playbackState.filteredPoints.length - 1) {
                 updateStatus('轨迹回放完成');
                 // 播放完成时不清除轨迹线，只停止播放并重置状态
                 playbackState.isPlaying = false;
@@ -3117,11 +3208,10 @@
                     playbackState.marker = null;
                 }
                 
-                // 重置两行时间显示（保留进度条位置）
+                // 重置当前时间，保持结束时间不变（保留进度条位置）
                 const currentTimeElement = document.getElementById('currentTime');
-                const totalTimeElement = document.getElementById('totalTime');
                 if (currentTimeElement) currentTimeElement.textContent = '00:00:00';
-                if (totalTimeElement) totalTimeElement.textContent = '00:00:00';
+                // 不重置totalTimeElement，保持结束时间显示
                 
                 // 更新播放器控制状态
                 if (playbackPlayer) {
@@ -3145,7 +3235,7 @@
             return; // 如果是暂停，直接返回，不停止播放
         }
 
-        const next = playbackState.points[playbackState.currentIndex + 1];
+        const next = playbackState.filteredPoints[playbackState.currentIndex + 1];
         const speed = playbackState.speed || 1;
         const delay = Math.max(100, Math.round(1000 / speed));
 
@@ -3160,7 +3250,7 @@
 
             // 更新轨迹线
             if (playbackState.polyline) {
-                const currentLatlngs = playbackState.points.slice(0, playbackState.currentIndex + 1).map(p => [p.lat, p.lng]);
+                const currentLatlngs = playbackState.filteredPoints.slice(0, playbackState.currentIndex + 1).map(p => [p.lat, p.lng]);
                 playbackState.polyline.setLatLngs(currentLatlngs);
             }
 
@@ -3189,14 +3279,14 @@
             }
 
             // 更新进度条和时间显示
-            if (playerProgressSlider && playbackState.points.length > 0) {
-                const percentage = Math.round((playbackState.currentIndex / (playbackState.points.length - 1)) * 100);
+            if (playerProgressSlider && playbackState.filteredPoints.length > 0) {
+                const percentage = Math.round((playbackState.currentIndex / (playbackState.filteredPoints.length - 1)) * 100);
                 playerProgressSlider.value = percentage;
             }
             
-            if (playbackState.points.length > 0) {
-                const currentPoint = playbackState.points[playbackState.currentIndex];
-                const lastPoint = playbackState.points[playbackState.points.length - 1];
+            if (playbackState.filteredPoints.length > 0) {
+                const currentPoint = playbackState.filteredPoints[playbackState.currentIndex];
+                const lastPoint = playbackState.filteredPoints[playbackState.filteredPoints.length - 1];
                 
                 if (currentPoint && lastPoint) {
                     const currentTime = formatTime(currentPoint.timestamp);
@@ -3231,7 +3321,7 @@
         if (!slider) return;
 
         // 空轨迹时设置滑块为禁用状态
-        if (playbackState.points.length === 0) {
+        if (playbackState.filteredPoints.length === 0) {
             slider.disabled = true;
             slider.min = 0;
             slider.max = 0;
@@ -3250,9 +3340,9 @@
 
         slider.disabled = false;
         slider.min = 0;
-        slider.max = playbackState.points.length - 1;
+        slider.max = playbackState.filteredPoints.length - 1;
         // 不重置滑块值，保持当前播放位置
-        if (playbackState.currentIndex >= 0 && playbackState.currentIndex < playbackState.points.length) {
+        if (playbackState.currentIndex >= 0 && playbackState.currentIndex < playbackState.filteredPoints.length) {
             slider.value = playbackState.currentIndex;
         }
 
@@ -3261,9 +3351,9 @@
         if (sliderFixed) {
             sliderFixed.disabled = false;
             sliderFixed.min = 0;
-            sliderFixed.max = playbackState.points.length - 1;
+            sliderFixed.max = playbackState.filteredPoints.length - 1;
             // 不重置滑块值，保持当前播放位置
-            if (playbackState.currentIndex >= 0 && playbackState.currentIndex < playbackState.points.length) {
+            if (playbackState.currentIndex >= 0 && playbackState.currentIndex < playbackState.filteredPoints.length) {
                 sliderFixed.value = playbackState.currentIndex;
             }
         }
