@@ -2701,7 +2701,7 @@
             // 创建回放轨迹线
             const latlngs = playbackState.points.map(p => [p.lat, p.lng]);
             playbackState.polyline = L.polyline(latlngs, {
-                color: '#FF6B6B',
+                color: currentTrackLineColor,
                 weight: 1,
                 opacity: 0.6
             }).addTo(map);
@@ -2710,7 +2710,7 @@
             const firstPoint = playbackState.points[0];
             playbackState.marker = L.circleMarker([firstPoint.lat, firstPoint.lng], {
                 radius: 0.5,
-                fillColor: '#FF6B6B',
+                fillColor: currentTrackLineColor,
                 color: '#FFFFFF',
                 weight: 0.5,
                 opacity: 1,
@@ -2950,7 +2950,7 @@
             const point = playbackState.points[0];
             playbackState.marker = L.circleMarker([point.lat, point.lng], {
                 radius: 0.5,
-                fillColor: '#FF6B6B',
+                fillColor: currentTrackLineColor,
                 color: '#FFFFFF',
                 weight: 0.5,
                 opacity: 1,
@@ -2961,7 +2961,7 @@
         if (!playbackState.polyline) {
             const latlngs = playbackState.points.map(p => [p.lat, p.lng]);
             playbackState.polyline = L.polyline(latlngs, {
-                color: '#FF6B6B',
+                color: currentTrackLineColor,
                 weight: 1,
                 opacity: 0.6
             }).addTo(map);
@@ -3018,7 +3018,7 @@
             // 创建回放轨迹线
             const latlngs = playbackState.points.map(p => [p.lat, p.lng]);
             playbackState.polyline = L.polyline(latlngs, {
-                color: '#FF6B6B',
+                color: currentTrackLineColor,
                 weight: 1,
                 opacity: 0.6
             }).addTo(map);
@@ -3027,7 +3027,7 @@
             const firstPoint = playbackState.points[0];
             playbackState.marker = L.circleMarker([firstPoint.lat, firstPoint.lng], {
                 radius: 0.5,
-                fillColor: '#FF6B6B',
+                fillColor: currentTrackLineColor,
                 color: '#FFFFFF',
                 weight: 0.5,
                 opacity: 1,
