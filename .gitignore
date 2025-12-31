@@ -37,3 +37,9 @@ build/
 
 ### Mac OS ###
 .DS_Store
+
+testFiles/*_gauss.txt
+testFiles/*_parts.txt
+testFiles/*_protocol.txt
+testFiles/*_trace.txt
+
