@@ -768,9 +768,19 @@
             shape-rendering: optimizeSpeed;
         }
         
-        /* 隐藏轨迹点的交互提示以提高性能 */
-        .leaflet-interactive {
-            pointer-events: none !important;
+        /* 轨迹点悬停时显示手型指针 */
+        .leaflet-marker-icon.tiny-point:hover {
+            cursor: pointer !important;
+        }
+        
+        /* CircleMarker悬停时显示手型指针 */
+        .leaflet-canvas-pane circle:hover {
+            cursor: pointer !important;
+        }
+        
+        /* 普通marker悬停时显示手型指针 */
+        .leaflet-marker-icon:hover {
+            cursor: pointer !important;
         }
         
         /* 轨迹点Canvas图层优化 */
