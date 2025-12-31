@@ -4281,6 +4281,14 @@
     window.drawTrack = drawTrack;
     window.startPlayback = startPlayback;
     window.stopPlayback = stopPlayback;
+
+    // 页面加载完成后自动调用轨迹和轮廓绘制功能
+    document.addEventListener('DOMContentLoaded', function() {
+        // 先调用轨迹TAB中的轨迹按钮方法
+        drawTrack();
+        // 再调用轮廓TAB中的回执轮廓方法
+        drawOutline();
+    });
 </script>
 </body>
 </html>
