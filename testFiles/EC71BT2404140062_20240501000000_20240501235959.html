@@ -1,0 +1,4443 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>几何图形展示模板 - Leaflet版</title>
+
+    <!-- API密钥配置 - 本地文件环境使用百度地图，Web环境使用天地图 -->
+    <script>
+        // 百度地图API密钥（本地文件环境使用）
+        const BAIDU_MAP_AK = 'vMMZdKUVyHa5p2m5GZl2w4sNlF0dwr52';
+        // 天地图API密钥（Web环境使用）
+        const TIANDITU_MAP_TK = '9ed3674d01dd7c129ab38e3c38bf651a';
+    </script>
+
+    <!-- Leaflet CSS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+
+    <!-- 天地图 API -->
+    <script>
+        // 动态加载天地图API，避免document.write
+        const tiandituScript = document.createElement('script');
+        tiandituScript.src = 'https://api.tianditu.gov.cn/api?v=4.0&tk=' + TIANDITU_MAP_TK;
+        tiandituScript.async = true;
+        document.head.appendChild(tiandituScript);
+    </script>
+
+    <!-- Leaflet JS -->
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+    <!-- Turf.js 用于几何计算 -->
+    <script src="https://unpkg.com/@turf/turf@6.5.0/turf.min.js"></script>
+
+    <!-- WKT解析库 -->
+    <script src="https://unpkg.com/wellknown@0.5.0/wellknown.js"></script>
+
+    <!-- Leaflet Geometry Util for area calculation -->
+    <script src="https://unpkg.com/leaflet-geometryutil@0.11.0/src/leaflet.geometryutil.js"></script>
+
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #f0f0f0;
+            margin: 0;
+            padding: 0;
+            height: 100vh;
+            overflow: hidden;
+        }
+        
+        .container {
+            width: 100%;
+            height: 100vh;
+            margin: 0;
+            background: white;
+            border-radius: 0;
+            box-shadow: none;
+            overflow: hidden;
+            position: relative;
+        }
+        
+        .header {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            background: transparent;
+            color: white;
+            padding: 0;
+            text-align: left;
+            z-index: 1000;
+            display: none;
+        }
+        
+        .header.show {
+            display: block;
+        }
+        
+        .header h1 {
+            font-size: 18px;
+            margin: 0;
+            display: inline-block;
+        }
+        
+        .header p {
+            opacity: 0.9;
+            font-size: 12px;
+            margin: 0 0 0 20px;
+            display: inline-block;
+        }
+        
+        .main-content {
+            position: relative;
+            height: 100vh;
+            width: 100%;
+        }
+        
+        .left-panel {
+            width: 350px;
+            background: #f8f9fa;
+            border-right: 1px solid #e9ecef;
+            display: flex;
+            flex-direction: column;
+            position: absolute;
+            top: 0;
+            left: 0;
+            height: 100vh;
+            z-index: 1001;
+            transition: transform 0.3s ease;
+            box-shadow: 2px 0 8px rgba(0,0,0,0.1);
+        }
+        
+        .left-panel.collapsed {
+            transform: translateX(-350px);
+            z-index: 9999; /* 确保面板在固定按钮之下 */
+        }
+        
+        .left-panel.collapsed .panel-toggle {
+            left: 100%;
+            display: none !important;
+        }
+        
+
+        
+        .toolbar {
+            padding: 15px;
+            background: white;
+            border-bottom: 1px solid #e9ecef;
+        }
+        
+        .toolbar h3 {
+            margin-bottom: 10px;
+            color: #495057;
+            font-size: 16px;
+        }
+        
+        .tool-buttons {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+        
+        .tool-btn {
+            padding: 8px 12px;
+            border: none;
+            border-radius: 6px;
+            background: #6c757d;
+            color: white;
+            cursor: pointer;
+            font-size: 12px;
+            transition: all 0.3s ease;
+        }
+        
+        .tool-btn:hover {
+            background: #5a6268;
+            transform: translateY(-1px);
+        }
+        
+        .tool-btn.active {
+            background: #007bff;
+        }
+        
+        .wkt-input {
+            flex: 1;
+            padding: 15px;
+            display: flex;
+            flex-direction: column;
+        }
+        
+        .tab-container {
+            margin-bottom: 15px;
+        }
+        
+        .tabs {
+            display: flex;
+            background: white;
+            border-radius: 8px;
+            padding: 4px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        
+        .tab {
+            flex: 1;
+            padding: 10px;
+            text-align: center;
+            cursor: pointer;
+            border-radius: 6px;
+            transition: all 0.3s ease;
+            font-size: 13px;
+            font-weight: 500;
+        }
+        
+        .tab.active {
+            background: #007bff;
+            color: white;
+            box-shadow: 0 2px 4px rgba(0,123,255,0.3);
+        }
+        
+        .tab-content {
+            display: none;
+            margin-top: 15px;
+        }
+        
+        .tab-content.active {
+            display: block;
+        }
+        
+        .input-group {
+            margin-bottom: 15px;
+        }
+        
+        .input-group label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: 500;
+            color: #495057;
+            font-size: 13px;
+        }
+        
+        .input-group textarea {
+            width: 100%;
+            height: 80px;
+            padding: 10px;
+            border: 2px solid #e9ecef;
+            border-radius: 6px;
+            resize: vertical;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            transition: border-color 0.3s ease;
+        }
+        
+        .input-group textarea:focus {
+            outline: none;
+            border-color: #007bff;
+        }
+        
+        .button-group {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 15px;
+        }
+        
+        .btn {
+            padding: 10px 16px;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 13px;
+            font-weight: 500;
+            transition: all 0.3s ease;
+            flex: 1;
+        }
+        
+        .btn-primary {
+            background: #007bff;
+            color: white;
+        }
+        
+        .btn-primary:hover {
+            background: #0056b3;
+            transform: translateY(-1px);
+        }
+        
+        .btn-secondary {
+            background: #6c757d;
+            color: white;
+        }
+        
+        .btn-secondary:hover {
+            background: #5a6268;
+            transform: translateY(-1px);
+        }
+        
+        .btn-success {
+            background: #28a745;
+            color: white;
+        }
+        
+        .btn-success:hover {
+            background: #1e7e34;
+            transform: translateY(-1px);
+        }
+        
+        .btn-warning {
+            background: #ffc107;
+            color: #212529;
+        }
+        
+        .btn-warning:hover {
+            background: #e0a800;
+            transform: translateY(-1px);
+        }
+        
+        .btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+            box-shadow: none;
+        }
+        
+        .btn-primary:disabled {
+            background: #6c757d;
+            border-color: #6c757d;
+        }
+        
+        .btn-secondary:disabled {
+            background: #6c757d;
+            border-color: #6c757d;
+        }
+        
+        .btn-warning:disabled {
+            background: #6c757d;
+            border-color: #6c757d;
+            color: white;
+        }
+        
+        .color-controls {
+            display: flex;
+            gap: 15px;
+            align-items: center;
+            margin-bottom: 15px;
+            padding: 10px;
+            background: white;
+            border-radius: 6px;
+        }
+        
+        .color-picker {
+            width: 30px;
+            height: 30px;
+            border-radius: 50%;
+            border: 2px solid #dee2e6;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+        
+        .color-picker:hover {
+            border-color: #007bff;
+            transform: scale(1.1);
+        }
+        
+        .color-label {
+            font-size: 12px;
+            color: #495057;
+            font-weight: 500;
+        }
+        
+        .map-container {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100vh;
+            background: #e9ecef;
+        }
+        
+        #map {
+            width: 100%;
+            height: 100%;
+        }
+        
+
+        
+        .header-toggle {
+            position: fixed;
+            top: 10px;
+            right: 20px;
+            background: rgba(255, 255, 255, 0.9);
+            color: #333;
+            border: none;
+            border-radius: 4px;
+            padding: 8px 12px;
+            cursor: pointer;
+            font-size: 14px;
+            z-index: 1001;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            display: none;
+        }
+        
+        .header-toggle:hover {
+            background: rgba(255, 255, 255, 1);
+            box-shadow: 0 4px 8px rgba(0,0,0,0.15);
+        }
+        
+        .map-controls {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            z-index: 1000;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+        
+        .panel-toggle-fixed {
+            position: absolute;
+            bottom: 20px;
+            left: 20px;
+            width: 40px;
+            height: 40px;
+            border: none;
+            border-radius: 50%;
+            background: #007bff;
+            color: white;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 16px;
+            transition: all 0.3s ease;
+            z-index: 10000;
+        }
+        
+        .panel-toggle-fixed:hover {
+            background: #0056b3;
+            transform: scale(1.1);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+        }
+        
+        .map-control-btn {
+            width: 40px;
+            height: 40px;
+            border: none;
+            border-radius: 50%;
+            background: white;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 16px;
+            transition: all 0.3s ease;
+        }
+        
+        .map-control-btn:hover {
+            background: #f8f9fa;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+        }
+        
+        .playback-player {
+            position: absolute;
+            bottom: 20px;
+            right: 20px;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 8px 24px rgba(0,0,0,0.15);
+            z-index: 1000;
+            width: 600px;
+            max-width: 90vw;
+            overflow: hidden;
+        }
+        
+        .player-header {
+            background: #007bff;
+            color: white;
+            padding: 12px 16px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .player-title {
+            font-size: 14px;
+            font-weight: 500;
+        }
+        
+        .player-close {
+            background: none;
+            border: none;
+            color: white;
+            font-size: 18px;
+            cursor: pointer;
+            padding: 0;
+            width: 24px;
+            height: 24px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 50%;
+            transition: background 0.3s ease;
+        }
+        
+        .player-close:hover {
+            background: rgba(255,255,255,0.2);
+        }
+        
+        .player-controls {
+            padding: 16px;
+            display: flex;
+            align-items: center;
+            gap: 16px;
+        }
+        
+        .player-btn {
+            width: 40px;
+            height: 40px;
+            border: none;
+            border-radius: 50%;
+            background: #007bff;
+            color: white;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 16px;
+            transition: all 0.3s ease;
+        }
+        
+        .player-btn:hover {
+            background: #0056b3;
+            transform: scale(1.05);
+        }
+        
+        .player-btn:disabled {
+            background: #6c757d;
+            cursor: not-allowed;
+            transform: none;
+        }
+        
+        .player-speed {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            background: #f8f9fa;
+            padding: 8px 12px;
+            border-radius: 8px;
+        }
+        
+        .player-speed label {
+            font-size: 12px;
+            color: #495057;
+            font-weight: 500;
+        }
+        
+        .player-speed input[type="range"] {
+            width: 80px;
+        }
+        
+        .player-speed span {
+            font-size: 12px;
+            color: #6c757d;
+            min-width: 25px;
+        }
+        
+        .player-progress {
+            flex: 1;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            background: #f8f9fa;
+            padding: 8px 12px;
+            border-radius: 8px;
+        }
+        
+        .player-progress input[type="range"] {
+            flex: 1;
+            height: 4px;
+            border-radius: 2px;
+            background: #e9ecef;
+            outline: none;
+            -webkit-appearance: none;
+        }
+        
+        .player-progress input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            background: #007bff;
+            cursor: pointer;
+        }
+        
+        .player-progress span {
+            font-size: 12px;
+            color: #495057;
+            font-weight: 500;
+            min-width: 80px;
+        }
+        
+        .speed-control {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        .speed-control label {
+            font-size: 12px;
+            color: #495057;
+            font-weight: 500;
+        }
+        
+        .speed-control input[type="range"] {
+            width: 80px;
+        }
+        
+        .speed-value {
+            font-size: 12px;
+            color: #6c757d;
+            min-width: 30px;
+        }
+        
+        .time-slider-container {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-top: 10px;
+        }
+        
+        .time-slider {
+            flex: 1;
+            height: 4px;
+            border-radius: 2px;
+            background: #e9ecef;
+            outline: none;
+            -webkit-appearance: none;
+        }
+        
+        .time-slider::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            background: #007bff;
+            cursor: pointer;
+        }
+        
+        .time-label {
+            font-size: 11px;
+            color: #495057;
+            font-weight: 500;
+            min-width: 120px;
+        }
+        
+        .status-info {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            background: white;
+            padding: 10px 15px;
+            border-radius: 6px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            z-index: 1000;
+            font-size: 12px;
+            color: #495057;
+        }
+        
+        .measure-result {
+            position: absolute;
+            background: rgba(0,0,0,0.8);
+            color: white;
+            padding: 6px 10px;
+            border-radius: 4px;
+            font-size: 12px;
+            pointer-events: none;
+            z-index: 1001;
+        }
+        
+        .coordinate-info {
+            position: absolute;
+            bottom: 20px;
+            right: 20px;
+            background: white;
+            padding: 8px 12px;
+            border-radius: 6px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            z-index: 1000;
+            font-size: 11px;
+            color: #495057;
+        }
+        
+        .hidden {
+            display: none !important;
+        }
+        
+        @media (max-width: 1200px) {
+            .main-content {
+                flex-direction: column;
+                height: auto;
+            }
+            
+            .left-panel {
+                width: 100%;
+                height: 400px;
+            }
+            
+            .map-container {
+                height: 500px;
+            }
+        }
+        
+        .area-label {
+            background: rgba(0,0,0,0.8);
+            color: white;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            white-space: nowrap;
+            pointer-events: none;
+            z-index: 1000; /* 确保标签在最上层 */
+        }
+        
+        /* 默认隐藏标签容器下的标签 */
+        .labels-hidden .area-label { display: none; }
+
+        /* 右键菜单样式 */
+        .context-menu {
+            position: absolute;
+            background: white;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+            z-index: 10000;
+            min-width: 120px;
+            display: none;
+        }
+
+        .context-menu-item {
+            padding: 8px 12px;
+            cursor: pointer;
+            font-size: 12px;
+            border-bottom: 1px solid #eee;
+            transition: background-color 0.2s;
+        }
+
+        .context-menu-item:last-child {
+            border-bottom: none;
+        }
+
+        .context-menu-item:hover {
+            background-color: #f0f0f0;
+        }
+
+        .context-menu-item.disabled {
+            color: #999;
+            cursor: not-allowed;
+        }
+
+        .context-menu-item.disabled:hover {
+            background-color: white;
+        }
+
+    </style>
+</head>
+<body>
+<div class="container">
+    <div class="main-content">
+        <div class="left-panel">
+
+            <div class="toolbar">
+                <h3>🛠️ 工具栏</h3>
+                <div class="tool-buttons">
+                    <button class="tool-btn" id="measureDistanceBtn" title="测距">📏 测距</button>
+                    <button class="tool-btn" id="measureAreaBtn" title="测面">📐 测面</button>
+                    <button class="tool-btn" id="mapTypeBtn" title="切换地图">🗺️ 街道图</button>
+                    <button class="tool-btn" id="clearAllBtn" title="清空所有">🗑️ 清空</button>
+                </div>
+            </div>
+
+            <div class="wkt-input">
+                <div class="tab-container">
+                    <div class="tabs">
+                        <div class="tab active" data-tab="outline">轮廓</div>
+                        <div class="tab" data-tab="track">轨迹</div>
+                    </div>
+
+                    <div class="tab-content active" id="outline-tab">
+                        <div class="input-group">
+                            <textarea id="outlineWkt" style="height: 400px;"
+                                      placeholder="输入多边形WKT，支持多行输入，每行一个WKT">GEOMETRYCOLLECTION EMPTY</textarea>
+                        </div>
+                        <div class="button-group">
+                            <button class="btn btn-primary" onclick="drawOutline()">🎯 绘制轮廓</button>
+                            <button class="btn btn-secondary" onclick="clearOutline()">🧹 清除轮廓</button>
+                        </div>
+                        <div class="input-group">
+                            <label><input type="checkbox" id="toggleLabelsCheckbox"> 显示亩数</label>
+                        </div>
+                    </div>
+
+                    <div class="tab-content" id="track-tab">
+                        <div class="time-range-settings" style="margin-bottom:8px;font-size:12px;color:#333;">
+                            <label>时间范围选取(留空则显示所有轨迹)</label>
+                            <input type="text" id="timeRangeInput"
+                                   style="width:100%;margin-top:4px;padding:4px;border:1px solid #ddd;border-radius:4px;font-size:12px;"
+                                   placeholder="格式：yyyy-MM-ddTHH:mm:ss - yyyy-MM-ddTHH:mm:ss">
+                        </div>
+                        <textarea id="trackTextarea"
+                                  style="width:100%;height:400px;margin-bottom:10px;padding:8px;border:1px solid #ddd;border-radius:4px;font-family:monospace;resize:vertical;box-sizing:border-box;"></textarea>
+                        <div class="button-group">
+                            <button id="drawTrackButton" class="btn btn-primary">🎯 轨迹</button>
+                            <button id="showTrackPointsButton" class="btn btn-warning">📍 打点</button>
+                            <button id="clearTrackButton" class="btn btn-secondary">🧹 清空</button>
+                        </div>
+                        <!-- 轨迹颜色选择器 -->
+                        <div class="color-picker-container" style="margin-top:8px;">
+                            <div style="display:flex;align-items:center;gap:8px;">
+                                <div style="display:flex;align-items:center;gap:4px;">
+                                    <label style="font-size:12px;">轨迹线颜色:</label>
+                                    <div id="trackLineColorPicker" class="color-picker"
+                                         style="width:24px;height:24px;border:1px solid #ccc;cursor:pointer;background-color:#FF0000;"></div>
+                                    <input type="color" id="trackLineColorInput" value="#FF0000" style="display:none;">
+                                </div>
+                                <div style="display:flex;align-items:center;gap:4px;">
+                                    <label style="font-size:12px;">轨迹点颜色:</label>
+                                    <div id="trackPointColorPicker" class="color-picker"
+                                         style="width:24px;height:24px;border:1px solid #ccc;cursor:pointer;background-color:#68EAF3;"></div>
+                                    <input type="color" id="trackPointColorInput" value="#68EAF3" style="display:none;">
+                                </div>
+                            </div>
+                        </div>
+                        <!-- 轨迹回放 -->
+                        <div class="split-section" style="margin-top:8px;">
+                            <div class="playback-actions" style="display:flex;gap:8px;margin-bottom:8px;">
+                                <button id="playbackToggleBtn" class="btn btn-primary">▶️ 轨迹回放</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="map-container">
+            <div id="map"></div>
+
+            <!-- 工具栏切换按钮 -->
+            <button class="panel-toggle-fixed" id="panelToggleFixed" title="展开/收缩工具栏">◀▶</button>
+
+            <div class="status-info" id="statusInfo" style="display: none;">
+                就绪
+            </div>
+
+            <div class="coordinate-info" id="coordinateInfo">
+                经度: -, 纬度: -
+            </div>
+
+            <!-- 右键菜单 -->
+            <div class="context-menu" id="contextMenu">
+                <div class="context-menu-item" id="getAddressMenuItem">📍 获取地址</div>
+            </div>
+
+            <!-- 轨迹回放播放器 -->
+            <div class="playback-player" id="playbackPlayer" style="display: none;">
+                <div class="player-header">
+                    <span class="player-title">轨迹回放</span>
+                    <button class="player-close" id="playerCloseBtn" title="关闭">✕</button>
+                </div>
+                <div class="player-controls">
+                    <button class="player-btn" id="playerPlayBtn" title="播放">▶️</button>
+                    <button class="player-btn" id="playerStopBtn" title="停止">⏹️</button>
+
+                    <div class="player-speed">
+                        <label>速度:</label>
+                        <input type="range" id="playerSpeedSlider" min="1" max="2048" step="1" value="1">
+                        <span id="playerSpeedValue">1x</span>
+                    </div>
+
+                    <div class="player-progress">
+                        <input type="range" id="playerProgressSlider" min="0" max="100" value="0">
+                        <div id="playerTimeLabel" style="display: flex; flex-direction: column; align-items: center; min-width: 80px;">
+                            <div id="currentTime" style="font-size: 12px; line-height: 1.2;">00:00:00</div>
+                            <div id="totalTime" style="font-size: 10px; line-height: 1.2; color: #666;">00:00:00</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    // 全局变量
+    let map;
+    let currentMapType = 'street';
+    let currentBaseLayer;
+    let currentSatelliteLayer;
+
+    // 图层组
+    let outlineLayerGroup;
+    let trackLayerGroup;
+    let measureLayerGroup;
+    let labelLayerGroup;
+
+    // 标签相关
+    let labelsEnabled = false;
+
+    // 当前几何图形
+    let currentOutline = null;
+    let currentTrack = null;
+
+    // 轨迹回放相关
+    let playbackState = {
+        isPlaying: false,
+        points: [],
+        currentIndex: 0,
+        speed: 1,
+        marker: null,
+        polyline: null,
+        timer: null
+    };
+
+    // 新播放器元素
+    let playbackPlayer;
+    let playerCloseBtn;
+    let playerPlayBtn;
+    let playerStopBtn;
+    let playerSpeedSlider;
+    let playerSpeedValue;
+    let playerProgressSlider;
+    let playerTimeLabel;
+
+    // 测量相关
+    let measureState = {
+        isActive: false,
+        mode: '',
+        points: [],
+        tempLine: null,
+        lines: [],
+        markers: [],
+        labels: [],
+        polygon: null,
+        areaLabel: null
+    };
+
+    // 颜色配置
+    let currentOutlineColor = "#FFD700";
+    let currentFillColor = "#FFFF00";
+    let currentFillOpacity = 0.8;
+    let currentTrackLineColor = "#FF0000";
+    let currentTrackPointColor = "#68EAF3";
+
+    // 状态信息定时器
+    let statusMessageTimer = null;
+
+    // 右键菜单相关
+    let contextMenu = null;
+    let getAddressMenuItem = null;
+    let lastRightClickLatLng = null;
+
+    // 多边形颜色方案
+    const polygonColors = [
+        { outline: "#FFD700", fill: "#FFFF00", opacity: 0.8 },
+        { outline: "#FF0000", fill: "#FF6666", opacity: 0.8 },
+        { outline: "#00FF00", fill: "#66FF66", opacity: 0.8 },
+        { outline: "#0000FF", fill: "#6666FF", opacity: 0.8 },
+        { outline: "#FF00FF", fill: "#FF66FF", opacity: 0.8 },
+        { outline: "#00FFFF", fill: "#66FFFF", opacity: 0.8 },
+        { outline: "#FFA500", fill: "#FFCC66", opacity: 0.8 },
+        { outline: "#800080", fill: "#CC66CC", opacity: 0.8 },
+        { outline: "#008000", fill: "#66CC66", opacity: 0.8 },
+        { outline: "#800000", fill: "#CC6666", opacity: 0.8 }
+    ];
+
+    // 显示播放器
+    function showPlaybackPlayer() {
+        if (playbackPlayer) {
+            playbackPlayer.style.display = 'block';
+            updatePlayerControls();
+            
+            // 同步旧版控制面板状态，保持当前播放位置
+            if (playerProgressSlider && playbackState.points.length > 0) {
+                playerProgressSlider.disabled = false;
+                playerProgressSlider.max = 100;
+                // 不重置进度条值，保持当前播放位置
+                if (playbackState.points.length > 0 && playbackState.currentIndex >= 0) {
+                    const percentage = Math.round((playbackState.currentIndex / (playbackState.points.length - 1)) * 100);
+                    playerProgressSlider.value = percentage;
+                }
+            }
+            if (playerTimeLabel && playbackState.points.length > 0) {
+                // 根据当前播放位置更新时间显示
+                if (playbackState.currentIndex >= 0 && playbackState.currentIndex < playbackState.points.length) {
+                    const currentPoint = playbackState.points[playbackState.currentIndex];
+                    const lastPoint = playbackState.points[playbackState.points.length - 1];
+                    
+                    if (currentPoint && lastPoint) {
+                        function formatTime(timestamp) {
+                            const date = parseTimestamp(timestamp);
+                            if (!date) return '00:00:00';
+                            
+                            const hours = date.getHours().toString().padStart(2, '0');
+                            const minutes = date.getMinutes().toString().padStart(2, '0');
+                            const seconds = date.getSeconds().toString().padStart(2, '0');
+                            return hours + ':' + minutes + ':' + seconds;
+                        }
+                        
+                        const currentTime = formatTime(currentPoint.timestamp);
+                        const totalTime = formatTime(lastPoint.timestamp);
+                        
+                        // 分别更新两行时间显示
+                        const currentTimeElement = document.getElementById('currentTime');
+                        const totalTimeElement = document.getElementById('totalTime');
+                        
+                        if (currentTimeElement) currentTimeElement.textContent = currentTime;
+                        if (totalTimeElement) totalTimeElement.textContent = totalTime;
+                    }
+                }
+            }
+        }
+    }
+
+    // 隐藏播放器
+    function hidePlaybackPlayer() {
+        if (playbackPlayer) {
+            playbackPlayer.style.display = 'none';
+            // 只暂停播放，不重置进度
+            if (playbackState.isPlaying) {
+                pausePlayback();
+            }
+            
+            // 重置播放器控制状态
+            updatePlayerControls();
+        }
+    }
+
+    // 应用时间范围过滤
+    function applyTimeRangeFilter() {
+        const timeRangeText = document.getElementById('timeRangeInput').value.trim();
+        
+        if (!timeRangeText) {
+            // 没有时间范围，使用所有点
+            playbackState.filteredPoints = playbackState.points.slice();
+            return;
+        }
+        
+        // 解析时间范围
+        const timeRangeMatch = timeRangeText.match(/^([\d-]+T[\d:]+)\s*-\s*([\d-]+T[\d:]+)$/);
+        if (!timeRangeMatch) {
+            // 格式不正确，使用所有点
+            playbackState.filteredPoints = playbackState.points.slice();
+            return;
+        }
+        
+        const startTimeStr = timeRangeMatch[1];
+        const endTimeStr = timeRangeMatch[2];
+        
+        const startTime = new Date(startTimeStr);
+        const endTime = new Date(endTimeStr);
+        
+        if (isNaN(startTime.getTime()) || isNaN(endTime.getTime())) {
+            // 时间解析失败，使用所有点
+            playbackState.filteredPoints = playbackState.points.slice();
+            return;
+        }
+        
+        // 过滤轨迹点
+        playbackState.filteredPoints = playbackState.points.filter(point => {
+            const pointTime = parseTimestamp(point.timestamp);
+            return pointTime && pointTime >= startTime && pointTime <= endTime;
+        });
+        
+        // 如果过滤后点数不足，使用所有点
+        if (playbackState.filteredPoints.length < 2) {
+            playbackState.filteredPoints = playbackState.points.slice();
+        }
+    }
+
+    // 切换播放状态
+    function togglePlayback() {
+        if (playbackState.isPlaying) {
+            pausePlayback();
+        } else {
+            // 开始播放前应用时间范围过滤
+            applyTimeRangeFilter();
+            startPlayback();
+        }
+        
+        // 更新播放器控制状态
+        updatePlayerControls();
+    }
+
+    // 更新播放器控制状态
+    function updatePlayerControls() {
+        const hasTrack = playbackState.points && playbackState.points.length > 0;
+        
+        if (playerPlayBtn) playerPlayBtn.disabled = !hasTrack;
+        if (playerStopBtn) playerStopBtn.disabled = !hasTrack;
+        if (playerSpeedSlider) playerSpeedSlider.disabled = !hasTrack;
+        if (playerProgressSlider) playerProgressSlider.disabled = !hasTrack;
+        
+        if (playbackState.isPlaying) {
+            if (playerPlayBtn) playerPlayBtn.innerHTML = '⏸️';
+            if (playerPlayBtn) playerPlayBtn.title = '暂停';
+        } else {
+            if (playerPlayBtn) playerPlayBtn.innerHTML = '▶️';
+            if (playerPlayBtn) playerPlayBtn.title = '播放';
+        }
+    }
+
+    // 初始化地图
+    function initMap() {
+        console.log('initMap called');
+
+        // 创建地图
+        map = L.map('map', {
+            center: [39.9042, 116.4074], // 北京
+            zoom: 11,
+            zoomControl: false,
+            attributionControl: false
+        });
+
+        console.log('Map created:', map);
+
+        // 不添加缩放控件，使用滚轮缩放地图
+
+        // 初始化图层组
+        outlineLayerGroup = L.layerGroup().addTo(map);
+        trackLayerGroup = L.layerGroup().addTo(map);
+        measureLayerGroup = L.layerGroup().addTo(map);
+        // 先不添加标签图层，稍后确保它在最上层
+        labelLayerGroup = L.layerGroup();
+        map.addLayer(labelLayerGroup);
+
+        console.log('Layer groups created');
+
+        // 初始化地图类型
+        currentMapType = 'satellite';
+
+        // 添加基础图层
+        addBaseLayers();
+
+        // 绑定事件
+        bindMapEvents();
+
+        // 更新状态
+        updateStatus('地图初始化完成');
+
+        console.log('initMap completed');
+
+        // 确保标签图层在最上层
+        map.removeLayer(labelLayerGroup);
+        map.addLayer(labelLayerGroup);
+
+        // 初始化新播放器元素
+        playbackPlayer = document.getElementById('playbackPlayer');
+        playerCloseBtn = document.getElementById('playerCloseBtn');
+        playerPlayBtn = document.getElementById('playerPlayBtn');
+        playerStopBtn = document.getElementById('playerStopBtn');
+        playerSpeedSlider = document.getElementById('playerSpeedSlider');
+        playerSpeedValue = document.getElementById('playerSpeedValue');
+        playerProgressSlider = document.getElementById('playerProgressSlider');
+        playerTimeLabel = document.getElementById('playerTimeLabel');
+
+        // 初始化速度显示
+        if (playerSpeedValue) {
+            playerSpeedValue.textContent = '1x';
+        }
+
+        // 初始化播放器按钮状态（使用updatePlayerControls函数）
+        updatePlayerControls();
+    }
+
+    // 添加基础图层
+    function addBaseLayers() {
+        console.log('addBaseLayers called');
+
+        // 天地图街道图
+        const tk = "9ed3674d01dd7c129ab38e3c38bf651a";
+
+        // 天地图街道图 - 使用XYZ瓦片服务
+        const vecLayer = L.tileLayer(`https://t{s}.tianditu.gov.cn/vec_w/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=vec&STYLE=default&TILEMATRIXSET=w&FORMAT=tiles&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}&tk=${tk}`, {
+            attribution: '© 天地图',
+            maxZoom: 18,
+            tileSize: 256,
+            subdomains: ['0', '1', '2', '3', '4', '5', '6', '7']
+        });
+
+        // 天地图街道图标注
+        const cvaLayer = L.tileLayer(`https://t{s}.tianditu.gov.cn/cva_w/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=cva&STYLE=default&TILEMATRIXSET=w&FORMAT=tiles&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}&tk=${tk}`, {
+            attribution: '© 天地图',
+            maxZoom: 18,
+            tileSize: 256,
+            subdomains: ['0', '1', '2', '3', '4', '5', '6', '7']
+        });
+
+        // 天地图卫星图 - 使用XYZ瓦片服务
+        const imgLayer = L.tileLayer(`https://t{s}.tianditu.gov.cn/img_w/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=img&STYLE=default&TILEMATRIXSET=w&FORMAT=tiles&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}&tk=${tk}`, {
+            attribution: '© 天地图',
+            maxZoom: 18,
+            tileSize: 256,
+            subdomains: ['0', '1', '2', '3', '4', '5', '6', '7']
+        });
+
+        // 天地图卫星图标注
+        const ciaLayer = L.tileLayer(`https://t{s}.tianditu.gov.cn/cia_w/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=cia&STYLE=default&TILEMATRIXSET=w&FORMAT=tiles&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}&tk=${tk}`, {
+            attribution: '© 天地图',
+            maxZoom: 18,
+            tileSize: 256,
+            subdomains: ['0', '1', '2', '3', '4', '5', '6', '7']
+        });
+
+        // 添加图层加载事件监听
+        vecLayer.on('load', function() {
+            console.log('天地图街道图层加载完成');
+            updateStatus('天地图街道图层加载完成');
+        });
+
+        imgLayer.on('load', function() {
+            console.log('天地图卫星图层加载完成');
+            updateStatus('天地图卫星图层加载完成');
+        });
+
+        vecLayer.on('error', function(e) {
+            console.error('天地图街道图层加载错误:', e);
+            updateStatus('天地图街道图层加载失败');
+        });
+
+        imgLayer.on('error', function(e) {
+            console.error('天地图卫星图层加载错误:', e);
+            updateStatus('天地图卫星图层加载失败');
+        });
+
+        // 创建图层组
+        currentBaseLayer = L.layerGroup([vecLayer, cvaLayer]);
+        currentSatelliteLayer = L.layerGroup([imgLayer, ciaLayer]);
+
+        console.log('currentBaseLayer created:', currentBaseLayer);
+        console.log('currentSatelliteLayer created:', currentSatelliteLayer);
+
+        // 默认显示卫星图
+        currentSatelliteLayer.addTo(map);
+
+        console.log('Satellite layer added to map');
+        console.log('currentMapType initialized to: satellite');
+    }
+
+    // 绑定地图事件
+    function bindMapEvents() {
+        // 鼠标移动事件 - 更新坐标显示
+        map.on('mousemove', function(e) {
+            const lat = e.latlng.lat.toFixed(6);
+            const lng = e.latlng.lng.toFixed(6);
+            const coordinateInfo = document.getElementById('coordinateInfo');
+            if (coordinateInfo) {
+                coordinateInfo.textContent = `经度: ${lng}, 纬度: ${lat}`;
+            }
+        });
+
+        // 右键菜单事件
+        map.on('contextmenu', function(e) {
+            // 如果在测量模式下，不显示右键菜单（让测量模式的右键处理接管）
+            if (measureState.isActive) {
+                return;
+            }
+
+            // 保存右键点击的坐标
+            lastRightClickLatLng = e.latlng;
+
+            // 显示右键菜单
+            showContextMenu(e.originalEvent);
+
+            // 阻止默认右键菜单
+            if (e.originalEvent) {
+                e.originalEvent.preventDefault();
+                e.originalEvent.stopPropagation();
+            }
+
+            return false;
+        });
+
+        // 点击其他地方隐藏右键菜单
+        map.on('click', function() {
+            hideContextMenu();
+        });
+
+        // 地图控件事件
+        const zoomInBtn = document.getElementById('zoomInBtn');
+        const zoomOutBtn = document.getElementById('zoomOutBtn');
+        const resetViewBtn = document.getElementById('resetViewBtn');
+
+        if (zoomInBtn) {
+            zoomInBtn.addEventListener('click', function() {
+                map.zoomIn();
+            });
+        }
+
+        if (zoomOutBtn) {
+            zoomOutBtn.addEventListener('click', function() {
+                map.zoomOut();
+            });
+        }
+
+        if (resetViewBtn) {
+            resetViewBtn.addEventListener('click', function() {
+                map.setView([39.9042, 116.4074], 11);
+            });
+        }
+    }
+
+    // 状态更新
+    function updateStatus(message) {
+        const statusInfo = document.getElementById('statusInfo');
+        if (statusInfo) {
+            // 清除之前的定时器
+            if (statusMessageTimer) {
+                clearTimeout(statusMessageTimer);
+                statusMessageTimer = null;
+            }
+            
+            statusInfo.textContent = message;
+            statusInfo.style.display = 'block';
+            
+            // 设置新的定时器
+            statusMessageTimer = setTimeout(() => {
+                statusInfo.style.display = 'none';
+                statusMessageTimer = null;
+            }, 1000);
+        }
+    }
+
+    // 右键菜单功能函数
+    function showContextMenu(event) {
+        if (!contextMenu) {
+            contextMenu = document.getElementById('contextMenu');
+            getAddressMenuItem = document.getElementById('getAddressMenuItem');
+            
+            // 绑定菜单项点击事件
+            if (getAddressMenuItem) {
+                getAddressMenuItem.addEventListener('click', handleGetAddress);
+            }
+        }
+
+        if (contextMenu && event) {
+            // 设置菜单位置
+            contextMenu.style.left = event.pageX + 'px';
+            contextMenu.style.top = event.pageY + 'px';
+            contextMenu.style.display = 'block';
+        }
+    }
+
+    function hideContextMenu() {
+        if (contextMenu) {
+            contextMenu.style.display = 'none';
+        }
+    }
+
+    // 处理获取地址功能
+    function handleGetAddress() {
+        if (!lastRightClickLatLng) {
+            updateStatus('没有有效的坐标点');
+            return;
+        }
+
+        const lat = lastRightClickLatLng.lat;
+        const lng = lastRightClickLatLng.lng;
+
+        // 调用天地图逆地理编码API
+        getAddressFromTianDiTu(lat, lng);
+        
+        // 隐藏右键菜单
+        hideContextMenu();
+    }
+
+    // 天地图逆地理编码
+    function getAddressFromTianDiTu(lat, lng) {
+        // 使用天地图逆地理编码API，使用后台tk
+        const tk = "9ed3674d01dd7c129ab38e3c38bf651a";
+        const postStr = `{'lon':${lng},'lat':${lat},'ver':1}`;
+        const url = `https://api.tianditu.gov.cn/geocoder?postStr=${postStr}&type=geocode&tk=${tk}`;
+
+        console.log('请求URL:', url);
+        console.log('坐标:', lat, lng);
+        console.log('postStr:', postStr);
+        updateStatus('正在获取地址信息...');
+
+        // 判断是否在本地文件环境中运行
+        const isLocalFile = window.location.protocol === 'file:';
+        
+        if (isLocalFile) {
+            // 本地文件环境：使用JSONP方式
+            console.log('检测到本地文件访问，使用JSONP方式');
+            tryJSONPApproach(lat, lng, tk);
+        } else {
+            // Web容器环境：直接发送GET请求
+            console.log('Web容器环境，直接发送GET请求');
+            fetch(url)
+            .then(response => {
+                console.log('响应状态:', response.status, response.statusText);
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+                return response.json();
+            })
+            .then(data => {
+                console.log('响应数据:', data);
+                handleTiandituResponse(lat, lng, data);
+            })
+            .catch(error => {
+                console.error('逆地理编码请求失败:', error);
+                // 失败后直接使用备用方案显示坐标
+                useFallbackAddress(lat, lng);
+            });
+        }
+    }
+
+    // 专门为本地文件环境设计的方案
+    function tryJSONPApproach(lat, lng, tk) {
+        // 本地文件环境使用百度地图API - JSONP方式获取地址信息
+        const callbackName = 'jsonp_callback_' + Math.round(100000 * Math.random());
+        
+        // 百度地图API配置 - 使用顶部定义的常量
+        const baiduAk = BAIDU_MAP_AK;
+        const url = `https://api.map.baidu.com/reverse_geocoding/v3/?ak=${baiduAk}&extensions_poi=1&entire_poi=1&sort_strategy=distance&output=json&coordtype=wgs84ll&location=${lat},${lng}&callback=${callbackName}`;
+        
+        console.log('百度地图JSONP请求URL:', url);
+        
+        // 创建全局回调函数
+        window[callbackName] = function(data) {
+            console.log('百度地图JSONP响应数据:', data);
+            cleanup();
+            
+            if (data && data.status === 0 && data.result) {
+                // 处理百度地图响应数据，转换为天地图格式
+                const addressData = {
+                    result: {
+                        formatted_address: data.result.formatted_address || data.result.address
+                    }
+                };
+                
+                // 如果有POI信息，添加到地址中
+                if (data.result.pois && data.result.pois.length > 0) {
+                    const nearestPoi = data.result.pois[0];
+                    addressData.result.formatted_address += ` (${nearestPoi.name})`;
+                }
+                
+                handleTiandituResponse(lat, lng, addressData);
+            } else {
+                console.log('百度地图JSONP返回数据格式不正确或状态错误，使用备用方案');
+                useFallbackAddress(lat, lng);
+            }
+        };
+        
+        // 创建script标签
+        const script = document.createElement('script');
+        script.src = url;
+        
+        let timeoutId;
+        
+        function cleanup() {
+            if (timeoutId) clearTimeout(timeoutId);
+            if (window[callbackName]) delete window[callbackName];
+            if (script.parentNode) document.body.removeChild(script);
+        }
+        
+        script.onerror = function() {
+            cleanup();
+            console.log('百度地图JSONP请求失败，使用备用方案');
+            useFallbackAddress(lat, lng);
+        };
+        
+        // 设置超时
+        timeoutId = setTimeout(() => {
+            cleanup();
+            console.log('百度地图JSONP请求超时，使用备用方案');
+            useFallbackAddress(lat, lng);
+        }, 8000); // 8秒超时
+        
+        document.body.appendChild(script);
+    }
+
+    // 处理天地图API响应数据
+    function handleTiandituResponse(lat, lng, data) {
+        if (data && data.result && data.result.formatted_address) {
+            const address = data.result.formatted_address;
+            showAddressLabel(lat, lng, address);
+            updateStatus('地址获取成功');
+        } else if (data && data.msg) {
+            updateStatus(`地址获取失败：${data.msg}`);
+        } else {
+            updateStatus('地址获取失败：未找到地址信息');
+        }
+    }
+
+    // 最终备用方案：显示坐标信息
+    function useFallbackAddress(lat, lng) {
+        const fallbackAddress = `坐标位置：${lng.toFixed(6)}, ${lat.toFixed(6)}`;
+        showAddressLabel(lat, lng, fallbackAddress);
+        updateStatus('地址服务暂不可用，显示坐标信息');
+    }
+
+    // 显示地址标签
+    function showAddressLabel(lat, lng, address) {
+        // 创建地址标签
+        const label = L.marker([lat, lng], {
+            icon: L.divIcon({
+                className: 'address-label',
+                html: `<div style="background: white; border: 2px solid #007bff; border-radius: 6px; padding: 8px 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.2); font-size: 12px; max-width: 300px; word-wrap: break-word;">
+                        <div style="font-weight: bold; color: #007bff; margin-bottom: 4px;">📍 地址信息</div>
+                        <div style="color: #333;">${address}</div>
+                        <div style="font-size: 10px; color: #666; margin-top: 4px;">
+                            坐标: ${lng.toFixed(6)}, ${lat.toFixed(6)}
+                        </div>
+                     </div>`,
+                iconSize: [300, 'auto'],
+                iconAnchor: [150, 0]
+            })
+        }).addTo(labelLayerGroup);
+
+        // 添加点击事件，点击可以删除标签
+        label.on('click', function() {
+            labelLayerGroup.removeLayer(label);
+            updateStatus('地址标签已删除');
+        });
+
+        // 3秒后自动隐藏标签
+        setTimeout(() => {
+            if (labelLayerGroup.hasLayer(label)) {
+                labelLayerGroup.removeLayer(label);
+            }
+        }, 10000); // 10秒后自动隐藏
+    }
+
+    // 标签页切换
+    function bindTabEvents() {
+        const tabs = document.querySelectorAll('.tab');
+        const tabContents = document.querySelectorAll('.tab-content');
+
+        tabs.forEach(tab => {
+            tab.addEventListener('click', function() {
+                const targetTab = this.dataset.tab;
+
+                // 移除所有活动状态
+                tabs.forEach(t => t.classList.remove('active'));
+                tabContents.forEach(content => content.classList.remove('active'));
+
+                // 添加活动状态
+                this.classList.add('active');
+                document.getElementById(targetTab + '-tab').classList.add('active');
+            });
+        });
+    }
+
+    // 颜色选择器事件
+    function bindColorPickerEvents() {
+        // 轨迹线颜色
+        const trackLineColorPicker = document.getElementById('trackLineColorPicker');
+        const trackLineColorInput = document.getElementById('trackLineColorInput');
+
+        if (trackLineColorPicker && trackLineColorInput) {
+            trackLineColorPicker.addEventListener('click', function() {
+                trackLineColorInput.click();
+            });
+
+            trackLineColorInput.addEventListener('change', function() {
+                currentTrackLineColor = this.value;
+                trackLineColorPicker.style.backgroundColor = currentTrackLineColor;
+            });
+        }
+
+        // 轨迹点颜色
+        const trackPointColorPicker = document.getElementById('trackPointColorPicker');
+        const trackPointColorInput = document.getElementById('trackPointColorInput');
+
+        if (trackPointColorPicker && trackPointColorInput) {
+            trackPointColorPicker.addEventListener('click', function() {
+                trackPointColorInput.click();
+            });
+
+            trackPointColorInput.addEventListener('change', function() {
+                currentTrackPointColor = this.value;
+                trackPointColorPicker.style.backgroundColor = currentTrackPointColor;
+            });
+        }
+    }
+
+    // 工具按钮事件
+    function bindToolEvents() {
+        // 测距按钮
+        const measureDistanceBtn = document.getElementById('measureDistanceBtn');
+        if (measureDistanceBtn) {
+            measureDistanceBtn.addEventListener('click', startMeasureDistance);
+        }
+
+        // 测面按钮
+        const measureAreaBtn = document.getElementById('measureAreaBtn');
+        if (measureAreaBtn) {
+            measureAreaBtn.addEventListener('click', startMeasureArea);
+        }
+
+        // 地图类型切换
+        const mapTypeBtn = document.getElementById('mapTypeBtn');
+        if (mapTypeBtn) {
+            mapTypeBtn.addEventListener('click', toggleMapType);
+        }
+
+        // 清空所有
+        const clearAllBtn = document.getElementById('clearAllBtn');
+        if (clearAllBtn) {
+            clearAllBtn.addEventListener('click', clearAll);
+        }
+
+        // 轨迹相关按钮
+        const drawTrackBtn = document.getElementById('drawTrackButton');
+        const showTrackPointsBtn = document.getElementById('showTrackPointsButton');
+        const clearTrackBtn = document.getElementById('clearTrackButton');
+
+        if (drawTrackBtn) drawTrackBtn.addEventListener('click', drawTrack);
+        if (showTrackPointsBtn) showTrackPointsBtn.addEventListener('click', showTrackPoints);
+        if (clearTrackBtn) clearTrackBtn.addEventListener('click', clearTrack);
+
+        // 轨迹回放切换按钮 - 始终可点击，点击时进行初始化检查
+        const playbackToggleBtn = document.getElementById('playbackToggleBtn');
+        if (playbackToggleBtn) {
+            // 移除disabled属性，使按钮始终可点击
+            playbackToggleBtn.disabled = false;
+            
+            playbackToggleBtn.addEventListener('click', function() {
+                // 如果播放器已显示，则隐藏
+                if (playbackPlayer.style.display === 'block') {
+                    hidePlaybackPlayer();
+                    return;
+                }
+                
+                // 检查是否有轨迹数据
+                if (!playbackState.points || playbackState.points.length === 0) {
+                    // 尝试从textarea解析轨迹数据
+                    const trackTextarea = document.getElementById('trackTextarea');
+                    if (trackTextarea && trackTextarea.value.trim()) {
+                        try {
+                            parseTrackPoints(trackTextarea.value.trim());
+                        } catch (e) {
+                            updateStatus('轨迹数据格式错误，无法打开播放器');
+                            return;
+                        }
+                    }
+                }
+                
+                // 再次检查是否有有效轨迹数据
+                if (!playbackState.points || playbackState.points.length === 0) {
+                    updateStatus('没有有效的轨迹数据，无法打开播放器');
+                    return;
+                }
+                
+                // 显示播放器
+                showPlaybackPlayer();
+            });
+        }
+
+        // 新播放器控制事件
+        if (playerCloseBtn) playerCloseBtn.addEventListener('click', hidePlaybackPlayer);
+        if (playerPlayBtn) playerPlayBtn.addEventListener('click', togglePlayback);
+
+        if (playerStopBtn) playerStopBtn.addEventListener('click', stopPlayback);
+        
+        // 初始化播放器按钮状态
+        updatePlayerControls();
+        
+        // 速度滑块
+        if (playerSpeedSlider) {
+            playerSpeedSlider.addEventListener('input', function() {
+                // 将滑块值转换为指数倍数：1,2,4,8,16,32,64,128,256,512,1024
+                const sliderValue = parseInt(this.value);
+                let speed;
+                
+                if (sliderValue === 1) {
+                    speed = 1;
+                } else {
+                    // 计算2的幂次：2^0=1, 2^1=2, 2^2=4, ..., 2^10=1024
+                    const power = Math.floor(Math.log2(sliderValue));
+                    speed = Math.pow(2, power);
+                }
+                
+                // 限制最大值
+                speed = Math.min(speed, 1024);
+                
+                // 确保是2的幂次倍数：1,2,4,8,16,32,64,128,256,512,1024
+                const validSpeeds = [1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024];
+                speed = validSpeeds.find(s => s >= speed) || 1024;
+                
+                playbackState.speed = speed;
+                if (playerSpeedValue) playerSpeedValue.textContent = speed + 'x';
+                
+                // 如果正在播放，应用新速度（保持当前位置继续播放）
+                if (playbackState.isPlaying) {
+                    // 不需要暂停和重新开始，速度会在下一个点自动应用
+                    updateStatus(`播放速度已调整为 ${speed}x`);
+                }
+            });
+        }
+        
+        // 进度滑块
+        if (playerProgressSlider) {
+            playerProgressSlider.addEventListener('input', function() {
+                const percentage = parseInt(this.value);
+                if (playbackState.filteredPoints && playbackState.filteredPoints.length > 0) {
+                    const index = Math.floor((percentage / 100) * (playbackState.filteredPoints.length - 1));
+                    const wasPlaying = playbackState.isPlaying; // 记录播放状态
+                    jumpToPoint(index);
+                    // 如果之前在播放，继续播放
+                    if (wasPlaying) {
+                        setTimeout(() => {
+                            playbackState.isPlaying = true;
+                            playbackNextPoint();
+                        }, 100);
+                    }
+                }
+            });
+        }
+
+        // 轨迹文本框事件监听 - 根据内容启用/禁用按钮
+        const trackTextarea = document.getElementById('trackTextarea');
+        if (trackTextarea) {
+            function updateTrackButtons() {
+                const hasContent = trackTextarea.value.trim().length > 0;
+                if (drawTrackBtn) drawTrackBtn.disabled = !hasContent;
+                if (showTrackPointsBtn) showTrackPointsBtn.disabled = !hasContent;
+                if (clearTrackBtn) clearTrackBtn.disabled = !hasContent;
+                
+                // 如果有轨迹内容，尝试自动解析以启用播放按钮
+                if (hasContent) {
+                    try {
+                        const trackText = trackTextarea.value.trim();
+                        const lines = trackText.split('\n');
+                        let hasValidTrackData = false;
+                        
+                        // 检查是否有有效的轨迹数据格式
+                        for (let line of lines) {
+                            line = line.trim();
+                            if (!line) continue;
+                            
+                            const parts = line.split(',');
+                            if (parts.length >= 3) {
+                                // 检查两种格式：经度,纬度,时间戳 或 时间戳,经度,纬度
+                                const part1 = parts[0].trim();
+                                const part2 = parts[1].trim();
+                                const part3 = parts[2].trim();
+                                
+                                // 如果是有效的数字格式，则认为有有效轨迹数据
+                                if ((!isNaN(part1) && !isNaN(part2) && part3) || 
+                                    (!isNaN(part2) && !isNaN(part3) && part1)) {
+                                    hasValidTrackData = true;
+                                    break;
+                                }
+                            }
+                        }
+                        
+                        // 播放按钮现在始终可点击，不需要根据解析结果启用/禁用
+                        // 如果找到有效数据，自动解析到playbackState
+                        if (hasValidTrackData) {
+                            const points = [];
+                            lines.forEach(line => {
+                                line = line.trim();
+                                if (!line) return;
+                                
+                                const parts = line.split(',');
+                                if (parts.length >= 3) {
+                                    let lng, lat, timestamp;
+                                    
+                                    // 判断格式
+                                    if (parts[0].trim().length > 10 && !isNaN(parts[0].trim())) {
+                                        // 格式：时间戳,经度,纬度
+                                        timestamp = parts[0].trim();
+                                        lng = parseFloat(parts[1].trim());
+                                        lat = parseFloat(parts[2].trim());
+                                    } else {
+                                        // 格式：经度,纬度,时间戳
+                                        lng = parseFloat(parts[0].trim());
+                                        lat = parseFloat(parts[1].trim());
+                                        timestamp = parts[2].trim();
+                                    }
+                                    
+                                    if (!isNaN(lng) && !isNaN(lat) && timestamp && lat !== 0 && lng !== 0) {
+                                        points.push({
+                                            lat: lat,
+                                            lng: lng,
+                                            timestamp: timestamp
+                                        });
+                                    }
+                                }
+                            });
+                            
+                            // 保存解析的轨迹点
+                            if (points.length > 0) {
+                                playbackState.points = points;
+                            }
+                        }
+                        
+                    } catch (e) {
+                        // 解析失败时，清空轨迹点
+                        playbackState.points = [];
+                    }
+                } else {
+                    // 没有内容时，清空轨迹点
+                    playbackState.points = [];
+                }
+            }
+            
+            // 初始状态
+            updateTrackButtons();
+            
+            // 监听输入事件
+            trackTextarea.addEventListener('input', updateTrackButtons);
+            trackTextarea.addEventListener('change', updateTrackButtons);
+        }
+    }
+
+    // 轮廓绘制函数
+    function drawOutline() {
+        const wktText = document.getElementById('outlineWkt').value.trim();
+        if (!wktText) {
+            alert('请输入WKT数据');
+            return;
+        }
+
+        clearOutline();
+
+        try {
+            // 检查是否为多行WKT
+            const wktLines = wktText.split('\n').filter(line => line.trim());
+            let polygonData = [];
+
+            if (wktLines.length === 1) {
+                // 单行WKT - 使用原始逻辑
+                const geojson = wellknown.parse(wktLines[0].trim());
+                if (geojson.type === "Polygon") {
+                    polygonData.push({ index: 1, geojson: geojson, colorIndex: 0 });
+                } else if (geojson.type === "MultiPolygon") {
+                    geojson.coordinates.forEach((polygon, index) => {
+                        // 将MultiPolygon的每个子多边形转换为单独的Polygon
+                        const singlePolygon = {
+                            type: "Polygon",
+                            coordinates: polygon
+                        };
+                        polygonData.push({ index: index + 1, geojson: singlePolygon, colorIndex: index });
+                    });
+                }
+            } else {
+                // 多行WKT - 每行一个多边形
+                wktLines.forEach((line, index) => {
+                    if (line.trim()) {
+                        try {
+                            const geojson = wellknown.parse(line.trim());
+                            if (geojson.type === "Polygon") {
+                                polygonData.push({ index: index + 1, geojson: geojson, colorIndex: index });
+                            } else if (geojson.type === "MultiPolygon") {
+                                // 如果一行是MultiPolygon，拆分成多个Polygon
+                                geojson.coordinates.forEach((polygon, subIndex) => {
+                                    const singlePolygon = {
+                                        type: "Polygon",
+                                        coordinates: polygon
+                                    };
+                                    polygonData.push({
+                                        index: index + 1 + subIndex * 0.1,
+                                        geojson: singlePolygon,
+                                        colorIndex: index
+                                    });
+                                });
+                            }
+                        } catch (e) {
+                            console.warn(`第${index + 1}行WKT解析失败:`, e);
+                        }
+                    }
+                });
+            }
+
+            // 为每个多边形创建图层
+            polygonData.forEach((data, idx) => {
+                const colorScheme = polygonColors[data.colorIndex % polygonColors.length];
+                const style = {
+                    color: colorScheme.outline,
+                    weight: 1,
+                    opacity: 1,
+                    fillColor: colorScheme.fill,
+                    fillOpacity: colorScheme.opacity
+                };
+
+                const polygonLayer = L.geoJSON(data.geojson, {
+                    style: style
+                });
+
+                outlineLayerGroup.addLayer(polygonLayer);
+
+                // 计算面积并添加亩数标签
+                if (typeof L !== 'undefined' && typeof L.GeometryUtil !== 'undefined' && typeof L.GeometryUtil.geodesicArea === 'function') {
+                    try {
+                        // 获取图层中的要素进行面积计算
+                        let layers = [];
+
+                        // 如果polygonLayer是LayerGroup或FeatureGroup，获取其所有子图层
+                        if (polygonLayer instanceof L.LayerGroup || polygonLayer instanceof L.FeatureGroup) {
+                            layers = polygonLayer.getLayers();
+                        } else {
+                            // 对于其他类型的图层，检查是否有getLayers方法
+                            layers = polygonLayer.getLayers ? polygonLayer.getLayers() : [polygonLayer];
+                        }
+
+                        if (layers && Array.isArray(layers) && layers.length > 0) {
+                            for (let j = 0; j < layers.length; j++) {
+                                const layer = layers[j];
+                                let latLngs;
+
+                                // 根据图层类型获取坐标
+                                if (layer && typeof layer.getLatLngs === 'function') {
+                                    if (layer instanceof L.Polygon) {
+                                        latLngs = layer.getLatLngs();
+                                    } else if (layer instanceof L.MultiPolygon) {
+                                        // 对于MultiPolygon，取第一个多边形
+                                        const multiLatLngs = layer.getLatLngs();
+                                        if (multiLatLngs && Array.isArray(multiLatLngs) && multiLatLngs.length > 0) {
+                                            latLngs = multiLatLngs[0];
+                                        }
+                                    }
+
+                                    if (latLngs) {
+                                        // 处理latLngs格式，确保正确计算面积
+                                        let areaLatLngs = latLngs;
+                                        if (Array.isArray(latLngs) && latLngs.length > 0) {
+                                            areaLatLngs = latLngs[0] || latLngs;
+                                        }
+
+                                        let areaSqM, areaMu;
+                                        if (typeof L.GeometryUtil !== 'undefined' && typeof L.GeometryUtil.geodesicArea === 'function') {
+                                            areaSqM = L.GeometryUtil.geodesicArea(areaLatLngs);
+                                            areaMu = (areaSqM / 666.6667).toFixed(4); // 转换为亩
+                                            console.log('使用L.GeometryUtil计算多边形面积:', areaSqM, '平方米 (', areaMu, '亩)');
+                                        } else if (typeof turf !== 'undefined') {
+                                            // 使用Turf.js作为备选方案
+                                            try {
+                                                // 处理多边形坐标，支持外部边界和内部孔洞
+                                                const processPolygon = (polyCoords) => {
+                                                    if (!Array.isArray(polyCoords) || polyCoords.length === 0) {
+                                                        return null;
+                                                    }
+
+                                                    // 如果是多边形数组（外部边界+孔洞），分别处理
+                                                    let processedCoords = [];
+
+                                                    // 处理多边形的每个环（第一个是外部边界，其余是孔洞）
+                                                    for (let i = 0; i < polyCoords.length; i++) {
+                                                        let ring = polyCoords[i];
+                                                        if (!Array.isArray(ring)) {
+                                                            ring = [ring]; // 如果不是数组，转换为数组
+                                                        }
+
+                                                        // 将Leaflet坐标转换为GeoJSON格式 [lng, lat]
+                                                        let geoJsonRing = ring.map(latLng => {
+                                                            if (latLng.lat !== undefined && latLng.lng !== undefined) {
+                                                                return [latLng.lng, latLng.lat];
+                                                            } else if (Array.isArray(latLng) && latLng.length >= 2) {
+                                                                // 如果已经是数组格式 [lat, lng] 或 [lng, lat]
+                                                                return [latLng[1], latLng[0]]; // 假设是 [lat, lng] 格式
+                                                            }
+                                                            return null;
+                                                        }).filter(coord => coord !== null);
+
+                                                        // 确保环是闭合的（至少有4个点，首尾相同）
+                                                        if (geoJsonRing.length >= 3) {
+                                                            // 如果首尾不相同，闭合环
+                                                            if (geoJsonRing[0][0] !== geoJsonRing[geoJsonRing.length - 1][0] ||
+                                                                geoJsonRing[0][1] !== geoJsonRing[geoJsonRing.length - 1][1]) {
+                                                                geoJsonRing.push(geoJsonRing[0]);
+                                                            }
+
+                                                            // 确保至少有4个点（闭合后）
+                                                            if (geoJsonRing.length < 4) {
+                                                                // 如果点数不足4个，复制点直到达到4个
+                                                                while (geoJsonRing.length < 4) {
+                                                                    geoJsonRing.push(geoJsonRing[geoJsonRing.length - 1]);
+                                                                }
+                                                            }
+                                                        } else if (geoJsonRing.length === 2) {
+                                                            // 如果只有2个点，复制它们形成至少4个点的环
+                                                            geoJsonRing.push(geoJsonRing[1]);
+                                                            geoJsonRing.push(geoJsonRing[0]);
+                                                        } else if (geoJsonRing.length === 1) {
+                                                            // 如果只有1个点，复制3次形成4个点的环
+                                                            for (let k = 0; k < 3; k++) {
+                                                                geoJsonRing.push(geoJsonRing[0]);
+                                                            }
+                                                        }
+
+                                                        processedCoords.push(geoJsonRing);
+                                                    }
+
+                                                    return processedCoords;
+                                                };
+
+                                                // 根据areaLatLngs的结构处理坐标
+                                                let coordinates;
+                                                if (Array.isArray(areaLatLngs) && areaLatLngs.length > 0) {
+                                                    if (Array.isArray(areaLatLngs[0])) {
+                                                        // 如果是多边形数组（包含外部边界和孔洞）
+                                                        coordinates = processPolygon(areaLatLngs);
+                                                    } else {
+                                                        // 如果是单个多边形边界
+                                                        coordinates = processPolygon([areaLatLngs]);
+                                                    }
+                                                } else {
+                                                    // 单个多边形边界
+                                                    coordinates = processPolygon([areaLatLngs]);
+                                                }
+
+                                                if (coordinates && coordinates.length > 0) {
+                                                    const polygon = turf.polygon(coordinates);
+                                                    areaSqM = turf.area(polygon);
+                                                    areaMu = (areaSqM / 666.6667).toFixed(4); // 转换为亩
+                                                    console.log('使用Turf.js计算多边形面积:', areaSqM, '平方米 (', areaMu, '亩)');
+                                                } else {
+                                                    console.log('无法处理坐标数据，使用默认面积');
+                                                    areaSqM = 0;
+                                                    areaMu = '0.0000';
+                                                }
+                                            } catch (e) {
+                                                console.error('使用Turf.js计算面积时出错:', e);
+                                                areaSqM = 0;
+                                                areaMu = '0.0000';
+                                            }
+                                        } else {
+                                            console.error('L.GeometryUtil和Turf.js都不可用，无法计算面积');
+                                            areaSqM = 0;
+                                            areaMu = '0.0000';
+                                        }
+
+                                        console.log('计算多边形面积:', areaSqM, '平方米 (', areaMu, '亩)');
+
+                                        // 如果标签已启用，则添加面积标签
+                                        if (labelsEnabled) {
+                                            console.log('标签已启用，为多边形添加面积标签');
+                                            addAreaLabelToLayer(polygonLayer, `面积: ${areaMu}亩`);
+                                            console.log('当前标签图层中的图层数量:', labelLayerGroup.getLayers().length);
+                                        } else {
+                                            console.log('标签未启用，不添加面积标签');
+                                        }
+                                        break; // 只处理第一个有效的图层来计算面积
+                                    }
+                                }
+                            }
+                        }
+                    } catch (areaError) {
+                        console.warn('面积计算错误:', areaError);
+                    }
+                }
+            });
+
+            // 自适应视野
+            if (outlineLayerGroup && outlineLayerGroup.getLayers && outlineLayerGroup.getLayers().length > 0) {
+                // 计算所有子图层的整体边界
+                const layers = outlineLayerGroup.getLayers();
+                let groupBounds = null;
+
+                for (let i = 0; i < layers.length; i++) {
+                    const layer = layers[i];
+                    let layerBounds;
+
+                    // 检查图层是否为LayerGroup或FeatureGroup
+                    if (layer instanceof L.LayerGroup || layer instanceof L.FeatureGroup) {
+                        try {
+                            layerBounds = layer.getBounds();
+                        } catch (e) {
+                            // 如果LayerGroup/FeatureGroup没有getBounds方法，遍历其子图层
+                            const subLayers = layer.getLayers();
+                            for (let j = 0; j < subLayers.length; j++) {
+                                try {
+                                    const subLayerBounds = subLayers[j].getBounds();
+                                    if (subLayerBounds && subLayerBounds.isValid && subLayerBounds.isValid()) {
+                                        if (!groupBounds) {
+                                            groupBounds = subLayerBounds;
+                                        } else {
+                                            groupBounds.extend(subLayerBounds);
+                                        }
+                                    }
+                                } catch (e) {
+                                    continue;
+                                }
+                            }
+                            continue; // 继续外层循环
+                        }
+                    } else {
+                        try {
+                            layerBounds = layer.getBounds();
+                        } catch (e) {
+                            continue; // 尝试下一个图层
+                        }
+                    }
+
+                    if (layerBounds && layerBounds.isValid && layerBounds.isValid()) {
+                        if (!groupBounds) {
+                            groupBounds = layerBounds;
+                        } else {
+                            groupBounds.extend(layerBounds);
+                        }
+                    }
+                }
+
+                if (groupBounds && groupBounds.isValid && groupBounds.isValid()) {
+                    map.fitBounds(groupBounds, { padding: [20, 20] });
+                }
+            }
+
+            updateStatus(`轮廓绘制完成，共${polygonData.length}个多边形`);
+
+        } catch (error) {
+            console.error('WKT解析错误:', error);
+            updateStatus('WKT解析失败: ' + error.message);
+        }
+    }
+
+    // 清除轮廓
+    function clearOutline() {
+        outlineLayerGroup.clearLayers();
+        currentOutline = null;
+        updateStatus('轮廓已清除');
+    }
+
+    // 为图层添加标签
+    function addLabelsToLayer(layer, prefix) {
+        try {
+            // 如果layer是LayerGroup或FeatureGroup，需要获取其中的第一个图层来获取边界
+            let bounds;
+            if (layer instanceof L.LayerGroup || layer instanceof L.FeatureGroup) {
+                const layers = layer.getLayers();
+                if (layers && layers.length > 0) {
+                    // 遍历所有子图层来获取有效的边界
+                    for (let i = 0; i < layers.length; i++) {
+                        try {
+                            const subLayer = layers[i];
+                            let subLayerBounds;
+
+                            // 检查子图层是否为LayerGroup或FeatureGroup
+                            if (subLayer instanceof L.LayerGroup || subLayer instanceof L.FeatureGroup) {
+                                // 递归处理嵌套的LayerGroup或FeatureGroup
+                                const subSubLayers = subLayer.getLayers();
+                                for (let j = 0; j < subSubLayers.length; j++) {
+                                    try {
+                                        const subSubLayerBounds = subSubLayers[j].getBounds();
+                                        if (subSubLayerBounds && subSubLayerBounds.isValid && subSubLayerBounds.isValid()) {
+                                            subLayerBounds = subSubLayerBounds;
+                                            break;
+                                        }
+                                    } catch (e) {
+                                        continue;
+                                    }
+                                }
+                            } else {
+                                subLayerBounds = subLayer.getBounds();
+                            }
+
+                            if (subLayerBounds && subLayerBounds.isValid && subLayerBounds.isValid()) {
+                                bounds = subLayerBounds;
+                                break; // 使用第一个有效的边界
+                            }
+                        } catch (e) {
+                            continue; // 尝试下一个图层
+                        }
+                    }
+                }
+            } else {
+                // 如果是单个图层，直接获取边界
+                try {
+                    bounds = layer.getBounds();
+                } catch (e) {
+                    console.error('获取图层边界失败:', e);
+                    return; // 如果无法获取边界，则不添加标签
+                }
+            }
+
+            if (bounds && bounds.isValid && bounds.isValid()) {
+                const center = bounds.getCenter();
+                const label = L.divIcon({
+                    className: 'custom-label',
+                    html: `<div style="background: rgba(0,0,0,0.8); color: white; padding: 4px 8px; border-radius: 4px; font-size: 12px; white-space: nowrap;">${prefix}</div>`,
+                    iconSize: null,
+                    iconAnchor: [0, 0]
+                });
+
+                const labelMarker = L.marker(center, { icon: label });
+                labelLayerGroup.addLayer(labelMarker);
+            }
+        } catch (error) {
+            console.error('添加标签错误:', error);
+        }
+    }
+
+    // 为图层添加面积标签
+    function addAreaLabelToLayer(layer, areaText) {
+        try {
+            console.log('尝试为图层添加面积标签:', areaText);
+            // 如果layer是LayerGroup或FeatureGroup，需要获取其中的第一个图层来获取边界
+            let bounds;
+            if (layer instanceof L.LayerGroup || layer instanceof L.FeatureGroup) {
+                const layers = layer.getLayers();
+                if (layers && layers.length > 0) {
+                    // 遍历所有子图层来获取有效的边界
+                    for (let i = 0; i < layers.length; i++) {
+                        try {
+                            const subLayer = layers[i];
+                            let subLayerBounds;
+
+                            // 检查子图层是否为LayerGroup或FeatureGroup
+                            if (subLayer instanceof L.LayerGroup || subLayer instanceof L.FeatureGroup) {
+                                // 递归处理嵌套的LayerGroup或FeatureGroup
+                                const subSubLayers = subLayer.getLayers();
+                                for (let j = 0; j < subSubLayers.length; j++) {
+                                    try {
+                                        const subSubLayerBounds = subSubLayers[j].getBounds();
+                                        if (subSubLayerBounds && subSubLayerBounds.isValid && subSubLayerBounds.isValid()) {
+                                            subLayerBounds = subSubLayerBounds;
+                                            break;
+                                        }
+                                    } catch (e) {
+                                        continue;
+                                    }
+                                }
+                            } else {
+                                subLayerBounds = subLayer.getBounds();
+                            }
+
+                            if (subLayerBounds && subLayerBounds.isValid && subLayerBounds.isValid()) {
+                                bounds = subLayerBounds;
+                                break; // 使用第一个有效的边界
+                            }
+                        } catch (e) {
+                            continue; // 尝试下一个图层
+                        }
+                    }
+                }
+            } else {
+                // 如果是单个图层，直接获取边界
+                try {
+                    bounds = layer.getBounds();
+                } catch (e) {
+                    console.error('获取图层边界失败:', e);
+                    return; // 如果无法获取边界，则不添加标签
+                }
+            }
+
+            if (bounds && bounds.isValid && bounds.isValid()) {
+                const center = bounds.getCenter();
+                const label = L.divIcon({
+                    className: 'area-label',
+                    html: areaText,
+                    iconSize: null,
+                    iconAnchor: null // 使用默认锚点
+                });
+
+                const labelMarker = L.marker(center, { icon: label });
+                labelLayerGroup.addLayer(labelMarker);
+                console.log('成功添加面积标签到图层组');
+                console.log('当前标签图层中的图层数量:', labelLayerGroup.getLayers().length);
+            } else {
+                console.warn('无法获取图层边界，无法添加面积标签');
+            }
+        } catch (error) {
+            console.error('添加面积标签错误:', error);
+        }
+    }
+
+    // 轨迹绘制函数
+    function drawTrack() {
+        const trackText = document.getElementById('trackTextarea').value.trim();
+        const timeRangeText = document.getElementById('timeRangeInput').value.trim();
+
+        if (!trackText) {
+            alert('请粘贴轨迹文本（时间戳,经度,纬度）');
+            return;
+        }
+
+        // 清除轨迹显示，但保留轨迹点数据用于回放
+        trackLayerGroup.clearLayers();
+        currentTrack = null;
+        
+        // 停止回放但不重置points数据和currentIndex
+        playbackState.isPlaying = false;
+        if (playbackState.timer) {
+            clearTimeout(playbackState.timer);
+            playbackState.timer = null;
+        }
+        
+        // 清除回放元素
+        if (playbackState.marker) {
+            map.removeLayer(playbackState.marker);
+            playbackState.marker = null;
+        }
+        if (playbackState.polyline) {
+            map.removeLayer(playbackState.polyline);
+            playbackState.polyline = null;
+        }
+
+        // 解析时间范围
+        let startTime, endTime;
+        if (timeRangeText) {
+            const timeParts = timeRangeText.split(' - ');
+            if (timeParts.length === 2) {
+                startTime = new Date(timeParts[0].trim());
+                endTime = new Date(timeParts[1].trim());
+
+                if (isNaN(startTime.getTime()) || isNaN(endTime.getTime())) {
+                    alert('时间范围格式不正确，请使用格式：2025-10-23T13:56:49 - 2025-10-23T15:51:31');
+                    return;
+                }
+            }
+        }
+
+        // 解析轨迹数据
+        const points = [];
+        const lines = trackText.split('\n');
+
+        lines.forEach(line => {
+            line = line.trim();
+            if (!line) return;
+
+            // 支持两种格式：
+            // 1. 经度,纬度,时间戳
+            // 2. 时间戳,经度,纬度
+            const parts = line.split(',');
+            if (parts.length >= 3) {
+                let lng, lat, timestamp;
+
+                // 判断格式：如果第一部分是数字且长度大于10，可能是时间戳
+                if (parts[0].trim().length > 10 && !isNaN(parts[0].trim())) {
+                    // 格式：时间戳,经度,纬度
+                    timestamp = parts[0].trim();
+                    lng = parseFloat(parts[1].trim());
+                    lat = parseFloat(parts[2].trim());
+                } else {
+                    // 格式：经度,纬度,时间戳
+                    lng = parseFloat(parts[0].trim());
+                    lat = parseFloat(parts[1].trim());
+                    timestamp = parts[2].trim();
+                }
+
+                if (!isNaN(lng) && !isNaN(lat) && timestamp && lat !== 0 && lng !== 0) {
+                    const pointTime = parseTimestamp(timestamp);
+
+                    // 检查时间范围
+                    if (startTime && endTime) {
+                        if (pointTime < startTime || pointTime > endTime) {
+                            return; // 跳过不在时间范围内的点
+                        }
+                    }
+
+                    points.push({
+                        lat: lat,
+                        lng: lng,
+                        timestamp: timestamp,
+                        time: pointTime
+                    });
+                }
+            }
+        });
+
+        if (points.length < 2) {
+            alert('该时间范围内的有效轨迹点不足，至少需要两点');
+            return;
+        }
+
+        // 按时间排序
+        points.sort((a, b) => a.time - b.time);
+
+        // 绘制轨迹线
+        const latlngs = points.map(p => [p.lat, p.lng]);
+
+        currentTrack = L.polyline(latlngs, {
+            color: currentTrackLineColor,
+            weight: 1,
+            opacity: 0.9
+        });
+
+        trackLayerGroup.addLayer(currentTrack);
+
+        // 自适应视野
+        const group = new L.featureGroup([currentTrack]);
+        map.fitBounds(group.getBounds().pad(0.1));
+
+        // 保存轨迹点用于回放
+        playbackState.points = points;
+
+        // 启用播放器控制按钮（如果播放器元素存在）
+        if (playbackPlayer) {
+            updatePlayerControls();
+        }
+
+        updateStatus('轨迹绘制完成');
+    }
+
+    // 绘制轨迹点（打点）- 分批处理避免页面卡死
+    function showTrackPoints() {
+        const trackText = document.getElementById('trackTextarea').value.trim();
+        const timeRangeText = document.getElementById('timeRangeInput').value.trim();
+
+        if (!trackText) {
+            alert('请粘贴轨迹文本（时间戳,经度,纬度）');
+            return;
+        }
+
+        // 清除轨迹显示，但保留轨迹点数据用于回放
+        trackLayerGroup.clearLayers();
+        currentTrack = null;
+        
+        // 停止回放但不重置points数据和currentIndex
+        playbackState.isPlaying = false;
+        if (playbackState.timer) {
+            clearTimeout(playbackState.timer);
+            playbackState.timer = null;
+        }
+        
+        // 清除回放元素
+        if (playbackState.marker) {
+            map.removeLayer(playbackState.marker);
+            playbackState.marker = null;
+        }
+        if (playbackState.polyline) {
+            map.removeLayer(playbackState.polyline);
+            playbackState.polyline = null;
+        }
+
+        // 解析时间范围
+        let startTime, endTime;
+        if (timeRangeText) {
+            const timeParts = timeRangeText.split(' - ');
+            if (timeParts.length === 2) {
+                startTime = new Date(timeParts[0].trim());
+                endTime = new Date(timeParts[1].trim());
+
+                if (isNaN(startTime.getTime()) || isNaN(endTime.getTime())) {
+                    alert('时间范围格式不正确，请使用格式：2025-10-23T13:56:49 - 2025-10-23T15:51:31');
+                    return;
+                }
+            }
+        }
+
+        // 解析轨迹数据
+        const points = [];
+        const lines = trackText.split('\n');
+
+        lines.forEach(line => {
+            line = line.trim();
+            if (!line) return;
+
+            // 支持两种格式：
+            // 1. 经度,纬度,时间戳
+            // 2. 时间戳,经度,纬度
+            const parts = line.split(',');
+            if (parts.length >= 3) {
+                let lng, lat, timestamp;
+
+                // 判断格式：如果第一部分是数字且长度大于10，可能是时间戳
+                if (parts[0].trim().length > 10 && !isNaN(parts[0].trim())) {
+                    // 格式：时间戳,经度,纬度
+                    timestamp = parts[0].trim();
+                    lng = parseFloat(parts[1].trim());
+                    lat = parseFloat(parts[2].trim());
+                } else {
+                    // 格式：经度,纬度,时间戳
+                    lng = parseFloat(parts[0].trim());
+                    lat = parseFloat(parts[1].trim());
+                    timestamp = parts[2].trim();
+                }
+
+                if (!isNaN(lng) && !isNaN(lat) && timestamp && lat !== 0 && lng !== 0) {
+                    const pointTime = parseTimestamp(timestamp);
+
+                    // 检查时间范围
+                    if (startTime && endTime) {
+                        if (pointTime < startTime || pointTime > endTime) {
+                            return; // 跳过不在时间范围内的点
+                        }
+                    }
+
+                    points.push({
+                        lat: lat,
+                        lng: lng,
+                        timestamp: timestamp,
+                        time: pointTime
+                    });
+                }
+            }
+        });
+
+        if (points.length === 0) {
+            alert('该时间范围内没有找到轨迹点');
+            return;
+        }
+
+        // 按时间排序
+        points.sort((a, b) => a.time - b.time);
+
+        // 保存轨迹点用于回放
+        playbackState.points = points;
+
+        // 分批绘制轨迹点，避免页面卡死
+        const batchSize = 100; // 每批处理100个点
+        let currentBatch = 0;
+        let processedCount = 0;
+        const totalPoints = points.length;
+        let isFirstPointProcessed = false; // 标记是否已处理第一个点
+
+        updateStatus(`开始绘制轨迹点，共${totalPoints}个点，分批处理中...`);
+
+        function drawBatch() {
+            const startIdx = currentBatch * batchSize;
+            const endIdx = Math.min(startIdx + batchSize, totalPoints);
+            const batchPoints = points.slice(startIdx, endIdx);
+
+            // 绘制当前批次的点
+            batchPoints.forEach((point, index) => {
+                const actualIndex = startIdx + index;
+                
+                // 如果是第一个点，先将地图中心移至该点，不改变缩放级别
+                if (!isFirstPointProcessed && actualIndex === 0) {
+                    map.setView([point.lat, point.lng], map.getZoom()); // 保持当前缩放级别，仅居中显示
+                    isFirstPointProcessed = true;
+                }
+                
+                // 创建极小的DivIcon
+                const tinyIcon = L.divIcon({
+                    className: 'tiny-track-point',
+                    html: `<div style="width: 1px; height: 1px; background-color: ${currentTrackPointColor}; border-radius: 50%;"></div>`,
+                    iconSize: [1, 1],
+                    iconAnchor: [0.5, 0.5]
+                });
+
+                const marker = L.marker([point.lat, point.lng], {
+                    icon: tinyIcon,
+                    opacity: 0.8
+                });
+
+                marker.bindPopup(`轨迹点 ${actualIndex + 1}<br>时间: ${point.timestamp}`);
+                trackLayerGroup.addLayer(marker);
+            });
+
+            processedCount += batchPoints.length;
+            currentBatch++;
+
+            // 更新进度状态
+            const progress = Math.round((processedCount / totalPoints) * 100);
+            updateStatus(`轨迹点绘制中... ${progress}% (${processedCount}/${totalPoints})`);
+
+            // 如果还有未处理的点，继续下一批
+            if (processedCount < totalPoints) {
+                // 使用setTimeout让浏览器有时间处理其他任务，避免卡死
+                setTimeout(drawBatch, 10);
+            } else {
+                // 所有点绘制完成
+                // 自适应视野（如果只有一个点，保持当前缩放级别；如果有多个点，调整至合适的视野）
+                if (totalPoints === 1) {
+                    // 单个点，保持之前设置的缩放级别和中心点
+                } else {
+                    // 多个点，调整视野以显示所有点
+                    const group = new L.featureGroup(trackLayerGroup.getLayers());
+                    map.fitBounds(group.getBounds().pad(0.1));
+                }
+
+                // 更新播放器控制状态
+                updatePlayerControls();
+
+                updateStatus(`轨迹点绘制完成，共${totalPoints}个点`);
+                
+                // 更新播放器控制状态
+                updatePlayerControls();
+            }
+        }
+
+        // 开始第一批绘制
+        drawBatch();
+    }
+
+    // 解析轨迹点 - 分批处理避免页面卡死
+    function parseTrackPoints(text) {
+        try {
+            const lines = text.trim().split('\n');
+            const points = [];
+
+            lines.forEach(line => {
+                const parts = line.split(',');
+                if (parts.length >= 3) {
+                    const lng = parseFloat(parts[0].trim());
+                    const lat = parseFloat(parts[1].trim());
+                    const timestamp = parts[2].trim();
+
+                    if (!isNaN(lng) && !isNaN(lat) && lat !== 0 && lng !== 0) {
+                        points.push({
+                            lat: lat,
+                            lng: lng,
+                            timestamp: timestamp,
+                            time: parseTimestamp(timestamp)
+                        });
+                    }
+                }
+            });
+
+            if (points.length > 0) {
+                // 按时间排序
+                points.sort((a, b) => a.time - b.time);
+
+                // 保存轨迹点用于回放
+                playbackState.points = points;
+
+                // 分批绘制轨迹点，避免页面卡死
+                const batchSize = 100; // 每批处理100个点
+                let currentBatch = 0;
+                let processedCount = 0;
+                const totalPoints = points.length;
+
+                updateStatus(`开始绘制轨迹点，共${totalPoints}个点，分批处理中...`);
+
+                function drawBatch() {
+                    const startIdx = currentBatch * batchSize;
+                    const endIdx = Math.min(startIdx + batchSize, totalPoints);
+                    const batchPoints = points.slice(startIdx, endIdx);
+
+                    // 绘制当前批次的点
+                    batchPoints.forEach((point, index) => {
+                        const actualIndex = startIdx + index;
+                        
+                        // 创建极小的DivIcon
+                        const tinyIcon = L.divIcon({
+                            className: 'tiny-track-point',
+                            html: `<div style="width: 1px; height: 1px; background-color: ${currentTrackPointColor}; border-radius: 50%;"></div>`,
+                            iconSize: [1, 1],
+                            iconAnchor: [0.5, 0.5]
+                        });
+
+                        const marker = L.marker([point.lat, point.lng], {
+                            icon: tinyIcon,
+                            opacity: 0.8
+                        });
+
+                        marker.bindPopup(`轨迹点 ${actualIndex + 1}<br>时间: ${point.timestamp}`);
+                        trackLayerGroup.addLayer(marker);
+                    });
+
+                    processedCount += batchPoints.length;
+                    currentBatch++;
+
+                    // 更新进度状态
+                    const progress = Math.round((processedCount / totalPoints) * 100);
+                    updateStatus(`轨迹点绘制中... ${progress}% (${processedCount}/${totalPoints})`);
+
+                    // 如果还有未处理的点，继续下一批
+                    if (processedCount < totalPoints) {
+                        // 使用setTimeout让浏览器有时间处理其他任务，避免卡死
+                        setTimeout(drawBatch, 10);
+                    } else {
+                          // 所有点绘制完成
+                          updateStatus(`轨迹点绘制完成，共${totalPoints}个点`);
+                          
+                          // 更新播放器控制状态
+                          updatePlayerControls();
+                      }
+                }
+
+                // 开始第一批绘制
+                drawBatch();
+            }
+        } catch (error) {
+            console.error('轨迹点解析错误:', error);
+            updateStatus('轨迹点解析失败');
+        }
+    }
+
+    // 时间戳解析
+    function parseTimestamp(timestamp) {
+        const tstr = (timestamp || '').replace(/\D/g, '');
+        const m = tstr && tstr.match(/^\d{14}$/);
+        if (!m) return null;
+
+        const y = parseInt(tstr.slice(0, 4), 10);
+        const M = parseInt(tstr.slice(4, 6), 10) - 1;
+        const d = parseInt(tstr.slice(6, 8), 10);
+        const h = parseInt(tstr.slice(8, 10), 10);
+        const m2 = parseInt(tstr.slice(10, 12), 10);
+        const s = parseInt(tstr.slice(12, 14), 10);
+        const dt = new Date(y, M, d, h, m2, s);
+        return isNaN(dt.getTime()) ? null : dt;
+    }
+
+    // 清除轨迹
+    function clearTrack() {
+        trackLayerGroup.clearLayers();
+        currentTrack = null;
+        
+        // 只暂停回放，不重置currentIndex和points，这样用户可以重新绘制轨迹后继续回放
+        playbackState.isPlaying = false;
+        if (playbackState.timer) {
+            clearTimeout(playbackState.timer);
+            playbackState.timer = null;
+        }
+        
+        // 清除回放元素，但保留points数据
+        if (playbackState.marker) {
+            map.removeLayer(playbackState.marker);
+            playbackState.marker = null;
+        }
+        if (playbackState.polyline) {
+            map.removeLayer(playbackState.polyline);
+            playbackState.polyline = null;
+        }
+
+        // 重置播放器状态（如果播放器元素存在）
+        if (playbackPlayer) {
+            updatePlayerControls();
+        }
+        
+        // 清除轨迹时重置进度条和时间显示
+        if (playerProgressSlider) {
+            playerProgressSlider.value = 0;
+            playerProgressSlider.disabled = true;
+        }
+        // 只重置当前时间，保持结束时间不变
+        const currentTimeElement = document.getElementById('currentTime');
+        if (currentTimeElement) currentTimeElement.textContent = '00:00:00';
+        // 不重置totalTimeElement，保持结束时间显示
+
+        updateStatus('轨迹已清除');
+    }
+
+    // 轨迹回放控制函数 - 使用新的播放器控制面板
+    function startPlayback() {
+        // 检查是否有轨迹点
+        if (!playbackState.points || playbackState.points.length === 0) {
+            updateStatus('暂无轨迹数据，无法开始回放');
+            return;
+        }
+
+        if (playbackState.isPlaying) {
+            return;
+        }
+
+        // 停止之前的回放（但不重置currentIndex）
+        if (playbackState.timer) {
+            clearTimeout(playbackState.timer);
+            playbackState.timer = null;
+        }
+
+        playbackState.isPlaying = true;
+        // 不重置currentIndex，保持当前播放位置
+
+        // 如果播放元素不存在，创建它们
+        if (!playbackState.marker || !playbackState.polyline) {
+            // 清除之前的回放元素
+            if (playbackState.marker) {
+                map.removeLayer(playbackState.marker);
+            }
+            if (playbackState.polyline) {
+                map.removeLayer(playbackState.polyline);
+            }
+
+            // 创建回放轨迹线（使用过滤后的点）
+            const latlngs = playbackState.filteredPoints.map(p => [p.lat, p.lng]);
+            playbackState.polyline = L.polyline(latlngs, {
+                color: currentTrackLineColor,
+                weight: 1,
+                opacity: 0.6
+            }).addTo(map);
+
+            // 创建回放标记（使用过滤后的第一个点）
+            const firstPoint = playbackState.filteredPoints[0];
+            playbackState.marker = L.circleMarker([firstPoint.lat, firstPoint.lng], {
+                radius: 0.5,
+                fillColor: currentTrackLineColor,
+                color: '#FFFFFF',
+                weight: 0.5,
+                opacity: 1,
+                fillOpacity: 0.8
+            }).addTo(map);
+
+            // 自适应视野到轨迹范围
+            const bounds = playbackState.polyline.getBounds();
+            if (bounds && bounds.isValid()) {
+                map.fitBounds(bounds, { padding: [20, 20] });
+            }
+        }
+
+        // 更新播放器控制状态
+        updatePlayerControls();
+        
+        // 设置进度条和时间显示（不重置进度）
+        if (playerProgressSlider) {
+            playerProgressSlider.disabled = false;
+            playerProgressSlider.max = 100;
+            
+            // 根据过滤后的点设置初始进度
+            if (playbackState.filteredPoints.length > 0) {
+                const initialProgress = Math.round((playbackState.currentIndex / (playbackState.filteredPoints.length - 1)) * 100);
+                playerProgressSlider.value = initialProgress;
+            }
+        }
+        
+        if (playerSpeedValue) {
+            // 显示指数倍数
+            const displaySpeed = playbackState.speed || 1;
+            playerSpeedValue.textContent = displaySpeed + 'x';
+        }
+
+        // 初始化时间显示（使用过滤后的点）
+        if (playbackState.filteredPoints.length > 0) {
+            const currentPoint = playbackState.filteredPoints[playbackState.currentIndex];
+            const lastPoint = playbackState.filteredPoints[playbackState.filteredPoints.length - 1];
+            
+            if (currentPoint && lastPoint) {
+                const currentTime = formatTime(currentPoint.timestamp);
+                const totalTime = formatTime(lastPoint.timestamp);
+                
+                const currentTimeElement = document.getElementById('currentTime');
+                const totalTimeElement = document.getElementById('totalTime');
+                if (currentTimeElement) currentTimeElement.textContent = currentTime;
+                if (totalTimeElement) totalTimeElement.textContent = totalTime;
+            }
+        }
+
+        // 开始播放
+        playbackNextPoint();
+        updateStatus('轨迹回放开始');
+    }
+
+    function playbackNextPoint() {
+        if (!playbackState.isPlaying || !playbackState.filteredPoints || playbackState.currentIndex >= playbackState.filteredPoints.length) {
+            // 只有在播放完成时才停止并重置，暂停时不停止
+            if (playbackState.currentIndex >= playbackState.filteredPoints.length) {
+                // 播放完成，只重置状态但不清除轨迹线
+                playbackState.isPlaying = false;
+                playbackState.currentIndex = 0;
+                
+                // 清除定时器
+                if (playbackState.timer) {
+                    clearTimeout(playbackState.timer);
+                    playbackState.timer = null;
+                }
+                
+                // 清除标记（保留轨迹线）
+                if (playbackState.marker) {
+                    map.removeLayer(playbackState.marker);
+                    playbackState.marker = null;
+                }
+                
+                // 播放完成时不需要重置时间显示，保持当前时间
+                // 也不需要重置进度条位置
+                // const currentTimeElement = document.getElementById('currentTime');
+                // const totalTimeElement = document.getElementById('totalTime');
+                // if (currentTimeElement) currentTimeElement.textContent = '00:00:00';
+                // if (totalTimeElement) totalTimeElement.textContent = '00:00:00';
+                
+                // 更新播放器控制状态（如果播放器元素存在）
+                if (playbackPlayer) {
+                    updatePlayerControls();
+                }
+                
+                updateStatus('轨迹回放完成');
+            }
+            return;
+        }
+
+        const point = playbackState.filteredPoints[playbackState.currentIndex];
+
+        // 更新标记位置
+        playbackState.marker.setLatLng([point.lat, point.lng]);
+        playbackState.marker.bindPopup(`回放点 ${playbackState.currentIndex + 1}<br>时间: ${point.timestamp}`);
+
+        // 更新轨迹线
+        const currentLatlngs = playbackState.filteredPoints.slice(0, playbackState.currentIndex + 1).map(p => [p.lat, p.lng]);
+        playbackState.polyline.setLatLngs(currentLatlngs);
+
+        // 检查点是否在屏幕可见范围内，只有不在可见范围内时才居中
+        const pointLatLng = L.latLng(point.lat, point.lng);
+        const bounds = map.getBounds();
+        
+        // 如果点不在当前地图边界内，或者距离边界太近（小于地图宽高的10%），则居中
+        if (!bounds.contains(pointLatLng)) {
+            // 点完全不在屏幕内，需要居中
+            map.setView([point.lat, point.lng], map.getZoom(), {
+                animate: true,
+                duration: 0.3
+            });
+        } else {
+            // 点在屏幕内，检查是否靠近边界（距离边界小于地图宽高的10%）
+            const boundsPad = bounds.pad(-0.1); // 内缩10%的边界
+            if (!boundsPad.contains(pointLatLng)) {
+                // 点靠近边界，居中显示
+                map.setView([point.lat, point.lng], map.getZoom(), {
+                    animate: true,
+                    duration: 0.3
+                });
+            }
+            // 点在屏幕中央区域，不需要居中
+        }
+
+        // 格式化时间显示函数
+        function formatTime(timestamp) {
+            const date = parseTimestamp(timestamp);
+            if (!date) return '00:00:00';
+            
+            const hours = date.getHours().toString().padStart(2, '0');
+            const minutes = date.getMinutes().toString().padStart(2, '0');
+            const seconds = date.getSeconds().toString().padStart(2, '0');
+            return hours + ':' + minutes + ':' + seconds;
+        }
+
+        // 更新进度条和时间显示
+        if (playerProgressSlider && playbackState.filteredPoints.length > 0) {
+            const percentage = Math.round((playbackState.currentIndex / (playbackState.filteredPoints.length - 1)) * 100);
+            playerProgressSlider.value = percentage;
+        }
+        
+        // 更新时间显示（如果播放器元素存在）
+        if (playbackState.filteredPoints.length > 0) {
+            const currentPoint = playbackState.filteredPoints[playbackState.currentIndex];
+            const lastPoint = playbackState.filteredPoints[playbackState.filteredPoints.length - 1];
+            
+            if (currentPoint && lastPoint) {
+                const currentTime = formatTime(currentPoint.timestamp);
+                const totalTime = formatTime(lastPoint.timestamp);
+                
+                // 更新两行时间显示
+                const currentTimeElement = document.getElementById('currentTime');
+                const totalTimeElement = document.getElementById('totalTime');
+                if (currentTimeElement) currentTimeElement.textContent = currentTime;
+                if (totalTimeElement) totalTimeElement.textContent = totalTime;
+            }
+        }
+
+        // 更新状态
+        const progress = Math.round((playbackState.currentIndex / (playbackState.filteredPoints.length - 1)) * 100);
+        updateStatus(`轨迹回放中... ${progress}%`);
+
+        playbackState.currentIndex++;
+
+        // 设置下一个点的播放延迟
+        const speed = playbackState.speed || 1;
+        const delay = 1000 / speed; // 速度越快，延迟越短
+
+        playbackState.timer = setTimeout(playbackNextPoint, delay);
+    }
+
+    function pausePlayback() {
+        playbackState.isPlaying = false;
+        
+        // 清除定时器
+        if (playbackState.timer) {
+            clearTimeout(playbackState.timer);
+            playbackState.timer = null;
+        }
+        
+        // 更新播放器控制状态
+        if (playbackPlayer) {
+            updatePlayerControls();
+        }
+        
+        updateStatus('轨迹回放已暂停');
+    }
+
+    function stopPlayback() {
+        playbackState.isPlaying = false;
+        playbackState.currentIndex = 0;
+
+        // 清除定时器
+        if (playbackState.timer) {
+            clearTimeout(playbackState.timer);
+            playbackState.timer = null;
+        }
+
+        // 清除回放元素
+        if (playbackState.marker) {
+            map.removeLayer(playbackState.marker);
+            playbackState.marker = null;
+        }
+        if (playbackState.polyline) {
+            map.removeLayer(playbackState.polyline);
+            playbackState.polyline = null;
+        }
+
+        // 重置进度条和时间显示
+        if (playerProgressSlider) {
+            playerProgressSlider.value = 0;
+        }
+        // 重置当前时间为过滤后轨迹点的第一个点时间
+        const currentTimeElement = document.getElementById('currentTime');
+        if (currentTimeElement && playbackState.filteredPoints && playbackState.filteredPoints.length > 0) {
+            const firstPoint = playbackState.filteredPoints[0];
+            if (firstPoint && firstPoint.timestamp) {
+                currentTimeElement.textContent = formatTime(firstPoint.timestamp);
+            } else {
+                currentTimeElement.textContent = '00:00:00';
+            }
+        } else if (currentTimeElement) {
+            currentTimeElement.textContent = '00:00:00';
+        }
+        // 不重置totalTimeElement，保持结束时间显示
+        
+        // 更新播放器控制状态（如果播放器元素存在）
+        if (playbackPlayer) {
+            updatePlayerControls();
+        }
+        
+        updateStatus('轨迹回放已停止');
+
+        // 重置滑块
+        const playbackTimeSlider = document.getElementById('playbackTimeSlider');
+        if (playbackTimeSlider) {
+            playbackTimeSlider.value = 0;
+            playbackTimeSlider.disabled = true;
+        }
+
+        // 同步更新底部固定播放控制面板
+        const playbackTimeSliderFixed = document.getElementById('playbackTimeSliderFixed');
+        if (playbackTimeSliderFixed) {
+            playbackTimeSliderFixed.value = 0;
+            playbackTimeSliderFixed.disabled = true;
+        }
+
+        updateStatus('轨迹回放已停止');
+    }
+
+    function jumpToPoint(index) {
+        if (!playbackState.filteredPoints || index < 0 || index >= playbackState.filteredPoints.length) {
+            return;
+        }
+
+        playbackState.currentIndex = index;
+
+        // 如果正在播放，暂停
+        if (playbackState.isPlaying) {
+            pausePlayback();
+        }
+
+        // 创建回放元素（如果不存在）
+        if (!playbackState.marker) {
+            const point = playbackState.filteredPoints[0];
+            playbackState.marker = L.circleMarker([point.lat, point.lng], {
+                radius: 0.5,
+                fillColor: currentTrackLineColor,
+                color: '#FFFFFF',
+                weight: 0.5,
+                opacity: 1,
+                fillOpacity: 0.8
+            }).addTo(map);
+        }
+
+        if (!playbackState.polyline) {
+            const latlngs = playbackState.filteredPoints.map(p => [p.lat, p.lng]);
+            playbackState.polyline = L.polyline(latlngs, {
+                color: currentTrackLineColor,
+                weight: 1,
+                opacity: 0.6
+            }).addTo(map);
+        }
+
+        // 跳转到指定点
+        const point = playbackState.filteredPoints[index];
+        playbackState.marker.setLatLng([point.lat, point.lng]);
+        playbackState.marker.bindPopup(`回放点 ${index + 1}<br>时间: ${point.timestamp}`);
+
+        // 更新轨迹线
+        const currentLatlngs = playbackState.filteredPoints.slice(0, index + 1).map(p => [p.lat, p.lng]);
+        playbackState.polyline.setLatLngs(currentLatlngs);
+
+        // 更新状态
+        const progress = Math.round((index / (playbackState.filteredPoints.length - 1)) * 100);
+        updateStatus(`轨迹回放已跳转到 ${progress}%`);
+    }
+
+    // 分割器绘制
+
+
+    // 轨迹回放控制 - 使用新的播放器控制面板
+    function startPlayback() {
+        // 检查是否有轨迹点
+        if (!playbackState.points || playbackState.points.length === 0) {
+            updateStatus('暂无轨迹数据，无法开始回放');
+            return;
+        }
+
+        if (playbackState.isPlaying) {
+            return;
+        }
+
+        // 应用时间范围过滤
+        applyTimeRangeFilter();
+        
+        // 检查过滤后的轨迹点
+        if (!playbackState.filteredPoints || playbackState.filteredPoints.length < 2) {
+            updateStatus('有效轨迹点不足，至少需要两点');
+            return;
+        }
+
+        // 停止之前的回放（但不重置currentIndex）
+        if (playbackState.timer) {
+            clearTimeout(playbackState.timer);
+            playbackState.timer = null;
+        }
+
+        playbackState.isPlaying = true;
+        // 不重置currentIndex，保持当前播放位置
+
+        // 如果播放元素不存在，创建它们
+        if (!playbackState.marker || !playbackState.polyline) {
+            // 清除之前的回放元素
+            if (playbackState.marker) {
+                map.removeLayer(playbackState.marker);
+            }
+            if (playbackState.polyline) {
+                map.removeLayer(playbackState.polyline);
+            }
+
+            // 创建回放轨迹线（使用过滤后的点）
+            const latlngs = playbackState.filteredPoints.map(p => [p.lat, p.lng]);
+            playbackState.polyline = L.polyline(latlngs, {
+                color: currentTrackLineColor,
+                weight: 1,
+                opacity: 0.6
+            }).addTo(map);
+
+            // 创建回放标记（使用过滤后的第一个点）
+            const firstPoint = playbackState.filteredPoints[0];
+            playbackState.marker = L.circleMarker([firstPoint.lat, firstPoint.lng], {
+                radius: 0.5,
+                fillColor: currentTrackLineColor,
+                color: '#FFFFFF',
+                weight: 0.5,
+                opacity: 1,
+                fillOpacity: 0.8
+            }).addTo(map);
+
+            // 自适应视野到轨迹范围
+            const bounds = playbackState.polyline.getBounds();
+            if (bounds && bounds.isValid()) {
+                map.fitBounds(bounds, { padding: [20, 20] });
+            }
+        }
+
+        // 更新播放器控制状态
+        updatePlayerControls();
+        
+        // 设置进度条和时间显示（不重置进度）
+        if (playerProgressSlider) {
+            playerProgressSlider.disabled = false;
+            playerProgressSlider.max = 100;
+        }
+        
+        if (playerSpeedValue) {
+            // 显示指数倍数
+            const displaySpeed = playbackState.speed || 1;
+            playerSpeedValue.textContent = displaySpeed + 'x';
+        }
+
+        // 开始播放
+        playbackNextPoint();
+        updateStatus('轨迹回放开始');
+    }
+
+    function stopPlayback() {
+        playbackState.isPlaying = false;
+        playbackState.currentIndex = 0;
+
+        // 清除定时器
+        if (playbackState.timer) {
+            clearTimeout(playbackState.timer);
+            playbackState.timer = null;
+        }
+
+        // 清除回放元素
+        if (playbackState.marker) {
+            map.removeLayer(playbackState.marker);
+            playbackState.marker = null;
+        }
+        if (playbackState.polyline) {
+            map.removeLayer(playbackState.polyline);
+            playbackState.polyline = null;
+        }
+
+        // 重置进度条和时间显示
+        if (playerProgressSlider) {
+            playerProgressSlider.value = 0;
+        }
+        // 重置当前时间为过滤后轨迹点的第一个点时间
+        const currentTimeElement = document.getElementById('currentTime');
+        if (currentTimeElement && playbackState.filteredPoints && playbackState.filteredPoints.length > 0) {
+            const firstPoint = playbackState.filteredPoints[0];
+            if (firstPoint && firstPoint.timestamp) {
+                currentTimeElement.textContent = formatTime(firstPoint.timestamp);
+            } else {
+                currentTimeElement.textContent = '00:00:00';
+            }
+        } else if (currentTimeElement) {
+            currentTimeElement.textContent = '00:00:00';
+        }
+        
+        // 更新播放器控制状态（如果播放器元素存在）
+        if (playbackPlayer) {
+            updatePlayerControls();
+        }
+        
+        updateStatus('轨迹回放已停止');
+    }
+
+    function scheduleNextPlayback() {
+        if (!playbackState.isPlaying || !playbackState.filteredPoints || playbackState.currentIndex >= playbackState.filteredPoints.length - 1) {
+            if (playbackState.currentIndex >= playbackState.filteredPoints.length - 1) {
+                updateStatus('轨迹回放完成');
+                // 播放完成时不清除轨迹线，只停止播放并重置状态
+                playbackState.isPlaying = false;
+                playbackState.currentIndex = 0;
+                
+                // 清除定时器
+                if (playbackState.timer) {
+                    clearTimeout(playbackState.timer);
+                    playbackState.timer = null;
+                }
+                
+                // 只清除标记，保留轨迹线
+                if (playbackState.marker) {
+                    map.removeLayer(playbackState.marker);
+                    playbackState.marker = null;
+                }
+                
+                // 重置当前时间，保持结束时间不变（保留进度条位置）
+                const currentTimeElement = document.getElementById('currentTime');
+                if (currentTimeElement) currentTimeElement.textContent = '00:00:00';
+                // 不重置totalTimeElement，保持结束时间显示
+                
+                // 更新播放器控制状态
+                if (playbackPlayer) {
+                    updatePlayerControls();
+                }
+                
+                // 播放完成时不需要重置时间滑块，保持当前位置
+                // const playbackTimeSlider = document.getElementById('playbackTimeSlider');
+                // if (playbackTimeSlider) {
+                //     playbackTimeSlider.value = 0;
+                //     playbackTimeSlider.disabled = true;
+                // }
+                
+                // 同步更新底部固定播放控制面板
+                // const playbackTimeSliderFixed = document.getElementById('playbackTimeSliderFixed');
+                // if (playbackTimeSliderFixed) {
+                //     playbackTimeSliderFixed.value = 0;
+                //     playbackTimeSliderFixed.disabled = true;
+                // }
+            }
+            return; // 如果是暂停，直接返回，不停止播放
+        }
+
+        const next = playbackState.filteredPoints[playbackState.currentIndex + 1];
+        const speed = playbackState.speed || 1;
+        const delay = Math.max(100, Math.round(1000 / speed));
+
+        playbackState.timer = setTimeout(() => {
+            playbackState.currentIndex++;
+
+            // 更新标记位置
+            if (playbackState.marker) {
+                playbackState.marker.setLatLng([next.lat, next.lng]);
+                playbackState.marker.bindPopup(`回放点 ${playbackState.currentIndex + 1}<br>时间: ${next.timestamp}`);
+            }
+
+            // 更新轨迹线
+            if (playbackState.polyline) {
+                const currentLatlngs = playbackState.filteredPoints.slice(0, playbackState.currentIndex + 1).map(p => [p.lat, p.lng]);
+                playbackState.polyline.setLatLngs(currentLatlngs);
+            }
+
+            // 检查点是否在屏幕可见范围内，只有不在可见范围内时才居中
+            const pointLatLng = L.latLng(next.lat, next.lng);
+            const bounds = map.getBounds();
+            
+            // 如果点不在当前地图边界内，或者距离边界太近（小于地图宽高的10%），则居中
+            if (!bounds.contains(pointLatLng)) {
+                // 点完全不在屏幕内，需要居中
+                map.setView([next.lat, next.lng], map.getZoom(), {
+                    animate: true,
+                    duration: 0.3
+                });
+            } else {
+                // 点在屏幕内，检查是否靠近边界（距离边界小于地图宽高的10%）
+                const boundsPad = bounds.pad(-0.1); // 内缩10%的边界
+                if (!boundsPad.contains(pointLatLng)) {
+                    // 点靠近边界，居中显示
+                    map.setView([next.lat, next.lng], map.getZoom(), {
+                        animate: true,
+                        duration: 0.3
+                    });
+                }
+                // 点在屏幕中央区域，不需要居中
+            }
+
+            // 更新进度条和时间显示
+            if (playerProgressSlider && playbackState.filteredPoints.length > 0) {
+                const percentage = Math.round((playbackState.currentIndex / (playbackState.filteredPoints.length - 1)) * 100);
+                playerProgressSlider.value = percentage;
+            }
+            
+            if (playbackState.filteredPoints.length > 0) {
+                const currentPoint = playbackState.filteredPoints[playbackState.currentIndex];
+                const lastPoint = playbackState.filteredPoints[playbackState.filteredPoints.length - 1];
+                
+                if (currentPoint && lastPoint) {
+                    const currentTime = formatTime(currentPoint.timestamp);
+                    const totalTime = formatTime(lastPoint.timestamp);
+                    
+                    // 更新两行时间显示
+                    const currentTimeElement = document.getElementById('currentTime');
+                    const totalTimeElement = document.getElementById('totalTime');
+                    if (currentTimeElement) currentTimeElement.textContent = currentTime;
+                    if (totalTimeElement) totalTimeElement.textContent = totalTime;
+                }
+            }
+
+            // 继续下一个点
+            scheduleNextPlayback();
+        }, delay);
+    }
+
+    // 格式化时间显示函数
+    function formatTime(timestamp) {
+        const date = parseTimestamp(timestamp);
+        if (!date) return '00:00';
+        
+        const hours = date.getHours().toString().padStart(2, '0');
+        const minutes = date.getMinutes().toString().padStart(2, '0');
+        return hours + ':' + minutes;
+    }
+
+    // 旧版时间滑块配置函数 - 已废弃，保留兼容性
+    function configureTimeSlider() {
+        const slider = document.getElementById('playbackTimeSlider');
+        if (!slider) return;
+
+        // 空轨迹时设置滑块为禁用状态
+        if (playbackState.filteredPoints.length === 0) {
+            slider.disabled = true;
+            slider.min = 0;
+            slider.max = 0;
+            slider.value = 0;
+            
+            // 同步更新底部固定播放控制面板
+            const sliderFixed = document.getElementById('playbackTimeSliderFixed');
+            if (sliderFixed) {
+                sliderFixed.disabled = true;
+                sliderFixed.min = 0;
+                sliderFixed.max = 0;
+                sliderFixed.value = 0;
+            }
+            return;
+        }
+
+        slider.disabled = false;
+        slider.min = 0;
+        slider.max = playbackState.filteredPoints.length - 1;
+        // 不重置滑块值，保持当前播放位置
+        if (playbackState.currentIndex >= 0 && playbackState.currentIndex < playbackState.filteredPoints.length) {
+            slider.value = playbackState.currentIndex;
+        }
+
+        // 同步更新底部固定播放控制面板
+        const sliderFixed = document.getElementById('playbackTimeSliderFixed');
+        if (sliderFixed) {
+            sliderFixed.disabled = false;
+            sliderFixed.min = 0;
+            sliderFixed.max = playbackState.filteredPoints.length - 1;
+            // 不重置滑块值，保持当前播放位置
+            if (playbackState.currentIndex >= 0 && playbackState.currentIndex < playbackState.filteredPoints.length) {
+                sliderFixed.value = playbackState.currentIndex;
+            }
+        }
+    }
+
+    function updateTimeSlider() {
+        const slider = document.getElementById('playbackTimeSlider');
+        if (slider) {
+            slider.value = playbackState.currentIndex;
+        }
+
+        // 同步更新底部固定播放控制面板
+        const sliderFixed = document.getElementById('playbackTimeSliderFixed');
+        if (sliderFixed) {
+            sliderFixed.value = playbackState.currentIndex;
+        }
+    }
+
+    function updatePlaybackTimeLabel(timestamp) {
+        const label = document.getElementById('playbackTimeLabel');
+        if (label) {
+            if (timestamp) {
+                label.textContent = `时间: ${timestamp}`;
+            } else {
+                label.textContent = '时间: --';
+            }
+        }
+
+        // 同步更新底部固定播放控制面板
+        const labelFixed = document.getElementById('playbackTimeLabelFixed');
+        if (labelFixed) {
+            if (timestamp) {
+                labelFixed.textContent = `时间: ${timestamp}`;
+            } else {
+                labelFixed.textContent = '时间: --';
+            }
+        }
+    }
+
+    // 测量功能
+
+
+    function startMeasureDistance() {
+        if (!map) return;
+
+        clearMeasureResult();
+
+        measureState.isActive = true;
+        measureState.mode = 'distance';
+
+        // 禁用测量按钮
+        document.getElementById('measureDistanceBtn').classList.add('active');
+        document.getElementById('measureAreaBtn').disabled = true;
+
+        // 禁用地图双击缩放功能
+        map.doubleClickZoom.disable();
+
+        // 设置更灵敏的双击检测参数
+        if (map.options) {
+            map.options.doubleClickZoom = false;
+            map.options.tap = false; // 禁用触摸延迟
+        }
+
+        // 设置更灵敏的双击检测参数
+        if (map.options) {
+            map.options.doubleClickZoom = false;
+            map.options.tap = false; // 禁用触摸延迟
+        }
+
+        // 绑定地图事件
+        map.on('click', handleMeasureClick);
+        map.on('mousemove', handleMeasureMouseMove);
+        map.on('contextmenu', handleDistanceMeasureRightClick); // 右键结束测量
+
+        updateStatus('测距模式已激活，点击地图开始测量，右键结束测量');
+    }
+
+    // 右键结束测距
+    function handleDistanceMeasureRightClick(e) {
+        // 阻止右键菜单的默认行为
+        if (e && e.originalEvent) {
+            e.originalEvent.preventDefault();
+            e.originalEvent.stopPropagation();
+        }
+
+        // 确保至少有2个点才能形成线段
+        if (measureState.points.length >= 2) {
+            finishMeasureDistance();
+        } else {
+            alert('请至少点击2个点形成线段后再右键结束测量');
+        }
+
+        return false;
+    }
+
+    // 右键结束测面
+    function handleAreaMeasureRightClick(e) {
+        // 阻止右键菜单的默认行为
+        if (e && e.originalEvent) {
+            e.originalEvent.preventDefault();
+            e.originalEvent.stopPropagation();
+        }
+
+        // 确保至少有3个点才能形成多边形
+        if (measureState.points.length >= 3) {
+            finishMeasureArea();
+        } else {
+            alert('请至少点击3个点形成多边形后再右键结束测量');
+        }
+
+        return false;
+    }
+
+    function startMeasureArea() {
+        if (!map) return;
+
+        clearMeasureResult();
+
+        measureState.isActive = true;
+        measureState.mode = 'area';
+
+        // 禁用测量按钮
+        document.getElementById('measureAreaBtn').classList.add('active');
+        document.getElementById('measureDistanceBtn').disabled = true;
+
+        // 禁用地图双击缩放功能
+        map.doubleClickZoom.disable();
+
+        // 绑定地图事件
+        map.on('click', handleMeasureClick);
+        map.on('mousemove', handleMeasureMouseMove);
+        map.on('contextmenu', handleAreaMeasureRightClick); // 右键结束测量
+
+        updateStatus('测面模式已激活，点击地图开始测量，右键结束测量');
+    }
+
+    function handleMeasureClick(e) {
+    if (!measureState.isActive) return;
+
+    // 阻止事件冒泡，避免干扰双击检测
+    if (e && e.originalEvent) {
+        e.originalEvent.stopPropagation();
+    }
+
+    const point = e.latlng;
+    measureState.points.push(point);
+
+    // 创建点标记
+    const marker = L.circleMarker(point, {
+        color: currentOutlineColor,
+        fillColor: currentFillColor,
+        fillOpacity: 1,
+        radius: 0.5
+    });
+
+    measureLayerGroup.addLayer(marker);
+    measureState.markers.push(marker);
+
+    if (measureState.mode === 'distance') {
+        // 测距逻辑
+        if (measureState.points.length > 1) {
+            const lastPoint = measureState.points[measureState.points.length - 2];
+            const newLine = L.polyline([lastPoint, point], {
+                color: currentOutlineColor,
+                weight: 1,
+                opacity: 1
+            });
+
+            measureLayerGroup.addLayer(newLine);
+            measureState.lines.push(newLine);
+
+            // 更新距离标签
+            const distance = calculateDistance(lastPoint, point);
+            const center = L.latLng(
+                (lastPoint.lat + point.lat) / 2,
+                (lastPoint.lng + point.lng) / 2
+            );
+            showDistanceLabel(center, distance);
+        }
+    } else if (measureState.mode === 'area') {
+        // 测面逻辑
+        if (measureState.points.length > 1) {
+            // 创建线段
+            const lastPoint = measureState.points[measureState.points.length - 2];
+            const newLine = L.polyline([lastPoint, point], {
+                color: currentOutlineColor,
+                weight: 1,
+                opacity: 1
+            });
+
+            measureLayerGroup.addLayer(newLine);
+            measureState.lines.push(newLine);
+        }
+
+        // 当有3个或更多点时，更新多边形（但不显示标签）
+        if (measureState.points.length >= 3) {
+            // 移除之前的多边形
+            if (measureState.polygon) {
+                measureLayerGroup.removeLayer(measureState.polygon);
+            }
+
+            // 创建新的多边形
+            measureState.polygon = L.polygon(measureState.points, {
+                color: currentOutlineColor,
+                weight: 1,
+                opacity: 1,
+                fillColor: currentFillColor,
+                fillOpacity: 0.8
+            });
+
+            measureLayerGroup.addLayer(measureState.polygon);
+
+            // 注意：这里不再显示面积标签，只在双击结束时显示
+        }
+    }
+}
+
+    function handleMeasureMouseMove(e) {
+        if (!measureState.isActive || measureState.points.length === 0) return;
+
+        const lastPoint = measureState.points[measureState.points.length - 1];
+        const currentPoint = e.latlng;
+
+        // 移除之前的临时线
+        if (measureState.tempLine) {
+            measureLayerGroup.removeLayer(measureState.tempLine);
+        }
+
+        // 创建新的临时线
+        let tempCoords = [lastPoint, currentPoint];
+
+        // 如果是面积测量，添加闭合线
+        if (measureState.mode === 'area' && measureState.points.length >= 2) {
+            tempCoords.push(measureState.points[0]);
+        }
+
+        measureState.tempLine = L.polyline(tempCoords, {
+            color: '#FFFF00',
+            weight: 2,
+            opacity: 0.8,
+            dashArray: '5, 5'
+        });
+
+        measureLayerGroup.addLayer(measureState.tempLine);
+    }
+
+    function updateMeasurePolygon() {
+        // 移除之前的多边形
+        if (measureState.polygon) {
+            measureLayerGroup.removeLayer(measureState.polygon);
+        }
+
+        // 创建新的多边形
+        measureState.polygon = L.polygon(measureState.points, {
+            color: currentOutlineColor,
+            weight: 1,
+            opacity: 1,
+            fillColor: currentFillColor,
+            fillOpacity: 0.8
+        });
+
+        measureLayerGroup.addLayer(measureState.polygon);
+
+        // 计算并显示面积
+        const area = calculatePolygonArea(measureState.points);
+        const center = getPolygonCenter(measureState.points);
+        showAreaLabel(center, area);
+    }
+
+    function finishMeasureDistance() {
+        if (!measureState.isActive || measureState.mode !== 'distance') return;
+
+        // 移除事件监听
+        map.off('click', handleMeasureClick);
+        map.off('mousemove', handleMeasureMouseMove);
+        map.off('contextmenu', handleDistanceMeasureRightClick);
+
+        // 重新启用地图双击缩放功能
+        map.doubleClickZoom.enable();
+
+        // 恢复地图选项设置
+        if (map.options) {
+            map.options.doubleClickZoom = true;
+            map.options.tap = true;
+        }
+
+        // 恢复地图选项设置
+        if (map.options) {
+            map.options.doubleClickZoom = true;
+            map.options.tap = true;
+        }
+
+        // 移除临时线
+        if (measureState.tempLine) {
+            measureLayerGroup.removeLayer(measureState.tempLine);
+            measureState.tempLine = null;
+        }
+
+        // 显示总距离
+        if (measureState.points.length > 1) {
+            const totalDistance = calculateTotalDistance();
+            showTotalDistanceLabel(totalDistance);
+
+            // 重新创建最终的线段以确保显示正确
+            if (measureState.line) {
+                measureLayerGroup.removeLayer(measureState.line);
+            }
+
+            measureState.line = L.polyline(measureState.points, {
+                color: currentOutlineColor,
+                weight: 1,
+                opacity: 1
+            });
+
+            measureLayerGroup.addLayer(measureState.line);
+        }
+
+        // 重置状态
+        measureState.isActive = false;
+        measureState.mode = '';
+
+        // 恢复按钮状态
+        document.getElementById('measureDistanceBtn').classList.remove('active');
+        document.getElementById('measureAreaBtn').disabled = false;
+
+        updateStatus('测距完成，总距离已显示');
+    }
+
+    function finishMeasureArea() {
+        if (!measureState.isActive || measureState.mode !== 'area') return;
+
+        // 移除事件监听
+        map.off('click', handleMeasureClick);
+        map.off('mousemove', handleMeasureMouseMove);
+        map.off('contextmenu', handleAreaMeasureRightClick);
+
+        // 重新启用地图双击缩放功能
+        map.doubleClickZoom.enable();
+
+        // 移除临时线
+        if (measureState.tempLine) {
+            measureLayerGroup.removeLayer(measureState.tempLine);
+            measureState.tempLine = null;
+        }
+
+        // 如果点数>=3，显示总面积
+        if (measureState.points.length >= 3) {
+            // 确保多边形是闭合的
+            const lastPoint = measureState.points[measureState.points.length - 1];
+            const firstPoint = measureState.points[0];
+
+            // 检查是否已经闭合（首尾点是否相同）
+            if (lastPoint.lat !== firstPoint.lat || lastPoint.lng !== firstPoint.lng) {
+                // 如果未闭合，将首点添加到末尾以形成闭合多边形
+                measureState.points.push(L.latLng(firstPoint.lat, firstPoint.lng));
+            }
+
+            const area = calculatePolygonArea(measureState.points);
+            const center = getPolygonCenter(measureState.points);
+
+            // 清除之前的面积标签（如果有）
+            if (measureState.areaLabel) {
+                measureLayerGroup.removeLayer(measureState.areaLabel);
+                measureState.areaLabel = null;
+            }
+
+            // 显示总面积标签（平方米+亩数）
+            showTotalAreaLabel(center, area);
+
+            // 重新创建最终的多边形以确保闭合
+            if (measureState.polygon) {
+                measureLayerGroup.removeLayer(measureState.polygon);
+            }
+
+            measureState.polygon = L.polygon(measureState.points, {
+                color: currentOutlineColor,
+                weight: 1,
+                opacity: 1,
+                fillColor: currentFillColor,
+                fillOpacity: 0.8
+            });
+
+            measureLayerGroup.addLayer(measureState.polygon);
+        } else {
+            // 点数不足，清除所有测量结果
+            clearMeasureResult();
+        }
+
+        // 重置状态
+        measureState.isActive = false;
+        measureState.mode = '';
+
+        // 恢复按钮状态
+        document.getElementById('measureAreaBtn').classList.remove('active');
+        document.getElementById('measureDistanceBtn').disabled = false;
+
+        updateStatus('测面完成，总面积已显示');
+    }
+
+    // 距离计算
+    function calculateDistance(point1, point2) {
+        return point1.distanceTo(point2);
+    }
+
+    // 多边形面积计算
+    function calculatePolygonArea(points) {
+        if (points.length < 3) return 0;
+
+        // 使用Turf.js计算面积
+        try {
+            // 将Leaflet坐标转换为GeoJSON格式
+            let coords = points.map(p => {
+                if (p.lng !== undefined && p.lat !== undefined) {
+                    return [p.lng, p.lat];
+                } else if (Array.isArray(p) && p.length >= 2) {
+                    // 如果已经是数组格式 [lat, lng] 或 [lng, lat]
+                    return [p[1], p[0]]; // 假设是 [lat, lng] 格式
+                }
+                return null;
+            }).filter(coord => coord !== null);
+
+            // 确保环是闭合的（至少有4个点，首尾相同）
+            if (coords.length >= 3) {
+                // 如果首尾不相同，闭合环
+                if (coords[0][0] !== coords[coords.length - 1][0] ||
+                    coords[0][1] !== coords[coords.length - 1][1]) {
+                    coords.push(coords[0]);
+                }
+
+                // 确保至少有4个点（闭合后）
+                if (coords.length < 4) {
+                    // 如果点数不足4个，复制点直到达到4个
+                    while (coords.length < 4) {
+                        coords.push(coords[coords.length - 1]);
+                    }
+                }
+            } else if (coords.length === 2) {
+                // 如果只有2个点，复制它们形成至少4个点的环
+                coords.push(coords[1]);
+                coords.push(coords[0]);
+            } else if (coords.length === 1) {
+                // 如果只有1个点，复制3次形成4个点的环
+                for (let k = 0; k < 3; k++) {
+                    coords.push(coords[0]);
+                }
+            }
+
+            const polygon = turf.polygon([coords]);
+            const area = turf.area(polygon); // 平方米
+
+            return area;
+        } catch (e) {
+            console.error('计算多边形面积时出错:', e);
+            return 0;
+        }
+    }
+
+    // 获取多边形中心点
+    function getPolygonCenter(points) {
+        if (points.length === 0) return null;
+
+        let latSum = 0, lngSum = 0;
+        points.forEach(p => {
+            latSum += p.lat;
+            lngSum += p.lng;
+        });
+
+        return L.latLng(latSum / points.length, lngSum / points.length);
+    }
+
+    // 计算总距离
+    function calculateTotalDistance() {
+        let total = 0;
+        for (let i = 1; i < measureState.points.length; i++) {
+            total += calculateDistance(measureState.points[i-1], measureState.points[i]);
+        }
+        return total;
+    }
+
+    // 显示距离标签
+    function showDistanceLabel(latlng, distance) {
+        const label = L.divIcon({
+            className: 'measure-label',
+            html: `<div style="background: rgba(255,255,255,0.9); color: #333; padding: 2px 6px; border-radius: 3px; font-size: 12px; box-shadow: 0 1px 2px rgba(0,0,0,0.3);">${distance.toFixed(2)} 米</div>`,
+            iconSize: null,
+            iconAnchor: [0, -10]
+        });
+
+        const marker = L.marker(latlng, { icon: label });
+        measureLayerGroup.addLayer(marker);
+        measureState.labels.push(marker);
+    }
+
+    // 显示面积标签
+    function showAreaLabel(latlng, area) {
+        const label = L.divIcon({
+            className: 'measure-label',
+            html: `<div style="background: rgba(255,255,255,0.9); color: #333; padding: 2px 6px; border-radius: 3px; font-size: 12px; box-shadow: 0 1px 2px rgba(0,0,0,0.3);">${area.toFixed(2)} 平方米</div>`,
+            iconSize: null,
+            iconAnchor: [0, -10]
+        });
+
+        const marker = L.marker(latlng, { icon: label });
+        measureLayerGroup.addLayer(marker);
+        measureState.areaLabel = marker;
+    }
+
+    // 显示总距离标签
+    function showTotalDistanceLabel(totalDistance) {
+        if (measureState.points.length === 0) return;
+
+        const lastPoint = measureState.points[measureState.points.length - 1];
+        const label = L.divIcon({
+            className: 'measure-total-label',
+            html: `<div style="background: rgba(0,0,0,0.7); color: white; padding: 4px 8px; border-radius: 4px; font-size: 14px; font-weight: bold; box-shadow: 0 2px 4px rgba(0,0,0,0.3);">总距离: ${totalDistance.toFixed(2)} 米</div>`,
+            iconSize: null,
+            iconAnchor: [0, -20]
+        });
+
+        const marker = L.marker(lastPoint, { icon: label });
+        measureLayerGroup.addLayer(marker);
+        measureState.labels.push(marker);
+    }
+
+    // 显示总面积标签
+    function showTotalAreaLabel(latlng, area) {
+        const areaInMu = area / 666.6667;
+        const label = L.divIcon({
+            className: 'measure-total-label',
+            html: `<div style="background: rgba(0,0,0,0.7); color: white; padding: 4px 8px; border-radius: 4px; font-size: 14px; font-weight: bold; box-shadow: 0 2px 4px rgba(0,0,0,0.3); line-height: 1.4;">总面积: ${area.toFixed(2)} 平方米<br>${areaInMu.toFixed(2)} 亩</div>`,
+            iconSize: null,
+            iconAnchor: [0, -40]
+        });
+
+        const marker = L.marker(latlng, { icon: label });
+        measureLayerGroup.addLayer(marker);
+        measureState.labels.push(marker);
+    }
+
+    // 清除测量结果
+    function clearMeasureResult() {
+        measureLayerGroup.clearLayers();
+        measureState = {
+            isActive: false,
+            mode: '',
+            points: [],
+            tempLine: null,
+            lines: [],
+            markers: [],
+            labels: [],
+            polygon: null,
+            areaLabel: null
+        };
+
+        // 恢复按钮状态
+        document.getElementById('measureDistanceBtn').classList.remove('active');
+        document.getElementById('measureAreaBtn').classList.remove('active');
+        document.getElementById('measureDistanceBtn').disabled = false;
+        document.getElementById('measureAreaBtn').disabled = false;
+
+        // 确保重新启用地图双击缩放功能
+        if (map && map.doubleClickZoom) {
+            map.doubleClickZoom.enable();
+
+            // 恢复地图选项设置
+            if (map.options) {
+                map.options.doubleClickZoom = true;
+                map.options.tap = true;
+            }
+        }
+    }
+
+    // 地图类型切换
+    function toggleMapType() {
+        console.log('toggleMapType called, currentMapType:', currentMapType);
+        console.log('map:', map);
+        console.log('currentBaseLayer:', currentBaseLayer);
+        console.log('currentSatelliteLayer:', currentSatelliteLayer);
+
+        if (!map) {
+            console.error('Map not initialized');
+            return;
+        }
+
+        if (!currentBaseLayer || !currentSatelliteLayer) {
+            console.error('Layers not properly initialized');
+            updateStatus('图层未正确初始化');
+            return;
+        }
+
+        const mapTypeBtn = document.getElementById('mapTypeBtn');
+
+        try {
+            if (currentMapType === 'street') {
+                console.log('Switching to satellite map');
+                // 切换到卫星图
+                map.removeLayer(currentBaseLayer);
+                map.addLayer(currentSatelliteLayer);
+                currentMapType = 'satellite';
+                mapTypeBtn.innerHTML = '🛰️ 卫星图';
+                mapTypeBtn.title = '当前：卫星图，点击切换街道图';
+            } else {
+                console.log('Switching to street map');
+                // 切换到街道图
+                map.removeLayer(currentSatelliteLayer);
+                map.addLayer(currentBaseLayer);
+                currentMapType = 'street';
+                mapTypeBtn.innerHTML = '🗺️ 街道图';
+                mapTypeBtn.title = '当前：街道图，点击切换卫星图';
+            }
+
+            updateStatus(`已切换到${currentMapType === 'street' ? '街道图' : '卫星图'}`);
+            console.log('Map type switched successfully to:', currentMapType);
+        } catch (error) {
+            console.error('Error switching map type:', error);
+            updateStatus('地图切换失败: ' + error.message);
+        }
+    }
+
+    // 清空所有
+    function clearAll() {
+        clearMeasureResult();
+
+        updateStatus('测距测面已清空');
+    }
+
+    // 切换左侧面板
+    function toggleLeftPanel() {
+        const panel = document.querySelector('.left-panel');
+        const fixedToggle = document.getElementById('panelToggleFixed');
+
+        if (panel.classList.contains('collapsed')) {
+            // 展开面板 - 面板当前是收起的，点击后要展开，所以按钮应显示为展开图标
+            panel.classList.remove('collapsed');
+            if(fixedToggle) {
+                fixedToggle.innerHTML = '▶◀'; // 展开图标
+                fixedToggle.title = '收缩工具栏';
+            }
+        } else {
+            // 收起面板 - 面板当前是展开的，点击后要收起，所以按钮应显示为收缩图标
+            panel.classList.add('collapsed');
+            if(fixedToggle) {
+                fixedToggle.innerHTML = '◀▶'; // 收缩图标
+                fixedToggle.title = '展开工具栏';
+            }
+        }
+    }
+
+    // 切换标题栏
+    function toggleHeader() {
+        const header = document.querySelector('.header');
+        const toggle = document.getElementById('headerToggle');
+
+        if (header.classList.contains('show')) {
+            // 隐藏标题
+            header.classList.remove('show');
+            header.style.display = 'none';
+            toggle.innerHTML = '☰';
+            toggle.title = '显示工具栏';
+            toggle.style.display = 'block';
+        } else {
+            // 显示标题
+            header.classList.add('show');
+            header.style.display = 'flex';
+            toggle.innerHTML = '✕';
+            toggle.title = '隐藏工具栏';
+        }
+    }
+
+    // 页面加载完成后初始化
+    document.addEventListener('DOMContentLoaded', function() {
+        initMap();
+        bindTabEvents();
+        bindColorPickerEvents();
+        bindToolEvents();
+
+        // 绑定面板切换事件
+        const headerToggle = document.getElementById('headerToggle');
+        const panelToggleFixed = document.getElementById('panelToggleFixed');
+
+        if (headerToggle) {
+            headerToggle.addEventListener('click', toggleHeader);
+            headerToggle.style.display = 'block';
+        }
+
+        if (panelToggleFixed) {
+            panelToggleFixed.addEventListener('click', toggleLeftPanel);
+        }
+
+        // 初始化面板状态
+        const savedPanelState = localStorage.getItem('leftPanelCollapsed');
+        const panel = document.querySelector('.left-panel');
+        const fixedToggle = document.getElementById('panelToggleFixed');
+
+        if (savedPanelState === 'true') {
+            panel.classList.add('collapsed');
+            if(fixedToggle) {
+                fixedToggle.innerHTML = '◀▶'; // 收缩图标
+                fixedToggle.title = '展开工具栏';
+            }
+        } else {
+            if(fixedToggle) {
+                fixedToggle.innerHTML = '▶◀'; // 展开图标
+                fixedToggle.title = '收缩工具栏';
+            }
+        }
+
+        // 添加显示亩数复选框的事件监听器
+        const toggleLabelsCheckbox = document.getElementById('toggleLabelsCheckbox');
+        if (toggleLabelsCheckbox) {
+            toggleLabelsCheckbox.addEventListener('change', function() {
+                const isChecked = this.checked;
+                labelsEnabled = isChecked;
+                console.log('标签显示状态已更改:', isChecked);
+
+                // 获取容器元素并切换labels-hidden类
+                const container = document.querySelector('.container') || document.body;
+
+                if (isChecked) {
+                    // 启用标签：显示所有标签
+                    console.log('启用标签显示');
+                    container.classList.remove('labels-hidden');
+
+                    console.log('检查是否有轮廓图层组:', outlineLayerGroup);
+                    if (outlineLayerGroup && outlineLayerGroup.getLayers) {
+                        console.log('轮廓图层组存在，获取图层数量:', outlineLayerGroup.getLayers().length);
+                        if (outlineLayerGroup.getLayers().length > 0) {
+                            // 清除现有标签
+                            labelLayerGroup.clearLayers();
+                            console.log('已清除现有标签，准备添加新标签');
+
+                            // 为每个轮廓添加标签
+                            // 确保L.GeometryUtil已加载
+                            if (typeof L.GeometryUtil === 'undefined' || typeof L.GeometryUtil.geodesicArea !== 'function') {
+                                console.log('使用Turf.js计算面积');
+                                // 尝试使用Turf.js作为备选方案
+                                if (typeof turf !== 'undefined') {
+                                    console.log('使用Turf.js计算面积');
+                                    outlineLayerGroup.eachLayer(function(layer) {
+                                        // 获取图层中的实际几何要素进行面积计算
+                                        let layers = [];
+
+                                        // 如果layer是LayerGroup或FeatureGroup，获取其所有子图层
+                                        if (layer instanceof L.LayerGroup || layer instanceof L.FeatureGroup) {
+                                            layers = layer.getLayers();
+                                        } else {
+                                            layers = layer.getLayers ? layer.getLayers() : [layer];
+                                        }
+
+                                        console.log('图层数组长度:', layers && Array.isArray(layers) ? layers.length : 0);
+                                        if (layers && Array.isArray(layers) && layers.length > 0) {
+                                            for (let j = 0; j < layers.length; j++) {
+                                                const subLayer = layers[j];
+                                                console.log('处理子图层:', subLayer);
+                                                let latLngs;
+
+                                                // 根据图层类型获取坐标
+                                                if (subLayer instanceof L.Polygon) {
+                                                    latLngs = subLayer.getLatLngs();
+                                                    console.log('多边形latLngs:', latLngs);
+                                                } else if (subLayer instanceof L.MultiPolygon) {
+                                                    // 对于MultiPolygon，取第一个多边形
+                                                    const multiLatLngs = subLayer.getLatLngs();
+                                                    console.log('MultiPolygon latLngs:', multiLatLngs);
+                                                    if (multiLatLngs && multiLatLngs.length > 0) {
+                                                        latLngs = multiLatLngs[0];
+                                                    }
+                                                } else if (subLayer instanceof L.Rectangle) {
+                                                    // 对于Rectangle，获取其边界坐标
+                                                    latLngs = subLayer.getLatLngs();
+                                                    console.log('矩形latLngs:', latLngs);
+                                                }
+
+                                                if (latLngs) {
+                                                    // 使用Turf.js计算面积
+                                                    try {
+                                                        // 处理多边形坐标，支持外部边界和内部孔洞
+                                                        const processPolygon = (polyCoords) => {
+                                                            if (!Array.isArray(polyCoords) || polyCoords.length === 0) {
+                                                                return null;
+                                                            }
+
+                                                            // 如果是多边形数组（外部边界+孔洞），分别处理
+                                                            let processedCoords = [];
+
+                                                            // 处理多边形的每个环（第一个是外部边界，其余是孔洞）
+                                                            for (let i = 0; i < polyCoords.length; i++) {
+                                                                let ring = polyCoords[i];
+                                                                if (!Array.isArray(ring)) {
+                                                                    ring = [ring]; // 如果不是数组，转换为数组
+                                                                }
+
+                                                                // 将Leaflet坐标转换为GeoJSON格式 [lng, lat]
+                                                                let geoJsonRing = ring.map(latLng => {
+                                                                    if (latLng.lat !== undefined && latLng.lng !== undefined) {
+                                                                        return [latLng.lng, latLng.lat];
+                                                                    } else if (Array.isArray(latLng) && latLng.length >= 2) {
+                                                                        // 如果已经是数组格式 [lat, lng] 或 [lng, lat]
+                                                                        return [latLng[1], latLng[0]]; // 假设是 [lat, lng] 格式
+                                                                    }
+                                                                    return null;
+                                                                }).filter(coord => coord !== null);
+
+                                                                // 确保环是闭合的（至少有4个点，首尾相同）
+                                                                if (geoJsonRing.length >= 3) {
+                                                                    // 如果首尾不相同，闭合环
+                                                                    if (geoJsonRing[0][0] !== geoJsonRing[geoJsonRing.length - 1][0] ||
+                                                                        geoJsonRing[0][1] !== geoJsonRing[geoJsonRing.length - 1][1]) {
+                                                                        geoJsonRing.push(geoJsonRing[0]);
+                                                                    }
+
+                                                                    // 确保至少有4个点（闭合后）
+                                                                    if (geoJsonRing.length < 4) {
+                                                                        // 如果点数不足4个，复制点直到达到4个
+                                                                        while (geoJsonRing.length < 4) {
+                                                                            geoJsonRing.push(geoJsonRing[geoJsonRing.length - 1]);
+                                                                        }
+                                                                    }
+                                                                } else if (geoJsonRing.length === 2) {
+                                                                    // 如果只有2个点，复制它们形成至少4个点的环
+                                                                    geoJsonRing.push(geoJsonRing[1]);
+                                                                    geoJsonRing.push(geoJsonRing[0]);
+                                                                } else if (geoJsonRing.length === 1) {
+                                                                    // 如果只有1个点，复制3次形成4个点的环
+                                                                    for (let k = 0; k < 3; k++) {
+                                                                        geoJsonRing.push(geoJsonRing[0]);
+                                                                    }
+                                                                }
+
+                                                                processedCoords.push(geoJsonRing);
+                                                            }
+
+                                                            return processedCoords;
+                                                        };
+
+                                                        // 根据latLngs的结构处理坐标
+                                                        let coordinates;
+                                                        if (Array.isArray(latLngs) && latLngs.length > 0) {
+                                                            if (Array.isArray(latLngs[0])) {
+                                                                // 如果是多边形数组（包含外部边界和孔洞）
+                                                                coordinates = processPolygon(latLngs);
+                                                            } else {
+                                                                // 如果是单个多边形边界
+                                                                coordinates = processPolygon([latLngs]);
+                                                            }
+                                                        } else {
+                                                            // 单个多边形边界
+                                                            coordinates = processPolygon([latLngs]);
+                                                        }
+
+                                                        if (coordinates && coordinates.length > 0) {
+                                                            const polygon = turf.polygon(coordinates);
+                                                            const areaSqM = turf.area(polygon);
+                                                            const areaMu = (areaSqM / 666.6667).toFixed(4); // 转换为亩
+                                                            console.log('使用Turf.js计算得到的面积:', areaSqM, '平方米 (', areaMu, '亩)');
+                                                            console.log('为图层添加面积标签:', areaMu, '亩');
+                                                            addAreaLabelToLayer(subLayer, `面积: ${areaMu}亩`); // 使用subLayer而不是layer
+                                                        } else {
+                                                            console.log('无法处理坐标数据，跳过此图层');
+                                                        }
+                                                    } catch (e) {
+                                                        console.error('使用Turf.js计算面积时出错:', e);
+                                                    }
+                                                } else {
+                                                    console.log('无法获取坐标，跳过此图层');
+                                                }
+                                            }
+                                        } else {
+                                            console.log('图层数组为空或不是数组');
+                                        }
+                                    });
+                                } else {
+                                    console.error('Turf.js也未定义，无法计算面积');
+                                }
+                            } else {
+                                console.log('开始为', outlineLayerGroup.getLayers().length, '个轮廓添加标签');
+                                let labelCount = 0;
+                                outlineLayerGroup.eachLayer(function(layer) {
+                                    console.log('处理图层:', layer);
+                                    // 获取图层中的实际几何要素进行面积计算
+                                    let layers = [];
+
+                                    // 如果layer是LayerGroup或FeatureGroup，获取其所有子图层
+                                    if (layer instanceof L.LayerGroup || layer instanceof L.FeatureGroup) {
+                                        layers = layer.getLayers();
+                                    } else {
+                                        layers = layer.getLayers ? layer.getLayers() : [layer];
+                                    }
+
+                                    console.log('图层数组长度:', layers && Array.isArray(layers) ? layers.length : 0);
+                                    if (layers && Array.isArray(layers) && layers.length > 0) {
+                                        for (let j = 0; j < layers.length; j++) {
+                                            const subLayer = layers[j];
+                                            console.log('处理子图层:', subLayer);
+                                            let latLngs;
+
+                                            // 根据图层类型获取坐标
+                                            if (subLayer instanceof L.Polygon) {
+                                                latLngs = subLayer.getLatLngs();
+                                                console.log('多边形latLngs:', latLngs);
+                                            } else if (subLayer instanceof L.MultiPolygon) {
+                                                // 对于MultiPolygon，取第一个多边形
+                                                const multiLatLngs = subLayer.getLatLngs();
+                                                console.log('MultiPolygon latLngs:', multiLatLngs);
+                                                if (multiLatLngs && multiLatLngs.length > 0) {
+                                                    latLngs = multiLatLngs[0];
+                                                }
+                                            } else if (subLayer instanceof L.Rectangle) {
+                                                // 对于Rectangle，获取其边界坐标
+                                                latLngs = subLayer.getLatLngs();
+                                                console.log('矩形latLngs:', latLngs);
+                                            }
+
+                                            if (latLngs) {
+                                                // 检查L.GeometryUtil是否可用，如果不可用则使用Turf.js
+                                                if (typeof L.GeometryUtil !== 'undefined' && typeof L.GeometryUtil.geodesicArea === 'function') {
+                                                    const areaSqM = L.GeometryUtil.geodesicArea(latLngs[0] || latLngs);
+                                                    const areaMu = (areaSqM / 666.6667).toFixed(4); // 转换为亩
+                                                    console.log('使用L.GeometryUtil计算得到的面积:', areaSqM, '平方米 (', areaMu, '亩)');
+                                                    console.log('为图层添加面积标签:', areaMu, '亩');
+                                                    addAreaLabelToLayer(subLayer, `面积: ${areaMu}亩`); // 使用subLayer而不是layer
+                                                    labelCount++;
+                                                } else {
+                                                    console.log('L.GeometryUtil未定义或geodesicArea方法不存在，尝试使用Turf.js');
+                                                    // 使用Turf.js计算面积
+                                                    try {
+                                                        // 处理多边形坐标，支持外部边界和内部孔洞
+                                                        const processPolygon = (polyCoords) => {
+                                                            if (!Array.isArray(polyCoords) || polyCoords.length === 0) {
+                                                                return null;
+                                                            }
+
+                                                            // 如果是多边形数组（外部边界+孔洞），分别处理
+                                                            let processedCoords = [];
+
+                                                            // 处理多边形的每个环（第一个是外部边界，其余是孔洞）
+                                                            for (let i = 0; i < polyCoords.length; i++) {
+                                                                let ring = polyCoords[i];
+                                                                if (!Array.isArray(ring)) {
+                                                                    ring = [ring]; // 如果不是数组，转换为数组
+                                                                }
+
+                                                                // 将Leaflet坐标转换为GeoJSON格式 [lng, lat]
+                                                                let geoJsonRing = ring.map(latLng => {
+                                                                    if (latLng.lat !== undefined && latLng.lng !== undefined) {
+                                                                        return [latLng.lng, latLng.lat];
+                                                                    } else if (Array.isArray(latLng) && latLng.length >= 2) {
+                                                                        // 如果已经是数组格式 [lat, lng] 或 [lng, lat]
+                                                                        return [latLng[1], latLng[0]]; // 假设是 [lat, lng] 格式
+                                                                    }
+                                                                    return null;
+                                                                }).filter(coord => coord !== null);
+
+                                                                // 确保环是闭合的（至少有4个点，首尾相同）
+                                                                if (geoJsonRing.length >= 3) {
+                                                                    // 如果首尾不相同，闭合环
+                                                                    if (geoJsonRing[0][0] !== geoJsonRing[geoJsonRing.length - 1][0] ||
+                                                                        geoJsonRing[0][1] !== geoJsonRing[geoJsonRing.length - 1][1]) {
+                                                                        geoJsonRing.push(geoJsonRing[0]);
+                                                                    }
+
+                                                                    // 确保至少有4个点（闭合后）
+                                                                    if (geoJsonRing.length < 4) {
+                                                                        // 如果点数不足4个，复制点直到达到4个
+                                                                        while (geoJsonRing.length < 4) {
+                                                                            geoJsonRing.push(geoJsonRing[geoJsonRing.length - 1]);
+                                                                        }
+                                                                    }
+                                                                } else if (geoJsonRing.length === 2) {
+                                                                    // 如果只有2个点，复制它们形成至少4个点的环
+                                                                    geoJsonRing.push(geoJsonRing[1]);
+                                                                    geoJsonRing.push(geoJsonRing[0]);
+                                                                } else if (geoJsonRing.length === 1) {
+                                                                    // 如果只有1个点，复制3次形成4个点的环
+                                                                    for (let k = 0; k < 3; k++) {
+                                                                        geoJsonRing.push(geoJsonRing[0]);
+                                                                    }
+                                                                }
+
+                                                                processedCoords.push(geoJsonRing);
+                                                            }
+
+                                                            return processedCoords;
+                                                        };
+
+                                                        // 根据latLngs的结构处理坐标
+                                                        let coordinates;
+                                                        if (Array.isArray(latLngs) && latLngs.length > 0) {
+                                                            if (Array.isArray(latLngs[0])) {
+                                                                // 如果是多边形数组（包含外部边界和孔洞）
+                                                                coordinates = processPolygon(latLngs);
+                                                            } else {
+                                                                // 如果是单个多边形边界
+                                                                coordinates = processPolygon([latLngs]);
+                                                            }
+                                                        } else {
+                                                            // 单个多边形边界
+                                                            coordinates = processPolygon([latLngs]);
+                                                        }
+
+                                                        if (coordinates && coordinates.length > 0) {
+                                                            const polygon = turf.polygon(coordinates);
+                                                            const areaSqM = turf.area(polygon);
+                                                            const areaMu = (areaSqM / 666.6667).toFixed(4); // 转换为亩
+                                                            console.log('使用Turf.js计算得到的面积:', areaSqM, '平方米 (', areaMu, '亩)');
+                                                            console.log('为图层添加面积标签:', areaMu, '亩');
+                                                            addAreaLabelToLayer(subLayer, `面积: ${areaMu}亩`); // 使用subLayer而不是layer
+                                                            labelCount++;
+                                                        } else {
+                                                            console.log('无法处理坐标数据，跳过此图层');
+                                                        }
+                                                    } catch (e) {
+                                                        console.error('使用Turf.js计算面积时出错:', e);
+                                                    }
+                                                }
+                                            } else {
+                                                console.log('无法获取坐标，跳过此图层');
+                                            }
+                                        }
+                                    } else {
+                                        console.log('图层数组为空或不是数组');
+                                    }
+                                });
+                                console.log('总共处理了', labelCount, '个标签');
+                            }
+                        } else {
+                            console.log('轮廓图层组中没有图层');
+                        }
+                    } else {
+                        console.log('轮廓图层组不存在或没有getLayers方法');
+                    }
+                } else {
+                    // 禁用标签：隐藏所有标签
+                    console.log('禁用标签显示，清除所有标签');
+                    if (labelLayerGroup) {
+                        labelLayerGroup.clearLayers();
+                        console.log('标签图层已清空，当前图层数量:', labelLayerGroup.getLayers().length);
+                    } else {
+                        console.log('标签图层组不存在');
+                    }
+                    container.classList.add('labels-hidden');
+                }
+
+                // 确保标签图层始终在最上层
+                if (labelLayerGroup) {
+                    map.removeLayer(labelLayerGroup);
+                    map.addLayer(labelLayerGroup);
+                }
+            });
+        }
+
+        updateStatus('页面加载完成');
+
+        // 添加点击其他地方隐藏右键菜单的事件监听
+        document.addEventListener('click', function(e) {
+            // 如果点击的不是右键菜单本身，也不是获取地址菜单项，则隐藏菜单
+            if (contextMenu && !contextMenu.contains(e.target) && 
+                (!getAddressMenuItem || !getAddressMenuItem.contains(e.target))) {
+                hideContextMenu();
+            }
+        });
+
+        // 阻止右键菜单内部的点击事件冒泡
+        if (contextMenu) {
+            contextMenu.addEventListener('click', function(e) {
+                e.stopPropagation();
+            });
+        }
+    });
+
+    // 全局函数供HTML调用
+    window.drawOutline = drawOutline;
+    window.clearOutline = clearOutline;
+    window.drawTrack = drawTrack;
+    window.startPlayback = startPlayback;
+    window.stopPlayback = stopPlayback;
+
+    // 页面加载完成后自动调用轨迹和轮廓绘制功能
+    document.addEventListener('DOMContentLoaded', function() {
+        // 先调用轨迹TAB中的轨迹按钮方法
+        drawTrack();
+        // 再调用轮廓TAB中的回执轮廓方法
+        drawOutline();
+    });
+</script>
+</body>
+</html>
