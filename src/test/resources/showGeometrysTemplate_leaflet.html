@@ -2625,12 +2625,12 @@
                         opacity: trackPointConfig.pointOpacity,
                         fillOpacity: trackPointConfig.pointOpacity,
                         renderer: canvasLayer,
-                        interactive: false,
+                        interactive: true,
                         className: 'tiny-point'
                     });
 
                     circleMarker.on('click', function() {
-                        this.bindPopup(`轨迹点 ${i + 1}<br>时间: ${point.timestamp}`).openPopup();
+                        this.bindPopup(`轨迹点 ${i + 1}<br>时间: ${point.timestamp}<br>经度: ${point.lng.toFixed(6)}<br>纬度: ${point.lat.toFixed(6)}`).openPopup();
                     });
 
                     circleMarkers.push(circleMarker);
@@ -2679,12 +2679,12 @@
                     opacity: trackPointConfig.pointOpacity,
                     fillOpacity: trackPointConfig.pointOpacity,
                     renderer: canvasLayer,
-                    interactive: false,
+                    interactive: true,
                     className: 'tiny-point'
                 });
 
                 circleMarker.on('click', function() {
-                    this.bindPopup(`轨迹点 ${i + 1}<br>时间: ${point.timestamp}`).openPopup();
+                    this.bindPopup(`轨迹点 ${i + 1}<br>时间: ${point.timestamp}<br>经度: ${point.lng.toFixed(6)}<br>纬度: ${point.lat.toFixed(6)}`).openPopup();
                 });
 
                 batchMarkers.push(circleMarker);
@@ -2741,7 +2741,7 @@
                 });
 
                 circleMarker.on('click', function() {
-                    this.bindPopup(`轨迹点 ${i + 1}<br>时间: ${point.timestamp}`).openPopup();
+                    this.bindPopup(`轨迹点 ${i + 1}<br>时间: ${point.timestamp}<br>经度: ${point.lng.toFixed(6)}<br>纬度: ${point.lat.toFixed(6)}`).openPopup();
                 });
 
                 batchMarkers.push(circleMarker);
@@ -2803,11 +2803,11 @@
                     weight: 0,
                     opacity: 0.8,
                     fillOpacity: 0.8,
-                    interactive: false
+                    interactive: true
                 });
 
                 circleMarker.on('click', function() {
-                    this.bindPopup(`轨迹点 ${actualIndex + 1}<br>时间: ${point.timestamp}`).openPopup();
+                    this.bindPopup(`轨迹点 ${actualIndex + 1}<br>时间: ${point.timestamp}<br>经度: ${point.lng.toFixed(6)}<br>纬度: ${point.lat.toFixed(6)}`).openPopup();
                 });
 
                 batchLayer.addLayer(circleMarker);
@@ -2900,7 +2900,7 @@
                             opacity: 0.8
                         });
 
-                        marker.bindPopup(`轨迹点 ${actualIndex + 1}<br>时间: ${point.timestamp}`);
+                        marker.bindPopup(`轨迹点 ${actualIndex + 1}<br>时间: ${point.timestamp}<br>经度: ${point.lng.toFixed(6)}<br>纬度: ${point.lat.toFixed(6)}`);
                         trackLayerGroup.addLayer(marker);
                     });
 
@@ -3129,7 +3129,7 @@
 
         // 更新标记位置
         playbackState.marker.setLatLng([point.lat, point.lng]);
-        playbackState.marker.bindPopup(`回放点 ${playbackState.currentIndex + 1}<br>时间: ${point.timestamp}`);
+        playbackState.marker.bindPopup(`回放点 ${playbackState.currentIndex + 1}<br>时间: ${point.timestamp}<br>经度: ${point.lng.toFixed(6)}<br>纬度: ${point.lat.toFixed(6)}`);
 
         // 更新轨迹线
         const currentLatlngs = playbackState.filteredPoints.slice(0, playbackState.currentIndex + 1).map(p => [p.lat, p.lng]);
@@ -3322,7 +3322,7 @@
         // 跳转到指定点
         const point = playbackState.filteredPoints[index];
         playbackState.marker.setLatLng([point.lat, point.lng]);
-        playbackState.marker.bindPopup(`回放点 ${index + 1}<br>时间: ${point.timestamp}`);
+        playbackState.marker.bindPopup(`回放点 ${index + 1}<br>时间: ${point.timestamp}<br>经度: ${point.lng.toFixed(6)}<br>纬度: ${point.lat.toFixed(6)}`);
 
         // 更新轨迹线
         const currentLatlngs = playbackState.filteredPoints.slice(0, index + 1).map(p => [p.lat, p.lng]);
@@ -3524,7 +3524,7 @@
             // 更新标记位置
             if (playbackState.marker) {
                 playbackState.marker.setLatLng([next.lat, next.lng]);
-                playbackState.marker.bindPopup(`回放点 ${playbackState.currentIndex + 1}<br>时间: ${next.timestamp}`);
+                playbackState.marker.bindPopup(`回放点 ${playbackState.currentIndex + 1}<br>时间: ${next.timestamp}<br>经度: ${next.lng.toFixed(6)}<br>纬度: ${next.lat.toFixed(6)}`);
             }
 
             // 更新轨迹线
