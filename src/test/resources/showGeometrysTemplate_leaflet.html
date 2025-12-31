@@ -5,11 +5,25 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>几何图形展示模板 - Leaflet版</title>
 
+    <!-- API密钥配置 - 本地文件环境使用百度地图，Web环境使用天地图 -->
+    <script>
+        // 百度地图API密钥（本地文件环境使用）
+        const BAIDU_MAP_AK = 'vMMZdKUVyHa5p2m5GZl2w4sNlF0dwr52';
+        // 天地图API密钥（Web环境使用）
+        const TIANDITU_MAP_TK = '9ed3674d01dd7c129ab38e3c38bf651a';
+    </script>
+
     <!-- Leaflet CSS -->
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
 
     <!-- 天地图 API -->
-    <script src="https://api.tianditu.gov.cn/api?v=4.0&tk=9ed3674d01dd7c129ab38e3c38bf651a"></script>
+    <script>
+        // 动态加载天地图API，避免document.write
+        const tiandituScript = document.createElement('script');
+        tiandituScript.src = 'https://api.tianditu.gov.cn/api?v=4.0&tk=' + TIANDITU_MAP_TK;
+        tiandituScript.async = true;
+        document.head.appendChild(tiandituScript);
+    </script>
 
     <!-- Leaflet JS -->
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -1345,8 +1359,8 @@
         // 本地文件环境使用百度地图API - JSONP方式获取地址信息
         const callbackName = 'jsonp_callback_' + Math.round(100000 * Math.random());
         
-        // 百度地图API配置
-        const baiduAk = 'vMMZdKUVyHa5p2m5GZl2w4sNlF0dwr52'; // 百度地图API密钥
+        // 百度地图API配置 - 使用顶部定义的常量
+        const baiduAk = BAIDU_MAP_AK;
         const url = `https://api.map.baidu.com/reverse_geocoding/v3/?ak=${baiduAk}&extensions_poi=1&entire_poi=1&sort_strategy=distance&output=json&coordtype=wgs84ll&location=${lat},${lng}&callback=${callbackName}`;
         
         console.log('百度地图JSONP请求URL:', url);
