@@ -2216,7 +2216,26 @@
             return;
         }
 
-        clearTrack();
+        // 清除轨迹显示，但保留轨迹点数据用于回放
+        trackLayerGroup.clearLayers();
+        currentTrack = null;
+        
+        // 停止回放但不重置points数据和currentIndex
+        playbackState.isPlaying = false;
+        if (playbackState.timer) {
+            clearTimeout(playbackState.timer);
+            playbackState.timer = null;
+        }
+        
+        // 清除回放元素
+        if (playbackState.marker) {
+            map.removeLayer(playbackState.marker);
+            playbackState.marker = null;
+        }
+        if (playbackState.polyline) {
+            map.removeLayer(playbackState.polyline);
+            playbackState.polyline = null;
+        }
 
         // 解析时间范围
         let startTime, endTime;
@@ -2325,7 +2344,26 @@
             return;
         }
 
-        clearTrack();
+        // 清除轨迹显示，但保留轨迹点数据用于回放
+        trackLayerGroup.clearLayers();
+        currentTrack = null;
+        
+        // 停止回放但不重置points数据和currentIndex
+        playbackState.isPlaying = false;
+        if (playbackState.timer) {
+            clearTimeout(playbackState.timer);
+            playbackState.timer = null;
+        }
+        
+        // 清除回放元素
+        if (playbackState.marker) {
+            map.removeLayer(playbackState.marker);
+            playbackState.marker = null;
+        }
+        if (playbackState.polyline) {
+            map.removeLayer(playbackState.polyline);
+            playbackState.polyline = null;
+        }
 
         // 解析时间范围
         let startTime, endTime;
@@ -2592,8 +2630,23 @@
     function clearTrack() {
         trackLayerGroup.clearLayers();
         currentTrack = null;
-        playbackState.points = [];
-        stopPlayback();
+        
+        // 只暂停回放，不重置currentIndex和points，这样用户可以重新绘制轨迹后继续回放
+        playbackState.isPlaying = false;
+        if (playbackState.timer) {
+            clearTimeout(playbackState.timer);
+            playbackState.timer = null;
+        }
+        
+        // 清除回放元素，但保留points数据
+        if (playbackState.marker) {
+            map.removeLayer(playbackState.marker);
+            playbackState.marker = null;
+        }
+        if (playbackState.polyline) {
+            map.removeLayer(playbackState.polyline);
+            playbackState.polyline = null;
+        }
 
         // 重置播放器状态（如果播放器元素存在）
         if (playbackPlayer) {
@@ -2829,6 +2882,12 @@
     function stopPlayback() {
         playbackState.isPlaying = false;
         playbackState.currentIndex = 0;
+
+        // 清除定时器
+        if (playbackState.timer) {
+            clearTimeout(playbackState.timer);
+            playbackState.timer = null;
+        }
 
         // 清除回放元素
         if (playbackState.marker) {
