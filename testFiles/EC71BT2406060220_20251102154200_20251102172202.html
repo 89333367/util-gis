@@ -694,6 +694,42 @@
         /* 默认隐藏标签容器下的标签 */
         .labels-hidden .area-label { display: none; }
 
+        /* 右键菜单样式 */
+        .context-menu {
+            position: absolute;
+            background: white;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+            z-index: 10000;
+            min-width: 120px;
+            display: none;
+        }
+
+        .context-menu-item {
+            padding: 8px 12px;
+            cursor: pointer;
+            font-size: 12px;
+            border-bottom: 1px solid #eee;
+            transition: background-color 0.2s;
+        }
+
+        .context-menu-item:last-child {
+            border-bottom: none;
+        }
+
+        .context-menu-item:hover {
+            background-color: #f0f0f0;
+        }
+
+        .context-menu-item.disabled {
+            color: #999;
+            cursor: not-allowed;
+        }
+
+        .context-menu-item.disabled:hover {
+            background-color: white;
+        }
 
     </style>
 </head>
@@ -6707,6 +6743,11 @@
                 经度: -, 纬度: -
             </div>
 
+            <!-- 右键菜单 -->
+            <div class="context-menu" id="contextMenu">
+                <div class="context-menu-item" id="getAddressMenuItem">📍 获取地址</div>
+            </div>
+
             <!-- 轨迹回放播放器 -->
             <div class="playback-player" id="playbackPlayer" style="display: none;">
                 <div class="player-header">
@@ -6799,6 +6840,11 @@
 
     // 状态信息定时器
     let statusMessageTimer = null;
+
+    // 右键菜单相关
+    let contextMenu = null;
+    let getAddressMenuItem = null;
+    let lastRightClickLatLng = null;
 
     // 多边形颜色方案
     const polygonColors = [
@@ -7055,6 +7101,33 @@
             }
         });
 
+        // 右键菜单事件
+        map.on('contextmenu', function(e) {
+            // 如果在测量模式下，不显示右键菜单（让测量模式的右键处理接管）
+            if (measureState.isActive) {
+                return;
+            }
+
+            // 保存右键点击的坐标
+            lastRightClickLatLng = e.latlng;
+
+            // 显示右键菜单
+            showContextMenu(e.originalEvent);
+
+            // 阻止默认右键菜单
+            if (e.originalEvent) {
+                e.originalEvent.preventDefault();
+                e.originalEvent.stopPropagation();
+            }
+
+            return false;
+        });
+
+        // 点击其他地方隐藏右键菜单
+        map.on('click', function() {
+            hideContextMenu();
+        });
+
         // 地图控件事件
         const zoomInBtn = document.getElementById('zoomInBtn');
         const zoomOutBtn = document.getElementById('zoomOutBtn');
@@ -7098,6 +7171,208 @@
                 statusMessageTimer = null;
             }, 1000);
         }
+    }
+
+    // 右键菜单功能函数
+    function showContextMenu(event) {
+        if (!contextMenu) {
+            contextMenu = document.getElementById('contextMenu');
+            getAddressMenuItem = document.getElementById('getAddressMenuItem');
+            
+            // 绑定菜单项点击事件
+            if (getAddressMenuItem) {
+                getAddressMenuItem.addEventListener('click', handleGetAddress);
+            }
+        }
+
+        if (contextMenu && event) {
+            // 设置菜单位置
+            contextMenu.style.left = event.pageX + 'px';
+            contextMenu.style.top = event.pageY + 'px';
+            contextMenu.style.display = 'block';
+        }
+    }
+
+    function hideContextMenu() {
+        if (contextMenu) {
+            contextMenu.style.display = 'none';
+        }
+    }
+
+    // 处理获取地址功能
+    function handleGetAddress() {
+        if (!lastRightClickLatLng) {
+            updateStatus('没有有效的坐标点');
+            return;
+        }
+
+        const lat = lastRightClickLatLng.lat;
+        const lng = lastRightClickLatLng.lng;
+
+        // 调用天地图逆地理编码API
+        getAddressFromTianDiTu(lat, lng);
+        
+        // 隐藏右键菜单
+        hideContextMenu();
+    }
+
+    // 天地图逆地理编码
+    function getAddressFromTianDiTu(lat, lng) {
+        // 使用天地图逆地理编码API，使用后台tk
+        const tk = "9ed3674d01dd7c129ab38e3c38bf651a";
+        const postStr = `{'lon':${lng},'lat':${lat},'ver':1}`;
+        const url = `https://api.tianditu.gov.cn/geocoder?postStr=${postStr}&type=geocode&tk=${tk}`;
+
+        console.log('请求URL:', url);
+        console.log('坐标:', lat, lng);
+        console.log('postStr:', postStr);
+        updateStatus('正在获取地址信息...');
+
+        // 判断是否在本地文件环境中运行
+        const isLocalFile = window.location.protocol === 'file:';
+        
+        if (isLocalFile) {
+            // 本地文件环境：使用JSONP方式
+            console.log('检测到本地文件访问，使用JSONP方式');
+            tryJSONPApproach(lat, lng, tk);
+        } else {
+            // Web容器环境：直接发送GET请求
+            console.log('Web容器环境，直接发送GET请求');
+            fetch(url)
+            .then(response => {
+                console.log('响应状态:', response.status, response.statusText);
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+                return response.json();
+            })
+            .then(data => {
+                console.log('响应数据:', data);
+                handleTiandituResponse(lat, lng, data);
+            })
+            .catch(error => {
+                console.error('逆地理编码请求失败:', error);
+                // 失败后直接使用备用方案显示坐标
+                useFallbackAddress(lat, lng);
+            });
+        }
+    }
+
+    // 专门为本地文件环境设计的方案
+    function tryJSONPApproach(lat, lng, tk) {
+        // 本地文件环境使用百度地图API - JSONP方式获取地址信息
+        const callbackName = 'jsonp_callback_' + Math.round(100000 * Math.random());
+        
+        // 百度地图API配置
+        const baiduAk = 'vMMZdKUVyHa5p2m5GZl2w4sNlF0dwr52'; // 百度地图API密钥
+        const url = `https://api.map.baidu.com/reverse_geocoding/v3/?ak=${baiduAk}&extensions_poi=1&entire_poi=1&sort_strategy=distance&output=json&coordtype=wgs84ll&location=${lat},${lng}&callback=${callbackName}`;
+        
+        console.log('百度地图JSONP请求URL:', url);
+        
+        // 创建全局回调函数
+        window[callbackName] = function(data) {
+            console.log('百度地图JSONP响应数据:', data);
+            cleanup();
+            
+            if (data && data.status === 0 && data.result) {
+                // 处理百度地图响应数据，转换为天地图格式
+                const addressData = {
+                    result: {
+                        formatted_address: data.result.formatted_address || data.result.address
+                    }
+                };
+                
+                // 如果有POI信息，添加到地址中
+                if (data.result.pois && data.result.pois.length > 0) {
+                    const nearestPoi = data.result.pois[0];
+                    addressData.result.formatted_address += ` (${nearestPoi.name})`;
+                }
+                
+                handleTiandituResponse(lat, lng, addressData);
+            } else {
+                console.log('百度地图JSONP返回数据格式不正确或状态错误，使用备用方案');
+                useFallbackAddress(lat, lng);
+            }
+        };
+        
+        // 创建script标签
+        const script = document.createElement('script');
+        script.src = url;
+        
+        let timeoutId;
+        
+        function cleanup() {
+            if (timeoutId) clearTimeout(timeoutId);
+            if (window[callbackName]) delete window[callbackName];
+            if (script.parentNode) document.body.removeChild(script);
+        }
+        
+        script.onerror = function() {
+            cleanup();
+            console.log('百度地图JSONP请求失败，使用备用方案');
+            useFallbackAddress(lat, lng);
+        };
+        
+        // 设置超时
+        timeoutId = setTimeout(() => {
+            cleanup();
+            console.log('百度地图JSONP请求超时，使用备用方案');
+            useFallbackAddress(lat, lng);
+        }, 8000); // 8秒超时
+        
+        document.body.appendChild(script);
+    }
+
+    // 处理天地图API响应数据
+    function handleTiandituResponse(lat, lng, data) {
+        if (data && data.result && data.result.formatted_address) {
+            const address = data.result.formatted_address;
+            showAddressLabel(lat, lng, address);
+            updateStatus('地址获取成功');
+        } else if (data && data.msg) {
+            updateStatus(`地址获取失败：${data.msg}`);
+        } else {
+            updateStatus('地址获取失败：未找到地址信息');
+        }
+    }
+
+    // 最终备用方案：显示坐标信息
+    function useFallbackAddress(lat, lng) {
+        const fallbackAddress = `坐标位置：${lng.toFixed(6)}, ${lat.toFixed(6)}`;
+        showAddressLabel(lat, lng, fallbackAddress);
+        updateStatus('地址服务暂不可用，显示坐标信息');
+    }
+
+    // 显示地址标签
+    function showAddressLabel(lat, lng, address) {
+        // 创建地址标签
+        const label = L.marker([lat, lng], {
+            icon: L.divIcon({
+                className: 'address-label',
+                html: `<div style="background: white; border: 2px solid #007bff; border-radius: 6px; padding: 8px 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.2); font-size: 12px; max-width: 300px; word-wrap: break-word;">
+                        <div style="font-weight: bold; color: #007bff; margin-bottom: 4px;">📍 地址信息</div>
+                        <div style="color: #333;">${address}</div>
+                        <div style="font-size: 10px; color: #666; margin-top: 4px;">
+                            坐标: ${lng.toFixed(6)}, ${lat.toFixed(6)}
+                        </div>
+                     </div>`,
+                iconSize: [300, 'auto'],
+                iconAnchor: [150, 0]
+            })
+        }).addTo(labelLayerGroup);
+
+        // 添加点击事件，点击可以删除标签
+        label.on('click', function() {
+            labelLayerGroup.removeLayer(label);
+            updateStatus('地址标签已删除');
+        });
+
+        // 3秒后自动隐藏标签
+        setTimeout(() => {
+            if (labelLayerGroup.hasLayer(label)) {
+                labelLayerGroup.removeLayer(label);
+            }
+        }, 10000); // 10秒后自动隐藏
     }
 
     // 标签页切换
@@ -9886,6 +10161,22 @@
         }
 
         updateStatus('页面加载完成');
+
+        // 添加点击其他地方隐藏右键菜单的事件监听
+        document.addEventListener('click', function(e) {
+            // 如果点击的不是右键菜单本身，也不是获取地址菜单项，则隐藏菜单
+            if (contextMenu && !contextMenu.contains(e.target) && 
+                (!getAddressMenuItem || !getAddressMenuItem.contains(e.target))) {
+                hideContextMenu();
+            }
+        });
+
+        // 阻止右键菜单内部的点击事件冒泡
+        if (contextMenu) {
+            contextMenu.addEventListener('click', function(e) {
+                e.stopPropagation();
+            });
+        }
     });
 
     // 全局函数供HTML调用
