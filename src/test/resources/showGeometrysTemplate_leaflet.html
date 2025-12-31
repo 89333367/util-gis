@@ -807,7 +807,10 @@
 
                     <div class="player-progress">
                         <input type="range" id="playerProgressSlider" min="0" max="100" value="0">
-                        <span id="playerTimeLabel">00:00 / 00:00</span>
+                        <div id="playerTimeLabel" style="display: flex; flex-direction: column; align-items: center; min-width: 80px;">
+                            <div id="currentTime" style="font-size: 12px; line-height: 1.2;">00:00:00</div>
+                            <div id="totalTime" style="font-size: 10px; line-height: 1.2; color: #666;">00:00:00</div>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -928,7 +931,13 @@
                         
                         const currentTime = formatTime(currentPoint.timestamp);
                         const totalTime = formatTime(lastPoint.timestamp);
-                        playerTimeLabel.textContent = currentTime + ' / ' + totalTime;
+                        
+                        // 分别更新两行时间显示
+                        const currentTimeElement = document.getElementById('currentTime');
+                        const totalTimeElement = document.getElementById('totalTime');
+                        
+                        if (currentTimeElement) currentTimeElement.textContent = currentTime;
+                        if (totalTimeElement) totalTimeElement.textContent = totalTime;
                     }
                 }
             }
@@ -2302,14 +2311,16 @@
             updatePlayerControls();
         }
         
-        // 重置进度条和时间显示
+        // 清除轨迹时重置进度条和时间显示
         if (playerProgressSlider) {
             playerProgressSlider.value = 0;
             playerProgressSlider.disabled = true;
         }
-        if (playerTimeLabel) {
-            playerTimeLabel.textContent = '00:00:00 / 00:00:00';
-        }
+        // 重置两行时间显示
+        const currentTimeElement = document.getElementById('currentTime');
+        const totalTimeElement = document.getElementById('totalTime');
+        if (currentTimeElement) currentTimeElement.textContent = '00:00:00';
+        if (totalTimeElement) totalTimeElement.textContent = '00:00:00';
 
         updateStatus('轨迹已清除');
     }
@@ -2395,7 +2406,35 @@
         if (!playbackState.isPlaying || !playbackState.points || playbackState.currentIndex >= playbackState.points.length) {
             // 只有在播放完成时才停止并重置，暂停时不停止
             if (playbackState.currentIndex >= playbackState.points.length) {
-                stopPlayback();
+                // 播放完成，只重置状态但不清除轨迹线
+                playbackState.isPlaying = false;
+                playbackState.currentIndex = 0;
+                
+                // 清除定时器
+                if (playbackState.timer) {
+                    clearTimeout(playbackState.timer);
+                    playbackState.timer = null;
+                }
+                
+                // 清除标记（保留轨迹线）
+                if (playbackState.marker) {
+                    map.removeLayer(playbackState.marker);
+                    playbackState.marker = null;
+                }
+                
+                // 播放完成时不需要重置时间显示，保持当前时间
+                // 也不需要重置进度条位置
+                // const currentTimeElement = document.getElementById('currentTime');
+                // const totalTimeElement = document.getElementById('totalTime');
+                // if (currentTimeElement) currentTimeElement.textContent = '00:00:00';
+                // if (totalTimeElement) totalTimeElement.textContent = '00:00:00';
+                
+                // 更新播放器控制状态（如果播放器元素存在）
+                if (playbackPlayer) {
+                    updatePlayerControls();
+                }
+                
+                updateStatus('轨迹回放完成');
             }
             return;
         }
@@ -2452,14 +2491,19 @@
         }
         
         // 更新时间显示（如果播放器元素存在）
-        if (playerTimeLabel && playbackState.points.length > 0) {
+        if (playbackState.points.length > 0) {
             const currentPoint = playbackState.points[playbackState.currentIndex];
             const lastPoint = playbackState.points[playbackState.points.length - 1];
             
             if (currentPoint && lastPoint) {
                 const currentTime = formatTime(currentPoint.timestamp);
                 const totalTime = formatTime(lastPoint.timestamp);
-                playerTimeLabel.textContent = currentTime + ' / ' + totalTime;
+                
+                // 更新两行时间显示
+                const currentTimeElement = document.getElementById('currentTime');
+                const totalTimeElement = document.getElementById('totalTime');
+                if (currentTimeElement) currentTimeElement.textContent = currentTime;
+                if (totalTimeElement) totalTimeElement.textContent = totalTime;
             }
         }
 
@@ -2511,9 +2555,11 @@
         if (playerProgressSlider) {
             playerProgressSlider.value = 0;
         }
-        if (playerTimeLabel) {
-            playerTimeLabel.textContent = '00:00:00 / 00:00:00';
-        }
+        // 重置两行时间显示
+        const currentTimeElement = document.getElementById('currentTime');
+        const totalTimeElement = document.getElementById('totalTime');
+        if (currentTimeElement) currentTimeElement.textContent = '00:00:00';
+        if (totalTimeElement) totalTimeElement.textContent = '00:00:00';
         
         // 更新播放器控制状态（如果播放器元素存在）
         if (playbackPlayer) {
@@ -2687,7 +2733,7 @@
             playbackState.polyline = null;
         }
 
-        // 重置进度条和时间显示
+        // 停止播放时重置进度条和时间显示
         if (playerProgressSlider) {
             playerProgressSlider.value = 0;
         }
@@ -2707,7 +2753,46 @@
         if (!playbackState.isPlaying || !playbackState.points || playbackState.currentIndex >= playbackState.points.length - 1) {
             if (playbackState.currentIndex >= playbackState.points.length - 1) {
                 updateStatus('轨迹回放完成');
-                stopPlayback(); // 只在播放完成时停止并重置
+                // 播放完成时不清除轨迹线，只停止播放并重置状态
+                playbackState.isPlaying = false;
+                playbackState.currentIndex = 0;
+                
+                // 清除定时器
+                if (playbackState.timer) {
+                    clearTimeout(playbackState.timer);
+                    playbackState.timer = null;
+                }
+                
+                // 只清除标记，保留轨迹线
+                if (playbackState.marker) {
+                    map.removeLayer(playbackState.marker);
+                    playbackState.marker = null;
+                }
+                
+                // 重置两行时间显示（保留进度条位置）
+                const currentTimeElement = document.getElementById('currentTime');
+                const totalTimeElement = document.getElementById('totalTime');
+                if (currentTimeElement) currentTimeElement.textContent = '00:00:00';
+                if (totalTimeElement) totalTimeElement.textContent = '00:00:00';
+                
+                // 更新播放器控制状态
+                if (playbackPlayer) {
+                    updatePlayerControls();
+                }
+                
+                // 播放完成时不需要重置时间滑块，保持当前位置
+                // const playbackTimeSlider = document.getElementById('playbackTimeSlider');
+                // if (playbackTimeSlider) {
+                //     playbackTimeSlider.value = 0;
+                //     playbackTimeSlider.disabled = true;
+                // }
+                
+                // 同步更新底部固定播放控制面板
+                // const playbackTimeSliderFixed = document.getElementById('playbackTimeSliderFixed');
+                // if (playbackTimeSliderFixed) {
+                //     playbackTimeSliderFixed.value = 0;
+                //     playbackTimeSliderFixed.disabled = true;
+                // }
             }
             return; // 如果是暂停，直接返回，不停止播放
         }
@@ -2761,14 +2846,19 @@
                 playerProgressSlider.value = percentage;
             }
             
-            if (playerTimeLabel && playbackState.points.length > 0) {
+            if (playbackState.points.length > 0) {
                 const currentPoint = playbackState.points[playbackState.currentIndex];
                 const lastPoint = playbackState.points[playbackState.points.length - 1];
                 
                 if (currentPoint && lastPoint) {
                     const currentTime = formatTime(currentPoint.timestamp);
                     const totalTime = formatTime(lastPoint.timestamp);
-                    playerTimeLabel.textContent = currentTime + ' / ' + totalTime;
+                    
+                    // 更新两行时间显示
+                    const currentTimeElement = document.getElementById('currentTime');
+                    const totalTimeElement = document.getElementById('totalTime');
+                    if (currentTimeElement) currentTimeElement.textContent = currentTime;
+                    if (totalTimeElement) totalTimeElement.textContent = totalTime;
                 }
             }
 
