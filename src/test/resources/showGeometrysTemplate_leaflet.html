@@ -1764,7 +1764,7 @@
                                         timestamp = parts[2].trim();
                                     }
                                     
-                                    if (!isNaN(lng) && !isNaN(lat) && timestamp) {
+                                    if (!isNaN(lng) && !isNaN(lat) && timestamp && lat !== 0 && lng !== 0) {
                                         points.push({
                                             lat: lat,
                                             lng: lng,
@@ -2324,7 +2324,7 @@
                     timestamp = parts[2].trim();
                 }
 
-                if (!isNaN(lng) && !isNaN(lat) && timestamp) {
+                if (!isNaN(lng) && !isNaN(lat) && timestamp && lat !== 0 && lng !== 0) {
                     const pointTime = parseTimestamp(timestamp);
 
                     // 检查时间范围
@@ -2452,7 +2452,7 @@
                     timestamp = parts[2].trim();
                 }
 
-                if (!isNaN(lng) && !isNaN(lat) && timestamp) {
+                if (!isNaN(lng) && !isNaN(lat) && timestamp && lat !== 0 && lng !== 0) {
                     const pointTime = parseTimestamp(timestamp);
 
                     // 检查时间范围
@@ -2573,7 +2573,7 @@
                     const lat = parseFloat(parts[1].trim());
                     const timestamp = parts[2].trim();
 
-                    if (!isNaN(lng) && !isNaN(lat)) {
+                    if (!isNaN(lng) && !isNaN(lat) && lat !== 0 && lng !== 0) {
                         points.push({
                             lat: lat,
                             lng: lng,
