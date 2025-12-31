@@ -745,6 +745,39 @@
             background-color: white;
         }
 
+        /* Canvas轨迹点优化样式 */
+        .leaflet-canvas {
+            image-rendering: -webkit-optimize-contrast;
+            image-rendering: crisp-edges;
+            image-rendering: pixelated;
+        }
+        
+        /* 极小轨迹点样式 */
+        .leaflet-marker-icon.tiny-point {
+            width: 1px !important;
+            height: 1px !important;
+            min-width: 1px !important;
+            min-height: 1px !important;
+            border-radius: 50% !important;
+            opacity: 0.8 !important;
+        }
+        
+        /* Canvas渲染的CircleMarker优化 */
+        .leaflet-canvas-pane circle {
+            vector-effect: non-scaling-stroke;
+            shape-rendering: optimizeSpeed;
+        }
+        
+        /* 隐藏轨迹点的交互提示以提高性能 */
+        .leaflet-interactive {
+            pointer-events: none !important;
+        }
+        
+        /* 轨迹点Canvas图层优化 */
+        .leaflet-layer canvas {
+            will-change: transform;
+            transform: translateZ(0);
+        }
     </style>
 </head>
 <body>
@@ -45462,7 +45495,64 @@
         updateStatus('轨迹绘制完成');
     }
 
-    // 绘制轨迹点（打点）- 分批处理避免页面卡死
+    // Canvas轨迹点渲染器 - 高性能渲染大量轨迹点
+    let trackCanvasLayer = null;
+    
+    // 轨迹点渲染配置
+    const trackPointConfig = {
+        maxPointsForFullRender: 100000,    // 全量渲染的最大点数
+        maxPointsForBatchRender: 10000,   // 分批渲染的最大点数
+        batchSize: 1000,                  // 每批处理的点数
+        pointRadius: 0.5,                // 点的半径（像素）
+        pointOpacity: 0.8,                 // 点的透明度
+        useSimplification: true,           // 是否使用数据简化
+        simplificationTolerance: 0.00001  // 简化容差（度）
+    };
+    
+    // 创建Canvas图层用于轨迹点渲染
+    function createTrackCanvasLayer() {
+        if (trackCanvasLayer) {
+            map.removeLayer(trackCanvasLayer);
+        }
+        
+        trackCanvasLayer = L.canvas();
+        trackCanvasLayer.addTo(map);
+        return trackCanvasLayer;
+    }
+    
+    // 数据简化函数 - 减少点数但保持轨迹形状
+    function simplifyPoints(points, tolerance) {
+        if (points.length <= trackPointConfig.maxPointsForFullRender) {
+            return points;
+        }
+        
+        // 使用简单的距离过滤算法
+        const simplified = [points[0]];
+        let lastPoint = points[0];
+        
+        for (let i = 1; i < points.length; i++) {
+            const currentPoint = points[i];
+            const distance = Math.sqrt(
+                Math.pow(currentPoint.lat - lastPoint.lat, 2) + 
+                Math.pow(currentPoint.lng - lastPoint.lng, 2)
+            );
+            
+            if (distance > tolerance) {
+                simplified.push(currentPoint);
+                lastPoint = currentPoint;
+            }
+        }
+        
+        // 确保包含最后一个点
+        if (simplified[simplified.length - 1] !== points[points.length - 1]) {
+            simplified.push(points[points.length - 1]);
+        }
+        
+        console.log(`数据简化: ${points.length} -> ${simplified.length} 点`);
+        return simplified;
+    }
+
+    // 使用Canvas绘制轨迹点 - 高性能方案
     function showTrackPoints() {
         const trackText = document.getElementById('trackTextarea').value.trim();
         const timeRangeText = document.getElementById('timeRangeInput').value.trim();
@@ -45567,80 +45657,269 @@
         // 保存轨迹点用于回放
         playbackState.points = points;
 
-        // 分批绘制轨迹点，避免页面卡死
-        const batchSize = 100; // 每批处理100个点
+        // 使用Canvas渲染轨迹点
+        renderTrackPointsWithCanvas(points);
+    }
+
+    // Canvas渲染轨迹点 - 超高性能方案（支持海量数据）
+    function renderTrackPointsWithCanvas(points) {
+        const totalPoints = points.length;
+        updateStatus(`开始Canvas渲染轨迹点，共${totalPoints}个点...`);
+
+        // 数据简化处理（针对海量数据）
+        let renderPoints = points;
+        if (trackPointConfig.useSimplification && totalPoints > trackPointConfig.maxPointsForFullRender) {
+            renderPoints = simplifyPoints(points, trackPointConfig.simplificationTolerance);
+            updateStatus(`数据简化后，共${renderPoints.length}个点...`);
+        }
+
+        // 创建Canvas图层
+        createTrackCanvasLayer();
+        const canvasLayer = trackCanvasLayer;
+        
+        // 根据点数选择不同的渲染策略
+        if (renderPoints.length <= trackPointConfig.maxPointsForFullRender) {
+            // 小数据量 - 一次性渲染
+            renderAllPointsAtOnce(renderPoints, canvasLayer);
+        } else if (renderPoints.length <= trackPointConfig.maxPointsForBatchRender) {
+            // 中等数据量 - 分批渲染
+            renderPointsInBatches(renderPoints, canvasLayer);
+        } else {
+            // 大数据量 - 超大批量渲染
+            renderPointsInLargeBatches(renderPoints, canvasLayer);
+        }
+    }
+    
+    // 一次性渲染所有点（适合小数据量）
+    function renderAllPointsAtOnce(points, canvasLayer) {
+        requestAnimationFrame(() => {
+            try {
+                const circleMarkers = [];
+                const pointColor = currentTrackPointColor;
+                const radius = trackPointConfig.pointRadius;
+                
+                // 高效创建所有点
+                for (let i = 0; i < points.length; i++) {
+                    const point = points[i];
+                    const circleMarker = L.circleMarker([point.lat, point.lng], {
+                        radius: radius,
+                        fillColor: pointColor,
+                        color: pointColor,
+                        weight: 0,
+                        opacity: trackPointConfig.pointOpacity,
+                        fillOpacity: trackPointConfig.pointOpacity,
+                        renderer: canvasLayer,
+                        interactive: false,
+                        className: 'tiny-point'
+                    });
+
+                    circleMarker.on('click', function() {
+                        this.bindPopup(`轨迹点 ${i + 1}<br>时间: ${point.timestamp}`).openPopup();
+                    });
+
+                    circleMarkers.push(circleMarker);
+                }
+
+                // 批量添加到地图
+                const canvasPoints = L.layerGroup(circleMarkers);
+                canvasPoints.addTo(map);
+                trackLayerGroup.addLayer(canvasPoints);
+
+                // 自适应视野
+                adjustMapView(points);
+                
+                updateStatus(`Canvas渲染完成，共${points.length}个点`);
+                updatePlayerControls();
+                
+            } catch (error) {
+                console.error('Canvas渲染错误:', error);
+                updateStatus('Canvas渲染失败，回退到分批渲染');
+                renderPointsInBatches(points, canvasLayer);
+            }
+        });
+    }
+    
+    // 分批渲染（适合中等数据量）
+    function renderPointsInBatches(points, canvasLayer) {
+        const totalPoints = points.length;
+        const batchSize = trackPointConfig.batchSize;
         let currentBatch = 0;
         let processedCount = 0;
-        const totalPoints = points.length;
-        let isFirstPointProcessed = false; // 标记是否已处理第一个点
+        const pointColor = currentTrackPointColor;
+        const radius = trackPointConfig.pointRadius;
+        
+        function drawBatch() {
+            const startIdx = currentBatch * batchSize;
+            const endIdx = Math.min(startIdx + batchSize, totalPoints);
+            
+            const batchMarkers = [];
+            for (let i = startIdx; i < endIdx; i++) {
+                const point = points[i];
+                const circleMarker = L.circleMarker([point.lat, point.lng], {
+                    radius: radius,
+                    fillColor: pointColor,
+                    color: pointColor,
+                    weight: 0,
+                    opacity: trackPointConfig.pointOpacity,
+                    fillOpacity: trackPointConfig.pointOpacity,
+                    renderer: canvasLayer,
+                    interactive: false,
+                    className: 'tiny-point'
+                });
 
-        updateStatus(`开始绘制轨迹点，共${totalPoints}个点，分批处理中...`);
+                circleMarker.on('click', function() {
+                    this.bindPopup(`轨迹点 ${i + 1}<br>时间: ${point.timestamp}`).openPopup();
+                });
+
+                batchMarkers.push(circleMarker);
+            }
+
+            const batchLayer = L.layerGroup(batchMarkers);
+            batchLayer.addTo(map);
+            trackLayerGroup.addLayer(batchLayer);
+
+            processedCount += batchMarkers.length;
+            currentBatch++;
+
+            const progress = Math.round((processedCount / totalPoints) * 100);
+            updateStatus(`轨迹点渲染中... ${progress}% (${processedCount}/${totalPoints})`);
+
+            if (processedCount < totalPoints) {
+                setTimeout(drawBatch, 16); // 60fps的帧间隔
+            } else {
+                adjustMapView(points);
+                updateStatus(`Canvas渲染完成，共${totalPoints}个点`);
+                updatePlayerControls();
+            }
+        }
+
+        drawBatch();
+    }
+    
+    // 超大批量渲染（适合大数据量）
+    function renderPointsInLargeBatches(points, canvasLayer) {
+        const totalPoints = points.length;
+        const batchSize = trackPointConfig.batchSize * 2; // 更大的批次
+        let currentBatch = 0;
+        let processedCount = 0;
+        const pointColor = currentTrackPointColor;
+        const radius = trackPointConfig.pointRadius;
+        
+        function drawLargeBatch() {
+            const startIdx = currentBatch * batchSize;
+            const endIdx = Math.min(startIdx + batchSize, totalPoints);
+            
+            const batchMarkers = [];
+            for (let i = startIdx; i < endIdx; i++) {
+                const point = points[i];
+                const circleMarker = L.circleMarker([point.lat, point.lng], {
+                    radius: radius,
+                    fillColor: pointColor,
+                    color: pointColor,
+                    weight: 0,
+                    opacity: trackPointConfig.pointOpacity,
+                    fillOpacity: trackPointConfig.pointOpacity,
+                    renderer: canvasLayer,
+                    interactive: false,
+                    className: 'tiny-point'
+                });
+
+                circleMarker.on('click', function() {
+                    this.bindPopup(`轨迹点 ${i + 1}<br>时间: ${point.timestamp}`).openPopup();
+                });
+
+                batchMarkers.push(circleMarker);
+            }
+
+            const batchLayer = L.layerGroup(batchMarkers);
+            batchLayer.addTo(map);
+            trackLayerGroup.addLayer(batchLayer);
+
+            processedCount += batchMarkers.length;
+            currentBatch++;
+
+            const progress = Math.round((processedCount / totalPoints) * 100);
+            updateStatus(`轨迹点渲染中... ${progress}% (${processedCount}/${totalPoints})`);
+
+            if (processedCount < totalPoints) {
+                setTimeout(drawLargeBatch, 32); // 更长的间隔，避免阻塞
+            } else {
+                adjustMapView(points);
+                updateStatus(`Canvas渲染完成，共${totalPoints}个点`);
+                updatePlayerControls();
+            }
+        }
+
+        drawLargeBatch();
+    }
+    
+    // 调整地图视野
+    function adjustMapView(points) {
+        if (points.length === 1) {
+            map.setView([points[0].lat, points[0].lng], map.getZoom());
+        } else {
+            const bounds = L.latLngBounds(points.map(p => [p.lat, p.lng]));
+            map.fitBounds(bounds.pad(0.1));
+        }
+    }
+
+    // 回退方案：分批DOM渲染（用于Canvas失败的情况）
+    function renderTrackPointsWithBatch(points) {
+        const totalPoints = points.length;
+        const batchSize = 500; // 增大批次大小
+        let currentBatch = 0;
+        let processedCount = 0;
 
         function drawBatch() {
             const startIdx = currentBatch * batchSize;
             const endIdx = Math.min(startIdx + batchSize, totalPoints);
             const batchPoints = points.slice(startIdx, endIdx);
 
-            // 绘制当前批次的点
+            // 批量创建CircleMarker（使用Canvas渲染）
+            const batchLayer = L.layerGroup();
             batchPoints.forEach((point, index) => {
                 const actualIndex = startIdx + index;
                 
-                // 如果是第一个点，先将地图中心移至该点，不改变缩放级别
-                if (!isFirstPointProcessed && actualIndex === 0) {
-                    map.setView([point.lat, point.lng], map.getZoom()); // 保持当前缩放级别，仅居中显示
-                    isFirstPointProcessed = true;
-                }
-                
-                // 创建极小的DivIcon
-                const tinyIcon = L.divIcon({
-                    className: 'tiny-track-point',
-                    html: `<div style="width: 1px; height: 1px; background-color: ${currentTrackPointColor}; border-radius: 50%;"></div>`,
-                    iconSize: [1, 1],
-                    iconAnchor: [0.5, 0.5]
+                const circleMarker = L.circleMarker([point.lat, point.lng], {
+                    radius: 0.5,
+                    fillColor: currentTrackPointColor,
+                    color: currentTrackPointColor,
+                    weight: 0,
+                    opacity: 0.8,
+                    fillOpacity: 0.8,
+                    interactive: false
                 });
 
-                const marker = L.marker([point.lat, point.lng], {
-                    icon: tinyIcon,
-                    opacity: 0.8
+                circleMarker.on('click', function() {
+                    this.bindPopup(`轨迹点 ${actualIndex + 1}<br>时间: ${point.timestamp}`).openPopup();
                 });
 
-                marker.bindPopup(`轨迹点 ${actualIndex + 1}<br>时间: ${point.timestamp}`);
-                trackLayerGroup.addLayer(marker);
+                batchLayer.addLayer(circleMarker);
             });
+
+            batchLayer.addTo(map);
+            trackLayerGroup.addLayer(batchLayer);
 
             processedCount += batchPoints.length;
             currentBatch++;
 
-            // 更新进度状态
             const progress = Math.round((processedCount / totalPoints) * 100);
             updateStatus(`轨迹点绘制中... ${progress}% (${processedCount}/${totalPoints})`);
 
-            // 如果还有未处理的点，继续下一批
             if (processedCount < totalPoints) {
-                // 使用setTimeout让浏览器有时间处理其他任务，避免卡死
-                setTimeout(drawBatch, 10);
+                setTimeout(drawBatch, 50); // 增加间隔时间
             } else {
-                // 所有点绘制完成
-                // 自适应视野（如果只有一个点，保持当前缩放级别；如果有多个点，调整至合适的视野）
                 if (totalPoints === 1) {
-                    // 单个点，保持之前设置的缩放级别和中心点
+                    map.setView([points[0].lat, points[0].lng], map.getZoom());
                 } else {
-                    // 多个点，调整视野以显示所有点
-                    const group = new L.featureGroup(trackLayerGroup.getLayers());
-                    map.fitBounds(group.getBounds().pad(0.1));
+                    const bounds = L.latLngBounds(points.map(p => [p.lat, p.lng]));
+                    map.fitBounds(bounds.pad(0.1));
                 }
-
-                // 更新播放器控制状态
-                updatePlayerControls();
-
                 updateStatus(`轨迹点绘制完成，共${totalPoints}个点`);
-                
-                // 更新播放器控制状态
                 updatePlayerControls();
             }
         }
 
-        // 开始第一批绘制
         drawBatch();
     }
 
