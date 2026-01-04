@@ -155,10 +155,10 @@ public class TestUtilGis {
     }
 
     void 测试拆分数据(String did, String startTime, String endTime, double jobWidth) {
-        测试拆分数据(did, startTime, endTime, jobWidth, true, null);
+        测试拆分数据(did, startTime, endTime, jobWidth, true, null, false);
     }
 
-    void 测试拆分数据(String did, String startTime, String endTime, double jobWidth, boolean check4031, Integer samplingInterval) {
+    void 测试拆分数据(String did, String startTime, String endTime, double jobWidth, Boolean check4031, Integer samplingInterval, Boolean updateFarmWorkTable) {
         String fileName = path + StrUtil.format("/{}_{}_{}_protocol.txt", did, startTime, endTime);
         if (!FileUtil.exist(fileName)) {
             return;
@@ -182,7 +182,7 @@ public class TestUtilGis {
                     wgs84Point.setJobStatus(2);//ACC关闭，认为是没有作业
                 }
             }
-            if (check4031 && protocol.containsKey("4031")) {// 作业标识,1作业,0非作业,2暂停
+            if (check4031 != null && check4031 && protocol.containsKey("4031")) {// 作业标识,1作业,0非作业,2暂停
                 if (!Convert.toStr(protocol.get("4031")).equals("1")) {
                     wgs84Point.setJobStatus(2);//作业标识不是1，认为是没有作业
                 }
@@ -223,6 +223,23 @@ public class TestUtilGis {
             gaussXyList.add(StrUtil.format("{},{}", gaussPoint.getGaussX(), gaussPoint.getGaussY()));
         }
         FileUtil.writeUtf8Lines(gaussXyList, fileName);
+
+        if (updateFarmWorkTable != null && updateFarmWorkTable) {
+            // 直接更新farm_work表的复算亩数以及WKT
+            Db mysqlDb = getMysqlDb();
+            String sql = StrUtil.format(ResourceUtil.readUtf8Str("updateFarmWork.sql"),
+                    splitResult.getMu(),
+                    splitResult.getWkt(),
+                    did,
+                    LocalDateTimeUtil.format(splitResult.getEndTime(), "yyyy-MM-dd HH:mm:ss")
+            );
+            log.info(sql);
+            try {
+                mysqlDb.execute(sql);
+            } catch (SQLException e) {
+                log.error(e);
+            }
+        }
     }
 
     void 生成HTML(String did, String startTime, String endTime) {
@@ -657,7 +674,7 @@ public class TestUtilGis {
         String endTime = yyyyMMdd + "235959";
         double jobWidth = 2.3;
         生成数据文件(did, startTime, endTime);
-        测试拆分数据(did, startTime, endTime, jobWidth, false, 5);
+        测试拆分数据(did, startTime, endTime, jobWidth, false, 5, false);
         生成HTML(did, startTime, endTime);
     }
 
@@ -907,6 +924,101 @@ public class TestUtilGis {
         生成HTML(did, startTime, endTime);
     }
 
+    @Test
+    void 测试1秒间隔037() {
+        // 所有地块都能识别出来
+        String did = "EC73BD2507220006";
+        String startTime = "20251122064119";
+        String endTime = "20251122172331";
+        double jobWidth = 3;
+        生成数据文件(did, startTime, endTime);
+        测试拆分数据(did, startTime, endTime, jobWidth, null, null, true);
+        生成HTML(did, startTime, endTime);
+    }
+
+    @Test
+    void 测试1秒间隔038() {
+        // 所有地块都能识别出来
+        String did = "EC73BD2507220006";
+        String startTime = "20251123033002";
+        String endTime = "20251123172703";
+        double jobWidth = 3;
+        生成数据文件(did, startTime, endTime);
+        测试拆分数据(did, startTime, endTime, jobWidth, null, null, true);
+        生成HTML(did, startTime, endTime);
+    }
+
+    @Test
+    void 测试1秒间隔039() {
+        // 所有地块都能识别出来
+        String did = "EC73BD2507220006";
+        String startTime = "20251121065600";
+        String endTime = "20251121175057";
+        double jobWidth = 3;
+        生成数据文件(did, startTime, endTime);
+        测试拆分数据(did, startTime, endTime, jobWidth, null, null, true);
+        生成HTML(did, startTime, endTime);
+    }
+
+    @Test
+    void 测试1秒间隔040() {
+        // 所有地块都能识别出来
+        String did = "EC73BD2507220006";
+        String startTime = "20251120054614";
+        String endTime = "20251120171321";
+        double jobWidth = 3;
+        生成数据文件(did, startTime, endTime);
+        测试拆分数据(did, startTime, endTime, jobWidth, null, null, true);
+        生成HTML(did, startTime, endTime);
+    }
+
+    @Test
+    void 测试1秒间隔041() {
+        // 所有地块都能识别出来
+        String did = "EC73BD2507220006";
+        String startTime = "20251113094136";
+        String endTime = "20251113164045";
+        double jobWidth = 3;
+        生成数据文件(did, startTime, endTime);
+        测试拆分数据(did, startTime, endTime, jobWidth, null, null, true);
+        生成HTML(did, startTime, endTime);
+    }
+
+    @Test
+    void 测试1秒间隔042() {
+        // 所有地块都能识别出来
+        String did = "EC73BD2507220006";
+        String startTime = "20251110122141";
+        String endTime = "20251110172259";
+        double jobWidth = 3;
+        生成数据文件(did, startTime, endTime);
+        测试拆分数据(did, startTime, endTime, jobWidth, null, null, true);
+        生成HTML(did, startTime, endTime);
+    }
+
+    @Test
+    void 测试1秒间隔043() {
+        // 所有地块都能识别出来
+        String did = "EC73BD2507220006";
+        String startTime = "20251110075655";
+        String endTime = "20251110113009";
+        double jobWidth = 3;
+        生成数据文件(did, startTime, endTime);
+        测试拆分数据(did, startTime, endTime, jobWidth, null, null, true);
+        生成HTML(did, startTime, endTime);
+    }
+
+    @Test
+    void 测试1秒间隔044() {
+        // 所有地块都能识别出来
+        String did = "EC73BD2507220006";
+        String startTime = "20251122064119";
+        String endTime = "20251122172331";
+        double jobWidth = 3;
+        生成数据文件(did, startTime, endTime);
+        测试拆分数据(did, startTime, endTime, jobWidth, null, null, true);
+        生成HTML(did, startTime, endTime);
+    }
 
     @Test
     void 测试10秒间隔001() {
@@ -1007,8 +1119,45 @@ public class TestUtilGis {
         String endTime = "20250526235959";
         double jobWidth = 2.6;
         生成数据文件(did, startTime, endTime);
-        测试拆分数据(did, startTime, endTime, jobWidth, false, 15);
+        测试拆分数据(did, startTime, endTime, jobWidth, false, 15, false);
         生成HTML(did, startTime, endTime);
+    }
+
+    @Test
+    void 测试EC73设备() throws SQLException {
+        String sql = ResourceUtil.readUtf8Str("EC73.sql");
+        Db db = getMysqlDb();
+        List<Entity> list = db.query(sql);
+        for (Entity entity : list) {
+            log.debug("{}", entity);
+
+            String did = entity.getStr("did");
+            double jobWidth = entity.getDouble("jobWidth");
+            Date jobStartTime = entity.getDate("jobStartTime");
+            Date jobEndTime = entity.getDate("jobEndTime");
+
+            // 判断jobStartTime和jobEndTime是否是在一天中
+            if (DateUtil.isSameDay(jobStartTime, jobEndTime)) {
+                String day = DateUtil.format(jobStartTime, "yyyyMMdd");
+                String startTime = day + "000000";
+                String endTime = day + "235959";
+                log.debug("{} {} {}", did, startTime, endTime);
+                生成数据文件(did, startTime, endTime);
+                测试拆分数据(did, startTime, endTime, jobWidth);
+                生成HTML(did, startTime, endTime);
+            } else {
+                // 如果跨天了，那么按天切割成多段
+                for (DateTime dateTime : DateUtil.range(jobStartTime, jobEndTime, DateField.DAY_OF_YEAR)) {
+                    String day = DateUtil.format(dateTime, "yyyyMMdd");
+                    String startTime = day + "000000";
+                    String endTime = day + "235959";
+                    log.debug("{} {} {}", did, startTime, endTime);
+                    生成数据文件(did, startTime, endTime);
+                    测试拆分数据(did, startTime, endTime, jobWidth);
+                    生成HTML(did, startTime, endTime);
+                }
+            }
+        }
     }
 
     @Test

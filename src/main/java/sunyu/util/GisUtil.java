@@ -158,7 +158,7 @@ public class GisUtil implements AutoCloseable {
         /**
          * 最大返回聚类簇数，超过这个数量认为聚类过多，应该调大eps和minPts参数，再重新聚类
          */
-        private final int MAX_RETURN_CLUSTERS = 10;
+        private final int MAX_RETURN_CLUSTERS = 8;
 
         /**
          * 最小缓冲区距离（米）
@@ -3840,7 +3840,6 @@ public class GisUtil implements AutoCloseable {
         // 【自适应优化】聚类过多时放宽参数，避免过度分割
         if (clusters.size() > config.MAX_RETURN_CLUSTERS) {
             eps = eps * 2;      // 扩大邻域半径
-            minPts = minPts * 2; // 增加最小点数
             clusters = dbScanClusters(gaussPoints, eps, minPts);
             log.info("聚类完成，总共有 {} 个聚类簇", clusters.size());
         }
