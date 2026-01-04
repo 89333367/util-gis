@@ -143,7 +143,7 @@ public class GisUtil implements AutoCloseable {
          * 当一个区域内的点数量小于此值时，被认为是噪声点或异常值，不会被分配到任何聚类中。
          * </p>
          */
-        private final int DBSCAN_MIN_POINTS = 20;
+        private final int DBSCAN_MIN_POINTS = 16;
 
         /**
          * 最大切分时间间隔（秒）
@@ -3719,7 +3719,7 @@ public class GisUtil implements AutoCloseable {
      * @since 1.0.0
      */
     public SplitResult splitRoad(List<Wgs84Point> wgs84Points, double workingWidth) {
-        return splitRoad(wgs84Points, workingWidth, null);
+        return splitRoad(wgs84Points, workingWidth, null, config.DBSCAN_MIN_POINTS);
     }
 
     /**
@@ -3769,6 +3769,7 @@ public class GisUtil implements AutoCloseable {
      * @param wgs84Points      输入的WGS84坐标系下的点列表（Wgs84Point类型）
      * @param workingWidth     作业幅宽（米），必须≥1米
      * @param samplingInterval 数据采集时间间隔（秒），可以为null，传null会自动计算最小上报时间间隔
+     * @param dbScanMinPoints  空间聚类算法最小点参数，可以为null，传null会使用默认值 config.DBSCAN_MIN_POINTS
      *
      * @return 拆分后的作业轨迹结果（SplitResult类型），包含作业区域几何图形、面积、时间段等信息
      *
@@ -3777,7 +3778,7 @@ public class GisUtil implements AutoCloseable {
      * @see #optimizeLandParcelIntersectionRepair(Map, Map) 地块相交修复算法
      * @since 1.0.0
      */
-    public SplitResult splitRoad(List<Wgs84Point> wgs84Points, double workingWidth, Integer samplingInterval) {
+    public SplitResult splitRoad(List<Wgs84Point> wgs84Points, double workingWidth, Integer samplingInterval, Integer dbScanMinPoints) {
         // 【性能监控】记录算法开始时间，用于耗时统计和性能优化
         long splitRoadStartTime = System.currentTimeMillis();
 
@@ -3825,6 +3826,9 @@ public class GisUtil implements AutoCloseable {
         double eps = config.DBSCAN_EPSILON * minEffectiveInterval;
         // 由于最小间隔时间超过10秒后，聚类的最小点位数量再增多就会识别不出来聚类簇，所以这里限制一下，最大只乘10倍
         int minPts = config.DBSCAN_MIN_POINTS;
+        if (dbScanMinPoints != null) {
+            minPts = dbScanMinPoints;
+        }
 
         // 【坐标转换】WGS84转高斯投影，保证距离计算和几何操作的精度
         List<GaussPoint> gaussPoints = toGaussPointList(wgs84Points);
