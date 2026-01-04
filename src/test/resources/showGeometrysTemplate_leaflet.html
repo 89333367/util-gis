@@ -34,9 +34,6 @@
     <!-- WKT解析库 -->
     <script src="https://unpkg.com/wellknown@0.5.0/wellknown.js"></script>
 
-    <!-- Leaflet Geometry Util for area calculation -->
-    <script src="https://unpkg.com/leaflet-geometryutil@0.11.0/src/leaflet.geometryutil.js"></script>
-
     <style>
         * {
             margin: 0;
@@ -921,7 +918,9 @@
     let map;
     let currentMapType = 'street';
     let currentBaseLayer;
+    let currentBaseLabelLayer; // 街道图标注图层
     let currentSatelliteLayer;
+    let currentSatelliteLabelLayer; // 卫星图标注图层
 
     // 图层组
     let outlineLayerGroup;
@@ -1198,11 +1197,9 @@
         updatePlayerControls();
     }
 
-    // 添加基础图层
-    function addBaseLayers() {
-        console.log('addBaseLayers called');
-
-        // 天地图街道图
+    // 创建街道图图层（直接创建单个图层，不使用图层组）
+    function createStreetLayer() {
+        console.log('createStreetLayer called');
         const tk = TIANDITU_MAP_TK;
 
         // 天地图街道图 - 使用XYZ瓦片服务
@@ -1213,6 +1210,26 @@
             subdomains: ['0', '1', '2', '3', '4', '5', '6', '7']
         });
 
+        // 添加街道图图层加载事件监听
+        vecLayer.on('load', function() {
+            console.log('天地图街道图层加载完成');
+            updateStatus('天地图街道图层加载完成');
+        });
+
+        vecLayer.on('error', function(e) {
+            console.error('天地图街道图层加载错误:', e);
+            updateStatus('天地图街道图层加载失败');
+        });
+
+        console.log('Street layer created');
+        return vecLayer;
+    }
+    
+    // 创建街道图标注图层
+    function createStreetLabelLayer() {
+        console.log('createStreetLabelLayer called');
+        const tk = TIANDITU_MAP_TK;
+        
         // 天地图街道图标注
         const cvaLayer = L.tileLayer(`https://t{s}.tianditu.gov.cn/cva_w/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=cva&STYLE=default&TILEMATRIXSET=w&FORMAT=tiles&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}&tk=${tk}`, {
             attribution: '© 天地图',
@@ -1220,6 +1237,15 @@
             tileSize: 256,
             subdomains: ['0', '1', '2', '3', '4', '5', '6', '7']
         });
+        
+        console.log('Street label layer created');
+        return cvaLayer;
+    }
+
+    // 创建卫星图图层（直接创建单个图层，不使用图层组）
+    function createSatelliteLayer() {
+        console.log('createSatelliteLayer called');
+        const tk = TIANDITU_MAP_TK;
 
         // 天地图卫星图 - 使用XYZ瓦片服务
         const imgLayer = L.tileLayer(`https://t{s}.tianditu.gov.cn/img_w/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=img&STYLE=default&TILEMATRIXSET=w&FORMAT=tiles&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}&tk=${tk}`, {
@@ -1229,28 +1255,10 @@
             subdomains: ['0', '1', '2', '3', '4', '5', '6', '7']
         });
 
-        // 天地图卫星图标注
-        const ciaLayer = L.tileLayer(`https://t{s}.tianditu.gov.cn/cia_w/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=cia&STYLE=default&TILEMATRIXSET=w&FORMAT=tiles&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}&tk=${tk}`, {
-            attribution: '© 天地图',
-            maxZoom: 18,
-            tileSize: 256,
-            subdomains: ['0', '1', '2', '3', '4', '5', '6', '7']
-        });
-
-        // 添加图层加载事件监听
-        vecLayer.on('load', function() {
-            console.log('天地图街道图层加载完成');
-            updateStatus('天地图街道图层加载完成');
-        });
-
+        // 添加卫星图图层加载事件监听
         imgLayer.on('load', function() {
             console.log('天地图卫星图层加载完成');
             updateStatus('天地图卫星图层加载完成');
-        });
-
-        vecLayer.on('error', function(e) {
-            console.error('天地图街道图层加载错误:', e);
-            updateStatus('天地图街道图层加载失败');
         });
 
         imgLayer.on('error', function(e) {
@@ -1258,18 +1266,90 @@
             updateStatus('天地图卫星图层加载失败');
         });
 
-        // 创建图层组
-        currentBaseLayer = L.layerGroup([vecLayer, cvaLayer]);
-        currentSatelliteLayer = L.layerGroup([imgLayer, ciaLayer]);
+        console.log('Satellite layer created');
+        return imgLayer;
+    }
+    
+    // 创建卫星图标注图层
+    function createSatelliteLabelLayer() {
+        console.log('createSatelliteLabelLayer called');
+        const tk = TIANDITU_MAP_TK;
+        
+        // 天地图卫星图标注
+        const ciaLayer = L.tileLayer(`https://t{s}.tianditu.gov.cn/cia_w/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=cia&STYLE=default&TILEMATRIXSET=w&FORMAT=tiles&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}&tk=${tk}`, {
+            attribution: '© 天地图',
+            maxZoom: 18,
+            tileSize: 256,
+            subdomains: ['0', '1', '2', '3', '4', '5', '6', '7']
+        });
+        
+        console.log('Satellite label layer created');
+        return ciaLayer;
+    }
 
-        console.log('currentBaseLayer created:', currentBaseLayer);
-        console.log('currentSatelliteLayer created:', currentSatelliteLayer);
-
-        // 默认显示卫星图
-        currentSatelliteLayer.addTo(map);
-
-        console.log('Satellite layer added to map');
-        console.log('currentMapType initialized to: satellite');
+    // 添加基础图层（仅在需要时创建）
+    function addBaseLayers() {
+        console.log('addBaseLayers called');
+        
+        // 停止所有瓦片图层的加载
+        if (currentBaseLayer) {
+            currentBaseLayer.setOpacity(0);
+            setTimeout(() => {
+                if (map.hasLayer(currentBaseLayer)) {
+                    map.removeLayer(currentBaseLayer);
+                }
+                currentBaseLayer = null;
+            }, 100);
+        }
+        
+        if (currentBaseLabelLayer) {
+            currentBaseLabelLayer.setOpacity(0);
+            setTimeout(() => {
+                if (map.hasLayer(currentBaseLabelLayer)) {
+                    map.removeLayer(currentBaseLabelLayer);
+                }
+                currentBaseLabelLayer = null;
+            }, 100);
+        }
+        
+        if (currentSatelliteLayer) {
+            currentSatelliteLayer.setOpacity(0);
+            setTimeout(() => {
+                if (map.hasLayer(currentSatelliteLayer)) {
+                    map.removeLayer(currentSatelliteLayer);
+                }
+                currentSatelliteLayer = null;
+            }, 100);
+        }
+        
+        if (currentSatelliteLabelLayer) {
+            currentSatelliteLabelLayer.setOpacity(0);
+            setTimeout(() => {
+                if (map.hasLayer(currentSatelliteLabelLayer)) {
+                    map.removeLayer(currentSatelliteLabelLayer);
+                }
+                currentSatelliteLabelLayer = null;
+            }, 100);
+        }
+        
+        // 延迟创建新图层，确保旧图层的请求已经停止
+        setTimeout(() => {
+            // 根据当前地图类型创建并添加新图层
+            if (currentMapType === 'satellite') {
+                console.log('Adding satellite map layer');
+                currentSatelliteLayer = createSatelliteLayer();
+                currentSatelliteLabelLayer = createSatelliteLabelLayer();
+                currentSatelliteLayer.addTo(map);
+                currentSatelliteLabelLayer.addTo(map);
+            } else {
+                console.log('Adding street map layer');
+                currentBaseLayer = createStreetLayer();
+                currentBaseLabelLayer = createStreetLabelLayer();
+                currentBaseLayer.addTo(map);
+                currentBaseLabelLayer.addTo(map);
+            }
+            console.log('Base layer added:', currentMapType);
+        }, 150);
     }
 
     // 绑定地图事件
@@ -4220,39 +4300,32 @@
         console.log('toggleMapType called, currentMapType:', currentMapType);
         console.log('map:', map);
         console.log('currentBaseLayer:', currentBaseLayer);
+        console.log('currentBaseLabelLayer:', currentBaseLabelLayer);
         console.log('currentSatelliteLayer:', currentSatelliteLayer);
+        console.log('currentSatelliteLabelLayer:', currentSatelliteLabelLayer);
 
         if (!map) {
             console.error('Map not initialized');
             return;
         }
 
-        if (!currentBaseLayer || !currentSatelliteLayer) {
-            console.error('Layers not properly initialized');
-            updateStatus('图层未正确初始化');
-            return;
-        }
-
         const mapTypeBtn = document.getElementById('mapTypeBtn');
 
         try {
+            // 切换地图类型
+            currentMapType = currentMapType === 'street' ? 'satellite' : 'street';
+
+            // 更新按钮状态
             if (currentMapType === 'street') {
-                console.log('Switching to satellite map');
-                // 切换到卫星图
-                map.removeLayer(currentBaseLayer);
-                map.addLayer(currentSatelliteLayer);
-                currentMapType = 'satellite';
-                mapTypeBtn.innerHTML = '🛰️ 卫星图';
-                mapTypeBtn.title = '当前：卫星图，点击切换街道图';
-            } else {
-                console.log('Switching to street map');
-                // 切换到街道图
-                map.removeLayer(currentSatelliteLayer);
-                map.addLayer(currentBaseLayer);
-                currentMapType = 'street';
                 mapTypeBtn.innerHTML = '🗺️ 街道图';
                 mapTypeBtn.title = '当前：街道图，点击切换卫星图';
+            } else {
+                mapTypeBtn.innerHTML = '🛰️ 卫星图';
+                mapTypeBtn.title = '当前：卫星图，点击切换街道图';
             }
+
+            // 使用addBaseLayers函数来统一管理图层的添加和移除
+            addBaseLayers();
 
             updateStatus(`已切换到${currentMapType === 'street' ? '街道图' : '卫星图'}`);
             console.log('Map type switched successfully to:', currentMapType);
