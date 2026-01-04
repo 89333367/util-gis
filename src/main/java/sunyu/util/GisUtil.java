@@ -143,7 +143,7 @@ public class GisUtil implements AutoCloseable {
          * 当一个区域内的点数量小于此值时，被认为是噪声点或异常值，不会被分配到任何聚类中。
          * </p>
          */
-        private final int DBSCAN_MIN_POINTS = 18;
+        private final int DBSCAN_MIN_POINTS = 20;
 
         /**
          * 最大切分时间间隔（秒）

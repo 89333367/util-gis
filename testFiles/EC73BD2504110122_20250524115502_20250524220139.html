@@ -36587,7 +36587,7 @@ POLYGON ((118.9955365172286 29.063480132089758, 118.99553370702247 29.0634825376
     // 颜色配置
     let currentOutlineColor = "#FFD700";
     let currentFillColor = "#FFFF00";
-    let currentFillOpacity = 0.8;
+    let currentFillOpacity = 0.5;
     let currentTrackLineColor = "#FF0000";
     let currentTrackPointColor = "#68EAF3";
 
@@ -36601,16 +36601,16 @@ POLYGON ((118.9955365172286 29.063480132089758, 118.99553370702247 29.0634825376
 
     // 多边形颜色方案
     const polygonColors = [
-        { outline: "#FFD700", fill: "#FFFF00", opacity: 0.6 },
-        { outline: "#FF0000", fill: "#FF6666", opacity: 0.6 },
-        { outline: "#00FF00", fill: "#66FF66", opacity: 0.6 },
-        { outline: "#0000FF", fill: "#6666FF", opacity: 0.6 },
-        { outline: "#FF00FF", fill: "#FF66FF", opacity: 0.6 },
-        { outline: "#00FFFF", fill: "#66FFFF", opacity: 0.6 },
-        { outline: "#FFA500", fill: "#FFCC66", opacity: 0.6 },
-        { outline: "#800080", fill: "#CC66CC", opacity: 0.6 },
-        { outline: "#008000", fill: "#66CC66", opacity: 0.6 },
-        { outline: "#800000", fill: "#CC6666", opacity: 0.6 }
+        { outline: "#FFD700", fill: "#FFFF00", opacity: 0.5 },
+        { outline: "#FF0000", fill: "#FF6666", opacity: 0.5 },
+        { outline: "#00FF00", fill: "#66FF66", opacity: 0.5 },
+        { outline: "#0000FF", fill: "#6666FF", opacity: 0.5 },
+        { outline: "#FF00FF", fill: "#FF66FF", opacity: 0.5 },
+        { outline: "#00FFFF", fill: "#66FFFF", opacity: 0.5 },
+        { outline: "#FFA500", fill: "#FFCC66", opacity: 0.5 },
+        { outline: "#800080", fill: "#CC66CC", opacity: 0.5 },
+        { outline: "#008000", fill: "#66CC66", opacity: 0.5 },
+        { outline: "#800000", fill: "#CC6666", opacity: 0.5 }
     ];
 
     // 显示播放器
@@ -36817,7 +36817,7 @@ POLYGON ((118.9955365172286 29.063480132089758, 118.99553370702247 29.0634825376
         console.log('addBaseLayers called');
 
         // 天地图街道图
-        const tk = "9ed3674d01dd7c129ab38e3c38bf651a";
+        const tk = TIANDITU_MAP_TK;
 
         // 天地图街道图 - 使用XYZ瓦片服务
         const vecLayer = L.tileLayer(`https://t{s}.tianditu.gov.cn/vec_w/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=vec&STYLE=default&TILEMATRIXSET=w&FORMAT=tiles&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}&tk=${tk}`, {
@@ -37016,7 +37016,7 @@ POLYGON ((118.9955365172286 29.063480132089758, 118.99553370702247 29.0634825376
     // 天地图逆地理编码
     function getAddressFromTianDiTu(lat, lng) {
         // 使用天地图逆地理编码API，使用后台tk
-        const tk = "9ed3674d01dd7c129ab38e3c38bf651a";
+        const tk = TIANDITU_MAP_TK;
         const postStr = `{'lon':${lng},'lat':${lat},'ver':1}`;
         const url = `https://api.tianditu.gov.cn/geocoder?postStr=${postStr}&type=geocode&tk=${tk}`;
 
@@ -38044,7 +38044,7 @@ POLYGON ((118.9955365172286 29.063480132089758, 118.99553370702247 29.0634825376
         maxPointsForBatchRender: 10000,   // 分批渲染的最大点数
         batchSize: 1000,                  // 每批处理的点数
         pointRadius: 0.5,                // 点的半径（像素）
-        pointOpacity: 0.8,                 // 点的透明度
+        pointOpacity: 1,                 // 点的透明度
         useSimplification: true,           // 是否使用数据简化
         simplificationTolerance: 0.00001  // 简化容差（度）
     };
@@ -38425,8 +38425,8 @@ POLYGON ((118.9955365172286 29.063480132089758, 118.99553370702247 29.0634825376
                     fillColor: currentTrackPointColor,
                     color: currentTrackPointColor,
                     weight: 0,
-                    opacity: 0.8,
-                    fillOpacity: 0.8,
+                    opacity: trackPointConfig.pointOpacity,
+                    fillOpacity: trackPointConfig.pointOpacity,
                     interactive: true
                 });
 
@@ -38649,7 +38649,7 @@ POLYGON ((118.9955365172286 29.063480132089758, 118.99553370702247 29.0634825376
             playbackState.polyline = L.polyline(latlngs, {
                 color: currentTrackLineColor,
                 weight: 1,
-                opacity: 0.6
+                opacity: 1
             }).addTo(map);
 
             // 创建回放标记（使用过滤后的第一个点）
@@ -38660,7 +38660,7 @@ POLYGON ((118.9955365172286 29.063480132089758, 118.99553370702247 29.0634825376
                 color: '#FFFFFF',
                 weight: 0.5,
                 opacity: 1,
-                fillOpacity: 0.8
+                fillOpacity: 1
             }).addTo(map);
 
             // 自适应视野到轨迹范围
@@ -38930,7 +38930,7 @@ POLYGON ((118.9955365172286 29.063480132089758, 118.99553370702247 29.0634825376
                 color: '#FFFFFF',
                 weight: 0.5,
                 opacity: 1,
-                fillOpacity: 0.8
+                fillOpacity: 1
             }).addTo(map);
         }
 
@@ -38939,7 +38939,7 @@ POLYGON ((118.9955365172286 29.063480132089758, 118.99553370702247 29.0634825376
             playbackState.polyline = L.polyline(latlngs, {
                 color: currentTrackLineColor,
                 weight: 1,
-                opacity: 0.6
+                opacity: 1
             }).addTo(map);
         }
 
@@ -39005,7 +39005,7 @@ POLYGON ((118.9955365172286 29.063480132089758, 118.99553370702247 29.0634825376
             playbackState.polyline = L.polyline(latlngs, {
                 color: currentTrackLineColor,
                 weight: 1,
-                opacity: 0.6
+                opacity: 1
             }).addTo(map);
 
             // 创建回放标记（使用过滤后的第一个点）
@@ -39016,7 +39016,7 @@ POLYGON ((118.9955365172286 29.063480132089758, 118.99553370702247 29.0634825376
                 color: '#FFFFFF',
                 weight: 0.5,
                 opacity: 1,
-                fillOpacity: 0.8
+                fillOpacity: 1
             }).addTo(map);
 
             // 自适应视野到轨迹范围
@@ -39464,7 +39464,7 @@ POLYGON ((118.9955365172286 29.063480132089758, 118.99553370702247 29.0634825376
                 weight: 1,
                 opacity: 1,
                 fillColor: currentFillColor,
-                fillOpacity: 0.8
+                fillOpacity: 0.5
             });
 
             measureLayerGroup.addLayer(measureState.polygon);
@@ -39495,8 +39495,8 @@ POLYGON ((118.9955365172286 29.063480132089758, 118.99553370702247 29.0634825376
 
         measureState.tempLine = L.polyline(tempCoords, {
             color: '#FFFF00',
-            weight: 2,
-            opacity: 0.8,
+            weight: 1,
+            opacity: 1,
             dashArray: '5, 5'
         });
 
@@ -39515,7 +39515,7 @@ POLYGON ((118.9955365172286 29.063480132089758, 118.99553370702247 29.0634825376
             weight: 1,
             opacity: 1,
             fillColor: currentFillColor,
-            fillOpacity: 0.8
+            fillOpacity: 0.5
         });
 
         measureLayerGroup.addLayer(measureState.polygon);
@@ -39636,7 +39636,7 @@ POLYGON ((118.9955365172286 29.063480132089758, 118.99553370702247 29.0634825376
                 weight: 1,
                 opacity: 1,
                 fillColor: currentFillColor,
-                fillOpacity: 0.8
+                fillOpacity: 0.5
             });
 
             measureLayerGroup.addLayer(measureState.polygon);
@@ -40337,9 +40337,13 @@ POLYGON ((118.9955365172286 29.063480132089758, 118.99553370702247 29.0634825376
     // 页面加载完成后自动调用轨迹和轮廓绘制功能
     document.addEventListener('DOMContentLoaded', function() {
         // 先调用轨迹TAB中的轨迹按钮方法
-        drawTrack();
-        // 再调用轮廓TAB中的回执轮廓方法
-        drawOutline();
+        // drawTrack();
+        // 先调用轨迹TAB中的打点按钮方法
+        showTrackPoints();
+        setTimeout(() => {
+            // 再调用轮廓TAB中的回执轮廓方法
+            drawOutline();
+        },1000);
     });
 </script>
 </body>

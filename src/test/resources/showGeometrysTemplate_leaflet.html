@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>几何图形展示模板 - Leaflet版</title>
+    <title>地块轮廓及亩数展示</title>
 
     <!-- API密钥配置 - 本地文件环境使用百度地图，Web环境使用天地图 -->
     <script>
@@ -4726,8 +4726,10 @@
         // drawTrack();
         // 先调用轨迹TAB中的打点按钮方法
         showTrackPoints();
-        // 再调用轮廓TAB中的回执轮廓方法
-        drawOutline();
+        setTimeout(() => {
+            // 再调用轮廓TAB中的回执轮廓方法
+            drawOutline();
+        },1000);
     });
 </script>
 </body>
