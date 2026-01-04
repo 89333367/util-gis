@@ -1508,12 +1508,12 @@ public class GisUtil implements AutoCloseable {
      * - 内存优化：使用原始double数组存储坐标，减少内存开销
      * <p>
      * 参数选择建议：
-     * - eps（聚类半径）：根据GPS定位精度设置，通常5-10米
+     * - epsilon（聚类半径）：根据GPS定位精度设置，通常5-10米
      * - minPts（最小点数）：根据停留时间设置，通常20-40个点
      * - 时间排序：确保轨迹时序逻辑，支持后续轨迹分析
      *
      * @param gaussPoints 高斯投影点列表，包含原始WGS84坐标和时间信息
-     * @param eps         聚类半径（米），决定聚类的空间范围
+     * @param epsilon     聚类半径（米），决定聚类的空间范围
      * @param minPts      最小点数量，决定形成聚类的最小密度
      *
      * @return 聚类结果列表，每个聚类包含多个GaussPoint，按GPS时间升序排序
@@ -1522,7 +1522,7 @@ public class GisUtil implements AutoCloseable {
      * @see DBSCAN
      * @see EuclideanDistance
      */
-    private List<List<GaussPoint>> dbScanClusters(List<GaussPoint> gaussPoints, double eps, int minPts) {
+    private List<List<GaussPoint>> dbScanClusters(List<GaussPoint> gaussPoints, double epsilon, int minPts) {
         // 数据预处理：从高斯投影点中提取平面坐标，构建double数组用于聚类算法
         log.debug("从高斯投影中提取坐标数组");
         double[][] coords = new double[gaussPoints.size()][2];
@@ -1538,8 +1538,8 @@ public class GisUtil implements AutoCloseable {
         db.initialize();
 
         // 配置DBSCAN聚类器：使用欧几里得距离度量，适用于平面坐标系
-        log.info("使用空间密集聚类参数 eps={} 米, minPts={}", String.format("%.2f", eps), minPts);
-        DBSCAN<DoubleVector> dbscan = new DBSCAN<>(EuclideanDistance.STATIC, eps, minPts);
+        log.info("使用空间密集聚类参数 epsilon={} 米, minPts={}", String.format("%.2f", epsilon), minPts);
+        DBSCAN<DoubleVector> dbscan = new DBSCAN<>(EuclideanDistance.STATIC, epsilon, minPts);
 
         // 执行聚类分析：获取数据关系并运行DBSCAN算法，识别密度相连的点群
         log.debug("获取Relation对象并执行空间密集聚类");
@@ -3719,6 +3719,65 @@ public class GisUtil implements AutoCloseable {
      * @since 1.0.0
      */
     public SplitResult splitRoad(List<Wgs84Point> wgs84Points, double workingWidth) {
+        return splitRoad(wgs84Points, workingWidth, null);
+    }
+
+    /**
+     * 智能作业轨迹道路拆分引擎
+     *
+     * <p><b>算法核心：</b>轨迹预处理→密度聚类→几何重构→缓冲优化→时间合并五步策略</p>
+     *
+     * <p><b>业务价值：</b>
+     * <ul>
+     *   <li>精准农业：自动识别有效作业区域，剔除道路行驶轨迹</li>
+     *   <li>作业统计：精确计算实际作业面积，避免重复统计</li>
+     *   <li>补贴核算：为农业作业补贴提供可靠的数据支撑</li>
+     * </ul></p>
+     *
+     * <p><b>技术特点：</b>
+     * <ul>
+     *   <li>智能聚类：基于DBSCAN算法自动识别作业簇群</li>
+     *   <li>双重缓冲：正向缓冲填补缝隙，负向缓冲切除道路</li>
+     *   <li>时间合并：解决相邻作业段时间重叠问题</li>
+     *   <li>自适应参数：根据轨迹密度动态调整聚类参数</li>
+     * </ul></p>
+     *
+     * <p><b>算法流程：</b>
+     * <ol>
+     *   <li>轨迹预处理：过滤异常点位，计算最小时间间隔</li>
+     *   <li>密度聚类：DBSCAN算法识别作业簇群，自适应调整参数</li>
+     *   <li>几何重构：线段缓冲生成初步作业区域，角度抽稀优化</li>
+     *   <li>缓冲优化：正缓冲减少缝隙，负缓冲切除道路轨迹</li>
+     *   <li>时间合并：扫描线算法合并时间重叠的相邻作业段</li>
+     * </ol></p>
+     *
+     * <p><b>使用场景：</b>
+     * <ul>
+     *   <li>农机作业监控：拖拉机、收割机等作业轨迹处理</li>
+     *   <li>无人机植保：植保无人机作业区域精确识别</li>
+     *   <li>移动端应用：手机APP实时作业轨迹分析</li>
+     * </ul></p>
+     *
+     * <p><b>注意事项：</b>
+     * <ul>
+     *   <li>幅宽限制：作业幅宽必须≥1米，确保几何计算有效性</li>
+     *   <li>点位密度：最少需要3个有效点位才能形成作业区域</li>
+     *   <li>坐标系要求：输入必须为WGS84坐标系，保证计算精度</li>
+     *   <li>面积过滤：小于最小返回面积的地块将被自动剔除</li>
+     * </ul></p>
+     *
+     * @param wgs84Points      输入的WGS84坐标系下的点列表（Wgs84Point类型）
+     * @param workingWidth     作业幅宽（米），必须≥1米
+     * @param samplingInterval 数据采集时间间隔（秒），可以为null，传null会自动计算最小上报时间间隔
+     *
+     * @return 拆分后的作业轨迹结果（SplitResult类型），包含作业区域几何图形、面积、时间段等信息
+     *
+     * @see SplitResult 作业轨迹拆分结果数据结构
+     * @see #dbScanClusters(List, double, int) 密度聚类算法
+     * @see #optimizeLandParcelIntersectionRepair(Map, Map) 地块相交修复算法
+     * @since 1.0.0
+     */
+    public SplitResult splitRoad(List<Wgs84Point> wgs84Points, double workingWidth, Integer samplingInterval) {
         // 【性能监控】记录算法开始时间，用于耗时统计和性能优化
         long splitRoadStartTime = System.currentTimeMillis();
 
@@ -3753,8 +3812,13 @@ public class GisUtil implements AutoCloseable {
         // 【数据清洗】过滤异常点位，提高聚类准确性
         wgs84Points = filterWgs84Points(wgs84Points);
 
-        // 【自适应参数】计算最小上报时间间隔，用于动态调整聚类参数
-        int minEffectiveInterval = getMinEffectiveInterval(wgs84Points);
+        int minEffectiveInterval;
+        if (samplingInterval != null) {
+            minEffectiveInterval = samplingInterval;
+        } else {
+            // 【自适应参数】计算最小上报时间间隔，用于动态调整聚类参数
+            minEffectiveInterval = getMinEffectiveInterval(wgs84Points);
+        }
         splitResult.setMinEffectiveInterval(minEffectiveInterval);
 
         // 【聚类配置】基于时间间隔计算DBSCAN参数，实现自适应密度聚类

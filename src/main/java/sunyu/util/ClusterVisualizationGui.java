@@ -166,7 +166,7 @@ public class ClusterVisualizationGui extends JFrame {
             }
         });
 
-        minPtsField = new JTextField("18", 8);
+        minPtsField = new JTextField("20", 8);
         // minPts参数输入验证 - 必须是正整数
         ((AbstractDocument) minPtsField.getDocument()).setDocumentFilter(new DocumentFilter() {
             /**
@@ -362,7 +362,7 @@ public class ClusterVisualizationGui extends JFrame {
 
         // 参数输入行
         JPanel paramPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 0));
-        paramPanel.add(new JLabel("eps:"));
+        paramPanel.add(new JLabel("epsilon:"));
         paramPanel.add(epsField);
         paramPanel.add(Box.createHorizontalStrut(10));
         paramPanel.add(new JLabel("minPts:"));

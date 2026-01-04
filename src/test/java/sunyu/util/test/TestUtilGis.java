@@ -155,10 +155,10 @@ public class TestUtilGis {
     }
 
     void 测试拆分数据(String did, String startTime, String endTime, double jobWidth) {
-        测试拆分数据(did, startTime, endTime, jobWidth, true);
+        测试拆分数据(did, startTime, endTime, jobWidth, true, null);
     }
 
-    void 测试拆分数据(String did, String startTime, String endTime, double jobWidth, boolean check4031) {
+    void 测试拆分数据(String did, String startTime, String endTime, double jobWidth, boolean check4031, Integer samplingInterval) {
         String fileName = path + StrUtil.format("/{}_{}_{}_protocol.txt", did, startTime, endTime);
         if (!FileUtil.exist(fileName)) {
             return;
@@ -192,7 +192,7 @@ public class TestUtilGis {
 
         String partsFile = StrUtil.format(path + "/{}_{}_{}_parts.txt", did, startTime, endTime);
         List<String> partsInfo = new ArrayList<>();
-        SplitResult splitResult = gisUtil.splitRoad(l, jobWidth);
+        SplitResult splitResult = gisUtil.splitRoad(l, jobWidth, samplingInterval);
         partsInfo.add(StrUtil.format("作业总幅宽（米）: {}", splitResult.getWorkingWidth()));
         partsInfo.add(StrUtil.format("总WKT: {}", splitResult.getWkt()));
         partsInfo.add(StrUtil.format("作业总面积（亩）: {}", splitResult.getMu()));
@@ -657,13 +657,13 @@ public class TestUtilGis {
         String endTime = yyyyMMdd + "235959";
         double jobWidth = 2.3;
         生成数据文件(did, startTime, endTime);
-        测试拆分数据(did, startTime, endTime, jobWidth, false);
+        测试拆分数据(did, startTime, endTime, jobWidth, false, 5);
         生成HTML(did, startTime, endTime);
     }
 
     @Test
     void 测试1秒间隔017() {
-        // 识别出了4块地，有两块地中间因为路还符合了地块作业的形态，所以连上了
+        // 识别出了3块地，有两块地中间因为路还符合了地块作业的形态，所以连上了
         String did = "EC71BT2404140062";
         String yyyyMMdd = "20240427";
         String startTime = yyyyMMdd + "000000";
@@ -1007,7 +1007,7 @@ public class TestUtilGis {
         String endTime = "20250526235959";
         double jobWidth = 2.6;
         生成数据文件(did, startTime, endTime);
-        测试拆分数据(did, startTime, endTime, jobWidth, false);
+        测试拆分数据(did, startTime, endTime, jobWidth, false, 15);
         生成HTML(did, startTime, endTime);
     }
 
