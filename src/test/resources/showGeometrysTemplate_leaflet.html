@@ -973,7 +973,7 @@
     // 颜色配置
     let currentOutlineColor = "#FFD700";
     let currentFillColor = "#FFFF00";
-    let currentFillOpacity = 0.8;
+    let currentFillOpacity = 0.5;
     let currentTrackLineColor = "#FF0000";
     let currentTrackPointColor = "#68EAF3";
 
@@ -987,16 +987,16 @@
 
     // 多边形颜色方案
     const polygonColors = [
-        { outline: "#FFD700", fill: "#FFFF00", opacity: 0.6 },
-        { outline: "#FF0000", fill: "#FF6666", opacity: 0.6 },
-        { outline: "#00FF00", fill: "#66FF66", opacity: 0.6 },
-        { outline: "#0000FF", fill: "#6666FF", opacity: 0.6 },
-        { outline: "#FF00FF", fill: "#FF66FF", opacity: 0.6 },
-        { outline: "#00FFFF", fill: "#66FFFF", opacity: 0.6 },
-        { outline: "#FFA500", fill: "#FFCC66", opacity: 0.6 },
-        { outline: "#800080", fill: "#CC66CC", opacity: 0.6 },
-        { outline: "#008000", fill: "#66CC66", opacity: 0.6 },
-        { outline: "#800000", fill: "#CC6666", opacity: 0.6 }
+        { outline: "#FFD700", fill: "#FFFF00", opacity: 0.5 },
+        { outline: "#FF0000", fill: "#FF6666", opacity: 0.5 },
+        { outline: "#00FF00", fill: "#66FF66", opacity: 0.5 },
+        { outline: "#0000FF", fill: "#6666FF", opacity: 0.5 },
+        { outline: "#FF00FF", fill: "#FF66FF", opacity: 0.5 },
+        { outline: "#00FFFF", fill: "#66FFFF", opacity: 0.5 },
+        { outline: "#FFA500", fill: "#FFCC66", opacity: 0.5 },
+        { outline: "#800080", fill: "#CC66CC", opacity: 0.5 },
+        { outline: "#008000", fill: "#66CC66", opacity: 0.5 },
+        { outline: "#800000", fill: "#CC6666", opacity: 0.5 }
     ];
 
     // 显示播放器
@@ -1203,7 +1203,7 @@
         console.log('addBaseLayers called');
 
         // 天地图街道图
-        const tk = "9ed3674d01dd7c129ab38e3c38bf651a";
+        const tk = TIANDITU_MAP_TK;
 
         // 天地图街道图 - 使用XYZ瓦片服务
         const vecLayer = L.tileLayer(`https://t{s}.tianditu.gov.cn/vec_w/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=vec&STYLE=default&TILEMATRIXSET=w&FORMAT=tiles&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}&tk=${tk}`, {
@@ -1402,7 +1402,7 @@
     // 天地图逆地理编码
     function getAddressFromTianDiTu(lat, lng) {
         // 使用天地图逆地理编码API，使用后台tk
-        const tk = "9ed3674d01dd7c129ab38e3c38bf651a";
+        const tk = TIANDITU_MAP_TK;
         const postStr = `{'lon':${lng},'lat':${lat},'ver':1}`;
         const url = `https://api.tianditu.gov.cn/geocoder?postStr=${postStr}&type=geocode&tk=${tk}`;
 
@@ -2430,7 +2430,7 @@
         maxPointsForBatchRender: 10000,   // 分批渲染的最大点数
         batchSize: 1000,                  // 每批处理的点数
         pointRadius: 0.5,                // 点的半径（像素）
-        pointOpacity: 0.8,                 // 点的透明度
+        pointOpacity: 1,                 // 点的透明度
         useSimplification: true,           // 是否使用数据简化
         simplificationTolerance: 0.00001  // 简化容差（度）
     };
@@ -2811,8 +2811,8 @@
                     fillColor: currentTrackPointColor,
                     color: currentTrackPointColor,
                     weight: 0,
-                    opacity: 0.8,
-                    fillOpacity: 0.8,
+                    opacity: trackPointConfig.pointOpacity,
+                    fillOpacity: trackPointConfig.pointOpacity,
                     interactive: true
                 });
 
@@ -3035,7 +3035,7 @@
             playbackState.polyline = L.polyline(latlngs, {
                 color: currentTrackLineColor,
                 weight: 1,
-                opacity: 0.6
+                opacity: 1
             }).addTo(map);
 
             // 创建回放标记（使用过滤后的第一个点）
@@ -3046,7 +3046,7 @@
                 color: '#FFFFFF',
                 weight: 0.5,
                 opacity: 1,
-                fillOpacity: 0.8
+                fillOpacity: 1
             }).addTo(map);
 
             // 自适应视野到轨迹范围
@@ -3316,7 +3316,7 @@
                 color: '#FFFFFF',
                 weight: 0.5,
                 opacity: 1,
-                fillOpacity: 0.8
+                fillOpacity: 1
             }).addTo(map);
         }
 
@@ -3325,7 +3325,7 @@
             playbackState.polyline = L.polyline(latlngs, {
                 color: currentTrackLineColor,
                 weight: 1,
-                opacity: 0.6
+                opacity: 1
             }).addTo(map);
         }
 
@@ -3391,7 +3391,7 @@
             playbackState.polyline = L.polyline(latlngs, {
                 color: currentTrackLineColor,
                 weight: 1,
-                opacity: 0.6
+                opacity: 1
             }).addTo(map);
 
             // 创建回放标记（使用过滤后的第一个点）
@@ -3402,7 +3402,7 @@
                 color: '#FFFFFF',
                 weight: 0.5,
                 opacity: 1,
-                fillOpacity: 0.8
+                fillOpacity: 1
             }).addTo(map);
 
             // 自适应视野到轨迹范围
@@ -3850,7 +3850,7 @@
                 weight: 1,
                 opacity: 1,
                 fillColor: currentFillColor,
-                fillOpacity: 0.8
+                fillOpacity: 0.5
             });
 
             measureLayerGroup.addLayer(measureState.polygon);
@@ -3881,8 +3881,8 @@
 
         measureState.tempLine = L.polyline(tempCoords, {
             color: '#FFFF00',
-            weight: 2,
-            opacity: 0.8,
+            weight: 1,
+            opacity: 1,
             dashArray: '5, 5'
         });
 
@@ -3901,7 +3901,7 @@
             weight: 1,
             opacity: 1,
             fillColor: currentFillColor,
-            fillOpacity: 0.8
+            fillOpacity: 0.5
         });
 
         measureLayerGroup.addLayer(measureState.polygon);
@@ -4022,7 +4022,7 @@
                 weight: 1,
                 opacity: 1,
                 fillColor: currentFillColor,
-                fillOpacity: 0.8
+                fillOpacity: 0.5
             });
 
             measureLayerGroup.addLayer(measureState.polygon);
