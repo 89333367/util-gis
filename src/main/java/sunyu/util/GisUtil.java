@@ -3760,7 +3760,7 @@ public class GisUtil implements AutoCloseable {
         // 【聚类配置】基于时间间隔计算DBSCAN参数，实现自适应密度聚类
         double eps = config.DBSCAN_EPSILON * minEffectiveInterval;
         // 由于最小间隔时间超过10秒后，聚类的最小点位数量再增多就会识别不出来聚类簇，所以这里限制一下，最大只乘10倍
-        int minPts = config.DBSCAN_MIN_POINTS * Math.min(10, minEffectiveInterval);
+        int minPts = config.DBSCAN_MIN_POINTS;
 
         // 【坐标转换】WGS84转高斯投影，保证距离计算和几何操作的精度
         List<GaussPoint> gaussPoints = toGaussPointList(wgs84Points);

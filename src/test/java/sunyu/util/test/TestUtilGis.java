@@ -825,7 +825,7 @@ public class TestUtilGis {
 
     @Test
     void 测试1秒间隔030() {
-        // 所有地块都能识别出来
+        // 所有地块都能识别出来，但是带出来不少路上的亩数
         String did = "EC73BD2504110121";
         String startTime = "20250429063229";
         String endTime = "20250429175943";
@@ -897,7 +897,7 @@ public class TestUtilGis {
 
     @Test
     void 测试1秒间隔036() {
-        // 所有地块都能识别出来
+        // 所有地块都能识别出来，但多出来三条路也给算上亩数了
         String did = "EC73BD2504110478";
         String startTime = "20250527000000";
         String endTime = "20250527235959";
@@ -1007,7 +1007,7 @@ public class TestUtilGis {
         String endTime = "20250526235959";
         double jobWidth = 2.6;
         生成数据文件(did, startTime, endTime);
-        测试拆分数据(did, startTime, endTime, jobWidth);
+        测试拆分数据(did, startTime, endTime, jobWidth, false);
         生成HTML(did, startTime, endTime);
     }
 
