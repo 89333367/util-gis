@@ -134,7 +134,7 @@ public class GisUtil implements AutoCloseable {
          * 当两个点之间的距离小于此值时，被认为是邻居点，属于同一个聚类。
          * </p>
          */
-        private final double DBSCAN_EPSILON = 5;
+        private final double DBSCAN_EPSILON = 6;
 
         /**
          * DBSCAN最小点数
@@ -158,7 +158,7 @@ public class GisUtil implements AutoCloseable {
         /**
          * 最大返回聚类簇数，超过这个数量认为聚类过多，应该调大eps和minPts参数，再重新聚类
          */
-        private final int MAX_RETURN_CLUSTERS = 8;
+        private final int MAX_RETURN_CLUSTERS = 30;
 
         /**
          * 最小缓冲区距离（米）
@@ -3719,7 +3719,7 @@ public class GisUtil implements AutoCloseable {
      * @since 1.0.0
      */
     public SplitResult splitRoad(List<Wgs84Point> wgs84Points, double workingWidth) {
-        return splitRoad(wgs84Points, workingWidth, null, config.DBSCAN_MIN_POINTS);
+        return splitRoad(wgs84Points, workingWidth, null, null, null);
     }
 
     /**
@@ -3766,10 +3766,11 @@ public class GisUtil implements AutoCloseable {
      *   <li>面积过滤：小于最小返回面积的地块将被自动剔除</li>
      * </ul></p>
      *
-     * @param wgs84Points      输入的WGS84坐标系下的点列表（Wgs84Point类型）
-     * @param workingWidth     作业幅宽（米），必须≥1米
-     * @param samplingInterval 数据采集时间间隔（秒），可以为null，传null会自动计算最小上报时间间隔
-     * @param dbScanMinPoints  空间聚类算法最小点参数，可以为null，传null会使用默认值 config.DBSCAN_MIN_POINTS
+     * @param wgs84Points     输入的WGS84坐标系下的点列表（Wgs84Point类型）
+     * @param workingWidth    作业幅宽（米），必须≥1米
+     * @param dbScanEpsilon   空间聚类算法半径参数，可以为null，传null会使用默认值 config.DBSCAN_EPSILON
+     * @param dbScanMinPoints 空间聚类算法最小点参数，可以为null，传null会使用默认值 config.DBSCAN_MIN_POINTS
+     * @param roadWidth       道路宽度（米），可以为null，传null会使用 Math.floor(workingWidth)
      *
      * @return 拆分后的作业轨迹结果（SplitResult类型），包含作业区域几何图形、面积、时间段等信息
      *
@@ -3778,7 +3779,7 @@ public class GisUtil implements AutoCloseable {
      * @see #optimizeLandParcelIntersectionRepair(Map, Map) 地块相交修复算法
      * @since 1.0.0
      */
-    public SplitResult splitRoad(List<Wgs84Point> wgs84Points, double workingWidth, Integer samplingInterval, Integer dbScanMinPoints) {
+    public SplitResult splitRoad(List<Wgs84Point> wgs84Points, double workingWidth, Double dbScanEpsilon, Integer dbScanMinPoints, Double roadWidth) {
         // 【性能监控】记录算法开始时间，用于耗时统计和性能优化
         long splitRoadStartTime = System.currentTimeMillis();
 
@@ -3806,29 +3807,22 @@ public class GisUtil implements AutoCloseable {
         // 【几何参数】计算机具半幅宽，用于后续缓冲半径计算
         double halfWorkingWidth = workingWidth / 2.0;
         // 【缓冲策略】正缓冲参数：向上取整，确保缝隙完全填补
-        double positiveBuffer = Math.ceil(halfWorkingWidth);
+        double positiveBuffer = Math.ceil(halfWorkingWidth + 0.1);
         // 【缓冲策略】负缓冲参数：向下取整，精确切除道路轨迹
-        double negativeBuffer = Math.floor(workingWidth);
+        double negativeBuffer = roadWidth == null ? Math.floor(workingWidth) : roadWidth;
 
         // 【数据清洗】过滤异常点位，提高聚类准确性
         wgs84Points = filterWgs84Points(wgs84Points);
 
-        int minEffectiveInterval;
-        if (samplingInterval != null) {
-            minEffectiveInterval = samplingInterval;
-        } else {
-            // 【自适应参数】计算最小上报时间间隔，用于动态调整聚类参数
-            minEffectiveInterval = getMinEffectiveInterval(wgs84Points);
-        }
+        // 【自适应参数】计算最小上报时间间隔，用于动态调整聚类参数
+        int minEffectiveInterval = getMinEffectiveInterval(wgs84Points);
         splitResult.setMinEffectiveInterval(minEffectiveInterval);
+        log.debug("最小上报时间间隔：{}秒", minEffectiveInterval);
 
         // 【聚类配置】基于时间间隔计算DBSCAN参数，实现自适应密度聚类
-        double eps = config.DBSCAN_EPSILON * minEffectiveInterval;
+        double eps = dbScanEpsilon == null ? config.DBSCAN_EPSILON * minEffectiveInterval : dbScanEpsilon;
         // 由于最小间隔时间超过10秒后，聚类的最小点位数量再增多就会识别不出来聚类簇，所以这里限制一下，最大只乘10倍
-        int minPts = config.DBSCAN_MIN_POINTS;
-        if (dbScanMinPoints != null) {
-            minPts = dbScanMinPoints;
-        }
+        int minPts = dbScanMinPoints == null ? config.DBSCAN_MIN_POINTS : dbScanMinPoints;
 
         // 【坐标转换】WGS84转高斯投影，保证距离计算和几何操作的精度
         List<GaussPoint> gaussPoints = toGaussPointList(wgs84Points);
@@ -3840,13 +3834,6 @@ public class GisUtil implements AutoCloseable {
         // 【密度聚类】执行DBSCAN聚类，识别潜在的作业簇群
         List<List<GaussPoint>> clusters = dbScanClusters(gaussPoints, eps, minPts);
         log.info("聚类完成，总共有 {} 个聚类簇", clusters.size());
-
-        // 【自适应优化】聚类过多时放宽参数，避免过度分割
-        if (clusters.size() > config.MAX_RETURN_CLUSTERS) {
-            eps = eps * 2;      // 扩大邻域半径
-            clusters = dbScanClusters(gaussPoints, eps, minPts);
-            log.info("聚类完成，总共有 {} 个聚类簇", clusters.size());
-        }
 
         // 【早期终止】无有效聚类时直接返回，节省计算资源
         if (clusters.isEmpty()) {

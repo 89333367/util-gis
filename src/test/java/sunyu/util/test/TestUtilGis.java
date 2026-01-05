@@ -155,10 +155,10 @@ public class TestUtilGis {
     }
 
     void 测试拆分数据(String did, String startTime, String endTime, double jobWidth) {
-        测试拆分数据(did, startTime, endTime, jobWidth, true, null, false, 16);
+        测试拆分数据(did, startTime, endTime, jobWidth, true, false, null, null, null);
     }
 
-    void 测试拆分数据(String did, String startTime, String endTime, double jobWidth, Boolean check4031, Integer samplingInterval, Boolean updateFarmWorkTable, Integer dbScanMinPoints) {
+    void 测试拆分数据(String did, String startTime, String endTime, double jobWidth, Boolean check4031, Boolean updateFarmWorkTable, Double dbScanEpsilon, Integer dbScanMinPoints, Double roadWidth) {
         String fileName = path + StrUtil.format("/{}_{}_{}_protocol.txt", did, startTime, endTime);
         if (!FileUtil.exist(fileName)) {
             return;
@@ -192,7 +192,7 @@ public class TestUtilGis {
 
         String partsFile = StrUtil.format(path + "/{}_{}_{}_parts.txt", did, startTime, endTime);
         List<String> partsInfo = new ArrayList<>();
-        SplitResult splitResult = gisUtil.splitRoad(l, jobWidth, samplingInterval, dbScanMinPoints);
+        SplitResult splitResult = gisUtil.splitRoad(l, jobWidth, dbScanEpsilon, dbScanMinPoints, roadWidth);
         partsInfo.add(StrUtil.format("作业总幅宽（米）: {}", splitResult.getWorkingWidth()));
         partsInfo.add(StrUtil.format("总WKT: {}", splitResult.getWkt()));
         partsInfo.add(StrUtil.format("作业总面积（亩）: {}", splitResult.getMu()));
@@ -575,7 +575,7 @@ public class TestUtilGis {
         String endTime = yyyyMMdd + "235959";
         double jobWidth = 2.6;
         生成数据文件(did, startTime, endTime);
-        测试拆分数据(did, startTime, endTime, jobWidth);
+        测试拆分数据(did, startTime, endTime, jobWidth, null, null, 5.0, 40, null);
         生成HTML(did, startTime, endTime);
     }
 
@@ -624,7 +624,7 @@ public class TestUtilGis {
         String endTime = "20250507162457";
         double jobWidth = 2.5;
         生成数据文件(did, startTime, endTime);
-        测试拆分数据(did, startTime, endTime, jobWidth);
+        测试拆分数据(did, startTime, endTime, jobWidth, null, null, 5.0, 20, null);
         生成HTML(did, startTime, endTime);
     }
 
@@ -636,7 +636,7 @@ public class TestUtilGis {
         String endTime = "20250509111620";
         double jobWidth = 2.5;
         生成数据文件(did, startTime, endTime);
-        测试拆分数据(did, startTime, endTime, jobWidth);
+        测试拆分数据(did, startTime, endTime, jobWidth, null, null, 5.0, 20, null);
         生成HTML(did, startTime, endTime);
     }
 
@@ -674,7 +674,7 @@ public class TestUtilGis {
         String endTime = yyyyMMdd + "235959";
         double jobWidth = 2.3;
         生成数据文件(did, startTime, endTime);
-        测试拆分数据(did, startTime, endTime, jobWidth, false, 5, false, null);
+        测试拆分数据(did, startTime, endTime, jobWidth, false, false, 15.0, 16, null);
         生成HTML(did, startTime, endTime);
     }
 
@@ -739,7 +739,7 @@ public class TestUtilGis {
         String endTime = yyyyMMdd + "235959";
         double jobWidth = 4;
         生成数据文件(did, startTime, endTime);
-        测试拆分数据(did, startTime, endTime, jobWidth);
+        测试拆分数据(did, startTime, endTime, jobWidth, null, null, 10.0, 25, null);
         生成HTML(did, startTime, endTime);
         //查看速度(did, startTime, endTime, LocalDateTimeUtil.parse("20251024065125", "yyyyMMddHHmmss"), LocalDateTimeUtil.parse("20251024071818", "yyyyMMddHHmmss"));
     }
@@ -848,7 +848,7 @@ public class TestUtilGis {
         String endTime = "20250429175943";
         double jobWidth = 2.6;
         生成数据文件(did, startTime, endTime);
-        测试拆分数据(did, startTime, endTime, jobWidth);
+        测试拆分数据(did, startTime, endTime, jobWidth, null, null, null, null, 6.0);
         生成HTML(did, startTime, endTime);
     }
 
@@ -908,6 +908,7 @@ public class TestUtilGis {
         String endTime = "20250414235959";
         double jobWidth = 2.6;
         生成数据文件(did, startTime, endTime);
+        //测试拆分数据(did, startTime, endTime, jobWidth, null, null, 6.0, 16, null);
         测试拆分数据(did, startTime, endTime, jobWidth);
         生成HTML(did, startTime, endTime);
     }
@@ -920,7 +921,7 @@ public class TestUtilGis {
         String endTime = "20250527235959";
         double jobWidth = 2.6;
         生成数据文件(did, startTime, endTime);
-        测试拆分数据(did, startTime, endTime, jobWidth);
+        测试拆分数据(did, startTime, endTime, jobWidth, null, null, 6.0, 16, 6.0);
         生成HTML(did, startTime, endTime);
     }
 
@@ -932,7 +933,7 @@ public class TestUtilGis {
         String endTime = "20251122172331";
         double jobWidth = 3;
         生成数据文件(did, startTime, endTime);
-        测试拆分数据(did, startTime, endTime, jobWidth, null, null, true, null);
+        测试拆分数据(did, startTime, endTime, jobWidth, null, true, null, null, null);
         生成HTML(did, startTime, endTime);
     }
 
@@ -944,7 +945,7 @@ public class TestUtilGis {
         String endTime = "20251123172703";
         double jobWidth = 3;
         生成数据文件(did, startTime, endTime);
-        测试拆分数据(did, startTime, endTime, jobWidth, null, null, true, null);
+        测试拆分数据(did, startTime, endTime, jobWidth, null, true, null, null, null);
         生成HTML(did, startTime, endTime);
     }
 
@@ -956,7 +957,7 @@ public class TestUtilGis {
         String endTime = "20251121175057";
         double jobWidth = 3;
         生成数据文件(did, startTime, endTime);
-        测试拆分数据(did, startTime, endTime, jobWidth, null, null, true, null);
+        测试拆分数据(did, startTime, endTime, jobWidth, null, true, null, null, null);
         生成HTML(did, startTime, endTime);
     }
 
@@ -968,7 +969,7 @@ public class TestUtilGis {
         String endTime = "20251120171321";
         double jobWidth = 3;
         生成数据文件(did, startTime, endTime);
-        测试拆分数据(did, startTime, endTime, jobWidth, null, null, true, null);
+        测试拆分数据(did, startTime, endTime, jobWidth, null, true, null, null, null);
         生成HTML(did, startTime, endTime);
     }
 
@@ -980,7 +981,7 @@ public class TestUtilGis {
         String endTime = "20251113164045";
         double jobWidth = 3;
         生成数据文件(did, startTime, endTime);
-        测试拆分数据(did, startTime, endTime, jobWidth, null, null, true, null);
+        测试拆分数据(did, startTime, endTime, jobWidth, null, true, null, null, null);
         生成HTML(did, startTime, endTime);
     }
 
@@ -992,7 +993,7 @@ public class TestUtilGis {
         String endTime = "20251110172259";
         double jobWidth = 3;
         生成数据文件(did, startTime, endTime);
-        测试拆分数据(did, startTime, endTime, jobWidth, null, null, true, null);
+        测试拆分数据(did, startTime, endTime, jobWidth, null, true, null, null, null);
         生成HTML(did, startTime, endTime);
     }
 
@@ -1004,7 +1005,7 @@ public class TestUtilGis {
         String endTime = "20251110113009";
         double jobWidth = 3;
         生成数据文件(did, startTime, endTime);
-        测试拆分数据(did, startTime, endTime, jobWidth, null, null, true, null);
+        测试拆分数据(did, startTime, endTime, jobWidth, null, true, null, null, null);
         生成HTML(did, startTime, endTime);
     }
 
@@ -1016,7 +1017,7 @@ public class TestUtilGis {
         String endTime = "20251122172331";
         double jobWidth = 3;
         生成数据文件(did, startTime, endTime);
-        测试拆分数据(did, startTime, endTime, jobWidth, null, null, true, null);
+        测试拆分数据(did, startTime, endTime, jobWidth, null, true, null, null, null);
         生成HTML(did, startTime, endTime);
     }
 
@@ -1028,7 +1029,7 @@ public class TestUtilGis {
         String endTime = "20251111235959";
         double jobWidth = 2.4;
         生成数据文件(did, startTime, endTime);
-        测试拆分数据(did, startTime, endTime, jobWidth, null, null, false, 16);
+        测试拆分数据(did, startTime, endTime, jobWidth, null, false, null, 16, null);
         生成HTML(did, startTime, endTime);
     }
 
@@ -1131,7 +1132,7 @@ public class TestUtilGis {
         String endTime = "20250526235959";
         double jobWidth = 2.6;
         生成数据文件(did, startTime, endTime);
-        测试拆分数据(did, startTime, endTime, jobWidth, false, 15, false, null);
+        测试拆分数据(did, startTime, endTime, jobWidth, false, false, 50.0, 16, null);
         生成HTML(did, startTime, endTime);
     }
 
