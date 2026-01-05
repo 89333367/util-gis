@@ -40574,6 +40574,67 @@
         { outline: "#800000", fill: "#CC6666", opacity: 0.5 }
     ];
 
+    // 将十六进制颜色转换为RGB
+    function hexToRgb(hex) {
+        const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+        return result ? {
+            r: parseInt(result[1], 16),
+            g: parseInt(result[2], 16),
+            b: parseInt(result[3], 16)
+        } : null;
+    }
+
+    // 计算两个颜色之间的RGB距离（相似度）
+    function colorDistance(color1, color2) {
+        const rgb1 = hexToRgb(color1);
+        const rgb2 = hexToRgb(color2);
+        
+        if (!rgb1 || !rgb2) return Infinity;
+        
+        // 计算RGB空间中的欧几里得距离
+        const distance = Math.sqrt(
+            Math.pow(rgb1.r - rgb2.r, 2) + 
+            Math.pow(rgb1.g - rgb2.g, 2) + 
+            Math.pow(rgb1.b - rgb2.b, 2)
+        );
+        
+        return distance;
+    }
+
+    // 判断两个颜色是否属于相近色系
+    function isSimilarColor(color1, color2, threshold = 80) {
+        const distance = colorDistance(color1, color2);
+        return distance < threshold;
+    }
+
+    // 获取可用的多边形颜色（排除填充颜色与轨迹线/点颜色相近的颜色）
+    function getAvailablePolygonColors() {
+        const trackLineColor = currentTrackLineColor;
+        const trackPointColor = currentTrackPointColor;
+        
+        console.log('当前轨迹线颜色:', trackLineColor, '轨迹点颜色:', trackPointColor);
+        
+        const availableColors = polygonColors.filter(color => {
+            const fillColor = color.fill;
+            
+            // 只检查填充色是否与轨迹线或轨迹点颜色相近
+            const fillSimilarToTrackLine = isSimilarColor(fillColor, trackLineColor);
+            const fillSimilarToTrackPoint = isSimilarColor(fillColor, trackPointColor);
+            
+            // 只有当填充色不与轨迹颜色相近时才可用
+            const isAvailable = !fillSimilarToTrackLine && !fillSimilarToTrackPoint;
+            
+            if (!isAvailable) {
+                console.log('过滤掉颜色:', fillColor, '与轨迹线相似:', fillSimilarToTrackLine, '与轨迹点相似:', fillSimilarToTrackPoint);
+            }
+            
+            return isAvailable;
+        });
+        
+        console.log('可用颜色数量:', availableColors.length, '总颜色数量:', polygonColors.length);
+        return availableColors;
+    }
+
     // 显示播放器
     function showPlaybackPlayer() {
         if (playbackPlayer) {
@@ -41248,6 +41309,13 @@
             trackLineColorInput.addEventListener('change', function() {
                 currentTrackLineColor = this.value;
                 trackLineColorPicker.style.backgroundColor = currentTrackLineColor;
+                
+                // 如果当前有轮廓数据，重新绘制以应用新的颜色过滤
+                const wktText = document.getElementById('outlineWkt').value.trim();
+                if (wktText && outlineLayerGroup && outlineLayerGroup.getLayers().length > 0) {
+                    console.log('轨迹线颜色已更改，重新绘制轮廓以避免颜色冲突');
+                    drawOutline();
+                }
             });
         }
 
@@ -41263,6 +41331,13 @@
             trackPointColorInput.addEventListener('change', function() {
                 currentTrackPointColor = this.value;
                 trackPointColorPicker.style.backgroundColor = currentTrackPointColor;
+                
+                // 如果当前有轮廓数据，重新绘制以应用新的颜色过滤
+                const wktText = document.getElementById('outlineWkt').value.trim();
+                if (wktText && outlineLayerGroup && outlineLayerGroup.getLayers().length > 0) {
+                    console.log('轨迹点颜色已更改，重新绘制轮廓以避免颜色冲突');
+                    drawOutline();
+                }
             });
         }
     }
@@ -41559,7 +41634,21 @@
 
             // 为每个多边形创建图层
             polygonData.forEach((data, idx) => {
-                const colorScheme = polygonColors[data.colorIndex % polygonColors.length];
+                // 每次绘制前都重新获取可用的颜色方案（基于当前轨迹颜色）
+                console.log('绘制多边形', idx, '前获取可用颜色');
+                const availableColors = getAvailablePolygonColors();
+                let colorScheme;
+                
+                if (availableColors.length > 0) {
+                    // 如果有可用颜色，使用过滤后的颜色
+                    colorScheme = availableColors[data.colorIndex % availableColors.length];
+                    console.log('使用过滤后的颜色方案:', colorScheme);
+                } else {
+                    // 如果没有可用颜色（所有颜色都与轨迹颜色冲突），回退到原始颜色方案
+                    colorScheme = polygonColors[data.colorIndex % polygonColors.length];
+                    console.log('没有可用颜色，回退到原始颜色方案:', colorScheme);
+                }
+                
                 const style = {
                     color: colorScheme.outline,
                     weight: 1,
