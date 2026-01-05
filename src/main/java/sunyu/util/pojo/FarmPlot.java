@@ -7,7 +7,7 @@ import java.time.LocalDateTime;
 /**
  * 地块信息
  */
-public class SplitPart {
+public class FarmPlot {
     /**
      * 地块的起始时间
      */

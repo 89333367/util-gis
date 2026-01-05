@@ -141,10 +141,10 @@ SplitRoadResult splitResult = gis.splitRoad(trackPoints, 12.0);
 System.out.println("total area(mu)=" + splitResult.getMu());
 System.out.println("total segments=" + splitResult.getParts().size());
 
-for (OutlinePart splitPart : splitResult.getParts()) {
-    System.out.println("segment: " + splitPart.getStartTime() + " ~ " + splitPart.getEndTime() + 
-                       ", area=" + String.format("%.2f", splitPart.getMu()) + "mu");
-    System.out.println("  WKT=" + splitPart.getWkt());
+for (OutlinePart farmPlot : splitResult.getParts()) {
+    System.out.println("segment: " + farmPlot.getStartTime() + " ~ " + farmPlot.getEndTime() + 
+                       ", area=" + String.format("%.2f", farmPlot.getMu()) + "mu");
+    System.out.println("  WKT=" + farmPlot.getWkt());
 }
 
 // 6) 资源管理 - 释放GisUtil占用的资源
@@ -187,20 +187,20 @@ System.out.
         size());
 
         for(
-        OutlinePart splitPart :splitResult.
+        OutlinePart farmPlot :splitResult.
 
         getParts()){
         System.out.
 
-        println("segment: "+splitPart.getStartTime() +" ~ "+splitPart.
+        println("segment: "+farmPlot.getStartTime() +" ~ "+farmPlot.
 
         getEndTime() +
         ", area="+String.
 
-        format("%.2f",splitPart.getMu())+"mu");
+        format("%.2f",farmPlot.getMu())+"mu");
         System.out.
 
-        println("  WKT="+splitPart.getWkt());
+        println("  WKT="+farmPlot.getWkt());
         }
 ```
 

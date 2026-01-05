@@ -155,10 +155,10 @@ public class TestUtilGis {
     }
 
     void 测试拆分数据(String did, String startTime, String endTime, double jobWidth) {
-        测试拆分数据(did, startTime, endTime, jobWidth, true, false, new SplitRoadParams());
+        测试拆分数据(did, startTime, endTime, jobWidth, false, new SplitRoadParams());
     }
 
-    void 测试拆分数据(String did, String startTime, String endTime, double jobWidth, Boolean check4031, Boolean updateFarmWorkTable, SplitRoadParams splitRoadParams) {
+    void 测试拆分数据(String did, String startTime, String endTime, double jobWidth, Boolean updateFarmWorkTable, SplitRoadParams splitRoadParams) {
         String fileName = path + StrUtil.format("/{}_{}_{}_protocol.txt", did, startTime, endTime);
         if (!FileUtil.exist(fileName)) {
             return;
@@ -182,7 +182,7 @@ public class TestUtilGis {
                     wgs84Point.setJobStatus(2);//ACC关闭，认为是没有作业
                 }
             }
-            if (check4031 != null && check4031 && protocol.containsKey("4031")) {// 作业标识,1作业,0非作业,2暂停
+            if (splitRoadParams.getCheckWorkingStatus() && protocol.containsKey("4031")) {// 作业标识,1作业,0非作业,2暂停
                 if (!Convert.toStr(protocol.get("4031")).equals("1")) {
                     wgs84Point.setJobStatus(2);//作业标识不是1，认为是没有作业
                 }
@@ -201,15 +201,15 @@ public class TestUtilGis {
         partsInfo.add(StrUtil.format("共有 {} 个地块", splitResult.getGaussGeometry().getNumGeometries()));
         partsInfo.add("\n");
         int partIndex = 1;
-        for (SplitPart splitPart : splitResult.getParts()) {
+        for (FarmPlot farmPlot : splitResult.getParts()) {
             List<String> partInfo = new ArrayList<>();
             partInfo.add(StrUtil.format("地块 {}:", partIndex++));
-            partInfo.add(StrUtil.format("子WKT: {}", splitPart.getWkt()));
-            partInfo.add(StrUtil.format("作业面积（亩）: {}", splitPart.getMu()));
-            partInfo.add(StrUtil.format("作业时间范围: {} - {}", splitPart.getStartTime(), splitPart.getEndTime()));
-            partInfo.add(StrUtil.format("最小有效时间间隔（秒）: {}", splitPart.getMinEffectiveInterval()));
-            if (splitPart.getGaussGeometry() instanceof MultiPolygon) {
-                partInfo.add(StrUtil.format("包含 {} 个子地块", splitPart.getGaussGeometry().getNumGeometries()));
+            partInfo.add(StrUtil.format("子WKT: {}", farmPlot.getWkt()));
+            partInfo.add(StrUtil.format("作业面积（亩）: {}", farmPlot.getMu()));
+            partInfo.add(StrUtil.format("作业时间范围: {} - {}", farmPlot.getStartTime(), farmPlot.getEndTime()));
+            partInfo.add(StrUtil.format("最小有效时间间隔（秒）: {}", farmPlot.getMinEffectiveInterval()));
+            if (farmPlot.getGaussGeometry() instanceof MultiPolygon) {
+                partInfo.add(StrUtil.format("包含 {} 个子地块", farmPlot.getGaussGeometry().getNumGeometries()));
             }
             partsInfo.add(StrUtil.join("\n", partInfo) + "\n");
         }
@@ -506,6 +506,42 @@ public class TestUtilGis {
         生成数据文件(did, startTime, endTime);
         测试拆分数据(did, startTime, endTime, jobWidth);
         生成HTML(did, startTime, endTime);
+
+        String fileName = path + StrUtil.format("/{}_{}_{}_protocol.txt", did, startTime, endTime);
+        if (!FileUtil.exist(fileName)) {
+            return;
+        }
+        List<Wgs84Point> l = new ArrayList<>();
+        for (String protocolStr : FileUtil.readUtf8Lines(fileName)) {
+            Map<String, String> protocol = parseProtocolString(protocolStr);
+            Wgs84Point wgs84Point = new Wgs84Point();
+            wgs84Point.setGpsTime(LocalDateTimeUtil.parse(protocol.get("3014"), "yyyyMMddHHmmss"));
+            wgs84Point.setLongitude(Double.parseDouble(protocol.get("2602")));
+            wgs84Point.setLatitude(Double.parseDouble(protocol.get("2603")));
+            if (protocol.containsKey("2601")) {// 定位状态,0已定位，1未定位
+                if (protocol.get("2601").equals("0")) {
+                    wgs84Point.setGpsStatus(1);
+                } else {
+                    wgs84Point.setGpsStatus(2);
+                }
+            }
+            if (protocol.containsKey("3020")) {// 终端ACC状态,0关闭，1开启
+                if (Convert.toStr(protocol.get("3020")).equals("0")) {
+                    wgs84Point.setJobStatus(2);//ACC关闭，认为是没有作业
+                }
+            }
+            if (protocol.containsKey("4031")) {// 作业标识,1作业,0非作业,2暂停
+                if (!Convert.toStr(protocol.get("4031")).equals("1")) {
+                    wgs84Point.setJobStatus(2);//作业标识不是1，认为是没有作业
+                }
+            }
+            l.add(wgs84Point);
+        }
+        FarmPlot farmPlot = gisUtil.getFarmPlot(l, jobWidth);
+        log.info("地块WKT: {}", farmPlot.getWkt());
+        log.info("地块面积：{} 亩", farmPlot.getMu());
+        log.info("地块起始时间: {}", farmPlot.getStartTime());
+        log.info("地块结束时间: {}", farmPlot.getEndTime());
     }
 
     @Test
@@ -636,7 +672,8 @@ public class TestUtilGis {
         String endTime = "20250509111620";
         double jobWidth = 2.5;
         生成数据文件(did, startTime, endTime);
-        测试拆分数据(did, startTime, endTime, jobWidth);
+        //测试拆分数据(did, startTime, endTime, jobWidth);
+        测试拆分数据(did, startTime, endTime, jobWidth, false, new SplitRoadParams(5.0));
         生成HTML(did, startTime, endTime);
     }
 
@@ -674,7 +711,8 @@ public class TestUtilGis {
         String endTime = yyyyMMdd + "235959";
         double jobWidth = 2.3;
         生成数据文件(did, startTime, endTime);
-        测试拆分数据(did, startTime, endTime, jobWidth);
+        //测试拆分数据(did, startTime, endTime, jobWidth);
+        测试拆分数据(did, startTime, endTime, jobWidth, false, new SplitRoadParams(18.0, 16, 3.0, 0.1, false));
         生成HTML(did, startTime, endTime);
     }
 
@@ -732,16 +770,15 @@ public class TestUtilGis {
 
     @Test
     void 测试1秒间隔021() {
-        // 第一次聚类结果过多，参数*2后重新聚类，识别出了多个地块，有一个地块由于非常细的一条，所以抛弃了，有一个地块由于点位密集度不够，断开了。
+        // 识别出了多个地块，有一个地块由于非常细的一条，所以抛弃了，有一个地块由于点位密集度不够，断开了。
         String did = "JFT3352503S00207";
         String yyyyMMdd = "20251024";
         String startTime = yyyyMMdd + "000000";
         String endTime = yyyyMMdd + "235959";
         double jobWidth = 4;
         生成数据文件(did, startTime, endTime);
-        测试拆分数据(did, startTime, endTime, jobWidth);
+        测试拆分数据(did, startTime, endTime, jobWidth, false, new SplitRoadParams(12.0, 16));
         生成HTML(did, startTime, endTime);
-        //查看速度(did, startTime, endTime, LocalDateTimeUtil.parse("20251024065125", "yyyyMMddHHmmss"), LocalDateTimeUtil.parse("20251024071818", "yyyyMMddHHmmss"));
     }
 
     @Test
@@ -932,7 +969,7 @@ public class TestUtilGis {
         String endTime = "20251122172331";
         double jobWidth = 3;
         生成数据文件(did, startTime, endTime);
-        测试拆分数据(did, startTime, endTime, jobWidth, true, true, new SplitRoadParams());
+        测试拆分数据(did, startTime, endTime, jobWidth, true, new SplitRoadParams());
         生成HTML(did, startTime, endTime);
     }
 
@@ -944,7 +981,7 @@ public class TestUtilGis {
         String endTime = "20251123172703";
         double jobWidth = 3;
         生成数据文件(did, startTime, endTime);
-        测试拆分数据(did, startTime, endTime, jobWidth, true, true, new SplitRoadParams());
+        测试拆分数据(did, startTime, endTime, jobWidth, true, new SplitRoadParams());
         生成HTML(did, startTime, endTime);
     }
 
@@ -956,7 +993,7 @@ public class TestUtilGis {
         String endTime = "20251121175057";
         double jobWidth = 3;
         生成数据文件(did, startTime, endTime);
-        测试拆分数据(did, startTime, endTime, jobWidth, true, true, new SplitRoadParams());
+        测试拆分数据(did, startTime, endTime, jobWidth, true, new SplitRoadParams());
         生成HTML(did, startTime, endTime);
     }
 
@@ -968,7 +1005,7 @@ public class TestUtilGis {
         String endTime = "20251120171321";
         double jobWidth = 3;
         生成数据文件(did, startTime, endTime);
-        测试拆分数据(did, startTime, endTime, jobWidth, true, true, new SplitRoadParams());
+        测试拆分数据(did, startTime, endTime, jobWidth, true, new SplitRoadParams());
         生成HTML(did, startTime, endTime);
     }
 
@@ -980,7 +1017,7 @@ public class TestUtilGis {
         String endTime = "20251113164045";
         double jobWidth = 3;
         生成数据文件(did, startTime, endTime);
-        测试拆分数据(did, startTime, endTime, jobWidth, true, true, new SplitRoadParams());
+        测试拆分数据(did, startTime, endTime, jobWidth, true, new SplitRoadParams());
         生成HTML(did, startTime, endTime);
     }
 
@@ -992,7 +1029,7 @@ public class TestUtilGis {
         String endTime = "20251110172259";
         double jobWidth = 3;
         生成数据文件(did, startTime, endTime);
-        测试拆分数据(did, startTime, endTime, jobWidth, true, true, new SplitRoadParams());
+        测试拆分数据(did, startTime, endTime, jobWidth, true, new SplitRoadParams());
         生成HTML(did, startTime, endTime);
     }
 
@@ -1004,7 +1041,7 @@ public class TestUtilGis {
         String endTime = "20251110113009";
         double jobWidth = 3;
         生成数据文件(did, startTime, endTime);
-        测试拆分数据(did, startTime, endTime, jobWidth, true, true, new SplitRoadParams());
+        测试拆分数据(did, startTime, endTime, jobWidth, true, new SplitRoadParams());
         生成HTML(did, startTime, endTime);
     }
 
@@ -1016,7 +1053,7 @@ public class TestUtilGis {
         String endTime = "20251122172331";
         double jobWidth = 3;
         生成数据文件(did, startTime, endTime);
-        测试拆分数据(did, startTime, endTime, jobWidth, true, true, new SplitRoadParams());
+        测试拆分数据(did, startTime, endTime, jobWidth, true, new SplitRoadParams());
         生成HTML(did, startTime, endTime);
     }
 

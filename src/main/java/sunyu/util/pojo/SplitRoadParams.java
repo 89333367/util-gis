@@ -39,6 +39,15 @@ public class SplitRoadParams {
      */
     private Double minReturnMu;
 
+    /**
+     * 是否检查作业状态
+     * <p>
+     * 如果为true，则会根据作业状态来判断是否切割。
+     * 如果为false，则会忽略作业状态，直接切割。
+     * </p>
+     */
+    private boolean checkWorkingStatus = true;
+
     public SplitRoadParams() {
     }
 
@@ -90,6 +99,23 @@ public class SplitRoadParams {
         this.minReturnMu = minReturnMu;
     }
 
+    /**
+     * 构造函数
+     *
+     * @param dbScanEpsilon      DBSCAN半径（米）
+     * @param dbScanMinPoints    DBSCAN最小点数
+     * @param roadWidth          道路宽度(米)
+     * @param minReturnMu        最小返回多边形面积限制(亩)
+     * @param checkWorkingStatus 是否检查作业状态
+     */
+    public SplitRoadParams(Double dbScanEpsilon, Integer dbScanMinPoints, Double roadWidth, Double minReturnMu, boolean checkWorkingStatus) {
+        this.dbScanEpsilon = dbScanEpsilon;
+        this.dbScanMinPoints = dbScanMinPoints;
+        this.roadWidth = roadWidth;
+        this.minReturnMu = minReturnMu;
+        this.checkWorkingStatus = checkWorkingStatus;
+    }
+
     public Double getDbScanEpsilon() {
         return dbScanEpsilon;
     }
@@ -120,5 +146,13 @@ public class SplitRoadParams {
 
     public void setMinReturnMu(Double minReturnMu) {
         this.minReturnMu = minReturnMu;
+    }
+
+    public boolean getCheckWorkingStatus() {
+        return checkWorkingStatus;
+    }
+
+    public void setCheckWorkingStatus(boolean checkWorkingStatus) {
+        this.checkWorkingStatus = checkWorkingStatus;
     }
 }

@@ -3663,6 +3663,81 @@ public class GisUtil implements AutoCloseable {
         return calcMu(toWgs84Geometry(wgs84Wkt));
     }
 
+    /**
+     * 创建地块信息
+     * <p>
+     * 直接根据轨迹点创建地块信息，不会进行道路切割
+     *
+     * @param wgs84Points  WGS84坐标点列表
+     * @param workingWidth 作业宽度（米）
+     *
+     * @return 地块信息对象，包含面积（亩）、作业区域（Geometry）等属性
+     */
+    public FarmPlot getFarmPlot(List<Wgs84Point> wgs84Points, double workingWidth) {
+        FarmPlot farmPlot = new FarmPlot();
+
+        // 【参数验证】输入点位列表非空检查，确保后续算法有有效数据
+        if (CollUtil.isEmpty(wgs84Points)) {
+            log.error("作业轨迹点列表不能为空");
+            return farmPlot;
+        }
+
+        // 【参数验证】作业幅宽有效性检查，必须≥1米保证几何计算合理性
+        if (workingWidth < 1) {
+            log.error("作业幅宽必须大于等于 1 米");
+            return farmPlot;
+        }
+
+        // 【业务日志】记录算法输入参数，便于问题追踪和数据分析
+        log.info("创建地块信息入参 wgs84点位集合大小：{} 幅宽：{}米", wgs84Points.size(), workingWidth);
+
+        // 【数据清洗】过滤异常点位，提高聚类准确性
+        wgs84Points = filterWgs84Points(wgs84Points);
+
+        int minPts = config.DBSCAN_MIN_POINTS;
+
+        // 【坐标转换】WGS84转高斯投影，保证距离计算和几何操作的精度
+        List<GaussPoint> gaussPoints = toGaussPointList(wgs84Points);
+        if (gaussPoints.size() < minPts) {
+            log.warn("作业轨迹点列表必须包含至少 {} 个有效点位", minPts);
+            return farmPlot;
+        }
+
+        // 【几何参数】计算机具半幅宽，用于后续缓冲半径计算
+        double halfWorkingWidth = workingWidth / 2.0;
+        // 【缓冲策略】正缓冲参数：向上取整，确保缝隙完全填补
+        double positiveBuffer = Math.ceil(halfWorkingWidth + 0.1);
+
+        // 【坐标提取】将高斯点转换为JTS坐标数组
+        Coordinate[] coords = gaussPoints.stream()
+                .map(p -> new Coordinate(p.getGaussX(), p.getGaussY()))
+                .toArray(Coordinate[]::new);
+
+        // 【数据优化】点位过多时进行角度抽稀，平衡精度与性能
+        coords = simplifyByAngle(coords, config.SIMPLIFY_TOLERANCE, config.SIMPLIFY_ANGLE);
+
+        if (coords.length > minPts) {
+            // 【几何创建】构建线串并应用缓冲，形成作业区域
+            LineString line = config.GEOMETRY_FACTORY.createLineString(coords);
+            Geometry gaussGeometry = line.buffer(halfWorkingWidth);
+            log.debug("几何图形创建完毕 {}亩", gaussGeometry.getArea() * config.SQUARE_TO_MU_METER);
+
+            // 【缝隙填补】正缓冲→负缓冲策略，减少地块间的缝隙
+            log.info("先做 正缓冲->负缓冲 减少地块缝隙，缓冲半径：{} 米", positiveBuffer);
+            // 应用双向缓冲：先扩张再收缩，填补细小缝隙
+            gaussGeometry = gaussGeometry.buffer(positiveBuffer).buffer(-positiveBuffer);
+
+            // 【单多边形处理】标准Polygon情况
+            Geometry wgs84PartGeometry = toWgs84Geometry(gaussGeometry);
+            farmPlot.setGaussGeometry(gaussGeometry);
+            farmPlot.setStartTime(gaussPoints.get(0).getGpsTime());
+            farmPlot.setEndTime(gaussPoints.get(gaussPoints.size() - 1).getGpsTime());
+            farmPlot.setWkt(wgs84PartGeometry.toText());
+            farmPlot.setMu(calcMu(wgs84PartGeometry));
+        }
+
+        return farmPlot;
+    }
 
     /**
      * 智能作业轨迹道路拆分引擎
@@ -3960,7 +4035,7 @@ public class GisUtil implements AutoCloseable {
 
         // 【结果构建】将处理后的几何图形转换为SplitPart对象列表
         log.debug("创建part对象集合");
-        List<SplitPart> splitParts = new ArrayList<>();
+        List<FarmPlot> farmPlots = new ArrayList<>();
         for (Map.Entry<Integer, Geometry> geometryEntry : clusterGaussGeometryMap.entrySet()) {
             int index = geometryEntry.getKey();
             Geometry clusterGaussGeometry = geometryEntry.getValue();
@@ -3990,47 +4065,47 @@ public class GisUtil implements AutoCloseable {
 
                     // 【坐标转换】转换为WGS84坐标系用于WKT输出
                     Geometry wgs84PartGeometry = toWgs84Geometry(subGeometry);
-                    SplitPart part = new SplitPart();
+                    FarmPlot part = new FarmPlot();
                     part.setGaussGeometry(subGeometry);
                     part.setStartTime(clusterGaussPoints.get(0).getGpsTime());
                     part.setEndTime(clusterGaussPoints.get(clusterGaussPoints.size() - 1).getGpsTime());
                     part.setWkt(wgs84PartGeometry.toText());
                     part.setMu(calcMu(wgs84PartGeometry));
-                    splitParts.add(part);
+                    farmPlots.add(part);
                 }
             } else if (clusterGaussGeometry instanceof Polygon) {
                 // 【单多边形处理】标准Polygon情况
                 Geometry wgs84PartGeometry = toWgs84Geometry(clusterGaussGeometry);
-                SplitPart part = new SplitPart();
+                FarmPlot part = new FarmPlot();
                 part.setGaussGeometry(clusterGaussGeometry);
                 part.setStartTime(clusterGaussPoints.get(0).getGpsTime());
                 part.setEndTime(clusterGaussPoints.get(clusterGaussPoints.size() - 1).getGpsTime());
                 part.setWkt(wgs84PartGeometry.toText());
                 part.setMu(calcMu(wgs84PartGeometry));
-                splitParts.add(part);
+                farmPlots.add(part);
             }
         }
-        log.debug("生成 {} 个part对象", splitParts.size());
-        if (splitParts.isEmpty()) {
+        log.debug("生成 {} 个part对象", farmPlots.size());
+        if (farmPlots.isEmpty()) {
             return splitResult;
         }
 
         // 【时间排序】按开始时间排序，为后续时间合并做准备
-        splitParts.sort(Comparator.comparing(SplitPart::getStartTime));
+        farmPlots.sort(Comparator.comparing(FarmPlot::getStartTime));
 
         // 【时间合并】扫描线算法解决相邻作业段时间重叠问题
-        List<SplitPart> unionParts = new ArrayList<>();
-        int i = 0, n = splitParts.size();
+        List<FarmPlot> unionParts = new ArrayList<>();
+        int i = 0, n = farmPlots.size();
         while (i < n) {
-            SplitPart seed = splitParts.get(i);
+            FarmPlot seed = farmPlots.get(i);
             Geometry unionGeo = seed.getGaussGeometry();
             LocalDateTime groupStart = seed.getStartTime();
             LocalDateTime groupEnd = seed.getEndTime();
 
             // 【重叠检测】合并所有与当前组时间重叠的Part
             int j = i + 1;
-            while (j < n && splitParts.get(j).getStartTime().isBefore(groupEnd)) {
-                SplitPart curr = splitParts.get(j);
+            while (j < n && farmPlots.get(j).getStartTime().isBefore(groupEnd)) {
+                FarmPlot curr = farmPlots.get(j);
                 unionGeo = unionGeo.union(curr.getGaussGeometry()).buffer(0);
                 if (curr.getEndTime().isAfter(groupEnd)) {
                     groupEnd = curr.getEndTime();   // 扩张结束时间
@@ -4040,7 +4115,7 @@ public class GisUtil implements AutoCloseable {
 
             // 【合并结果】创建新的合并后的SplitPart
             Geometry wgs84Union = toWgs84Geometry(unionGeo);
-            SplitPart merged = new SplitPart();
+            FarmPlot merged = new FarmPlot();
             merged.setGaussGeometry(unionGeo);
             merged.setStartTime(groupStart);
             merged.setEndTime(groupEnd);
@@ -4053,13 +4128,13 @@ public class GisUtil implements AutoCloseable {
         log.debug("解决时间交叉后，共生成 {} 个part对象", unionParts.size());
 
         // 【属性补充】为所有合并后的Part设置最小有效间隔
-        for (SplitPart unionPart : unionParts) {
+        for (FarmPlot unionPart : unionParts) {
             unionPart.setMinEffectiveInterval(splitResult.getMinEffectiveInterval());
         }
 
         // 【最终聚合】将所有Part聚合成总的几何图形和统计信息
         Geometry unionPartsGaussGeometry = config.GEOMETRY_FACTORY.createGeometryCollection(
-                unionParts.stream().map(SplitPart::getGaussGeometry).toArray(Geometry[]::new)).union().buffer(0);
+                unionParts.stream().map(FarmPlot::getGaussGeometry).toArray(Geometry[]::new)).union().buffer(0);
         Geometry wgs84UnionGeometry = toWgs84Geometry(unionPartsGaussGeometry);
 
         // 【结果填充】设置最终结果对象的各项属性

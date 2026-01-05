@@ -36,7 +36,7 @@ public class SplitResult {
     /**
      * 拆分后的地块列表
      */
-    private List<SplitPart> splitParts = new ArrayList<>();
+    private List<FarmPlot> farmPlots = new ArrayList<>();
 
     /**
      * 地块的高斯投影几何图形（高斯投影坐标系）
@@ -72,13 +72,13 @@ public class SplitResult {
         this.mu = mu;
     }
 
-    public List<SplitPart> getParts() {
-        splitParts.sort(Comparator.comparing(SplitPart::getStartTime));
-        return splitParts;
+    public List<FarmPlot> getParts() {
+        farmPlots.sort(Comparator.comparing(FarmPlot::getStartTime));
+        return farmPlots;
     }
 
-    public void setParts(List<SplitPart> splitParts) {
-        this.splitParts = splitParts;
+    public void setParts(List<FarmPlot> farmPlots) {
+        this.farmPlots = farmPlots;
     }
 
     public Geometry getGaussGeometry() {
@@ -105,12 +105,12 @@ public class SplitResult {
         this.endTime = endTime;
     }
 
-    public List<SplitPart> getSplitParts() {
-        return splitParts;
+    public List<FarmPlot> getSplitParts() {
+        return farmPlots;
     }
 
-    public void setSplitParts(List<SplitPart> splitParts) {
-        this.splitParts = splitParts;
+    public void setSplitParts(List<FarmPlot> farmPlots) {
+        this.farmPlots = farmPlots;
     }
 
     public int getMinEffectiveInterval() {
