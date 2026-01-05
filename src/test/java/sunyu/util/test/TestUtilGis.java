@@ -885,7 +885,8 @@ public class TestUtilGis {
         String endTime = "20250429175943";
         double jobWidth = 2.6;
         生成数据文件(did, startTime, endTime);
-        测试拆分数据(did, startTime, endTime, jobWidth);
+        //测试拆分数据(did, startTime, endTime, jobWidth);
+        测试拆分数据(did, startTime, endTime, jobWidth, false, new SplitRoadParams(4.0));
         生成HTML(did, startTime, endTime);
     }
 
