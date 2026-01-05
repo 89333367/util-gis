@@ -3719,7 +3719,7 @@ public class GisUtil implements AutoCloseable {
      * @since 1.0.0
      */
     public SplitResult splitRoad(List<Wgs84Point> wgs84Points, double workingWidth) {
-        return splitRoad(wgs84Points, workingWidth, null, null, null);
+        return splitRoad(wgs84Points, workingWidth, new SplitRoadParams());
     }
 
     /**
@@ -3768,9 +3768,7 @@ public class GisUtil implements AutoCloseable {
      *
      * @param wgs84Points     输入的WGS84坐标系下的点列表（Wgs84Point类型）
      * @param workingWidth    作业幅宽（米），必须≥1米
-     * @param dbScanEpsilon   空间聚类算法半径参数，可以为null，传null会使用默认值 config.DBSCAN_EPSILON
-     * @param dbScanMinPoints 空间聚类算法最小点参数，可以为null，传null会使用默认值 config.DBSCAN_MIN_POINTS
-     * @param roadWidth       道路宽度（米），可以为null，传null会使用 Math.floor(workingWidth)
+     * @param splitRoadParams 道路切割参数（SplitRoadParams类型）
      *
      * @return 拆分后的作业轨迹结果（SplitResult类型），包含作业区域几何图形、面积、时间段等信息
      *
@@ -3779,7 +3777,7 @@ public class GisUtil implements AutoCloseable {
      * @see #optimizeLandParcelIntersectionRepair(Map, Map) 地块相交修复算法
      * @since 1.0.0
      */
-    public SplitResult splitRoad(List<Wgs84Point> wgs84Points, double workingWidth, Double dbScanEpsilon, Integer dbScanMinPoints, Double roadWidth) {
+    public SplitResult splitRoad(List<Wgs84Point> wgs84Points, double workingWidth, SplitRoadParams splitRoadParams) {
         // 【性能监控】记录算法开始时间，用于耗时统计和性能优化
         long splitRoadStartTime = System.currentTimeMillis();
 
@@ -3804,12 +3802,15 @@ public class GisUtil implements AutoCloseable {
         // 【业务日志】记录算法输入参数，便于问题追踪和数据分析
         log.info("道路拆分入参 wgs84点位集合大小：{} 幅宽：{}米", wgs84Points.size(), workingWidth);
 
+        // 定义最小返回面积（亩）
+        double minReturnMu = splitRoadParams.getMinReturnMu() == null ? config.MIN_RETURN_MU : splitRoadParams.getMinReturnMu();
+
         // 【几何参数】计算机具半幅宽，用于后续缓冲半径计算
         double halfWorkingWidth = workingWidth / 2.0;
         // 【缓冲策略】正缓冲参数：向上取整，确保缝隙完全填补
         double positiveBuffer = Math.ceil(halfWorkingWidth + 0.1);
         // 【缓冲策略】负缓冲参数：向下取整，精确切除道路轨迹
-        double negativeBuffer = roadWidth == null ? Math.floor(workingWidth) : roadWidth;
+        double negativeBuffer = splitRoadParams.getRoadWidth() == null ? Math.floor(workingWidth + 0.1) : splitRoadParams.getRoadWidth();
 
         // 【数据清洗】过滤异常点位，提高聚类准确性
         wgs84Points = filterWgs84Points(wgs84Points);
@@ -3820,9 +3821,20 @@ public class GisUtil implements AutoCloseable {
         log.debug("最小上报时间间隔：{}秒", minEffectiveInterval);
 
         // 【聚类配置】基于时间间隔计算DBSCAN参数，实现自适应密度聚类
-        double eps = dbScanEpsilon == null ? config.DBSCAN_EPSILON * minEffectiveInterval : dbScanEpsilon;
+        double eps;
+        if (splitRoadParams.getDbScanEpsilon() != null) {
+            eps = splitRoadParams.getDbScanEpsilon();
+        } else {
+            if (minEffectiveInterval == 15) {
+                eps = config.DBSCAN_EPSILON * 4;
+            } else if (minEffectiveInterval == 10) {
+                eps = config.DBSCAN_EPSILON * 6;
+            } else {
+                eps = config.DBSCAN_EPSILON * minEffectiveInterval;
+            }
+        }
         // 由于最小间隔时间超过10秒后，聚类的最小点位数量再增多就会识别不出来聚类簇，所以这里限制一下，最大只乘10倍
-        int minPts = dbScanMinPoints == null ? config.DBSCAN_MIN_POINTS : dbScanMinPoints;
+        int minPts = splitRoadParams.getDbScanMinPoints() == null ? config.DBSCAN_MIN_POINTS : splitRoadParams.getDbScanMinPoints();
 
         // 【坐标转换】WGS84转高斯投影，保证距离计算和几何操作的精度
         List<GaussPoint> gaussPoints = toGaussPointList(wgs84Points);
@@ -3891,9 +3903,9 @@ public class GisUtil implements AutoCloseable {
                     }
                 }
 
-                if (gaussGeometry.getArea() < config.MIN_RETURN_MU * config.MU_TO_SQUARE_METER) {
+                if (gaussGeometry.getArea() < minReturnMu * config.MU_TO_SQUARE_METER) {
                     log.debug("几何图形面积：{}亩，小于最小返回面积 {}亩，直接删除",
-                            gaussGeometry.getArea() * config.SQUARE_TO_MU_METER, config.MIN_RETURN_MU);
+                            gaussGeometry.getArea() * config.SQUARE_TO_MU_METER, minReturnMu);
                     continue;
                 }
 
@@ -3932,9 +3944,9 @@ public class GisUtil implements AutoCloseable {
             currGeom = currGeom.buffer(-negativeBuffer).buffer(negativeBuffer);
 
             // 【面积过滤】删除面积过小的几何图形，避免噪声数据
-            if (currGeom.getArea() < config.MIN_RETURN_MU * config.MU_TO_SQUARE_METER) {
+            if (currGeom.getArea() < minReturnMu * config.MU_TO_SQUARE_METER) {
                 log.debug("索引 {} 的几何图形面积：{}亩，小于最小返回面积 {}亩，直接删除",
-                        key, currGeom.getArea() * config.SQUARE_TO_MU_METER, config.MIN_RETURN_MU);
+                        key, currGeom.getArea() * config.SQUARE_TO_MU_METER, minReturnMu);
                 it.remove();
                 clusterGaussGeometryMap.remove(key);
                 clusterGaussPointsMap.remove(key);
@@ -3954,9 +3966,9 @@ public class GisUtil implements AutoCloseable {
             Geometry clusterGaussGeometry = geometryEntry.getValue();
 
             // 【最终过滤】再次检查面积，确保结果质量
-            if (clusterGaussGeometry.getArea() < config.MIN_RETURN_MU * config.MU_TO_SQUARE_METER) {
+            if (clusterGaussGeometry.getArea() < minReturnMu * config.MU_TO_SQUARE_METER) {
                 log.debug("索引 {} 的几何图形面积：{}亩，小于最小返回面积 {}亩，直接删除",
-                        index, clusterGaussGeometry.getArea() * config.SQUARE_TO_MU_METER, config.MIN_RETURN_MU);
+                        index, clusterGaussGeometry.getArea() * config.SQUARE_TO_MU_METER, minReturnMu);
                 continue;
             }
 
@@ -3970,9 +3982,9 @@ public class GisUtil implements AutoCloseable {
                     Geometry subGeometry = multiPolygon.getGeometryN(i);
 
                     // 【子图形过滤】对每个子图形进行面积检查
-                    if (subGeometry.getArea() < config.MIN_RETURN_MU * config.MU_TO_SQUARE_METER) {
+                    if (subGeometry.getArea() < minReturnMu * config.MU_TO_SQUARE_METER) {
                         log.debug("索引 {} 的子多边形 {} 面积：{}亩，小于最小返回面积 {}亩，直接删除",
-                                index, i, subGeometry.getArea() * config.SQUARE_TO_MU_METER, config.MIN_RETURN_MU);
+                                index, i, subGeometry.getArea() * config.SQUARE_TO_MU_METER, minReturnMu);
                         continue;
                     }
 
