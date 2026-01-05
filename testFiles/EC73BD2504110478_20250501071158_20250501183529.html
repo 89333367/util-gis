@@ -671,6 +671,19 @@
             color: #495057;
         }
         
+        .scale-info {
+            position: absolute;
+            bottom: 60px;
+            right: 20px;
+            background: white;
+            padding: 8px 12px;
+            border-radius: 6px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            z-index: 1000;
+            font-size: 11px;
+            color: #495057;
+        }
+        
         .hidden {
             display: none !important;
         }
@@ -39779,6 +39792,10 @@ POLYGON ((118.77121680093727 28.879051625364955, 118.77121277284319 28.879051993
             <div class="coordinate-info" id="coordinateInfo">
                 经度: -, 纬度: -
             </div>
+            
+            <div class="scale-info" id="scaleInfo">
+                缩放级别: -
+            </div>
 
             <!-- 右键菜单 -->
             <div class="context-menu" id="contextMenu">
@@ -40096,6 +40113,9 @@ POLYGON ((118.77121680093727 28.879051625364955, 118.77121277284319 28.879051993
 
         // 初始化播放器按钮状态（使用updatePlayerControls函数）
         updatePlayerControls();
+        
+        // 初始化缩放级别显示
+        updateScaleInfo();
     }
 
     // 创建街道图图层（直接创建单个图层，不使用图层组）
@@ -40253,6 +40273,46 @@ POLYGON ((118.77121680093727 28.879051625364955, 118.77121277284319 28.879051993
         }, 150);
     }
 
+    // 更新缩放级别显示
+    function updateScaleInfo() {
+        const scaleInfo = document.getElementById('scaleInfo');
+        if (scaleInfo && map) {
+            const zoom = map.getZoom();
+            
+            // 根据缩放级别计算比例尺距离（米）
+            // 基于Web墨卡托投影的近似计算
+            const scaleMeters = getScaleDistance(zoom);
+            
+            scaleInfo.textContent = `缩放级别: ${zoom} (约 ${scaleMeters}米)`;
+        }
+    }
+
+    // 根据缩放级别计算比例尺距离（米）
+    function getScaleDistance(zoom) {
+        // 基于Web墨卡托投影的比例尺计算
+        // 参考: https://wiki.openstreetmap.org/wiki/Zoom_levels
+        // 在赤道处，256像素对应地球周长40075016.686米
+        // 每个缩放级别，像素对应的距离减半
+        
+        const earthCircumference = 40075016.686; // 地球周长（米）
+        const basePixels = 256; // 基础像素数
+        
+        // 计算当前缩放级别下256像素对应的地面距离
+        const metersPerPixel = earthCircumference / (basePixels * Math.pow(2, zoom));
+        
+        // 返回一个合理的比例尺距离（取整到合适的单位）
+        const scaleDistance = metersPerPixel * 100; // 假设比例尺长度为100像素
+        
+        // 根据距离大小选择合适的单位和数值
+        if (scaleDistance >= 1000) {
+            return Math.round(scaleDistance / 1000) + '公里';
+        } else if (scaleDistance >= 100) {
+            return Math.round(scaleDistance / 10) * 10 + '米';
+        } else {
+            return Math.round(scaleDistance) + '米';
+        }
+    }
+
     // 绑定地图事件
     function bindMapEvents() {
         // 鼠标移动事件 - 更新坐标显示
@@ -40263,6 +40323,11 @@ POLYGON ((118.77121680093727 28.879051625364955, 118.77121277284319 28.879051993
             if (coordinateInfo) {
                 coordinateInfo.textContent = `经度: ${lng}, 纬度: ${lat}`;
             }
+        });
+
+        // 缩放事件 - 更新缩放级别显示
+        map.on('zoomend', function() {
+            updateScaleInfo();
         });
 
         // 右键菜单事件

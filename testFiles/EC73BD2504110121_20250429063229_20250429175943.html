@@ -671,6 +671,19 @@
             color: #495057;
         }
         
+        .scale-info {
+            position: absolute;
+            bottom: 60px;
+            right: 20px;
+            background: white;
+            padding: 8px 12px;
+            border-radius: 6px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            z-index: 1000;
+            font-size: 11px;
+            color: #495057;
+        }
+        
         .hidden {
             display: none !important;
         }
@@ -40454,6 +40467,10 @@
             <div class="coordinate-info" id="coordinateInfo">
                 经度: -, 纬度: -
             </div>
+            
+            <div class="scale-info" id="scaleInfo">
+                缩放级别: -
+            </div>
 
             <!-- 右键菜单 -->
             <div class="context-menu" id="contextMenu">
@@ -40573,67 +40590,6 @@
         { outline: "#008000", fill: "#66CC66", opacity: 0.5 },
         { outline: "#800000", fill: "#CC6666", opacity: 0.5 }
     ];
-
-    // 将十六进制颜色转换为RGB
-    function hexToRgb(hex) {
-        const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
-        return result ? {
-            r: parseInt(result[1], 16),
-            g: parseInt(result[2], 16),
-            b: parseInt(result[3], 16)
-        } : null;
-    }
-
-    // 计算两个颜色之间的RGB距离（相似度）
-    function colorDistance(color1, color2) {
-        const rgb1 = hexToRgb(color1);
-        const rgb2 = hexToRgb(color2);
-        
-        if (!rgb1 || !rgb2) return Infinity;
-        
-        // 计算RGB空间中的欧几里得距离
-        const distance = Math.sqrt(
-            Math.pow(rgb1.r - rgb2.r, 2) + 
-            Math.pow(rgb1.g - rgb2.g, 2) + 
-            Math.pow(rgb1.b - rgb2.b, 2)
-        );
-        
-        return distance;
-    }
-
-    // 判断两个颜色是否属于相近色系
-    function isSimilarColor(color1, color2, threshold = 80) {
-        const distance = colorDistance(color1, color2);
-        return distance < threshold;
-    }
-
-    // 获取可用的多边形颜色（排除填充颜色与轨迹线/点颜色相近的颜色）
-    function getAvailablePolygonColors() {
-        const trackLineColor = currentTrackLineColor;
-        const trackPointColor = currentTrackPointColor;
-        
-        console.log('当前轨迹线颜色:', trackLineColor, '轨迹点颜色:', trackPointColor);
-        
-        const availableColors = polygonColors.filter(color => {
-            const fillColor = color.fill;
-            
-            // 只检查填充色是否与轨迹线或轨迹点颜色相近
-            const fillSimilarToTrackLine = isSimilarColor(fillColor, trackLineColor);
-            const fillSimilarToTrackPoint = isSimilarColor(fillColor, trackPointColor);
-            
-            // 只有当填充色不与轨迹颜色相近时才可用
-            const isAvailable = !fillSimilarToTrackLine && !fillSimilarToTrackPoint;
-            
-            if (!isAvailable) {
-                console.log('过滤掉颜色:', fillColor, '与轨迹线相似:', fillSimilarToTrackLine, '与轨迹点相似:', fillSimilarToTrackPoint);
-            }
-            
-            return isAvailable;
-        });
-        
-        console.log('可用颜色数量:', availableColors.length, '总颜色数量:', polygonColors.length);
-        return availableColors;
-    }
 
     // 显示播放器
     function showPlaybackPlayer() {
@@ -40832,6 +40788,9 @@
 
         // 初始化播放器按钮状态（使用updatePlayerControls函数）
         updatePlayerControls();
+        
+        // 初始化缩放级别显示
+        updateScaleInfo();
     }
 
     // 创建街道图图层（直接创建单个图层，不使用图层组）
@@ -40989,6 +40948,46 @@
         }, 150);
     }
 
+    // 更新缩放级别显示
+    function updateScaleInfo() {
+        const scaleInfo = document.getElementById('scaleInfo');
+        if (scaleInfo && map) {
+            const zoom = map.getZoom();
+            
+            // 根据缩放级别计算比例尺距离（米）
+            // 基于Web墨卡托投影的近似计算
+            const scaleMeters = getScaleDistance(zoom);
+            
+            scaleInfo.textContent = `缩放级别: ${zoom} (约 ${scaleMeters}米)`;
+        }
+    }
+
+    // 根据缩放级别计算比例尺距离（米）
+    function getScaleDistance(zoom) {
+        // 基于Web墨卡托投影的比例尺计算
+        // 参考: https://wiki.openstreetmap.org/wiki/Zoom_levels
+        // 在赤道处，256像素对应地球周长40075016.686米
+        // 每个缩放级别，像素对应的距离减半
+        
+        const earthCircumference = 40075016.686; // 地球周长（米）
+        const basePixels = 256; // 基础像素数
+        
+        // 计算当前缩放级别下256像素对应的地面距离
+        const metersPerPixel = earthCircumference / (basePixels * Math.pow(2, zoom));
+        
+        // 返回一个合理的比例尺距离（取整到合适的单位）
+        const scaleDistance = metersPerPixel * 100; // 假设比例尺长度为100像素
+        
+        // 根据距离大小选择合适的单位和数值
+        if (scaleDistance >= 1000) {
+            return Math.round(scaleDistance / 1000) + '公里';
+        } else if (scaleDistance >= 100) {
+            return Math.round(scaleDistance / 10) * 10 + '米';
+        } else {
+            return Math.round(scaleDistance) + '米';
+        }
+    }
+
     // 绑定地图事件
     function bindMapEvents() {
         // 鼠标移动事件 - 更新坐标显示
@@ -40999,6 +40998,11 @@
             if (coordinateInfo) {
                 coordinateInfo.textContent = `经度: ${lng}, 纬度: ${lat}`;
             }
+        });
+
+        // 缩放事件 - 更新缩放级别显示
+        map.on('zoomend', function() {
+            updateScaleInfo();
         });
 
         // 右键菜单事件
@@ -41309,13 +41313,6 @@
             trackLineColorInput.addEventListener('change', function() {
                 currentTrackLineColor = this.value;
                 trackLineColorPicker.style.backgroundColor = currentTrackLineColor;
-                
-                // 如果当前有轮廓数据，重新绘制以应用新的颜色过滤
-                const wktText = document.getElementById('outlineWkt').value.trim();
-                if (wktText && outlineLayerGroup && outlineLayerGroup.getLayers().length > 0) {
-                    console.log('轨迹线颜色已更改，重新绘制轮廓以避免颜色冲突');
-                    drawOutline();
-                }
             });
         }
 
@@ -41331,13 +41328,6 @@
             trackPointColorInput.addEventListener('change', function() {
                 currentTrackPointColor = this.value;
                 trackPointColorPicker.style.backgroundColor = currentTrackPointColor;
-                
-                // 如果当前有轮廓数据，重新绘制以应用新的颜色过滤
-                const wktText = document.getElementById('outlineWkt').value.trim();
-                if (wktText && outlineLayerGroup && outlineLayerGroup.getLayers().length > 0) {
-                    console.log('轨迹点颜色已更改，重新绘制轮廓以避免颜色冲突');
-                    drawOutline();
-                }
             });
         }
     }
@@ -41634,21 +41624,7 @@
 
             // 为每个多边形创建图层
             polygonData.forEach((data, idx) => {
-                // 每次绘制前都重新获取可用的颜色方案（基于当前轨迹颜色）
-                console.log('绘制多边形', idx, '前获取可用颜色');
-                const availableColors = getAvailablePolygonColors();
-                let colorScheme;
-                
-                if (availableColors.length > 0) {
-                    // 如果有可用颜色，使用过滤后的颜色
-                    colorScheme = availableColors[data.colorIndex % availableColors.length];
-                    console.log('使用过滤后的颜色方案:', colorScheme);
-                } else {
-                    // 如果没有可用颜色（所有颜色都与轨迹颜色冲突），回退到原始颜色方案
-                    colorScheme = polygonColors[data.colorIndex % polygonColors.length];
-                    console.log('没有可用颜色，回退到原始颜色方案:', colorScheme);
-                }
-                
+                const colorScheme = polygonColors[data.colorIndex % polygonColors.length];
                 const style = {
                     color: colorScheme.outline,
                     weight: 1,
