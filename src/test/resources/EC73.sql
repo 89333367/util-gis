@@ -26,4 +26,4 @@ where
     , 'EC73BD2504110757'
     , 'EC73BD2504270161')
 order by
-    effectiveJobArea desc
+    jobArea desc

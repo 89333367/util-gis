@@ -1076,6 +1076,31 @@ public class TestUtilGis {
 
 
     @Test
+    void 测试1秒间隔046() {
+        // 所有地块都能识别出来
+        String did = "EC73BD2504110136";
+        String startTime = "20251103000000";
+        String endTime = "20251103235959";
+        double jobWidth = 2.4;
+        生成数据文件(did, startTime, endTime);
+        测试拆分数据(did, startTime, endTime, jobWidth, false, new SplitRoadParams(12.0, 16));
+        生成HTML(did, startTime, endTime);
+    }
+
+    @Test
+    void 测试1秒间隔047() {
+        // 所有地块都能识别出来
+        String did = "EC73BD2509060268";
+        String startTime = "20251111000000";
+        String endTime = "20251111235959";
+        double jobWidth = 2.4;
+        生成数据文件(did, startTime, endTime);
+        测试拆分数据(did, startTime, endTime, jobWidth);
+        生成HTML(did, startTime, endTime);
+    }
+
+
+    @Test
     void 测试10秒间隔001() {
         // 一块地，非常多的路
         String did = "EM9101B8F5AZT0041";
