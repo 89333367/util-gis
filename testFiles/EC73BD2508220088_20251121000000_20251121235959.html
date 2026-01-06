@@ -29,7 +29,7 @@
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
     <!-- Turf.js 用于几何计算 -->
-    <script src="https://unpkg.com/@turf/turf@6.5.0/turf.min.js"></script>
+    <script src="https://unpkg.com/@turf/turf@7.1.0/turf.min.js"></script>
 
     <!-- WKT解析库 -->
     <script src="https://unpkg.com/wellknown@0.5.0/wellknown.js"></script>
@@ -810,7 +810,7 @@
                 <div class="tool-buttons">
                     <button class="tool-btn" id="measureDistanceBtn" title="测距">📏 测距</button>
                     <button class="tool-btn" id="measureAreaBtn" title="测面">📐 测面</button>
-                    <button class="tool-btn" id="mapTypeBtn" title="切换地图">🗺️ 街道图</button>
+                    <button class="tool-btn" id="mapTypeBtn" title="切换地图">🗺️ 卫星图</button>
                     <button class="tool-btn" id="clearAllBtn" title="清空所有">🗑️ 清空</button>
                 </div>
             </div>
@@ -27870,11 +27870,12 @@
 <script>
     // 全局变量
     let map;
-    let currentMapType = 'street';
+    let currentMapType = 'street'; // 当前地图类型：'street'（街道图）、'satellite'（卫星图）、'white'（白底图）
     let currentBaseLayer;
     let currentBaseLabelLayer; // 街道图标注图层
     let currentSatelliteLayer;
     let currentSatelliteLabelLayer; // 卫星图标注图层
+    let currentWhiteLayer; // 白底图图层
 
     // 图层组
     let outlineLayerGroup;
@@ -28115,7 +28116,14 @@
         console.log('Layer groups created');
 
         // 初始化地图类型
-        currentMapType = 'satellite';
+        currentMapType = 'satellite'; // 默认使用卫星图
+        
+        // 初始化地图类型按钮状态
+        const mapTypeBtn = document.getElementById('mapTypeBtn');
+        if (mapTypeBtn) {
+            mapTypeBtn.innerHTML = '🛰️ 卫星图';
+            mapTypeBtn.title = '当前：卫星图，点击切换白底图';
+        }
 
         // 添加基础图层
         addBaseLayers();
@@ -28244,6 +28252,41 @@
         return ciaLayer;
     }
 
+    // 创建白底图图层
+    function createWhiteLayer() {
+        console.log('createWhiteLayer called');
+        
+        // 创建自定义白色瓦片图层
+        const WhiteTileLayer = L.TileLayer.extend({
+            createTile: function(coords, done) {
+                const tile = document.createElement('canvas');
+                const size = this.getTileSize();
+                tile.width = size.x;
+                tile.height = size.y;
+                
+                const ctx = tile.getContext('2d');
+                ctx.fillStyle = '#FFFFFF';
+                ctx.fillRect(0, 0, tile.width, tile.height);
+                
+                // 模拟异步加载完成
+                setTimeout(() => {
+                    done(null, tile);
+                }, 0);
+                
+                return tile;
+            }
+        });
+        
+        const whiteLayer = new WhiteTileLayer({
+            attribution: '白底图',
+            maxZoom: 18,
+            tileSize: 256
+        });
+        
+        console.log('White layer created');
+        return whiteLayer;
+    }
+
     // 添加基础图层（仅在需要时创建）
     function addBaseLayers() {
         console.log('addBaseLayers called');
@@ -28289,6 +28332,16 @@
             }, 100);
         }
         
+        if (currentWhiteLayer) {
+            currentWhiteLayer.setOpacity(0);
+            setTimeout(() => {
+                if (map.hasLayer(currentWhiteLayer)) {
+                    map.removeLayer(currentWhiteLayer);
+                }
+                currentWhiteLayer = null;
+            }, 100);
+        }
+        
         // 延迟创建新图层，确保旧图层的请求已经停止
         setTimeout(() => {
             // 根据当前地图类型创建并添加新图层
@@ -28298,6 +28351,10 @@
                 currentSatelliteLabelLayer = createSatelliteLabelLayer();
                 currentSatelliteLayer.addTo(map);
                 currentSatelliteLabelLayer.addTo(map);
+            } else if (currentMapType === 'white') {
+                console.log('Adding white base layer');
+                currentWhiteLayer = createWhiteLayer();
+                currentWhiteLayer.addTo(map);
             } else {
                 console.log('Adding street map layer');
                 currentBaseLayer = createStreetLayer();
@@ -31305,6 +31362,7 @@
         console.log('currentBaseLabelLayer:', currentBaseLabelLayer);
         console.log('currentSatelliteLayer:', currentSatelliteLayer);
         console.log('currentSatelliteLabelLayer:', currentSatelliteLabelLayer);
+        console.log('currentWhiteLayer:', currentWhiteLayer);
 
         if (!map) {
             console.error('Map not initialized');
@@ -31314,22 +31372,40 @@
         const mapTypeBtn = document.getElementById('mapTypeBtn');
 
         try {
-            // 切换地图类型
-            currentMapType = currentMapType === 'street' ? 'satellite' : 'street';
+            // 循环切换地图类型：街道图 -> 卫星图 -> 白底图 -> 街道图
+            if (currentMapType === 'street') {
+                currentMapType = 'satellite';
+            } else if (currentMapType === 'satellite') {
+                currentMapType = 'white';
+            } else {
+                currentMapType = 'street';
+            }
 
             // 更新按钮状态
             if (currentMapType === 'street') {
                 mapTypeBtn.innerHTML = '🗺️ 街道图';
                 mapTypeBtn.title = '当前：街道图，点击切换卫星图';
-            } else {
+            } else if (currentMapType === 'satellite') {
                 mapTypeBtn.innerHTML = '🛰️ 卫星图';
-                mapTypeBtn.title = '当前：卫星图，点击切换街道图';
+                mapTypeBtn.title = '当前：卫星图，点击切换白底图';
+            } else {
+                mapTypeBtn.innerHTML = '⬜ 白底图';
+                mapTypeBtn.title = '当前：白底图，点击切换街道图';
             }
 
             // 使用addBaseLayers函数来统一管理图层的添加和移除
             addBaseLayers();
 
-            updateStatus(`已切换到${currentMapType === 'street' ? '街道图' : '卫星图'}`);
+            let typeName = '';
+            if (currentMapType === 'street') {
+                typeName = '街道图';
+            } else if (currentMapType === 'satellite') {
+                typeName = '卫星图';
+            } else {
+                typeName = '白底图';
+            }
+            
+            updateStatus(`已切换到${typeName}`);
             console.log('Map type switched successfully to:', currentMapType);
         } catch (error) {
             console.error('Error switching map type:', error);
