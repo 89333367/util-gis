@@ -205,7 +205,7 @@ public class TestUtilGis {
         partsInfo.add(StrUtil.format("共有 {} 个地块", splitResult.getGaussGeometry().getNumGeometries()));
         partsInfo.add("\n");
         int partIndex = 1;
-        for (FarmPlot farmPlot : splitResult.getParts()) {
+        for (FarmPlot farmPlot : splitResult.getFarmPlots()) {
             List<String> partInfo = new ArrayList<>();
             partInfo.add(StrUtil.format("地块 {}:", partIndex++));
             partInfo.add(StrUtil.format("子WKT: {}", farmPlot.getWkt()));

@@ -72,12 +72,12 @@ public class SplitResult {
         this.mu = mu;
     }
 
-    public List<FarmPlot> getParts() {
+    public List<FarmPlot> getFarmPlots() {
         farmPlots.sort(Comparator.comparing(FarmPlot::getStartTime));
         return farmPlots;
     }
 
-    public void setParts(List<FarmPlot> farmPlots) {
+    public void setFarmPlots(List<FarmPlot> farmPlots) {
         this.farmPlots = farmPlots;
     }
 
@@ -103,10 +103,6 @@ public class SplitResult {
 
     public void setEndTime(LocalDateTime endTime) {
         this.endTime = endTime;
-    }
-
-    public List<FarmPlot> getSplitParts() {
-        return farmPlots;
     }
 
     public void setSplitParts(List<FarmPlot> farmPlots) {
