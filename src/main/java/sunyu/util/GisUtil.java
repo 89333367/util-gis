@@ -231,7 +231,6 @@ public class GisUtil implements AutoCloseable {
      * @param zone            投影带号，用于标识高斯投影的投影带
      * @param falseEasting    假东距，高斯投影的东偏移量（通常为500000米）
      * @param centralMeridian 中央经线，投影带的中央子午线经度（单位：度）
-     *
      * @return 对应的高斯投影CRS对象，如果创建失败则返回null
      */
     private CoordinateReferenceSystem getGaussCRS(int zone, double falseEasting, double centralMeridian) {
@@ -269,7 +268,6 @@ public class GisUtil implements AutoCloseable {
      *
      * @param wgs84Ring WGS84坐标系下的线性环几何对象（LineString类型），
      *                  表示多边形的边界环，首尾点自动闭合
-     *
      * @return 球面面积值（单位：平方米），输入无效时返回0.0
      * 返回值始终为非负数，表示多边形环包围的球面区域面积
      */
@@ -318,7 +316,6 @@ public class GisUtil implements AutoCloseable {
      *
      * @param wgs84Polygon WGS84坐标系下的多边形几何对象（Polygon类型），
      *                     支持包含零个或多个内环（孔洞）的复杂多边形结构
-     *
      * @return 净球面面积值（单位：平方米），输入无效时返回0.0
      * 返回值已扣除所有孔洞面积，表示多边形的实际有效区域面积
      */
@@ -355,7 +352,6 @@ public class GisUtil implements AutoCloseable {
      * @param chunkSize   数据块大小（点数）
      * @param totalPoints 轨迹点总数
      * @param bufferWidth 缓冲区宽度（单位：米）
-     *
      * @return 带缓冲区的几何图形（LineString或Polygon类型）
      */
     private Geometry processChunk(List<GaussPoint> points, int startIndex, int chunkSize, int totalPoints, double bufferWidth) {
@@ -401,7 +397,6 @@ public class GisUtil implements AutoCloseable {
      * 性能特点：避免O(n²)暴力合并、控制几何复杂度爆炸、支持大规模几何数据集
      *
      * @param geometries 待合并的几何图形集合（支持LineString、Polygon等多种类型）
-     *
      * @return 合并后的统一几何图形，无效输入返回空几何图形
      */
     private Geometry mergeGeometriesRecursively(List<Geometry> geometries) {
@@ -516,7 +511,6 @@ public class GisUtil implements AutoCloseable {
      * 应用场景：动态分块策略决策、轨迹质量评估、数据处理参数自适应调整
      *
      * @param points 高斯投影坐标轨迹点序列（GaussPoint类型）
-     *
      * @return 轨迹密度值（点/米），取值范围[0, +∞)，值越大表示采样密度越高
      */
     private double calculatePointDensity(List<GaussPoint> points) {
@@ -575,7 +569,6 @@ public class GisUtil implements AutoCloseable {
      *
      * @param points      轨迹点列表（GaussPoint类型），要求按时间序列有序排列
      * @param bufferWidth 缓冲区宽度（米），用于合并分块后的几何图形，建议范围1-100米
-     *
      * @return 合并后的几何图形（LineString或Polygon类型），如果输入无效或处理失败则返回空几何图形
      */
     private Geometry processLargeSegmentInChunks(List<GaussPoint> points, double bufferWidth) {
@@ -689,7 +682,6 @@ public class GisUtil implements AutoCloseable {
      *
      * @param points      轨迹点列表（GaussPoint类型），要求按时间序列有序排列，数量≤1000点
      * @param bufferWidth 缓冲区宽度（米），建议范围1-100米，用于生成轨迹的保护区或影响范围
-     *
      * @return 轨迹缓冲区几何图形（Polygon类型），如果输入无效则返回空几何图形
      */
     private Geometry processSmallSegment(List<GaussPoint> points, double bufferWidth) {
@@ -728,7 +720,6 @@ public class GisUtil implements AutoCloseable {
      * @param startIndex  当前数据块起始索引，要求0 ≤ startIndex < points.size()
      * @param endIndex    当前数据块结束索引（不包含），要求startIndex < endIndex ≤ points.size()
      * @param bufferWidth 缓冲区宽度（米），用于生成轨迹的保护区或影响范围，建议范围1-100米
-     *
      * @return 当前数据块的缓冲区几何图形（Polygon类型），如果点数不足或处理失败则返回null
      */
     private Geometry processChunkOptimized(List<GaussPoint> points, int startIndex, int endIndex, double bufferWidth) {
@@ -777,7 +768,6 @@ public class GisUtil implements AutoCloseable {
      *
      * @param geometries  待合并的几何缓冲区列表，通常来自第一阶段并行处理的结果集合
      * @param bufferWidth 缓冲区宽度参数，主要用于日志记录和调试信息，不直接参与合并计算
-     *
      * @return 合并后的统一几何图形，如果输入为空或合并失败则返回空几何对象
      */
     private Geometry mergeGeometriesOptimized(List<Geometry> geometries, double bufferWidth) {
@@ -871,7 +861,6 @@ public class GisUtil implements AutoCloseable {
      *
      * @param cluster     原始轨迹点集群（GaussPoint类型），要求按时间序列有序排列，确保分段结果的时间连续性
      * @param maxDistance 最大距离阈值（米），超过此距离的点将被视为不同轨迹段的起始点，建议范围50-1000米
-     *
      * @return 切分后的轨迹段列表（每个元素为一个子轨迹段的GaussPoint列表），保持原始点序列的相对顺序
      */
     private List<List<GaussPoint>> splitClusterByDistance(List<GaussPoint> cluster, double maxDistance) {
@@ -951,7 +940,6 @@ public class GisUtil implements AutoCloseable {
      *
      * @param cluster    轨迹点集群（GaussPoint类型），要求GPS时间戳有序且非空
      * @param maxSeconds 最大时间间隔阈值（秒），必须为正数，超过此阈值的相邻点将触发分段
-     *
      * @return 切分后的轨迹段列表，每个元素为一个独立的子轨迹段，保持原时间顺序
      */
     private List<List<GaussPoint>> splitClusterByTime(List<GaussPoint> cluster, double maxSeconds) {
@@ -1026,7 +1014,6 @@ public class GisUtil implements AutoCloseable {
      * @param cluster     原始轨迹点集群（GaussPoint列表），要求按时间升序排列
      * @param maxSeconds  最大时间间隔阈值（秒），超过此时间间隔视为轨迹中断
      * @param maxDistance 最大距离阈值（米），超过此距离视为轨迹跳跃
-     *
      * @return 切分后的轨迹段列表，每个元素为一个连续的子轨迹段，保持原始时间顺序
      */
     private List<List<GaussPoint>> splitClusterByTimeOrDistance(List<GaussPoint> cluster, double maxSeconds, double maxDistance) {
@@ -1107,7 +1094,6 @@ public class GisUtil implements AutoCloseable {
      *
      * @param targetPointList 目标点列表，需要在这些点中找到最近邻匹配
      * @param wgs84Points     候选点列表，作为匹配的参考数据源
-     *
      * @return 成功匹配的最近邻点列表，未找到匹配的点将被过滤掉，保持原始顺序
      */
     private List<Wgs84Point> findClosestPointListSimple(List<Wgs84Point> targetPointList, List<Wgs84Point> wgs84Points) {
@@ -1160,7 +1146,6 @@ public class GisUtil implements AutoCloseable {
      *
      * @param targetPointList 目标点列表，需要在这些点中找到最近邻匹配
      * @param wgs84Points     候选点列表，作为匹配的参考数据源，用于构建空间索引
-     *
      * @return 成功匹配的最近邻点列表，未找到匹配的点将被过滤掉，保持原始顺序
      */
     private List<Wgs84Point> findClosestPointListOptimized(List<Wgs84Point> targetPointList, List<Wgs84Point> wgs84Points) {
@@ -1206,7 +1191,6 @@ public class GisUtil implements AutoCloseable {
      *
      * @param targetPoint  目标查询点
      * @param spatialIndex STRtree空间索引
-     *
      * @return 最近邻点，无匹配返回null
      */
     private Wgs84Point findClosestPointWithSTRtree(Wgs84Point targetPoint, STRtree spatialIndex) {
@@ -1253,9 +1237,7 @@ public class GisUtil implements AutoCloseable {
      *
      * @param targetWgs84Point 目标查询点（WGS84坐标系）
      * @param wgs84Points      候选点集合（WGS84坐标系）
-     *
      * @return 最近邻匹配点，所有容差级别均无匹配时返回null
-     *
      * @see Config#TOLERANCES 预定义的容差级别数组（单位：米）
      * @see #findClosestPoint(Wgs84Point, List, double) 基础单容差最近邻查找
      */
@@ -1288,9 +1270,7 @@ public class GisUtil implements AutoCloseable {
      * @param targetPoint 目标查询点（WGS84坐标系）
      * @param candidates  候选点集合（WGS84坐标系）
      * @param maxDistance 最大允许距离（米），超过此距离的点将被过滤
-     *
      * @return 最近邻匹配点，无满足条件的候选点时返回null
-     *
      * @see #haversine(Wgs84Point, Wgs84Point) 球面距离计算方法
      * @see Double#MAX_VALUE 初始最小距离值，确保任何有效距离都能更新
      */
@@ -1344,9 +1324,7 @@ public class GisUtil implements AutoCloseable {
      * - 使用HashMap进行频次统计，适用于稀疏的时间间隔分布
      *
      * @param wgs84Points WGS84轨迹点列表，按时间顺序排列
-     *
      * @return 最小有效上报时间间隔（秒），默认返回1秒
-     *
      * @see Wgs84Point#getGpsTime()
      * @see Duration#between(Temporal, Temporal)
      */
@@ -1421,9 +1399,7 @@ public class GisUtil implements AutoCloseable {
      *
      * @param wgs84Points          WGS84轨迹点列表，按时间顺序排列
      * @param minEffectiveInterval 最小有效时间间隔（秒），用于筛选合适的轨迹点对
-     *
      * @return 加权平均速度（米/秒），返回0表示无法计算
-     *
      * @see Wgs84Point#getGpsTime()
      * @see Duration#between(Temporal, Temporal)
      * @see #haversine(Wgs84Point, Wgs84Point)
@@ -1515,9 +1491,7 @@ public class GisUtil implements AutoCloseable {
      * @param gaussPoints 高斯投影点列表，包含原始WGS84坐标和时间信息
      * @param epsilon     聚类半径（米），决定聚类的空间范围
      * @param minPts      最小点数量，决定形成聚类的最小密度
-     *
      * @return 聚类结果列表，每个聚类包含多个GaussPoint，按GPS时间升序排序
-     *
      * @see GaussPoint
      * @see DBSCAN
      * @see EuclideanDistance
@@ -1613,7 +1587,6 @@ public class GisUtil implements AutoCloseable {
      *
      * @param clusterGaussGeometryMap 聚类ID到高斯几何图形的映射，方法会原地修改此映射
      * @param clusterGaussPointsMap   聚类ID到高斯点列表的映射，用于同步清理无效聚类
-     *
      * @see Geometry#difference(Geometry)
      * @see UnaryUnionOp#union(Collection)
      */
@@ -1776,9 +1749,7 @@ public class GisUtil implements AutoCloseable {
      *
      * @param geometry        输入的几何图形，必须位于有效的高斯投影坐标系内
      * @param requestedBuffer 请求的缓冲距离（米），必须为非负数
-     *
      * @return 安全缓冲距离（米），取值范围为 [config.MIN_BUFFER_DISTANCE, requestedBuffer]
-     *
      * @see Geometry#getEnvelopeInternal()
      * @see Math#min(double, double)
      * @see Math#max(double, double)
@@ -1882,9 +1853,7 @@ public class GisUtil implements AutoCloseable {
      * @param pts         原始坐标点数组，必须基于高斯投影坐标系且包含有效坐标值
      * @param minLen      最小边长阈值（米），小于该长度的边参与角度计算但不保留中间点，用于过滤短边噪声
      * @param minAngleDeg 角度阈值（度），连续三点夹角大于该值时保留中间点，建议范围15-30度
-     *
      * @return 抽稀后的坐标数组，保留特征拐点和首尾点，数量小于等于输入点数
-     *
      * @see Math#atan2(double, double)
      * @see Math#toDegrees(double)
      * @see Math#hypot(double, double)
@@ -2010,9 +1979,7 @@ public class GisUtil implements AutoCloseable {
      * </p>
      *
      * @param wgs84Points WGS84轨迹点列表，允许包含null元素，但列表本身不能为null
-     *
      * @return 过滤后的WGS84轨迹点列表，按GPS时间升序排序，不含null元素和异常点位
-     *
      * @see Wgs84Point#getGpsTime()
      * @see Wgs84Point#getLongitude()
      * @see Wgs84Point#getLatitude()
@@ -2044,12 +2011,12 @@ public class GisUtil implements AutoCloseable {
                 log.trace("定位时间: {} 轨迹点经纬度超出范围：[{},{}] 抛弃", p.getGpsTime(), p.getLongitude(), p.getLatitude());
                 return false;
             }
-            // 【定位状态验证】只保留已定位状态(0)和差分定位状态(1)，排除未定位/信号弱等异常状态
+            // 【定位状态验证】只保留未知(0)和已定位状态(1)，排除未定位状态
             if (p.getGpsStatus() != 0 && p.getGpsStatus() != 1) {
                 log.trace("定位时间: {} 轨迹点GPS状态为 {} ，抛弃", p.getGpsTime(), p.getGpsStatus());
                 return false;
             }
-            // 【作业状态验证】只保留作业中(0)和作业暂停(1)状态，确保轨迹点与作业相关
+            // 【作业状态验证】只保留未知(0)和作业中(1)状态，确保轨迹点与作业相关
             if (p.getJobStatus() != 0 && p.getJobStatus() != 1) {
                 log.trace("定位时间: {} 轨迹点作业状态为 {} ，抛弃", p.getGpsTime(), p.getJobStatus());
                 return false;
@@ -2125,9 +2092,7 @@ public class GisUtil implements AutoCloseable {
      *
      * @param wgs84Point1 第一个WGS84坐标点，必须包含有效的经度（-180~180°）和纬度（-90~90°）
      * @param wgs84Point2 第二个WGS84坐标点，必须包含有效的经度（-180~180°）和纬度（-90~90°）
-     *
      * @return 两点之间的球面距离（单位：米），结果为非负双精度浮点数
-     *
      * @see GisUtil#inCircle(Wgs84Point, Wgs84Point, double) 圆形区域判断
      * @see GisUtil#filterWgs84Points(List) 轨迹点过滤（使用本方法进行距离计算）
      */
@@ -2207,9 +2172,7 @@ public class GisUtil implements AutoCloseable {
      * @param wgs84Point       待检测的WGS84坐标点，必须包含有效的经度（-180~180°）和纬度（-90~90°）
      * @param wgs84CenterPoint 圆形区域的中心点（WGS84坐标），定义围栏的几何中心
      * @param radius           圆形区域的半径（单位：米），必须为非负值，推荐范围0-20000000米
-     *
      * @return 如果测试点到圆心的球面距离小于指定半径（不包含圆形边界），则返回true；否则返回false
-     *
      * @throws IllegalArgumentException 当输入点为null或坐标无效时可能抛出异常（由haversine方法传递）
      * @see GisUtil#haversine(Wgs84Point, Wgs84Point) 底层距离计算方法
      * @see GisUtil#inRectangle(Wgs84Point, Wgs84Point, Wgs84Point) 矩形区域判断
@@ -2271,9 +2234,7 @@ public class GisUtil implements AutoCloseable {
      *
      * @param wgs84Point    待测试的WGS84坐标点，必须包含有效的经纬度值（经度范围-180~180，纬度范围-90~90）
      * @param wgs84Geometry 用于判断的几何图形，必须是有效的JTS Geometry对象，支持所有标准几何类型
-     *
      * @return 如果点在几何图形内部（不包含边界），则返回true；点在边界上或外部返回false
-     *
      * @throws IllegalArgumentException 当输入参数为null时可能抛出异常
      * @see Geometry#contains(Geometry) JTS空间关系判断方法
      * @see Geometry#covers(Geometry) 包含边界的空间关系判断方法
@@ -2346,9 +2307,7 @@ public class GisUtil implements AutoCloseable {
      * @param wgs84Point            待测试的WGS84坐标点，必须包含有效的经纬度值（经度范围-180~180，纬度范围-90~90）
      * @param wgs84TopLeftPoint     矩形的左上角点（或任意对角点），对角点顺序不影响结果
      * @param wgs84BottomRightPoint 矩形的右下角点（或任意对角点），与左上角点形成矩形对角线
-     *
      * @return 如果点在矩形内部（严格不包含边界），则返回true；点在边界上或外部返回false
-     *
      * @throws IllegalArgumentException 当输入参数为null时可能抛出异常
      * @see GisUtil#inGeometry(Wgs84Point, Geometry) 支持任意形状的内部判断
      * @see GisUtil#inCircle(Wgs84Point, Wgs84Point, double) 圆形区域内部判断
@@ -2434,9 +2393,7 @@ public class GisUtil implements AutoCloseable {
      * </ul>
      *
      * @param wgs84WKT WGS84坐标系下的标准WKT字符串，格式如"POINT(经度 纬度)"、"LINESTRING(经度1 纬度1,经度2 纬度2)"、"POLYGON((经度1 纬度1,...,经度1 纬度1))"
-     *
      * @return 解析成功的WGS84坐标系Geometry几何对象；解析失败返回预定义的空几何对象（非null）
-     *
      * @throws IllegalArgumentException 当输入参数为null时可能抛出此异常
      * @see GisUtil#toGaussGeometry(Geometry) WGS84几何转高斯投影几何
      * @see GisUtil#intersection(String, String) 几何图形交集计算
@@ -2520,9 +2477,7 @@ public class GisUtil implements AutoCloseable {
      * </ul>
      *
      * @param wgs84Geometry WGS84坐标系下的几何图形（经纬度），支持点、线、面等所有标准几何类型
-     *
      * @return 高斯投影坐标系下的几何图形（米制单位），转换失败返回预定义的空几何对象
-     *
      * @throws IllegalArgumentException 当输入参数为null时可能抛出此异常
      * @see GisUtil#toWgs84Geometry(Geometry) 高斯投影转WGS84
      * @see GisUtil#getGaussCRS(int, double, double) 高斯投影CRS获取
@@ -2665,12 +2620,10 @@ public class GisUtil implements AutoCloseable {
      *
      * @param wgs84WKT1 第一个WGS84几何图形的WKT字符串（支持线/面及复合几何）
      * @param wgs84WKT2 第二个WGS84几何图形的WKT字符串（支持线/面及复合几何）
-     *
      * @return WktIntersectionResult对象，包含：<br>
      * - wkt：相交几何的WKT字符串（无相交时返回空几何）<br>
      * - mu：相交区域面积（亩），无相交时为0.0<br>
      * 结果保证：wkt非null，mu≥0.0
-     *
      * @throws IllegalArgumentException 当输入WKT格式无效或几何类型不支持时
      * @see WktIntersectionResult 相交结果封装类
      * @see #toWgs84Geometry(String) WKT解析方法
@@ -2809,10 +2762,8 @@ public class GisUtil implements AutoCloseable {
      * </p>
      *
      * @param gaussGeometry 高斯投影几何对象（支持点/线/面及复合几何类型）
-     *
      * @return WGS84几何对象，转换失败时返回空几何（config.EMPTY_GEOMETRY）<br>
      * 结果保证：非null，坐标范围符合WGS84标准（经度±180°，纬度±90°）
-     *
      * @throws IllegalArgumentException 当输入几何坐标超出高斯投影合理范围时
      * @see #getGaussCRS(int, double, double) 高斯投影CRS获取方法
      * @see #toGaussGeometry(Geometry) 正向WGS84→高斯投影转换方法
@@ -2972,11 +2923,9 @@ public class GisUtil implements AutoCloseable {
      *                         要求：非null且非空，列表中的每个点都应包含有效坐标
      * @param tolerance        容差范围（单位：米）<br>
      *                         建议值：1.0米（默认），可根据坐标转换精度调整，范围：0.1-100米
-     *
      * @return 匹配到的最接近原始点，包含完整的业务属性（时间、速度等）<br>
      * 返回条件：距离在容差范围内且为最小距离<br>
      * 异常情况：输入参数无效时返回null，容差范围内无匹配点时返回null
-     *
      * @see #haversine(Wgs84Point, Wgs84Point) Haversine距离计算公式
      * @see #findClosestPointList(List, List) 批量最近点匹配算法
      * @see Wgs84Point WGS84点数据结构定义
@@ -3078,11 +3027,9 @@ public class GisUtil implements AutoCloseable {
      *                        要求：非null且非空，每个点包含有效经纬度坐标
      * @param wgs84Points     原始WGS84点列表（待搜索的数据源）<br>
      *                        要求：非null且非空，作为匹配参考的原始点数据集
-     *
      * @return 匹配到的最接近点列表，保持与目标点列表相同的顺序和数量<br>
      * 结果保证：非null，可能包含null元素（未匹配到的点）<br>
      * 性能保证：小数据量O(n²)，大数据量O(n log n)近似
-     *
      * @see #findClosestPoint(Wgs84Point, List, double) 单点容差匹配算法
      * @see #findClosestPointListSimple(List, List) 简单线性搜索算法
      * @see #findClosestPointListOptimized(List, List) 空间索引优化算法
@@ -3170,11 +3117,9 @@ public class GisUtil implements AutoCloseable {
      *
      * @param gaussPoints 高斯投影点列表（包含原始WGS84经度和高斯投影坐标）<br>
      *                    要求：非null，每个点包含有效的原始经度和高斯投影坐标
-     *
      * @return WGS84地理坐标点列表，保持与输入相同的顺序和数量<br>
      * 结果保证：非null，可能包含较少的点（过滤异常结果）<br>
      * 坐标保证：所有返回点都通过经纬度范围验证
-     *
      * @see GaussPoint 高斯投影点数据结构定义
      * @see Wgs84Point WGS84地理坐标点数据结构定义
      * @see #getGaussCRS(int, double, double) 高斯投影CRS获取方法
@@ -3368,9 +3313,7 @@ public class GisUtil implements AutoCloseable {
      * </p>
      *
      * @param wgs84Points 输入的WGS84坐标系下的点列表（Wgs84Point类型），需包含有效经纬度
-     *
      * @return 转换后的高斯投影坐标系下的点列表（GaussPoint类型），可能因异常过滤而少于输入
-     *
      * @since 1.0.0
      */
     public List<GaussPoint> toGaussPointList(List<Wgs84Point> wgs84Points) {
@@ -3509,9 +3452,7 @@ public class GisUtil implements AutoCloseable {
      * </p>
      *
      * @param wgs84Geometry WGS84坐标系下的面状几何（Polygon或MultiPolygon），其余类型返回0.0
-     *
      * @return 球面面积（平方米，≥0），计算失败或非法输入返回0.0
-     *
      * @since 1.0.0
      */
     public double calculateSphericalArea(Geometry wgs84Geometry) {
@@ -3584,9 +3525,7 @@ public class GisUtil implements AutoCloseable {
      * </p>
      *
      * @param wgs84Geometry WGS84坐标系下的面状几何（Polygon或MultiPolygon）
-     *
      * @return 几何图形面积（亩，≥0，保留4位小数），计算失败返回0.0
-     *
      * @see #calculateSphericalArea(Geometry)
      * @since 1.0.0
      */
@@ -3650,9 +3589,7 @@ public class GisUtil implements AutoCloseable {
      * </ul></p>
      *
      * @param wgs84Wkt WGS84坐标系下的WKT字符串，如"POLYGON((...))"或"MULTIPOLYGON(((...)))"
-     *
      * @return 几何图形的面积（亩），四舍五入保留4位小数；解析或计算失败返回0.0
-     *
      * @see #calcMu(Geometry) 核心面积计算逻辑
      * @see #toWgs84Geometry(String) WKT字符串解析方法
      * @since 1.0.0
@@ -3670,7 +3607,6 @@ public class GisUtil implements AutoCloseable {
      *
      * @param wgs84Points  WGS84坐标点列表
      * @param workingWidth 作业宽度（米）
-     *
      * @return 地块信息对象，包含面积（亩）、作业区域（Geometry）等属性
      */
     public FarmPlot getFarmPlot(List<Wgs84Point> wgs84Points, double workingWidth) {
@@ -3785,9 +3721,7 @@ public class GisUtil implements AutoCloseable {
      *
      * @param wgs84Points  输入的WGS84坐标系下的点列表（Wgs84Point类型）
      * @param workingWidth 作业幅宽（米），必须≥1米
-     *
      * @return 拆分后的作业轨迹结果（SplitResult类型），包含作业区域几何图形、面积、时间段等信息
-     *
      * @see SplitResult 作业轨迹拆分结果数据结构
      * @see #dbScanClusters(List, double, int) 密度聚类算法
      * @see #optimizeLandParcelIntersectionRepair(Map, Map) 地块相交修复算法
@@ -3844,9 +3778,7 @@ public class GisUtil implements AutoCloseable {
      * @param wgs84Points     输入的WGS84坐标系下的点列表（Wgs84Point类型）
      * @param workingWidth    作业幅宽（米），必须≥1米
      * @param splitRoadParams 道路切割参数（SplitRoadParams类型）
-     *
      * @return 拆分后的作业轨迹结果（SplitResult类型），包含作业区域几何图形、面积、时间段等信息
-     *
      * @see SplitResult 作业轨迹拆分结果数据结构
      * @see #dbScanClusters(List, double, int) 密度聚类算法
      * @see #optimizeLandParcelIntersectionRepair(Map, Map) 地块相交修复算法

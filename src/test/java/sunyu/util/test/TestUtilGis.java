@@ -1277,4 +1277,17 @@ public class TestUtilGis {
         }
     }
 
+    @Test
+    void 测试Td() throws SQLException {
+        String sql = ResourceUtil.readUtf8Str("testTdengine.sql");
+        Db db = getTdengineDb();
+        List<Entity> list = db.query(sql);
+        for (Entity entity : list) {
+            log.debug("{}", entity.getTimestamp("gpsTime").toLocalDateTime());
+            log.debug("{}", entity.getDouble("lon"));
+            log.debug("{}", entity.getDouble("lat"));
+            log.debug("{}", Convert.toInt(entity.get("accStatus"), 0));
+            log.debug("{}", Convert.toInt(entity.get("workStatus"), 0));
+        }
+    }
 }
