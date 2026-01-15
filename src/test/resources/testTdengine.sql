@@ -1,1 +1,0 @@
-select `3014` `gpsTime`,`2602` lon,`2603` lat,`3020` `accStatus`,`4031` `workStatus` from frequent.d_p where did='BAD3322510600116' and _rowts>='2026-01-14' and _rowts<='2026-01-14 23:59:59' and `2601`=0 and `2602`!=0 and `2603`!=0 and `2602`>=-180 and `2602`<=180 and `2603`>=-90 and `2603`<=90 limit 1

@@ -1,35 +1,29 @@
 package sunyu.util.test;
 
 import cn.hutool.core.convert.Convert;
-import cn.hutool.core.date.DateField;
-import cn.hutool.core.date.DateTime;
-import cn.hutool.core.date.DateUtil;
 import cn.hutool.core.date.LocalDateTimeUtil;
 import cn.hutool.core.io.FileUtil;
 import cn.hutool.core.io.resource.ResourceUtil;
-import cn.hutool.core.thread.ThreadUtil;
 import cn.hutool.core.util.ReUtil;
 import cn.hutool.core.util.StrUtil;
-import cn.hutool.db.Db;
-import cn.hutool.db.DbUtil;
-import cn.hutool.db.Entity;
 import cn.hutool.log.Log;
 import cn.hutool.log.LogFactory;
-import cn.hutool.log.level.Level;
-import com.zaxxer.hikari.HikariConfig;
-import com.zaxxer.hikari.HikariDataSource;
 import org.junit.jupiter.api.Test;
 import org.locationtech.jts.geom.Geometry;
 import org.locationtech.jts.geom.MultiPolygon;
 import sunyu.util.GisUtil;
 import sunyu.util.pojo.*;
-import sunyu.util.test.config.TDengineHandler;
+import sunyu.util.test.config.MyBatis;
+import sunyu.util.test.entity.DP;
+import sunyu.util.test.entity.FarmWork;
+import sunyu.util.test.mapper.farm.FarmMapper;
+import sunyu.util.test.mapper.tdengine.TdengineMapper;
 
-import javax.sql.DataSource;
-import java.sql.SQLException;
-import java.time.Duration;
 import java.time.LocalDateTime;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+import java.util.TreeMap;
 
 public class TestUtilGis {
     Log log = LogFactory.get();
@@ -72,86 +66,21 @@ public class TestUtilGis {
         return null;
     }
 
-    private DataSource getMySqlDatasource() {
-        HikariConfig config = new HikariConfig();
-        config.setJdbcUrl("jdbc:mysql://172.16.1.59:3306/farm?useUnicode=true&characterEncoding=UTF-8&serverTimezone=UTC&zeroDateTimeBehavior=convertToNull&useInformationSchema=true&useSSL=false&allowMultiQueries=true");
-        config.setUsername("dev");
-        config.setPassword("uml-tech");
-        config.setMinimumIdle(0);
-        config.setMaximumPoolSize(10);
-        DataSource ds = new HikariDataSource(config);
-        return ds;
-    }
-
-    private Db getMysqlDb() {
-        DataSource ds = getMySqlDatasource();
-        DbUtil.setShowSqlGlobal(true, false, true, Level.DEBUG);
-        Db db = Db.use(ds);
-        return db;
-    }
-
-    private HikariDataSource getTdengineDatasource() {
-        HikariConfig config = new HikariConfig();
-        config.setDriverClassName("com.taosdata.jdbc.ws.WebSocketDriver");
-        config.setJdbcUrl("jdbc:TAOS-WS://172.16.1.173:16041/?httpConnectTimeout=60000&messageWaitTimeout=60000");
-        config.setUsername("root");
-        config.setPassword("taosdata");
-        config.setMinimumIdle(0);
-        config.setMaximumPoolSize(10);
-        HikariDataSource ds = new HikariDataSource(config);
-        return ds;
-    }
-
-    private Db getTdengineDb() {
-        DataSource ds = getTdengineDatasource();
-        DbUtil.setShowSqlGlobal(true, false, true, Level.DEBUG);
-        Db db = Db.use(ds);
-        return db;
-    }
-
-    void 生成数据文件(String did, String startTime, String endTime) {
-        if (!FileUtil.exist(path + StrUtil.format("/{}_{}_{}_trace.txt", did, startTime, endTime))) {
-            Db db = getTdengineDb();
-            String jobStartTime = DateUtil.parse(startTime, "yyyyMMddHHmmss").toString("yyyy-MM-dd HH:mm:ss");
-            String jobEndTime = DateUtil.parse(endTime, "yyyyMMddHHmmss").toString("yyyy-MM-dd HH:mm:ss");
-            String tdSql = StrUtil.format("select protocol from frequent.d_p where did='{}' and _rowts>='{}' and _rowts<='{}'", did, jobStartTime, jobEndTime);
-            log.debug("{}", tdSql);
-            List<Entity> rows = null;
-            while (true) {
-                try {
-                    rows = db.query(tdSql, new TDengineHandler());
-                    break;
-                } catch (SQLException e) {
-                    log.warn("{}", e.getMessage());
-                    ThreadUtil.sleep(10 * 1000);
-                }
+    List<DP> selectWorkPoints(String did, LocalDateTime startTime, LocalDateTime endTime) {
+        TdengineMapper mapper = MyBatis.getMapper(TdengineMapper.class);
+        List<DP> l = mapper.selectWorkPoints(did, startTime, endTime, false);
+        if (l.isEmpty()) {
+            l = mapper.selectWorkProtocol(did, startTime, endTime, false);
+            for (DP dp : l) {
+                Map<String, String> protocol = parseProtocolString(dp.getProtocol());
+                dp.setP3014(LocalDateTimeUtil.parse(protocol.get("3014"), "yyyyMMddHHmmss"));
+                dp.setP2602(Double.parseDouble(protocol.get("2602")));
+                dp.setP2603(Double.parseDouble(protocol.get("2603")));
+                dp.setP3020(Convert.toInt(protocol.get("3020")));
+                dp.setP4031(Convert.toInt(protocol.get("4031")));
             }
-            List<String> traceList = new ArrayList<>();
-            List<String> protocolList = new ArrayList<>();
-            for (Entity row : rows) {
-                String protocolStr = row.getStr("protocol");
-                Map<String, String> protocol = parseProtocolString(protocolStr);
-                if (!protocol.containsKey("3014") || !protocol.containsKey("2602") || !protocol.containsKey("2603")) {
-                    continue;
-                }
-                protocolList.add(protocolStr);//只要有定位时间和经纬度信息就添加到协议列表
-                if (protocol.containsKey("2601") && !protocol.get("2601").equals("0")) {// 定位状态,0已定位，1未定位
-                    continue;
-                }
-                // 经纬度不能为0（无效坐标）
-                if (Convert.toDouble(protocol.get("2602")) == 0.0 && Convert.toDouble(protocol.get("2603")) == 0.0) {
-                    continue;
-                }
-                // 经纬度必须在合理范围内
-                if (Convert.toDouble(protocol.get("2602")) < -180.0 || Convert.toDouble(protocol.get("2602")) > 180.0 || Convert.toDouble(protocol.get("2603")) < -90.0 || Convert.toDouble(protocol.get("2603")) > 90.0) {
-                    continue;
-                }
-                // {定位时间yyyyMMddHHmmss},{经度},{纬度}
-                traceList.add(StrUtil.format("{},{},{}", protocol.get("3014"), protocol.get("2602"), protocol.get("2603")));
-            }
-            FileUtil.writeUtf8Lines(traceList, path + StrUtil.format("/{}_{}_{}_trace.txt", did, startTime, endTime));
-            FileUtil.writeUtf8Lines(protocolList, path + StrUtil.format("/{}_{}_{}_protocol.txt", did, startTime, endTime));
         }
+        return l;
     }
 
     void 测试拆分数据(String did, String startTime, String endTime, double jobWidth, boolean updateFarmWorkTable) {
@@ -163,32 +92,23 @@ public class TestUtilGis {
     }
 
     void 测试拆分数据(String did, String startTime, String endTime, double jobWidth, Boolean updateFarmWorkTable, SplitRoadParams splitRoadParams) {
-        String fileName = path + StrUtil.format("/{}_{}_{}_protocol.txt", did, startTime, endTime);
-        if (!FileUtil.exist(fileName)) {
-            return;
-        }
+        List<DP> dps = selectWorkPoints(did, LocalDateTimeUtil.parse(startTime, "yyyyMMddHHmmss"), LocalDateTimeUtil.parse(endTime, "yyyyMMddHHmmss"));
         List<Wgs84Point> l = new ArrayList<>();
-        for (String protocolStr : FileUtil.readUtf8Lines(fileName)) {
-            Map<String, String> protocol = parseProtocolString(protocolStr);
+        for (DP dp : dps) {
             Wgs84Point wgs84Point = new Wgs84Point();
-            wgs84Point.setGpsTime(LocalDateTimeUtil.parse(protocol.get("3014"), "yyyyMMddHHmmss"));
-            wgs84Point.setLongitude(Double.parseDouble(protocol.get("2602")));
-            wgs84Point.setLatitude(Double.parseDouble(protocol.get("2603")));
-            if (protocol.containsKey("2601")) {// 定位状态,0已定位，1未定位
-                if (protocol.get("2601").equals("0")) {
-                    wgs84Point.setGpsStatus(1);
-                } else {
-                    wgs84Point.setGpsStatus(2);
+            wgs84Point.setGpsTime(dp.getP3014());
+            wgs84Point.setLongitude(dp.getP2602());
+            wgs84Point.setLatitude(dp.getP2603());
+            if (dp.getP3020() != null) {
+                wgs84Point.setJobStatus(2);//先设置非作业状态
+                if (dp.getP3020() == 1) {// 终端ACC状态,0关闭，1开启
+                    wgs84Point.setJobStatus(1);
                 }
             }
-            if (protocol.containsKey("3020")) {// 终端ACC状态,0关闭，1开启
-                if (Convert.toStr(protocol.get("3020")).equals("0")) {
-                    wgs84Point.setJobStatus(2);//ACC关闭，认为是没有作业
-                }
-            }
-            if (splitRoadParams.getCheckWorkingStatus() && protocol.containsKey("4031")) {// 作业标识,1作业,0非作业,2暂停
-                if (!Convert.toStr(protocol.get("4031")).equals("1")) {
-                    wgs84Point.setJobStatus(2);//作业标识不是1，认为是没有作业
+            if (splitRoadParams.getCheckWorkingStatus() && dp.getP4031() != null) {// 作业标识,1作业,0非作业,2暂停
+                wgs84Point.setJobStatus(2);//先设置非作业状态
+                if (dp.getP4031() == 1) {
+                    wgs84Point.setJobStatus(1);//作业标识是1，认为是作业
                 }
             }
             l.add(wgs84Point);
@@ -219,7 +139,7 @@ public class TestUtilGis {
         }
         FileUtil.writeUtf8Lines(partsInfo, partsFile);
 
-        fileName = path + StrUtil.format("/{}_{}_{}_gauss.txt", did, startTime, endTime);
+        String fileName = path + StrUtil.format("/{}_{}_{}_gauss.txt", did, startTime, endTime);
         l = gisUtil.filterWgs84Points(l);
         List<GaussPoint> gaussPointList = gisUtil.toGaussPointList(l);
         List<String> gaussXyList = new ArrayList<>();
@@ -228,34 +148,12 @@ public class TestUtilGis {
         }
         FileUtil.writeUtf8Lines(gaussXyList, fileName);
 
-        if (updateFarmWorkTable != null && updateFarmWorkTable) {
-            // 直接更新farm_work表的复算亩数以及WKT
-            Db mysqlDb = getMysqlDb();
-            String sql = StrUtil.format(ResourceUtil.readUtf8Str("updateFarmWork.sql"),
-                    splitResult.getMu(),
-                    splitResult.getWkt(),
-                    did,
-                    DateUtil.parse(endTime, "yyyyMMddHHmmss").toString("yyyy-MM-dd HH:mm:ss")
-            );
-            log.info(sql);
-            try {
-                mysqlDb.execute(sql);
-            } catch (SQLException e) {
-                log.error(e);
-            }
-        }
-    }
-
-    void 生成HTML(String did, String startTime, String endTime) {
         String html = ResourceUtil.readUtf8Str("showGeometrysTemplate_leaflet.html");
-
-        String fileName = path + StrUtil.format("/{}_{}_{}_trace.txt", did, startTime, endTime);
-        if (!FileUtil.exist(fileName)) {
-            return;
+        StringBuilder trace = new StringBuilder();
+        for (Wgs84Point wgs84Point : l) {
+            trace.append(StrUtil.format("{},{},{}\n", LocalDateTimeUtil.format(wgs84Point.getGpsTime(), "yyyyMMddHHmmss"), wgs84Point.getLongitude(), wgs84Point.getLatitude()));
         }
-        String trace = FileUtil.readUtf8String(fileName);
-        html = StrUtil.replace(html, "${trace}", trace);
-
+        html = StrUtil.replace(html, "${trace}", trace.toString());
         List<String> outlineList = new ArrayList<>();
         for (String line : FileUtil.readUtf8Lines(path + StrUtil.format("/{}_{}_{}_parts.txt", did, startTime, endTime))) {
             if (line.startsWith("子WKT")) {
@@ -268,161 +166,18 @@ public class TestUtilGis {
             String outline = FileUtil.readUtf8Lines(path + StrUtil.format("/{}_{}_{}_parts.txt", did, startTime, endTime)).get(1);
             html = StrUtil.replace(html, "${outline}", outline.replace("总WKT: ", ""));
         }
-
         FileUtil.writeUtf8String(html, path + StrUtil.format("/{}_{}_{}.html", did, startTime, endTime));
-    }
 
-    void 查看速度(String did, String startTime, String endTime, LocalDateTime aTime, LocalDateTime bTime) {
-        String fileName = path + StrUtil.format("/{}_{}_{}_trace.txt", did, startTime, endTime);
-        if (!FileUtil.exist(fileName)) {
-            return;
+        if (updateFarmWorkTable != null && updateFarmWorkTable) {
+            // 直接更新farm_work表的复算亩数以及WKT
+            FarmMapper mapper = MyBatis.getMapper(FarmMapper.class);
+            FarmWork farmWork = new FarmWork();
+            farmWork.setDid(did);
+            farmWork.setJobEndTime(LocalDateTimeUtil.parse(endTime, "yyyyMMddHHmmss"));
+            farmWork.setEffectiveJobArea(splitResult.getMu());
+            farmWork.setWktPoly(splitResult.getWkt());
+            mapper.updateFarmWork(farmWork);
         }
-        List<String> lines = FileUtil.readUtf8Lines(fileName);
-        List<Wgs84Point> points = new ArrayList<>();
-        for (String line : lines) {
-            String[] info = line.split(",");
-            LocalDateTime gpsTime = LocalDateTimeUtil.parse(info[0], "yyyyMMddHHmmss");
-            double longitude = Double.parseDouble(info[1]);
-            double latitude = Double.parseDouble(info[2]);
-            if (aTime.isBefore(gpsTime) && gpsTime.isBefore(bTime)) {
-                points.add(new Wgs84Point(gpsTime, longitude, latitude));
-            }
-        }
-        // 打印 最小速度、最大速度、平均速度、速度中位数
-        double[] speeds = new double[points.size() - 1];
-        for (int i = 0; i < speeds.length; i++) {
-            Wgs84Point p1 = points.get(i);
-            Wgs84Point p2 = points.get(i + 1);
-            double dist = gisUtil.haversine(p1, p2);          // 米
-            double dt = Duration.between(p1.getGpsTime(), p2.getGpsTime()).getSeconds(); // 秒
-            speeds[i] = dt == 0 ? 0 : (dist / 1000.0) / (dt / 3600.0); // km/h
-        }
-        Arrays.sort(speeds);
-        double min = speeds.length > 0 ? speeds[0] : 0;
-        double max = speeds.length > 0 ? speeds[speeds.length - 1] : 0;
-        double avg = Arrays.stream(speeds).average().orElse(0);
-        double median = speeds.length % 2 == 0
-                ? (speeds[speeds.length / 2 - 1] + speeds[speeds.length / 2]) / 2
-                : speeds[speeds.length / 2];
-        log.info("速度统计  min={} km/h, max={} km/h, avg={} km/h, median={} km/h",
-                String.format("%.2f", min),
-                String.format("%.2f", max),
-                String.format("%.2f", avg),
-                String.format("%.2f", median));
-    }
-
-    @Test
-    void 测试内存与cpu占用() {
-        String did = "EC71BT2406060220";
-        String startTime = "20251102154200";
-        String endTime = "20251102172202";
-        double jobWidth = 1.75;
-        String fileName = path + StrUtil.format("/{}_{}_{}_protocol.txt", did, startTime, endTime);
-        if (!FileUtil.exist(fileName)) {
-            return;
-        }
-        List<Wgs84Point> l = new ArrayList<>();
-        for (String protocolStr : FileUtil.readUtf8Lines(fileName)) {
-            Map<String, String> protocol = parseProtocolString(protocolStr);
-            Wgs84Point wgs84Point = new Wgs84Point();
-            wgs84Point.setGpsTime(LocalDateTimeUtil.parse(protocol.get("3014"), "yyyyMMddHHmmss"));
-            wgs84Point.setLongitude(Double.parseDouble(protocol.get("2602")));
-            wgs84Point.setLatitude(Double.parseDouble(protocol.get("2603")));
-            if (protocol.containsKey("2601")) {// 定位状态,0已定位，1未定位
-                if (protocol.get("2601").equals("0")) {
-                    wgs84Point.setGpsStatus(1);
-                } else {
-                    wgs84Point.setGpsStatus(2);
-                }
-            }
-            if (protocol.containsKey("3020")) {// 终端ACC状态,0关闭，1开启
-                if (Convert.toStr(protocol.get("3020")).equals("0")) {
-                    wgs84Point.setJobStatus(2);//ACC关闭，认为是没有作业
-                }
-            }
-            if (protocol.containsKey("4031")) {// 作业标识,1作业,0非作业,2暂停
-                if (!Convert.toStr(protocol.get("4031")).equals("1")) {
-                    wgs84Point.setJobStatus(2);//作业标识不是1，认为是没有作业
-                }
-            }
-            l.add(wgs84Point);
-        }
-        for (int i = 0; i < 100; i++) {
-            gisUtil.splitRoad(l, jobWidth);
-        }
-    }
-
-    @Test
-    void 测试批量投影转换() {
-        String fileName = path + "/EC73BD2509061335_20251104100606_20251104101419_protocol.txt";
-        List<Wgs84Point> l = new ArrayList<>();
-        for (String protocolStr : FileUtil.readUtf8Lines(fileName)) {
-            Map<String, String> protocol = parseProtocolString(protocolStr);
-            Wgs84Point wgs84Point = new Wgs84Point();
-            wgs84Point.setGpsTime(LocalDateTimeUtil.parse(protocol.get("3014"), "yyyyMMddHHmmss"));
-            wgs84Point.setLongitude(Double.parseDouble(protocol.get("2602")));
-            wgs84Point.setLatitude(Double.parseDouble(protocol.get("2603")));
-            if (protocol.containsKey("2601")) {// 定位状态,0已定位，1未定位
-                if (protocol.get("2601").equals("0")) {
-                    wgs84Point.setGpsStatus(1);
-                } else {
-                    wgs84Point.setGpsStatus(2);
-                }
-            }
-            if (protocol.containsKey("3020")) {// 终端ACC状态,0关闭，1开启
-                if (Convert.toStr(protocol.get("3020")).equals("0")) {
-                    wgs84Point.setJobStatus(2);//ACC关闭，认为是没有作业
-                }
-            }
-            if (protocol.containsKey("4031")) {// 作业标识,1作业,0非作业,2暂停
-                if (!Convert.toStr(protocol.get("4031")).equals("1")) {
-                    wgs84Point.setJobStatus(2);//作业标识不是1，认为是没有作业
-                }
-            }
-            l.add(wgs84Point);
-        }
-        List<Wgs84Point> wgs84Points = gisUtil.filterWgs84Points(l);
-        log.debug("过滤后的wgs84点");
-        for (Wgs84Point wgs84Point : wgs84Points) {
-            log.debug("{} {} {}", wgs84Point.getGpsTime(), wgs84Point.getLongitude(), wgs84Point.getLatitude());
-        }
-        List<GaussPoint> gaussPoints = gisUtil.toGaussPointList(wgs84Points);
-        log.debug("转换后的高斯投影点");
-        for (GaussPoint gaussPoint : gaussPoints) {
-            log.debug("{} {} {}", gaussPoint.getGpsTime(), gaussPoint.getGaussX(), gaussPoint.getGaussY());
-        }
-        List<Wgs84Point> wgs84Points1 = gisUtil.toWgs84PointList(gaussPoints);
-        log.debug("转换后的wgs84点");
-        for (Wgs84Point wgs84Point : wgs84Points1) {
-            log.debug("{} {} {}", wgs84Point.getGpsTime(), wgs84Point.getLongitude(), wgs84Point.getLatitude());
-        }
-        List<Wgs84Point> closestPoints = gisUtil.findClosestPointList(wgs84Points1, wgs84Points);
-        log.debug("容差点");
-        for (Wgs84Point closestPoint : closestPoints) {
-            log.debug("{} {} {}", closestPoint.getGpsTime(), closestPoint.getLongitude(), closestPoint.getLatitude());
-        }
-    }
-
-    @Test
-    void 测试单个点的投影转换1() {
-        Wgs84Point p = new Wgs84Point(107.79342153, 22.54082875);
-        log.debug("原始wgs84点");
-        log.info("{} {} {}", p.getGpsTime(), p.getLongitude(), p.getLatitude());
-        GaussPoint gaussPoint = gisUtil.toGaussPointList(new ArrayList<Wgs84Point>() {{
-            add(p);
-        }}).get(0);
-        log.debug("转换后的高斯投影点");
-        log.info("{} {} {}", gaussPoint.getGpsTime(), gaussPoint.getGaussX(), gaussPoint.getGaussY());
-        Wgs84Point p1 = gisUtil.toWgs84PointList(new ArrayList<GaussPoint>() {{
-            add(gaussPoint);
-        }}).get(0);
-        log.debug("转换后的wgs84点");
-        log.info("{} {} {}", p1.getGpsTime(), p1.getLongitude(), p1.getLatitude());
-        Wgs84Point closestPoint = gisUtil.findClosestPoint(p1, new ArrayList<Wgs84Point>() {{
-            add(p);
-        }}, 0.1);
-        log.debug("找到最接近的wgs84点");
-        log.info("{} {} {}", closestPoint.getGpsTime(), closestPoint.getLongitude(), closestPoint.getLatitude());
     }
 
     @Test
@@ -483,9 +238,7 @@ public class TestUtilGis {
         String startTime = "20251102154200";
         String endTime = "20251102172202";
         double jobWidth = 1.75;
-        生成数据文件(did, startTime, endTime);
         测试拆分数据(did, startTime, endTime, jobWidth);
-        生成HTML(did, startTime, endTime);
     }
 
     @Test
@@ -495,9 +248,7 @@ public class TestUtilGis {
         String startTime = "20251102130028";
         String endTime = "20251102153804";
         double jobWidth = 1.75;
-        生成数据文件(did, startTime, endTime);
         测试拆分数据(did, startTime, endTime, jobWidth);
-        生成HTML(did, startTime, endTime);
     }
 
     @Test
@@ -507,45 +258,7 @@ public class TestUtilGis {
         String startTime = "20251103130852";
         String endTime = "20251103151309";
         double jobWidth = 1.0;
-        生成数据文件(did, startTime, endTime);
         测试拆分数据(did, startTime, endTime, jobWidth);
-        生成HTML(did, startTime, endTime);
-
-        String fileName = path + StrUtil.format("/{}_{}_{}_protocol.txt", did, startTime, endTime);
-        if (!FileUtil.exist(fileName)) {
-            return;
-        }
-        List<Wgs84Point> l = new ArrayList<>();
-        for (String protocolStr : FileUtil.readUtf8Lines(fileName)) {
-            Map<String, String> protocol = parseProtocolString(protocolStr);
-            Wgs84Point wgs84Point = new Wgs84Point();
-            wgs84Point.setGpsTime(LocalDateTimeUtil.parse(protocol.get("3014"), "yyyyMMddHHmmss"));
-            wgs84Point.setLongitude(Double.parseDouble(protocol.get("2602")));
-            wgs84Point.setLatitude(Double.parseDouble(protocol.get("2603")));
-            if (protocol.containsKey("2601")) {// 定位状态,0已定位，1未定位
-                if (protocol.get("2601").equals("0")) {
-                    wgs84Point.setGpsStatus(1);
-                } else {
-                    wgs84Point.setGpsStatus(2);
-                }
-            }
-            if (protocol.containsKey("3020")) {// 终端ACC状态,0关闭，1开启
-                if (Convert.toStr(protocol.get("3020")).equals("0")) {
-                    wgs84Point.setJobStatus(2);//ACC关闭，认为是没有作业
-                }
-            }
-            if (protocol.containsKey("4031")) {// 作业标识,1作业,0非作业,2暂停
-                if (!Convert.toStr(protocol.get("4031")).equals("1")) {
-                    wgs84Point.setJobStatus(2);//作业标识不是1，认为是没有作业
-                }
-            }
-            l.add(wgs84Point);
-        }
-        FarmPlot farmPlot = gisUtil.getFarmPlot(l, jobWidth);
-        log.info("地块WKT: {}", farmPlot.getWkt());
-        log.info("地块面积：{} 亩", farmPlot.getMu());
-        log.info("地块起始时间: {}", farmPlot.getStartTime());
-        log.info("地块结束时间: {}", farmPlot.getEndTime());
     }
 
     @Test
@@ -555,9 +268,7 @@ public class TestUtilGis {
         String startTime = "20251103102528";
         String endTime = "20251103150242";
         double jobWidth = 1.75;
-        生成数据文件(did, startTime, endTime);
         测试拆分数据(did, startTime, endTime, jobWidth);
-        生成HTML(did, startTime, endTime);
     }
 
     @Test
@@ -567,9 +278,7 @@ public class TestUtilGis {
         String startTime = "20251104090717";
         String endTime = "20251104092257";
         double jobWidth = 2.8;
-        生成数据文件(did, startTime, endTime);
         测试拆分数据(did, startTime, endTime, jobWidth);
-        生成HTML(did, startTime, endTime);
     }
 
     @Test
@@ -579,9 +288,7 @@ public class TestUtilGis {
         String startTime = "20251104100606";
         String endTime = "20251104101419";
         double jobWidth = 2.8;
-        生成数据文件(did, startTime, endTime);
         测试拆分数据(did, startTime, endTime, jobWidth);
-        生成HTML(did, startTime, endTime);
     }
 
     @Test
@@ -601,9 +308,7 @@ public class TestUtilGis {
         String startTime = yyyyMMdd + "000000";
         String endTime = yyyyMMdd + "235959";
         double jobWidth = 2.5;
-        生成数据文件(did, startTime, endTime);
         测试拆分数据(did, startTime, endTime, jobWidth);
-        生成HTML(did, startTime, endTime);
     }
 
     @Test
@@ -614,9 +319,7 @@ public class TestUtilGis {
         String startTime = yyyyMMdd + "000000";
         String endTime = yyyyMMdd + "235959";
         double jobWidth = 2.6;
-        生成数据文件(did, startTime, endTime);
         测试拆分数据(did, startTime, endTime, jobWidth);
-        生成HTML(did, startTime, endTime);
     }
 
     @Test
@@ -627,9 +330,7 @@ public class TestUtilGis {
         String startTime = yyyyMMdd + "000000";
         String endTime = yyyyMMdd + "235959";
         double jobWidth = 2.7;
-        生成数据文件(did, startTime, endTime);
         测试拆分数据(did, startTime, endTime, jobWidth);
-        生成HTML(did, startTime, endTime);
     }
 
     @Test
@@ -639,9 +340,7 @@ public class TestUtilGis {
         String startTime = "20251029101603";
         String endTime = "20251029102521";
         double jobWidth = 2;
-        生成数据文件(did, startTime, endTime);
         测试拆分数据(did, startTime, endTime, jobWidth);
-        生成HTML(did, startTime, endTime);
     }
 
     @Test
@@ -651,9 +350,7 @@ public class TestUtilGis {
         String startTime = "20250505080044";
         String endTime = "20250505173658";
         double jobWidth = 2.5;
-        生成数据文件(did, startTime, endTime);
         测试拆分数据(did, startTime, endTime, jobWidth);
-        生成HTML(did, startTime, endTime);
     }
 
     @Test
@@ -663,9 +360,7 @@ public class TestUtilGis {
         String startTime = "20250507073041";
         String endTime = "20250507162457";
         double jobWidth = 2.5;
-        生成数据文件(did, startTime, endTime);
         测试拆分数据(did, startTime, endTime, jobWidth);
-        生成HTML(did, startTime, endTime);
     }
 
     @Test
@@ -675,10 +370,8 @@ public class TestUtilGis {
         String startTime = "20250509092721";
         String endTime = "20250509111620";
         double jobWidth = 2.5;
-        生成数据文件(did, startTime, endTime);
         //测试拆分数据(did, startTime, endTime, jobWidth);
         测试拆分数据(did, startTime, endTime, jobWidth, false, new SplitRoadParams(5.0));
-        生成HTML(did, startTime, endTime);
     }
 
     @Test
@@ -689,9 +382,7 @@ public class TestUtilGis {
         String startTime = yyyyMMdd + "000000";
         String endTime = yyyyMMdd + "235959";
         double jobWidth = 3.5;
-        生成数据文件(did, startTime, endTime);
         测试拆分数据(did, startTime, endTime, jobWidth);
-        生成HTML(did, startTime, endTime);
     }
 
     @Test
@@ -701,9 +392,7 @@ public class TestUtilGis {
         String startTime = "20250603144925";
         String endTime = "20250603155017";
         double jobWidth = 2.4;
-        生成数据文件(did, startTime, endTime);
         测试拆分数据(did, startTime, endTime, jobWidth);
-        生成HTML(did, startTime, endTime);
     }
 
     @Test
@@ -714,10 +403,8 @@ public class TestUtilGis {
         String startTime = yyyyMMdd + "000000";
         String endTime = yyyyMMdd + "235959";
         double jobWidth = 2.3;
-        生成数据文件(did, startTime, endTime);
         //测试拆分数据(did, startTime, endTime, jobWidth);
         测试拆分数据(did, startTime, endTime, jobWidth, false, new SplitRoadParams(18.0, 16, 3.0, 0.1, false));
-        生成HTML(did, startTime, endTime);
     }
 
     @Test
@@ -728,9 +415,7 @@ public class TestUtilGis {
         String startTime = yyyyMMdd + "000000";
         String endTime = yyyyMMdd + "235959";
         double jobWidth = 2.1;
-        生成数据文件(did, startTime, endTime);
         测试拆分数据(did, startTime, endTime, jobWidth);
-        生成HTML(did, startTime, endTime);
     }
 
     @Test
@@ -741,9 +426,7 @@ public class TestUtilGis {
         String startTime = yyyyMMdd + "000000";
         String endTime = yyyyMMdd + "235959";
         double jobWidth = 2.1;
-        生成数据文件(did, startTime, endTime);
         测试拆分数据(did, startTime, endTime, jobWidth);
-        生成HTML(did, startTime, endTime);
     }
 
     @Test
@@ -754,9 +437,7 @@ public class TestUtilGis {
         String startTime = yyyyMMdd + "000000";
         String endTime = yyyyMMdd + "235959";
         double jobWidth = 3.9;
-        生成数据文件(did, startTime, endTime);
         测试拆分数据(did, startTime, endTime, jobWidth);
-        生成HTML(did, startTime, endTime);
     }
 
     @Test
@@ -767,9 +448,7 @@ public class TestUtilGis {
         String startTime = yyyyMMdd + "000000";
         String endTime = yyyyMMdd + "235959";
         double jobWidth = 3.9;
-        生成数据文件(did, startTime, endTime);
         测试拆分数据(did, startTime, endTime, jobWidth);
-        生成HTML(did, startTime, endTime);
     }
 
     @Test
@@ -780,9 +459,7 @@ public class TestUtilGis {
         String startTime = yyyyMMdd + "000000";
         String endTime = yyyyMMdd + "235959";
         double jobWidth = 4;
-        生成数据文件(did, startTime, endTime);
         测试拆分数据(did, startTime, endTime, jobWidth, false, new SplitRoadParams(12.0, 16));
-        生成HTML(did, startTime, endTime);
     }
 
     @Test
@@ -792,9 +469,7 @@ public class TestUtilGis {
         String startTime = "20250529053827";
         String endTime = "20250529181257";
         double jobWidth = 2.6;
-        生成数据文件(did, startTime, endTime);
         测试拆分数据(did, startTime, endTime, jobWidth);
-        生成HTML(did, startTime, endTime);
     }
 
     @Test
@@ -804,9 +479,7 @@ public class TestUtilGis {
         String startTime = "20250503055242";
         String endTime = "20250503181644";
         double jobWidth = 2.6;
-        生成数据文件(did, startTime, endTime);
         测试拆分数据(did, startTime, endTime, jobWidth);
-        生成HTML(did, startTime, endTime);
     }
 
     @Test
@@ -816,9 +489,7 @@ public class TestUtilGis {
         String startTime = "20250501071158";
         String endTime = "20250501183529";
         double jobWidth = 2.6;
-        生成数据文件(did, startTime, endTime);
         测试拆分数据(did, startTime, endTime, jobWidth);
-        生成HTML(did, startTime, endTime);
     }
 
     @Test
@@ -828,9 +499,7 @@ public class TestUtilGis {
         String startTime = "20250501071207";
         String endTime = "20250501183550";
         double jobWidth = 2.6;
-        生成数据文件(did, startTime, endTime);
         测试拆分数据(did, startTime, endTime, jobWidth);
-        生成HTML(did, startTime, endTime);
     }
 
     @Test
@@ -840,9 +509,7 @@ public class TestUtilGis {
         String startTime = "20250802055640";
         String endTime = "20250802164456";
         double jobWidth = 2.6;
-        生成数据文件(did, startTime, endTime);
         测试拆分数据(did, startTime, endTime, jobWidth);
-        生成HTML(did, startTime, endTime);
     }
 
     @Test
@@ -852,9 +519,7 @@ public class TestUtilGis {
         String startTime = "20250522065331";
         String endTime = "20250522184733";
         double jobWidth = 2.6;
-        生成数据文件(did, startTime, endTime);
         测试拆分数据(did, startTime, endTime, jobWidth);
-        生成HTML(did, startTime, endTime);
     }
 
     @Test
@@ -864,9 +529,7 @@ public class TestUtilGis {
         String startTime = "20250524115502";
         String endTime = "20250524220139";
         double jobWidth = 2.6;
-        生成数据文件(did, startTime, endTime);
         测试拆分数据(did, startTime, endTime, jobWidth);
-        生成HTML(did, startTime, endTime);
     }
 
     @Test
@@ -876,9 +539,7 @@ public class TestUtilGis {
         String startTime = "20250526072025";
         String endTime = "20250526172848";
         double jobWidth = 2.5;
-        生成数据文件(did, startTime, endTime);
         测试拆分数据(did, startTime, endTime, jobWidth);
-        生成HTML(did, startTime, endTime);
     }
 
     @Test
@@ -888,10 +549,7 @@ public class TestUtilGis {
         String startTime = "20250429063229";
         String endTime = "20250429175943";
         double jobWidth = 2.6;
-        生成数据文件(did, startTime, endTime);
-        //测试拆分数据(did, startTime, endTime, jobWidth);
         测试拆分数据(did, startTime, endTime, jobWidth, false, new SplitRoadParams(4.0));
-        生成HTML(did, startTime, endTime);
     }
 
     @Test
@@ -901,9 +559,7 @@ public class TestUtilGis {
         String startTime = "20250421063426";
         String endTime = "20250421164529";
         double jobWidth = 2.6;
-        生成数据文件(did, startTime, endTime);
         测试拆分数据(did, startTime, endTime, jobWidth);
-        生成HTML(did, startTime, endTime);
     }
 
     @Test
@@ -913,9 +569,7 @@ public class TestUtilGis {
         String startTime = "20250420065553";
         String endTime = "20250420175721";
         double jobWidth = 2.6;
-        生成数据文件(did, startTime, endTime);
         测试拆分数据(did, startTime, endTime, jobWidth);
-        生成HTML(did, startTime, endTime);
     }
 
     @Test
@@ -925,9 +579,7 @@ public class TestUtilGis {
         String startTime = "20251031085228";
         String endTime = "20251031202509";
         double jobWidth = 2.8;
-        生成数据文件(did, startTime, endTime);
         测试拆分数据(did, startTime, endTime, jobWidth);
-        生成HTML(did, startTime, endTime);
     }
 
     @Test
@@ -937,9 +589,7 @@ public class TestUtilGis {
         String startTime = "20250601000000";
         String endTime = "20250601235959";
         double jobWidth = 2.3;
-        生成数据文件(did, startTime, endTime);
         测试拆分数据(did, startTime, endTime, jobWidth);
-        生成HTML(did, startTime, endTime);
     }
 
     @Test
@@ -949,9 +599,7 @@ public class TestUtilGis {
         String startTime = "20250414000000";
         String endTime = "20250414235959";
         double jobWidth = 2.6;
-        生成数据文件(did, startTime, endTime);
         测试拆分数据(did, startTime, endTime, jobWidth, false, new SplitRoadParams(null, null, null, 0.57));
-        生成HTML(did, startTime, endTime);
     }
 
     @Test
@@ -961,9 +609,7 @@ public class TestUtilGis {
         String startTime = "20250527000000";
         String endTime = "20250527235959";
         double jobWidth = 2.6;
-        生成数据文件(did, startTime, endTime);
         测试拆分数据(did, startTime, endTime, jobWidth, false, new SplitRoadParams(4.0));
-        生成HTML(did, startTime, endTime);
     }
 
     @Test
@@ -973,9 +619,7 @@ public class TestUtilGis {
         String startTime = "20251122064119";
         String endTime = "20251122172331";
         double jobWidth = 3;
-        生成数据文件(did, startTime, endTime);
         测试拆分数据(did, startTime, endTime, jobWidth, false);
-        生成HTML(did, startTime, endTime);
     }
 
     @Test
@@ -985,9 +629,7 @@ public class TestUtilGis {
         String startTime = "20251123033002";
         String endTime = "20251123172703";
         double jobWidth = 3;
-        生成数据文件(did, startTime, endTime);
         测试拆分数据(did, startTime, endTime, jobWidth, false);
-        生成HTML(did, startTime, endTime);
     }
 
     @Test
@@ -997,9 +639,7 @@ public class TestUtilGis {
         String startTime = "20251121065600";
         String endTime = "20251121175057";
         double jobWidth = 3;
-        生成数据文件(did, startTime, endTime);
         测试拆分数据(did, startTime, endTime, jobWidth, false);
-        生成HTML(did, startTime, endTime);
     }
 
     @Test
@@ -1009,9 +649,7 @@ public class TestUtilGis {
         String startTime = "20251120054614";
         String endTime = "20251120171321";
         double jobWidth = 3;
-        生成数据文件(did, startTime, endTime);
         测试拆分数据(did, startTime, endTime, jobWidth, false);
-        生成HTML(did, startTime, endTime);
     }
 
     @Test
@@ -1021,9 +659,7 @@ public class TestUtilGis {
         String startTime = "20251113094136";
         String endTime = "20251113164045";
         double jobWidth = 3;
-        生成数据文件(did, startTime, endTime);
         测试拆分数据(did, startTime, endTime, jobWidth, false);
-        生成HTML(did, startTime, endTime);
     }
 
     @Test
@@ -1033,9 +669,7 @@ public class TestUtilGis {
         String startTime = "20251110122141";
         String endTime = "20251110172259";
         double jobWidth = 3;
-        生成数据文件(did, startTime, endTime);
         测试拆分数据(did, startTime, endTime, jobWidth, false);
-        生成HTML(did, startTime, endTime);
     }
 
     @Test
@@ -1045,9 +679,7 @@ public class TestUtilGis {
         String startTime = "20251110075655";
         String endTime = "20251110113009";
         double jobWidth = 3;
-        生成数据文件(did, startTime, endTime);
         测试拆分数据(did, startTime, endTime, jobWidth, false);
-        生成HTML(did, startTime, endTime);
     }
 
     @Test
@@ -1057,9 +689,7 @@ public class TestUtilGis {
         String startTime = "20251122064119";
         String endTime = "20251122172331";
         double jobWidth = 3;
-        生成数据文件(did, startTime, endTime);
         测试拆分数据(did, startTime, endTime, jobWidth, false);
-        生成HTML(did, startTime, endTime);
     }
 
     @Test
@@ -1069,9 +699,7 @@ public class TestUtilGis {
         String startTime = "20251111000000";
         String endTime = "20251111235959";
         double jobWidth = 2.4;
-        生成数据文件(did, startTime, endTime);
         测试拆分数据(did, startTime, endTime, jobWidth);
-        生成HTML(did, startTime, endTime);
     }
 
 
@@ -1082,9 +710,7 @@ public class TestUtilGis {
         String startTime = "20251103000000";
         String endTime = "20251103235959";
         double jobWidth = 2.4;
-        生成数据文件(did, startTime, endTime);
         测试拆分数据(did, startTime, endTime, jobWidth, false, new SplitRoadParams(12.0, 16));
-        生成HTML(did, startTime, endTime);
     }
 
     @Test
@@ -1094,9 +720,7 @@ public class TestUtilGis {
         String startTime = "20251111000000";
         String endTime = "20251111235959";
         double jobWidth = 2.4;
-        生成数据文件(did, startTime, endTime);
         测试拆分数据(did, startTime, endTime, jobWidth);
-        生成HTML(did, startTime, endTime);
     }
 
 
@@ -1108,9 +732,7 @@ public class TestUtilGis {
         String startTime = yyyyMMdd + "000000";
         String endTime = yyyyMMdd + "235959";
         double jobWidth = 3.5;
-        生成数据文件(did, startTime, endTime);
         测试拆分数据(did, startTime, endTime, jobWidth);
-        生成HTML(did, startTime, endTime);
     }
 
     @Test
@@ -1121,9 +743,7 @@ public class TestUtilGis {
         String startTime = yyyyMMdd + "000000";
         String endTime = yyyyMMdd + "235959";
         double jobWidth = 3.5;
-        生成数据文件(did, startTime, endTime);
         测试拆分数据(did, startTime, endTime, jobWidth);
-        生成HTML(did, startTime, endTime);
     }
 
     @Test
@@ -1134,9 +754,7 @@ public class TestUtilGis {
         String startTime = yyyyMMdd + "000000";
         String endTime = yyyyMMdd + "235959";
         double jobWidth = 3.5;
-        生成数据文件(did, startTime, endTime);
         测试拆分数据(did, startTime, endTime, jobWidth);
-        生成HTML(did, startTime, endTime);
     }
 
     @Test
@@ -1147,9 +765,7 @@ public class TestUtilGis {
         String startTime = yyyyMMdd + "000000";
         String endTime = yyyyMMdd + "235959";
         double jobWidth = 3.5;
-        生成数据文件(did, startTime, endTime);
         测试拆分数据(did, startTime, endTime, jobWidth);
-        生成HTML(did, startTime, endTime);
     }
 
     @Test
@@ -1160,9 +776,7 @@ public class TestUtilGis {
         String startTime = yyyyMMdd + "000000";
         String endTime = yyyyMMdd + "235959";
         double jobWidth = 3.5;
-        生成数据文件(did, startTime, endTime);
         测试拆分数据(did, startTime, endTime, jobWidth);
-        生成HTML(did, startTime, endTime);
     }
 
     @Test
@@ -1173,9 +787,7 @@ public class TestUtilGis {
         String startTime = yyyyMMdd + "000000";
         String endTime = yyyyMMdd + "235959";
         double jobWidth = 2.5;
-        生成数据文件(did, startTime, endTime);
         测试拆分数据(did, startTime, endTime, jobWidth);
-        生成HTML(did, startTime, endTime);
     }
 
     @Test
@@ -1186,9 +798,7 @@ public class TestUtilGis {
         String startTime = yyyyMMdd + "000000";
         String endTime = yyyyMMdd + "235959";
         double jobWidth = 3.5;
-        生成数据文件(did, startTime, endTime);
         测试拆分数据(did, startTime, endTime, jobWidth);
-        生成HTML(did, startTime, endTime);
     }
 
     @Test
@@ -1198,96 +808,22 @@ public class TestUtilGis {
         String startTime = "20250526000000";
         String endTime = "20250526235959";
         double jobWidth = 2.6;
-        生成数据文件(did, startTime, endTime);
         测试拆分数据(did, startTime, endTime, jobWidth, false, new SplitRoadParams(null, null, null, null, false));
-        生成HTML(did, startTime, endTime);
     }
 
     @Test
-    void 测试EC73设备() throws SQLException {
-        String sql = ResourceUtil.readUtf8Str("EC73.sql");
-        Db db = getMysqlDb();
-        List<Entity> list = db.query(sql);
-        for (Entity entity : list) {
-            log.debug("{}", entity);
-
-            String did = entity.getStr("did");
-            double jobWidth = entity.getDouble("jobWidth");
-            Date jobStartTime = entity.getDate("jobStartTime");
-            Date jobEndTime = entity.getDate("jobEndTime");
-
-            // 判断jobStartTime和jobEndTime是否是在一天中
-            if (DateUtil.isSameDay(jobStartTime, jobEndTime)) {
-                String day = DateUtil.format(jobStartTime, "yyyyMMdd");
-                String startTime = day + "000000";
-                String endTime = day + "235959";
-                log.debug("{} {} {}", did, startTime, endTime);
-                生成数据文件(did, startTime, endTime);
-                测试拆分数据(did, startTime, endTime, jobWidth);
-                生成HTML(did, startTime, endTime);
-            } else {
-                // 如果跨天了，那么按天切割成多段
-                for (DateTime dateTime : DateUtil.range(jobStartTime, jobEndTime, DateField.DAY_OF_YEAR)) {
-                    String day = DateUtil.format(dateTime, "yyyyMMdd");
-                    String startTime = day + "000000";
-                    String endTime = day + "235959";
-                    log.debug("{} {} {}", did, startTime, endTime);
-                    生成数据文件(did, startTime, endTime);
-                    测试拆分数据(did, startTime, endTime, jobWidth);
-                    生成HTML(did, startTime, endTime);
-                }
-            }
-        }
+    void 测试() {
+        String did = "NJTEST0000000000";
+        String startTime = "20260115000000";
+        String endTime = "20260115235959";
+        double jobWidth = 3.5;
+        测试拆分数据(did, startTime, endTime, jobWidth);
     }
 
     @Test
-    void 测试EC7设备() throws SQLException {
-        String sql = ResourceUtil.readUtf8Str("EC7.sql");
-        Db db = getMysqlDb();
-        List<Entity> list = db.query(sql);
-        for (Entity entity : list) {
-            log.debug("{}", entity);
-
-            String did = entity.getStr("did");
-            double jobWidth = entity.getDouble("jobWidth");
-            Date jobStartTime = entity.getDate("jobStartTime");
-            Date jobEndTime = entity.getDate("jobEndTime");
-
-            // 判断jobStartTime和jobEndTime是否是在一天中
-            if (DateUtil.isSameDay(jobStartTime, jobEndTime)) {
-                String day = DateUtil.format(jobStartTime, "yyyyMMdd");
-                String startTime = day + "000000";
-                String endTime = day + "235959";
-                log.debug("{} {} {}", did, startTime, endTime);
-                生成数据文件(did, startTime, endTime);
-                测试拆分数据(did, startTime, endTime, jobWidth);
-                生成HTML(did, startTime, endTime);
-            } else {
-                // 如果跨天了，那么按天切割成多段
-                for (DateTime dateTime : DateUtil.range(jobStartTime, jobEndTime, DateField.DAY_OF_YEAR)) {
-                    String day = DateUtil.format(dateTime, "yyyyMMdd");
-                    String startTime = day + "000000";
-                    String endTime = day + "235959";
-                    log.debug("{} {} {}", did, startTime, endTime);
-                    生成数据文件(did, startTime, endTime);
-                    测试拆分数据(did, startTime, endTime, jobWidth);
-                    生成HTML(did, startTime, endTime);
-                }
-            }
-        }
-    }
-
-    @Test
-    void 测试Td() throws SQLException {
-        String sql = ResourceUtil.readUtf8Str("testTdengine.sql");
-        Db db = getTdengineDb();
-        List<Entity> list = db.query(sql);
-        for (Entity entity : list) {
-            log.debug("{}", entity.getTimestamp("gpsTime").toLocalDateTime());
-            log.debug("{}", entity.getDouble("lon"));
-            log.debug("{}", entity.getDouble("lat"));
-            log.debug("{}", Convert.toInt(entity.get("accStatus"), 0));
-            log.debug("{}", Convert.toInt(entity.get("workStatus"), 0));
-        }
+    void 测试TdengineMapper() {
+        TdengineMapper mapper = MyBatis.getMapper(TdengineMapper.class);
+        List<DP> list = mapper.selectWorkPoints("EC73BD2509060248", LocalDateTimeUtil.parse("2025-10-23T00:00:00"), LocalDateTimeUtil.parse("2025-10-23T23:59:59"), true);
+        log.info("{}", list.size());
     }
 }

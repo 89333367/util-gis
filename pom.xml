@@ -153,6 +153,21 @@
             <version>3.4.0</version>
             <scope>test</scope>
         </dependency>
+
+        <!-- https://central.sonatype.com/artifact/org.mybatis/mybatis/versions -->
+        <dependency>
+            <groupId>org.mybatis</groupId>
+            <artifactId>mybatis</artifactId>
+            <version>3.5.19</version>
+            <scope>test</scope>
+        </dependency>
+        <!-- https://central.sonatype.com/artifact/org.slf4j/slf4j-simple/versions -->
+        <dependency>
+            <groupId>org.slf4j</groupId>
+            <artifactId>slf4j-simple</artifactId>
+            <version>1.7.36</version>
+            <scope>test</scope>
+        </dependency>
     </dependencies>
 
     <build>
