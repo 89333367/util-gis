@@ -3694,7 +3694,8 @@ public class GisUtil implements AutoCloseable {
         if (coords.length > minPts) {
             // 【几何创建】构建线串并应用缓冲，形成作业区域
             LineString line = config.GEOMETRY_FACTORY.createLineString(coords);
-            Geometry gaussGeometry = line.buffer(halfWorkingWidth);
+            //Geometry gaussGeometry = line.buffer(halfWorkingWidth);
+            Geometry gaussGeometry = lowMemBuffer(line, halfWorkingWidth);
             log.debug("几何图形创建完毕 {}亩", gaussGeometry.getArea() * config.SQUARE_TO_MU_METER);
 
             // 【缝隙填补】正缓冲→负缓冲策略，减少地块间的缝隙
