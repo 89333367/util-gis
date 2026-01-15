@@ -24,6 +24,7 @@
         <where>
             did=#{did}
             and _rowts <![CDATA[>=]]> #{startTime} and _rowts <![CDATA[<=]]> #{endTime}
+            and protocol match '(,2601:0)'
         </where>
     </select>
 
