@@ -126,9 +126,9 @@ public class FarmPlot {
     public Wgs84Point getCenterWgs84Point() {
         if (wgs84Geometry != null) {
             Wgs84Point wgs84Point = new Wgs84Point();
-            Point centroid = wgs84Geometry.getCentroid();
-            wgs84Point.setLongitude(centroid.getX());
-            wgs84Point.setLatitude(centroid.getY());
+            Point centerPoint = wgs84Geometry.getInteriorPoint();
+            wgs84Point.setLongitude(centerPoint.getX());
+            wgs84Point.setLatitude(centerPoint.getY());
             return wgs84Point;
         }
         return centerWgs84Point;
