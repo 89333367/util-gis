@@ -3102,211 +3102,6 @@ public class GisUtil implements AutoCloseable {
     }
 
     /**
-     * 高斯投影坐标批量逆向转换引擎 - WGS84地理坐标恢复系统
-     * <p>
-     * <b>算法核心：</b>采用"投影带智能识别→分组批量处理→坐标精确转换→结果多重验证"的四步策略，
-     * 将高斯-克吕格投影坐标批量转换回WGS84地理坐标系。解决大规模轨迹数据的投影逆转换问题，
-     * 确保坐标转换的精度和效率，支持千级点数据的快速处理。
-     * </p>
-     * <p>
-     * <b>业务价值：</b>
-     * <ul>
-     * <li>轨迹数据回传：将处理后的高斯投影轨迹转换回标准WGS84坐标用于数据回传</li>
-     * <li>多系统兼容：支持与GPS、北斗等卫星导航系统的坐标数据无缝对接</li>
-     * <li>数据标准化：将各投影带的高斯坐标统一转换到标准地理坐标系</li>
-     * <li>精度保证：通过多重验证机制确保转换结果的地理精度</li>
-     * </ul>
-     * </p>
-     * <p>
-     * <b>技术特点：</b>
-     * <ul>
-     * <li>智能投影带识别：基于原始WGS84经度自动计算投影带号，支持1-60带全范围</li>
-     * <li>分组批量处理：按投影带分组处理，大幅提升转换效率和内存利用率</li>
-     * <li>线程安全缓存：使用ConcurrentHashMap缓存坐标转换器，避免重复创建开销</li>
-     * <li>多重验证机制：投影带合理性验证、坐标范围验证确保转换结果可靠性</li>
-     * </ul>
-     * </p>
-     * <p>
-     * <b>算法流程：</b>
-     * <ol>
-     * <li><b>投影带智能识别：</b>基于原始WGS84经度计算投影带号，验证合理性（1-60带）</li>
-     * <li><b>分组批量处理：</b>按投影带分组，减少坐标转换器创建次数和内存占用</li>
-     * <li><b>坐标精确转换：</b>使用JTS库执行高精度坐标转换，支持复杂投影参数</li>
-     * <li><b>结果多重验证：</b>验证经纬度范围合理性，过滤异常转换结果</li>
-     * </ol>
-     * </p>
-     * <p>
-     * <b>使用场景：</b>
-     * <ul>
-     * <li>轨迹数据回传：将分析处理后的高斯投影轨迹转换回标准GPS坐标</li>
-     * <li>多系统数据融合：整合不同投影带的数据到统一地理坐标系</li>
-     * <li>数据标准化处理：将投影坐标转换回地理坐标用于标准化输出</li>
-     * <li>坐标系统转换：支持高斯投影到WGS84的批量坐标转换需求</li>
-     * </ul>
-     * </p>
-     * <p>
-     * <b>注意事项：</b>
-     * <ul>
-     * <li>原始经度依赖：需要准确的原始WGS84经度来计算投影带号</li>
-     * <li>投影带范围：仅支持1-60标准投影带，超出范围需要特殊处理</li>
-     * <li>缓存策略：坐标转换器缓存基于投影带参数，修改参数需清理缓存</li>
-     * <li>性能优化：大批量数据处理时建议分批处理，避免内存溢出</li>
-     * </ul>
-     * </p>
-     *
-     * @param gaussPoints 高斯投影点列表（包含原始WGS84经度和高斯投影坐标）<br>
-     *                    要求：非null，每个点包含有效的原始经度和高斯投影坐标
-     * @return WGS84地理坐标点列表，保持与输入相同的顺序和数量<br>
-     * 结果保证：非null，可能包含较少的点（过滤异常结果）<br>
-     * 坐标保证：所有返回点都通过经纬度范围验证
-     * @see GaussPoint 高斯投影点数据结构定义
-     * @see Wgs84Point WGS84地理坐标点数据结构定义
-     * @see #getGaussCRS(int, double, double) 高斯投影CRS获取方法
-     * @see JTS#transform(Coordinate, Coordinate, MathTransform) JTS坐标转换工具
-     * @since 1.0.0
-     */
-    public List<Wgs84Point> toWgs84PointList(List<GaussPoint> gaussPoints) {
-        // 处理规模日志记录：为性能监控和问题追踪提供基础数据
-        // 记录待转换的高斯投影点数量，用于后续性能分析和转换效率评估
-        log.debug("转换高斯投影点列表为WGS84点列表，点数量={}", gaussPoints.size());
-
-        // 输入参数快速验证：确保数据完整性和处理安全性
-        // 使用CollUtil.isEmpty进行空值和空列表的双重检查，避免后续处理出现空指针异常
-        if (CollUtil.isEmpty(gaussPoints)) {
-            return new ArrayList<>();
-        }
-
-        // 结果容器初始化：预分配容量提升性能和内存效率
-        // 根据输入点数量预分配ArrayList容量，避免动态扩容带来的性能开销
-        List<Wgs84Point> wgs84Points = new ArrayList<>(gaussPoints.size());
-        try {
-            // 投影带智能分组阶段：按地理区域优化处理策略
-            // 基于原始WGS84经度计算投影带号，将点按投影带分组，减少坐标转换器创建次数
-            Map<Integer, List<GaussPoint>> pointsByZone = new HashMap<>();
-            for (GaussPoint gaussPoint : gaussPoints) {
-                // 投影带号计算：基于经度的六度带划分算法
-                // 标准高斯投影公式：zone = floor((longitude + 180) / 6) + 1，支持全球1-60带
-                double longitude = gaussPoint.getLongitude();
-                int zone = (int) Math.floor((longitude + 180) / 6) + 1;
-
-                // 投影带合理性验证：确保计算结果在有效范围内
-                // 验证zone范围1-60，超出范围的点记录警告并跳过，避免无效转换
-                if (zone >= 1 && zone <= 60) {
-                    pointsByZone.computeIfAbsent(zone, k -> new ArrayList<>()).add(gaussPoint);
-                } else {
-                    log.warn("计算得到的投影带号不合理：经度={}, 投影带号={}", longitude, zone);
-                }
-            }
-
-            // 分组结果统计：为性能分析和调试提供详细信息
-            // 记录投影带分布情况，帮助优化分组策略和识别数据分布特征
-            log.debug("按投影带分组结果：{} 个投影带", pointsByZone.size());
-            for (Map.Entry<Integer, List<GaussPoint>> entry : pointsByZone.entrySet()) {
-                log.debug("投影带 {}：{} 个点", entry.getKey(), entry.getValue().size());
-            }
-
-            // 批量转换处理阶段：按投影带执行高效坐标转换
-            // 对每个投影带批量处理，复用坐标转换器，提升整体转换效率
-            for (Map.Entry<Integer, List<GaussPoint>> entry : pointsByZone.entrySet()) {
-                int zone = entry.getKey();
-                List<GaussPoint> zonePoints = entry.getValue();
-
-                // 投影参数计算：高斯-克吕格投影的关键参数
-                // centralMeridian: 中央经线，falseEasting: 假东距，用于构建准确的投影坐标系
-                double centralMeridian = (zone - 1) * 6 - 180 + 3;
-                double falseEasting = zone * 1000000.0 + 500000.0;
-
-                // 投影参数日志：为调试和验证提供详细参数信息
-                // 记录当前处理的投影带参数，便于验证投影设置的正确性
-                log.debug("处理投影带 {}：中央经线={}, 假东距={}", zone, centralMeridian, falseEasting);
-
-                // 坐标参考系统获取：构建准确的投影坐标系
-                // 基于投影带参数获取对应的高斯-克吕格投影CRS，为坐标转换提供基准
-                CoordinateReferenceSystem gaussCRS = getGaussCRS(zone, falseEasting, centralMeridian);
-                if (gaussCRS == null) {
-                    // CRS获取失败处理：记录警告并跳过当前投影带
-                    // 当CRS获取失败时，记录详细参数信息并继续处理其他投影带
-                    log.warn("获取高斯投影CRS失败：投影带号={}", zone);
-                    continue;
-                }
-
-                // 坐标转换器缓存键构建：基于投影参数的唯一标识
-                // 使用投影带、假东距、中央经线构建缓存键，确保转换器复用的准确性
-                String cacheKey = String.format(config.CACHE_KEY_FORMAT, zone, falseEasting, centralMeridian);
-                log.trace("获取高斯投影到WGS84的坐标转换器：缓存键 {}", cacheKey);
-
-                // 线程安全转换器获取：从缓存获取或创建坐标转换器
-                // 使用computeIfAbsent确保线程安全，避免重复创建坐标转换器的性能开销
-                MathTransform gaussToWgs84Transform = config.GAUSS_TO_WGS84_TRANSFORM_CACHE.computeIfAbsent(cacheKey, key -> {
-                    try {
-                        // JTS坐标转换器创建：高斯投影到WGS84的精确转换
-                        // 使用CRS.findMathTransform创建投影到地理坐标的转换器，lenient=true允许轻微偏差
-                        return CRS.findMathTransform(gaussCRS, config.WGS84_CRS, true);
-                    } catch (Exception e) {
-                        // 转换器创建失败处理：记录详细错误信息并返回null
-                        // 当坐标转换器创建失败时，记录所有投影参数便于问题定位
-                        log.warn("创建高斯到WGS84坐标转换失败：zone={}, falseEasting={}, centralMeridian={}, 错误={}", zone, falseEasting, centralMeridian, e.getMessage());
-                        return null;
-                    }
-                });
-
-                // 转换器可用性验证：确保后续转换操作的可靠性
-                // 验证坐标转换器是否成功获取，null值表示创建失败，跳过当前投影带处理
-                if (gaussToWgs84Transform == null) {
-                    log.warn("获取坐标转换器失败，跳过投影带 {} 的处理", zone);
-                    continue;
-                }
-
-                // 单投影带点批量转换：高效处理同一投影带的全部点
-                // 对当前投影带内的所有点执行坐标转换，复用已获取的转换器提升效率
-                int convertedCount = 0;
-                for (GaussPoint gaussPoint : zonePoints) {
-                    try {
-                        // 源坐标构建：从高斯投影坐标创建JTS Coordinate对象
-                        // 使用高斯X（东坐标）和Y（北坐标）构建源坐标，准备进行坐标转换
-                        Coordinate sourceCoord = new Coordinate(gaussPoint.getGaussX(), gaussPoint.getGaussY());
-                        Coordinate targetCoord = new Coordinate();
-
-                        // 核心坐标转换：执行高斯投影到WGS84的精确转换
-                        // 使用JTS.transform执行坐标转换，sourceCoord→targetCoord，完成投影逆运算
-                        JTS.transform(sourceCoord, targetCoord, gaussToWgs84Transform);
-
-                        // WGS84坐标范围验证：确保转换结果的地理合理性
-                        // 验证经度[-180,180]和纬度[-90,90]范围，过滤异常的转换结果
-                        if (targetCoord.x >= -180 && targetCoord.x <= 180 && targetCoord.y >= -90 && targetCoord.y <= 90) {
-                            // 结果对象构建：创建包含GPS时间的WGS84点对象
-                            // 保留原始GPS时间信息，确保转换后的点保持时序特征和业务关联性
-                            Wgs84Point result = new Wgs84Point(gaussPoint.getGpsTime(), targetCoord.x, targetCoord.y);
-                            wgs84Points.add(result);
-                            convertedCount++;
-                        } else {
-                            // 范围验证失败处理：记录异常坐标便于问题分析
-                            // 当转换结果超出合理地理范围时，记录详细坐标信息用于调试
-                            log.warn("转换结果超出合理范围：经度={}, 纬度={}", targetCoord.x, targetCoord.y);
-                        }
-                    } catch (Exception e) {
-                        // 单点转换异常处理：记录详细点信息便于问题定位
-                        // 当单个点转换失败时，记录投影带、高斯坐标等完整信息
-                        log.warn("转换高斯投影点到WGS84失败：zone={}, gaussX={}, gaussY={}, 错误={}", zone, gaussPoint.getGaussX(), gaussPoint.getGaussY(), e.getMessage());
-                    }
-                }
-                // 投影带转换统计：为性能分析和进度跟踪提供数据
-                // 记录当前投影带的成功转换数量，用于评估转换效率和数据质量
-                log.debug("投影带 {} 成功转换 {} 个点", zone, convertedCount);
-            }
-
-            // 总体转换统计：为性能评估提供汇总数据
-            // 记录总的转换成功数量，用于评估整体转换效率和质量指标
-            log.debug("总计成功转换 {} 个高斯投影点到WGS84坐标系", wgs84Points.size());
-        } catch (Exception e) {
-            // 整体转换异常处理：捕获未预期的错误并记录
-            // 当批量转换过程出现未预期的异常时，记录错误信息确保系统稳定性
-            log.warn("高斯投影点转换为WGS84失败: {}", e.getMessage());
-        }
-        return wgs84Points;
-    }
-
-    /**
      * WGS84坐标批量正向转换高斯-克吕格投影引擎
      * <p>
      * 算法核心：智能投影带识别 → 分组批量处理 → 线程安全转换 → 结果验证四步策略<br>
@@ -3650,6 +3445,9 @@ public class GisUtil implements AutoCloseable {
      */
     public FarmPlot getFarmPlot(List<Wgs84Point> wgs84Points, double workingWidth) {
         FarmPlot farmPlot = new FarmPlot();
+        farmPlot.setGaussGeometry(config.EMPTY_GEOMETRY);
+        farmPlot.setWorkingWidth(workingWidth);
+        farmPlot.setWkt(config.EMPTY_GEOMETRY.toText());
 
         // 【参数验证】输入点位列表非空检查，确保后续算法有有效数据
         if (CollUtil.isEmpty(wgs84Points)) {
@@ -3710,6 +3508,7 @@ public class GisUtil implements AutoCloseable {
             farmPlot.setEndTime(gaussPoints.get(gaussPoints.size() - 1).getGpsTime());
             farmPlot.setWkt(wgs84PartGeometry.toText());
             farmPlot.setMu(calcMu(wgs84PartGeometry));
+            farmPlot.setClusterPointCount(gaussPoints.size());
         }
 
         return farmPlot;
@@ -4041,10 +3840,13 @@ public class GisUtil implements AutoCloseable {
                     Geometry wgs84PartGeometry = toWgs84Geometry(subGeometry);
                     FarmPlot part = new FarmPlot();
                     part.setGaussGeometry(subGeometry);
+                    part.setWgs84Geometry(wgs84PartGeometry);
                     part.setStartTime(clusterGaussPoints.get(0).getGpsTime());
                     part.setEndTime(clusterGaussPoints.get(clusterGaussPoints.size() - 1).getGpsTime());
                     part.setWkt(wgs84PartGeometry.toText());
                     part.setMu(calcMu(wgs84PartGeometry));
+                    part.setWorkingWidth(workingWidth);
+                    part.setClusterPointCount(clusterGaussPoints.size());
                     farmPlots.add(part);
                 }
             } else if (clusterGaussGeometry instanceof Polygon) {
@@ -4052,10 +3854,13 @@ public class GisUtil implements AutoCloseable {
                 Geometry wgs84PartGeometry = toWgs84Geometry(clusterGaussGeometry);
                 FarmPlot part = new FarmPlot();
                 part.setGaussGeometry(clusterGaussGeometry);
+                part.setWgs84Geometry(wgs84PartGeometry);
                 part.setStartTime(clusterGaussPoints.get(0).getGpsTime());
                 part.setEndTime(clusterGaussPoints.get(clusterGaussPoints.size() - 1).getGpsTime());
                 part.setWkt(wgs84PartGeometry.toText());
                 part.setMu(calcMu(wgs84PartGeometry));
+                part.setWorkingWidth(workingWidth);
+                part.setClusterPointCount(clusterGaussPoints.size());
                 farmPlots.add(part);
             }
         }
@@ -4075,12 +3880,14 @@ public class GisUtil implements AutoCloseable {
             Geometry unionGeo = seed.getGaussGeometry();
             LocalDateTime groupStart = seed.getStartTime();
             LocalDateTime groupEnd = seed.getEndTime();
+            int totalPoints = seed.getClusterPointCount();   // 初始点数
 
             // 【重叠检测】合并所有与当前组时间重叠的Part
             int j = i + 1;
             while (j < n && farmPlots.get(j).getStartTime().isBefore(groupEnd)) {
                 FarmPlot curr = farmPlots.get(j);
                 unionGeo = unionGeo.union(curr.getGaussGeometry()).buffer(0);
+                totalPoints += curr.getClusterPointCount();   // 累加点数
                 if (curr.getEndTime().isAfter(groupEnd)) {
                     groupEnd = curr.getEndTime();   // 扩张结束时间
                 }
@@ -4093,8 +3900,11 @@ public class GisUtil implements AutoCloseable {
             merged.setGaussGeometry(unionGeo);
             merged.setStartTime(groupStart);
             merged.setEndTime(groupEnd);
+            merged.setWgs84Geometry(wgs84Union);
             merged.setWkt(wgs84Union.toText());
             merged.setMu(calcMu(wgs84Union));
+            merged.setWorkingWidth(workingWidth);
+            merged.setClusterPointCount(totalPoints);   // 设置合并后的总点数
             unionParts.add(merged);
 
             i = j;   // 跳到未处理区间
@@ -4104,6 +3914,7 @@ public class GisUtil implements AutoCloseable {
         // 【属性补充】为所有合并后的Part设置最小有效间隔
         for (FarmPlot unionPart : unionParts) {
             unionPart.setMinEffectiveInterval(splitResult.getMinEffectiveInterval());
+
         }
 
         // 【最终聚合】将所有Part聚合成总的几何图形和统计信息
@@ -4113,6 +3924,7 @@ public class GisUtil implements AutoCloseable {
 
         // 【结果填充】设置最终结果对象的各项属性
         splitResult.setGaussGeometry(unionPartsGaussGeometry);
+        splitResult.setWgs84Geometry(wgs84UnionGeometry);
         splitResult.setWkt(wgs84UnionGeometry.toText());
         splitResult.setMu(calcMu(wgs84UnionGeometry));
         splitResult.setStartTime(unionParts.get(0).getStartTime());

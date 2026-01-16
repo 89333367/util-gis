@@ -1,6 +1,7 @@
 package sunyu.util.pojo;
 
 import org.locationtech.jts.geom.Geometry;
+import org.locationtech.jts.geom.Point;
 
 import java.time.LocalDateTime;
 
@@ -28,11 +29,26 @@ public class FarmPlot {
      * 地块的高斯投影几何图形（高斯投影坐标系）
      */
     private Geometry gaussGeometry;
-
+    /**
+     * 地块的WGS84坐标系几何图形
+     */
+    private Geometry wgs84Geometry;
     /**
      * 最小有效时间间隔（秒）
      */
     private int minEffectiveInterval;
+    /**
+     * 聚类点的数量
+     */
+    private int clusterPointCount;
+    /**
+     * 使用作业总宽幅（米）
+     */
+    private double workingWidth;
+    /**
+     * 中心点（WGS84坐标系）
+     */
+    private Wgs84Point centerWgs84Point;
 
     public LocalDateTime getStartTime() {
         return startTime;
@@ -80,5 +96,45 @@ public class FarmPlot {
 
     public void setMinEffectiveInterval(int minEffectiveInterval) {
         this.minEffectiveInterval = minEffectiveInterval;
+    }
+
+
+    public double getWorkingWidth() {
+        return workingWidth;
+    }
+
+    public void setWorkingWidth(double workingWidth) {
+        this.workingWidth = workingWidth;
+    }
+
+    public int getClusterPointCount() {
+        return clusterPointCount;
+    }
+
+    public void setClusterPointCount(int clusterPointCount) {
+        this.clusterPointCount = clusterPointCount;
+    }
+
+    public Geometry getWgs84Geometry() {
+        return wgs84Geometry;
+    }
+
+    public void setWgs84Geometry(Geometry wgs84Geometry) {
+        this.wgs84Geometry = wgs84Geometry;
+    }
+
+    public Wgs84Point getCenterWgs84Point() {
+        if (wgs84Geometry != null) {
+            Wgs84Point wgs84Point = new Wgs84Point();
+            Point centroid = wgs84Geometry.getCentroid();
+            wgs84Point.setLongitude(centroid.getX());
+            wgs84Point.setLatitude(centroid.getY());
+            return wgs84Point;
+        }
+        return centerWgs84Point;
+    }
+
+    public void setCenterWgs84Point(Wgs84Point centerWgs84Point) {
+        this.centerWgs84Point = centerWgs84Point;
     }
 }

@@ -30,7 +30,6 @@ public class SplitRoadParams {
      * </p>
      */
     private Double roadWidth;
-
     /**
      * 最小返回多边形面积限制(亩)
      * <p>
@@ -38,7 +37,6 @@ public class SplitRoadParams {
      * </p>
      */
     private Double minReturnMu;
-
     /**
      * 是否检查作业状态
      * <p>

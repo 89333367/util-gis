@@ -1,6 +1,7 @@
 package sunyu.util.pojo;
 
 import org.locationtech.jts.geom.Geometry;
+import org.locationtech.jts.geom.Point;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -27,26 +28,34 @@ public class SplitResult {
      * 使用作业总宽幅（米）
      */
     private double workingWidth;
-
     /**
      * 整体轮廓面积（亩）
      */
     private double mu;
-
     /**
      * 拆分后的地块列表
      */
     private List<FarmPlot> farmPlots = new ArrayList<>();
-
     /**
      * 地块的高斯投影几何图形（高斯投影坐标系）
      */
     private Geometry gaussGeometry;
-
+    /**
+     * 地块的WGS84坐标系几何图形
+     */
+    private Geometry wgs84Geometry;
     /**
      * 最小有效时间间隔（秒）
      */
     private int minEffectiveInterval;
+    /**
+     * 聚类点的数量
+     */
+    private int clusterPointCount;
+    /**
+     * 中心点（WGS84坐标系）
+     */
+    private Wgs84Point centerWgs84Point;
 
     public String getWkt() {
         return wkt;
@@ -70,15 +79,6 @@ public class SplitResult {
 
     public void setMu(double mu) {
         this.mu = mu;
-    }
-
-    public List<FarmPlot> getFarmPlots() {
-        farmPlots.sort(Comparator.comparing(FarmPlot::getStartTime));
-        return farmPlots;
-    }
-
-    public void setFarmPlots(List<FarmPlot> farmPlots) {
-        this.farmPlots = farmPlots;
     }
 
     public Geometry getGaussGeometry() {
@@ -115,5 +115,47 @@ public class SplitResult {
 
     public void setMinEffectiveInterval(int minEffectiveInterval) {
         this.minEffectiveInterval = minEffectiveInterval;
+    }
+
+    public Geometry getWgs84Geometry() {
+        return wgs84Geometry;
+    }
+
+    public void setWgs84Geometry(Geometry wgs84Geometry) {
+        this.wgs84Geometry = wgs84Geometry;
+    }
+
+    public Wgs84Point getCenterWgs84Point() {
+        if (wgs84Geometry != null) {
+            Wgs84Point wgs84Point = new Wgs84Point();
+            Point centroid = wgs84Geometry.getCentroid();
+            wgs84Point.setLongitude(centroid.getX());
+            wgs84Point.setLatitude(centroid.getY());
+            return wgs84Point;
+        }
+        return centerWgs84Point;
+    }
+
+    public void setCenterWgs84Point(Wgs84Point centerWgs84Point) {
+        this.centerWgs84Point = centerWgs84Point;
+    }
+
+    public int getClusterPointCount() {
+        // 返回总聚类点数
+        return farmPlots.stream().mapToInt(FarmPlot::getClusterPointCount).sum();
+    }
+
+    public void setClusterPointCount(int clusterPointCount) {
+        this.clusterPointCount = clusterPointCount;
+    }
+
+    public List<FarmPlot> getFarmPlots() {
+        // 返回保持作业时间升序
+        farmPlots.sort(Comparator.comparing(FarmPlot::getStartTime));
+        return farmPlots;
+    }
+
+    public void setFarmPlots(List<FarmPlot> farmPlots) {
+        this.farmPlots = farmPlots;
     }
 }

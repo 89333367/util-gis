@@ -117,23 +117,32 @@ public class TestUtilGis {
         String partsFile = StrUtil.format(path + "/{}_{}_{}_parts.txt", did, startTime, endTime);
         List<String> partsInfo = new ArrayList<>();
         SplitResult splitResult = gisUtil.splitRoad(l, jobWidth, splitRoadParams);
+        partsInfo.add(StrUtil.format("共有 {} 个地块", splitResult.getGaussGeometry().getNumGeometries()));
         partsInfo.add(StrUtil.format("作业总幅宽（米）: {}", splitResult.getWorkingWidth()));
         partsInfo.add(StrUtil.format("总WKT: {}", splitResult.getWkt()));
         partsInfo.add(StrUtil.format("作业总面积（亩）: {}", splitResult.getMu()));
         partsInfo.add(StrUtil.format("作业时间范围: {} - {}", splitResult.getStartTime(), splitResult.getEndTime()));
         partsInfo.add(StrUtil.format("最小有效时间间隔（秒）: {}", splitResult.getMinEffectiveInterval()));
-        partsInfo.add(StrUtil.format("共有 {} 个地块", splitResult.getGaussGeometry().getNumGeometries()));
+        partsInfo.add(StrUtil.format("聚类总点数: {}", splitResult.getClusterPointCount()));
+        if (splitResult.getCenterWgs84Point() != null) {
+            partsInfo.add(StrUtil.format("中心点：经度{},纬度{}", splitResult.getCenterWgs84Point().getLongitude(), splitResult.getCenterWgs84Point().getLatitude()));
+        }
         partsInfo.add("\n");
         int partIndex = 1;
         for (FarmPlot farmPlot : splitResult.getFarmPlots()) {
             List<String> partInfo = new ArrayList<>();
             partInfo.add(StrUtil.format("地块 {}:", partIndex++));
+            if (farmPlot.getGaussGeometry() instanceof MultiPolygon) {
+                partInfo.add(StrUtil.format("包含 {} 个子地块", farmPlot.getGaussGeometry().getNumGeometries()));
+            }
+            partInfo.add(StrUtil.format("作业总幅宽（米）：{}", farmPlot.getWorkingWidth()));
             partInfo.add(StrUtil.format("子WKT: {}", farmPlot.getWkt()));
             partInfo.add(StrUtil.format("作业面积（亩）: {}", farmPlot.getMu()));
             partInfo.add(StrUtil.format("作业时间范围: {} - {}", farmPlot.getStartTime(), farmPlot.getEndTime()));
             partInfo.add(StrUtil.format("最小有效时间间隔（秒）: {}", farmPlot.getMinEffectiveInterval()));
-            if (farmPlot.getGaussGeometry() instanceof MultiPolygon) {
-                partInfo.add(StrUtil.format("包含 {} 个子地块", farmPlot.getGaussGeometry().getNumGeometries()));
+            partInfo.add(StrUtil.format("聚类点数: {}", farmPlot.getClusterPointCount()));
+            if (farmPlot.getCenterWgs84Point() != null) {
+                partInfo.add(StrUtil.format("中心点：经度{},纬度{}", farmPlot.getCenterWgs84Point().getLongitude(), farmPlot.getCenterWgs84Point().getLatitude()));
             }
             partsInfo.add(StrUtil.join("\n", partInfo) + "\n");
         }
@@ -825,5 +834,38 @@ public class TestUtilGis {
         TdengineMapper mapper = MyBatis.getMapper(TdengineMapper.class);
         List<DP> list = mapper.selectWorkPoints("EC73BD2509060248", LocalDateTimeUtil.parse("2025-10-23T00:00:00"), LocalDateTimeUtil.parse("2025-10-23T23:59:59"), true);
         log.info("{}", list.size());
+    }
+
+    @Test
+    void 测试getFarmPlot() {
+        String did = "EC71BT2406060220";
+        String startTime = "20251102130028";
+        String endTime = "20251102153804";
+        double jobWidth = 1.75;
+        List<DP> dps = selectWorkPoints(did, LocalDateTimeUtil.parse(startTime, "yyyyMMddHHmmss"), LocalDateTimeUtil.parse(endTime, "yyyyMMddHHmmss"));
+        List<Wgs84Point> l = new ArrayList<>();
+        for (DP dp : dps) {
+            Wgs84Point wgs84Point = new Wgs84Point();
+            wgs84Point.setGpsTime(dp.getP3014());
+            wgs84Point.setLongitude(dp.getP2602());
+            wgs84Point.setLatitude(dp.getP2603());
+            if (dp.getP3020() != null) {
+                wgs84Point.setJobStatus(2);//先设置非作业状态
+                if (dp.getP3020() == 1) {// 终端ACC状态,0关闭，1开启
+                    wgs84Point.setJobStatus(1);
+                }
+            }
+            if (dp.getP4031() != null) {// 作业标识,1作业,0非作业,2暂停
+                wgs84Point.setJobStatus(2);//先设置非作业状态
+                if (dp.getP4031() == 1) {
+                    wgs84Point.setJobStatus(1);//作业标识是1，认为是作业
+                }
+            }
+            l.add(wgs84Point);
+        }
+        FarmPlot farmPlot = gisUtil.getFarmPlot(l, jobWidth);
+        log.info("总点数 {}", farmPlot.getClusterPointCount());
+        log.info("亩数 {}", farmPlot.getMu());
+        log.info("作业时间 {} {}", farmPlot.getStartTime(), farmPlot.getEndTime());
     }
 }
