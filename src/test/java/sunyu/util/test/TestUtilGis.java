@@ -380,7 +380,7 @@ public class TestUtilGis {
         String endTime = "20250509111620";
         double jobWidth = 2.5;
         //测试拆分数据(did, startTime, endTime, jobWidth);
-        测试拆分数据(did, startTime, endTime, jobWidth, false, new SplitRoadParams(5.0));
+        测试拆分数据(did, startTime, endTime, jobWidth, false, new SplitRoadParams().setRoadWidth(5.0));
     }
 
     @Test
@@ -413,7 +413,8 @@ public class TestUtilGis {
         String endTime = yyyyMMdd + "235959";
         double jobWidth = 2.3;
         //测试拆分数据(did, startTime, endTime, jobWidth);
-        测试拆分数据(did, startTime, endTime, jobWidth, false, new SplitRoadParams(18.0, 16, 3.0, 0.1, false));
+        测试拆分数据(did, startTime, endTime, jobWidth, false, new SplitRoadParams()
+                .setDbScanEpsilon(18.0).setRoadWidth(3.0).setMinReturnMu(0.1).setCheckWorkingStatus(false));
     }
 
     @Test
@@ -468,7 +469,7 @@ public class TestUtilGis {
         String startTime = yyyyMMdd + "000000";
         String endTime = yyyyMMdd + "235959";
         double jobWidth = 4;
-        测试拆分数据(did, startTime, endTime, jobWidth, false, new SplitRoadParams(12.0, 16));
+        测试拆分数据(did, startTime, endTime, jobWidth, false, new SplitRoadParams().setDbScanEpsilon(12.0));
     }
 
     @Test
@@ -558,7 +559,7 @@ public class TestUtilGis {
         String startTime = "20250429063229";
         String endTime = "20250429175943";
         double jobWidth = 2.6;
-        测试拆分数据(did, startTime, endTime, jobWidth, false, new SplitRoadParams(4.0));
+        测试拆分数据(did, startTime, endTime, jobWidth, false, new SplitRoadParams().setRoadWidth(4.0));
     }
 
     @Test
@@ -608,7 +609,7 @@ public class TestUtilGis {
         String startTime = "20250414000000";
         String endTime = "20250414235959";
         double jobWidth = 2.6;
-        测试拆分数据(did, startTime, endTime, jobWidth, false, new SplitRoadParams(null, null, null, 0.57));
+        测试拆分数据(did, startTime, endTime, jobWidth, false, new SplitRoadParams().setMinReturnMu(0.57));
     }
 
     @Test
@@ -618,7 +619,7 @@ public class TestUtilGis {
         String startTime = "20250527000000";
         String endTime = "20250527235959";
         double jobWidth = 2.6;
-        测试拆分数据(did, startTime, endTime, jobWidth, false, new SplitRoadParams(4.0));
+        测试拆分数据(did, startTime, endTime, jobWidth, false, new SplitRoadParams().setRoadWidth(4.0));
     }
 
     @Test
@@ -719,7 +720,7 @@ public class TestUtilGis {
         String startTime = "20251103000000";
         String endTime = "20251103235959";
         double jobWidth = 2.4;
-        测试拆分数据(did, startTime, endTime, jobWidth, false, new SplitRoadParams(12.0, 16));
+        测试拆分数据(did, startTime, endTime, jobWidth, false, new SplitRoadParams().setDbScanEpsilon(12.0));
     }
 
     @Test
@@ -730,6 +731,26 @@ public class TestUtilGis {
         String endTime = "20251111235959";
         double jobWidth = 2.4;
         测试拆分数据(did, startTime, endTime, jobWidth);
+    }
+
+    @Test
+    void 测试1秒间隔048() {
+        // 所有地块都能识别出来
+        String did = "EC71BD2501220049";
+        String startTime = "20251110072331";
+        String endTime = "20251110190400";
+        double jobWidth = 2.8;
+        测试拆分数据(did, startTime, endTime, jobWidth, false);
+    }
+
+    @Test
+    void 测试1秒间隔049() {
+        // 这个是跨天的，测试一下
+        String did = "EC71BD2501220049";
+        String startTime = "20251114073955";
+        String endTime = "20251115155306";
+        double jobWidth = 2.8;
+        测试拆分数据(did, startTime, endTime, jobWidth, false, new SplitRoadParams().setDbScanEpsilon(8.0));
     }
 
 
@@ -817,7 +838,7 @@ public class TestUtilGis {
         String startTime = "20250526000000";
         String endTime = "20250526235959";
         double jobWidth = 2.6;
-        测试拆分数据(did, startTime, endTime, jobWidth, false, new SplitRoadParams(null, null, null, null, false));
+        测试拆分数据(did, startTime, endTime, jobWidth, false, new SplitRoadParams().setCheckWorkingStatus(false));
     }
 
     @Test
@@ -834,6 +855,61 @@ public class TestUtilGis {
         TdengineMapper mapper = MyBatis.getMapper(TdengineMapper.class);
         List<DP> list = mapper.selectWorkPoints("EC73BD2509060248", LocalDateTimeUtil.parse("2025-10-23T00:00:00"), LocalDateTimeUtil.parse("2025-10-23T23:59:59"), true);
         log.info("{}", list.size());
+    }
+
+    @Test
+    void 测试英轩农装设备1() {
+        String did = "YXN26S2403T00066";
+        String startTime = "20251223000000";
+        String endTime = "20251223235959";
+        double jobWidth = 3.5;
+        测试拆分数据(did, startTime, endTime, jobWidth);
+    }
+
+    @Test
+    void 测试大幅宽1() {
+        String did = "EC73BD2504111716";
+        String startTime = "20260115000000";
+        String endTime = "20260115235959";
+        double jobWidth = 20;
+        测试拆分数据(did, startTime, endTime, jobWidth);
+    }
+
+    @Test
+    void 测试大幅宽2() {
+        String did = "EC73BD2504111716";
+        String startTime = "20260115145741";
+        String endTime = "20260115150038";
+        double jobWidth = 6;
+        List<DP> dps = selectWorkPoints(did, LocalDateTimeUtil.parse(startTime, "yyyyMMddHHmmss"), LocalDateTimeUtil.parse(endTime, "yyyyMMddHHmmss"));
+        List<Wgs84Point> l = new ArrayList<>();
+        for (DP dp : dps) {
+            Wgs84Point wgs84Point = new Wgs84Point();
+            wgs84Point.setGpsTime(dp.getP3014());
+            wgs84Point.setLongitude(dp.getP2602());
+            wgs84Point.setLatitude(dp.getP2603());
+            if (dp.getP3020() != null) {
+                wgs84Point.setJobStatus(2);//先设置非作业状态
+                if (dp.getP3020() == 1) {// 终端ACC状态,0关闭，1开启
+                    wgs84Point.setJobStatus(1);
+                }
+            }
+            if (dp.getP4031() != null) {// 作业标识,1作业,0非作业,2暂停
+                wgs84Point.setJobStatus(2);//先设置非作业状态
+                if (dp.getP4031() == 1) {
+                    wgs84Point.setJobStatus(1);//作业标识是1，认为是作业
+                }
+            }
+            l.add(wgs84Point);
+        }
+        FarmPlot farmPlot = gisUtil.getFarmPlot(l, jobWidth);
+        log.info("总点数 {}", farmPlot.getClusterPointCount());
+        log.info("亩数 {}", farmPlot.getMu());
+        log.info("作业时间 {} {}", farmPlot.getStartTime(), farmPlot.getEndTime());
+        log.info("WKT: {}", farmPlot.getWkt());
+        for (Wgs84Point wgs84Point : l) {
+            System.out.println(StrUtil.format("{},{},{}", LocalDateTimeUtil.format(wgs84Point.getGpsTime(), "yyyyMMddHHmmss"), wgs84Point.getLongitude(), wgs84Point.getLatitude()));
+        }
     }
 
     @Test

@@ -17,7 +17,6 @@ import java.io.FileInputStream;
 import java.lang.reflect.Proxy;
 import java.net.URL;
 import java.util.List;
-import java.util.Properties;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -27,13 +26,12 @@ import java.util.concurrent.ConcurrentHashMap;
  * @author SunYu
  */
 public class MyBatis {
-    private static final String mapperPackage = "sunyu.util.test.mapper";
-    private static final Properties config = new Props("config-prod.properties").toProperties();
+    private static final Props props = ConfigProperties.getProps();
     private static final ConcurrentHashMap<Class<?>, Object> MAPPER_CACHE = new ConcurrentHashMap<>();
 
     static {
         // 扫描 mapper 接口
-        Set<Class<?>> mapperClasses = ClassScanner.scanPackageByAnnotation(mapperPackage, DS.class);
+        Set<Class<?>> mapperClasses = ClassScanner.scanPackageByAnnotation(props.getStr("mapper-package"), DS.class);
         for (Class<?> mapperClass : mapperClasses) {
             DS ds = mapperClass.getAnnotation(DS.class);
             if (ds != null) {
@@ -54,10 +52,10 @@ public class MyBatis {
 
         // HikariCP 配置
         HikariConfig hikariConfig = new HikariConfig();
-        hikariConfig.setDriverClassName(config.getProperty(prefix + "driver"));
-        hikariConfig.setJdbcUrl(config.getProperty(prefix + "url"));
-        hikariConfig.setUsername(config.getProperty(prefix + "username"));
-        hikariConfig.setPassword(config.getProperty(prefix + "password"));
+        hikariConfig.setDriverClassName(props.getStr(prefix + "driver"));
+        hikariConfig.setJdbcUrl(props.getStr(prefix + "url"));
+        hikariConfig.setUsername(props.getStr(prefix + "username"));
+        hikariConfig.setPassword(props.getStr(prefix + "password"));
         hikariConfig.setMinimumIdle(0);
         hikariConfig.setMaximumPoolSize(10);
 
@@ -76,7 +74,7 @@ public class MyBatis {
         configuration.setLogImpl(org.apache.ibatis.logging.slf4j.Slf4jImpl.class);
 
         // 加载 XML Mapper
-        String xmlLocation = config.getProperty(prefix + "mapperLocation");
+        String xmlLocation = props.getStr(prefix + "mapperLocation");
         if (xmlLocation != null) {
             loadXmlMappers(configuration, xmlLocation);
         }
