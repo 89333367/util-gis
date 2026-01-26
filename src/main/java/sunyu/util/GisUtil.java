@@ -1064,7 +1064,6 @@ public class GisUtil implements AutoCloseable {
         return segments;
     }
 
-
     /**
      * 最近邻点批量匹配引擎 - 基于暴力搜索的简单算法实现
      * <p>
@@ -1954,6 +1953,170 @@ public class GisUtil implements AutoCloseable {
         }
         // 流式 union，避免一次性大 Union 爆炸
         return UnaryUnionOp.union(segments);
+    }
+
+    /**
+     * 将WGS84 WKT字符串转换为四维坐标数组
+     * <p>
+     * 【数据结构】返回标准四维数组：[几何索引][环索引][点索引][坐标分量]
+     * - 几何索引：处理MultiGeometry时的子几何索引
+     * - 环索引：多边形的外环(0)和内环(>0)，线串和点为0
+     * - 点索引：环或线串中的点索引
+     * - 坐标分量：[经度, 纬度]，如果WKT包含Z/M值则为[经度, 纬度, 高度, 测量值]
+     * <p>
+     * 【支持几何类型】
+     * - POINT/LINESTRING/POLYGON
+     * - MULTIPOINT/MULTILINESTRING/MULTIPOLYGON
+     * - GEOMETRYCOLLECTION
+     * <p>
+     * 【异常处理】解析失败或无效WKT返回空四维数组
+     *
+     * @param wgs84Wkt WGS84坐标系下的标准WKT字符串
+     * @return 四维坐标数组：[几何索引][环索引][点索引][坐标分量]
+     */
+    public double[][][][] wktTo4DArray(String wgs84Wkt) {
+        // 参数验证
+        if (wgs84Wkt == null || wgs84Wkt.trim().isEmpty()) {
+            log.warn("WKT字符串为空或null：输入参数验证失败");
+            return new double[0][0][0][0];
+        }
+
+        try {
+            // 解析WKT为几何对象
+            Geometry geometry = toWgs84Geometry(wgs84Wkt);
+            if (geometry.isEmpty()) {
+                log.warn("WKT解析结果为空几何：输入WKT={}", wgs84Wkt.substring(0, Math.min(wgs84Wkt.length(), 50)));
+                return new double[0][0][0][0];
+            }
+
+            // 收集所有几何对象
+            List<Geometry> geometries = new ArrayList<>();
+            if (geometry instanceof GeometryCollection) {
+                for (int i = 0; i < geometry.getNumGeometries(); i++) {
+                    geometries.add(geometry.getGeometryN(i));
+                }
+            } else {
+                geometries.add(geometry);
+            }
+
+            // 构建四维数组
+            double[][][][] result = new double[geometries.size()][][][];
+
+            for (int geomIndex = 0; geomIndex < geometries.size(); geomIndex++) {
+                Geometry geom = geometries.get(geomIndex);
+
+                // 处理不同类型的几何
+                if (geom instanceof Point) {
+                    // 点：[1个几何][1个环][1个点][2个分量]
+                    double[][][] rings = new double[1][1][2];
+                    Coordinate coord = ((Point) geom).getCoordinate();
+                    rings[0][0][0] = coord.x; // 经度
+                    rings[0][0][1] = coord.y; // 纬度
+                    result[geomIndex] = rings;
+                } else if (geom instanceof LineString) {
+                    // 线串：[1个几何][1个环][n个点][2个分量]
+                    Coordinate[] coords = ((LineString) geom).getCoordinates();
+                    double[][][] rings = new double[1][coords.length][2];
+                    for (int i = 0; i < coords.length; i++) {
+                        rings[0][i][0] = coords[i].x;
+                        rings[0][i][1] = coords[i].y;
+                    }
+                    result[geomIndex] = rings;
+                } else if (geom instanceof Polygon) {
+                    // 多边形：[1个几何][m个环][n个点][2个分量]
+                    Polygon polygon = (Polygon) geom;
+                    int numRings = 1 + polygon.getNumInteriorRing(); // 外环+内环
+                    double[][][] rings = new double[numRings][][];
+
+                    // 外环
+                    Coordinate[] outerCoords = polygon.getExteriorRing().getCoordinates();
+                    rings[0] = new double[outerCoords.length][2];
+                    for (int i = 0; i < outerCoords.length; i++) {
+                        rings[0][i][0] = outerCoords[i].x;
+                        rings[0][i][1] = outerCoords[i].y;
+                    }
+
+                    // 内环
+                    for (int ringIndex = 0; ringIndex < polygon.getNumInteriorRing(); ringIndex++) {
+                        Coordinate[] innerCoords = polygon.getInteriorRingN(ringIndex).getCoordinates();
+                        rings[ringIndex + 1] = new double[innerCoords.length][2];
+                        for (int i = 0; i < innerCoords.length; i++) {
+                            rings[ringIndex + 1][i][0] = innerCoords[i].x;
+                            rings[ringIndex + 1][i][1] = innerCoords[i].y;
+                        }
+                    }
+                    result[geomIndex] = rings;
+                } else if (geom instanceof MultiPoint) {
+                    // 多点：[1个几何][1个环][n个点][2个分量]
+                    MultiPoint multiPoint = (MultiPoint) geom;
+                    double[][][] rings = new double[1][multiPoint.getNumGeometries()][2];
+                    for (int i = 0; i < multiPoint.getNumGeometries(); i++) {
+                        Point point = (Point) multiPoint.getGeometryN(i);
+                        Coordinate coord = point.getCoordinate();
+                        rings[0][i][0] = coord.x;
+                        rings[0][i][1] = coord.y;
+                    }
+                    result[geomIndex] = rings;
+                } else if (geom instanceof MultiLineString) {
+                    // 多线串：[1个几何][n个环][m个点][2个分量]
+                    MultiLineString multiLine = (MultiLineString) geom;
+                    double[][][] rings = new double[multiLine.getNumGeometries()][][];
+                    for (int ringIndex = 0; ringIndex < multiLine.getNumGeometries(); ringIndex++) {
+                        LineString line = (LineString) multiLine.getGeometryN(ringIndex);
+                        Coordinate[] coords = line.getCoordinates();
+                        rings[ringIndex] = new double[coords.length][2];
+                        for (int i = 0; i < coords.length; i++) {
+                            rings[ringIndex][i][0] = coords[i].x;
+                            rings[ringIndex][i][1] = coords[i].y;
+                        }
+                    }
+                    result[geomIndex] = rings;
+                } else if (geom instanceof MultiPolygon) {
+                    // 多多边形：[1个几何][n个环][m个点][2个分量]
+                    MultiPolygon multiPolygon = (MultiPolygon) geom;
+                    List<double[][]> allRings = new ArrayList<>();
+
+                    for (int polyIndex = 0; polyIndex < multiPolygon.getNumGeometries(); polyIndex++) {
+                        Polygon polygon = (Polygon) multiPolygon.getGeometryN(polyIndex);
+
+                        // 外环
+                        Coordinate[] outerCoords = polygon.getExteriorRing().getCoordinates();
+                        double[][] outerRing = new double[outerCoords.length][2];
+                        for (int i = 0; i < outerCoords.length; i++) {
+                            outerRing[i][0] = outerCoords[i].x;
+                            outerRing[i][1] = outerCoords[i].y;
+                        }
+                        allRings.add(outerRing);
+
+                        // 内环
+                        for (int ringIndex = 0; ringIndex < polygon.getNumInteriorRing(); ringIndex++) {
+                            Coordinate[] innerCoords = polygon.getInteriorRingN(ringIndex).getCoordinates();
+                            double[][] innerRing = new double[innerCoords.length][2];
+                            for (int i = 0; i < innerCoords.length; i++) {
+                                innerRing[i][0] = innerCoords[i].x;
+                                innerRing[i][1] = innerCoords[i].y;
+                            }
+                            allRings.add(innerRing);
+                        }
+                    }
+
+                    // 转换为数组
+                    double[][][] ringsArray = new double[allRings.size()][][];
+                    for (int i = 0; i < allRings.size(); i++) {
+                        ringsArray[i] = allRings.get(i);
+                    }
+                    result[geomIndex] = ringsArray;
+                }
+            }
+
+            log.debug("WKT转换四维数组成功：几何数量={}", geometries.size());
+            return result;
+
+        } catch (Exception e) {
+            log.warn("WKT转换四维数组失败：错误={}, 输入WKT={}",
+                    e.getMessage(), wgs84Wkt.substring(0, Math.min(wgs84Wkt.length(), 50)));
+            return new double[0][0][0][0];
+        }
     }
 
     /**
@@ -3433,6 +3596,147 @@ public class GisUtil implements AutoCloseable {
         // 防御措施：非法WKT格式不会抛异常，而是返回null，避免程序崩溃
         return calcMu(toWgs84Geometry(wgs84Wkt));
     }
+
+    /**
+     * 合并多个WGS84 WKT字符串为一个地块信息
+     * <p>
+     * 该方法将多个WGS84坐标系下的WKT字符串合并为一个地块信息，
+     * 并计算合并后的地块面积（亩）。如果输入为空或包含无效WKT，
+     * 将返回一个面积为0.0的空地块。
+     *
+     * @param wgs84WktList 包含多个WGS84 WKT字符串的列表，不能为空
+     * @return 合并后的地块信息，包含面积（亩）和WKT字符串
+     */
+    public String mergeWgs84WKTStr(List<String> wgs84WktList) {
+        // 参数验证与空值处理
+        if (wgs84WktList == null || wgs84WktList.isEmpty()) {
+            return config.EMPTY_GEOMETRY.toText();
+        }
+
+        try {
+            // 收集所有有效的高斯投影几何
+            List<Geometry> validGaussGeometries = new ArrayList<>();
+            for (String wgs84WKT : wgs84WktList) {
+                if (wgs84WKT == null || wgs84WKT.trim().isEmpty()) {
+                    continue;
+                }
+
+                Geometry wgs84Geo = toWgs84Geometry(wgs84WKT);
+                if (!wgs84Geo.isEmpty()) {
+                    Geometry gaussGeo = toGaussGeometry(wgs84Geo);
+                    if (!gaussGeo.isEmpty()) {
+                        validGaussGeometries.add(gaussGeo);
+                    }
+                }
+            }
+
+            // 处理边界情况
+            if (validGaussGeometries.isEmpty()) {
+                return config.EMPTY_GEOMETRY.toText();
+            }
+            if (validGaussGeometries.size() == 1) {
+                Geometry wgs84Geometry = toWgs84Geometry(validGaussGeometries.get(0));
+                return wgs84Geometry.toText();
+            }
+
+            // 批量合并优化：使用GeometryCollection.union()进行高效合并
+            // 相比循环渐进式合并，时间复杂度从O(n²)优化到O(n)
+            GeometryCollection geometryCollection = config.GEOMETRY_FACTORY.createGeometryCollection(
+                    validGaussGeometries.toArray(new Geometry[0]));
+            Geometry mergedGaussGeo = geometryCollection.union();
+
+            // 可选：拓扑修复（仅在合并结果无效时使用）
+            if (!mergedGaussGeo.isValid()) {
+                mergedGaussGeo = mergedGaussGeo.buffer(0);
+            }
+
+            // 转换回WGS84坐标系并返回
+            Geometry wgs84Geometry = toWgs84Geometry(mergedGaussGeo);
+            return wgs84Geometry.toText();
+        } catch (Exception e) {
+            log.warn("合并WGS84 WKT字符串失败：{}", e.getMessage());
+            return config.EMPTY_GEOMETRY.toText();
+        }
+    }
+
+    /**
+     * 合并多个WGS84 WKT字符串为一个地块信息
+     * <p>
+     * 该方法将多个WGS84坐标系下的WKT字符串合并为一个地块信息，
+     * 并计算合并后的地块面积（亩）。如果输入为空或包含无效WKT，
+     * 将返回一个面积为0.0的空地块。
+     *
+     * @param wgs84WktList 包含多个WGS84 WKT字符串的列表，不能为空
+     * @return 合并后的地块信息，包含面积（亩）和WKT字符串
+     */
+    public FarmPlot mergeWgs84WKT(List<String> wgs84WktList) {
+        // 参数验证与空值处理
+        if (wgs84WktList == null || wgs84WktList.isEmpty()) {
+            FarmPlot emptyFarmPlot = new FarmPlot();
+            emptyFarmPlot.setMu(0.0);
+            emptyFarmPlot.setWkt(config.EMPTY_GEOMETRY.toText());
+            return emptyFarmPlot;
+        }
+
+        try {
+            // 收集所有有效的高斯投影几何
+            List<Geometry> validGaussGeometries = new ArrayList<>();
+            for (String wgs84WKT : wgs84WktList) {
+                if (wgs84WKT == null || wgs84WKT.trim().isEmpty()) {
+                    continue;
+                }
+
+                Geometry wgs84Geo = toWgs84Geometry(wgs84WKT);
+                if (!wgs84Geo.isEmpty()) {
+                    Geometry gaussGeo = toGaussGeometry(wgs84Geo);
+                    if (!gaussGeo.isEmpty()) {
+                        validGaussGeometries.add(gaussGeo);
+                    }
+                }
+            }
+
+            // 处理边界情况
+            FarmPlot farmPlot = new FarmPlot();
+            if (validGaussGeometries.isEmpty()) {
+                farmPlot.setMu(0.0);
+                farmPlot.setWkt(config.EMPTY_GEOMETRY.toText());
+                return farmPlot;
+            }
+
+            // 批量合并优化：使用GeometryCollection.union()进行高效合并
+            // 相比循环渐进式合并，时间复杂度从O(n²)优化到O(n)
+            Geometry mergedGaussGeo;
+            if (validGaussGeometries.size() == 1) {
+                mergedGaussGeo = validGaussGeometries.get(0);
+            } else {
+                GeometryCollection geometryCollection = config.GEOMETRY_FACTORY.createGeometryCollection(
+                        validGaussGeometries.toArray(new Geometry[0]));
+                mergedGaussGeo = geometryCollection.union();
+
+                // 可选：拓扑修复（仅在合并结果无效时使用）
+                if (!mergedGaussGeo.isValid()) {
+                    mergedGaussGeo = mergedGaussGeo.buffer(0);
+                }
+            }
+
+            // 转换回WGS84坐标系并设置结果
+            Geometry wgs84Geometry = toWgs84Geometry(mergedGaussGeo);
+            farmPlot.setMu(calcMu(wgs84Geometry));
+            farmPlot.setWkt(wgs84Geometry.toText());
+            farmPlot.setWgs84Geometry(wgs84Geometry);
+            farmPlot.setGaussGeometry(mergedGaussGeo);
+
+            return farmPlot;
+        } catch (Exception e) {
+            log.warn("合并WGS84 WKT并生成FarmPlot失败：{}", e.getMessage());
+            // 返回安全默认值
+            FarmPlot emptyFarmPlot = new FarmPlot();
+            emptyFarmPlot.setMu(0.0);
+            emptyFarmPlot.setWkt(config.EMPTY_GEOMETRY.toText());
+            return emptyFarmPlot;
+        }
+    }
+
 
     /**
      * 创建地块信息

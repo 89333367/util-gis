@@ -43,7 +43,7 @@
     <groupId>sunyu.util</groupId>
     <artifactId>util-gis</artifactId>
     <!-- {util.version}_{jdk.version}_{architecture.version} -->
-    <version>1.0_jdk8_x64</version>
+    <version>2.0_jdk8_x64</version>
     <classifier>shaded</classifier>
 </dependency>
 ```
@@ -122,7 +122,10 @@ double mu = gisUtil.calcMu(wgs84Wkt);
 ```
 
 #### 空间几何分析
+
 ```java
+import sunyu.util.pojo.FarmPlot;
+
 // 判断点是否在圆形区域内（中心点+半径）
 boolean inCircle = gisUtil.inCircle(wgs84Point, wgs84CenterPoint, radius);
 
@@ -142,6 +145,15 @@ Wgs84Point closestPoint = gisUtil.findClosestPoint(targetWgs84Point, wgs84Points
 
 // 查找距离目标点列表最近的多个点
 List<Wgs84Point> closestPoints = gisUtil.findClosestPointList(targetPointList, wgs84Points);
+
+// 合并多个WKT
+String mergeWkt = gisUtil.mergeWgs84WKTStr(wgs84WktList);
+
+// 合并多个WKT为一个FarmPlot对象，里面包含亩数
+FarmPlot mergeWkt = gisUtil.mergeWgs84WKT(wgs84WktList);
+
+// 将WKT字符串转换为4维数组
+double[][][][] wktTo4DArray = gisUtil.wktTo4DArray(wgs84Wkt);
 ```
 
 #### 坐标系统转换
