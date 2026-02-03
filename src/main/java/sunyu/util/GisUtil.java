@@ -3807,6 +3807,7 @@ public class GisUtil implements AutoCloseable {
 
             // 【单多边形处理】标准Polygon情况
             Geometry wgs84PartGeometry = toWgs84Geometry(gaussGeometry);
+            farmPlot.setWgs84Geometry(wgs84PartGeometry);
             farmPlot.setGaussGeometry(gaussGeometry);
             farmPlot.setStartTime(gaussPoints.get(0).getGpsTime());
             farmPlot.setEndTime(gaussPoints.get(gaussPoints.size() - 1).getGpsTime());

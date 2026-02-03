@@ -864,10 +864,12 @@ public class TestUtilGis {
 
     @Test
     void 测试() {
-        String did = "NJTEST0000000000";
-        String startTime = "20260115000000";
-        String endTime = "20260115235959";
-        double jobWidth = 3.5;
+        String did = "EC71BD2501220012";
+        String startTime = "20251105095338";
+        String endTime = "20251106074853";
+        double jobWidth = 2.3;
+        //测试拆分数据(did, startTime, endTime, jobWidth, true, new SplitRoadParams().setCheckWorkingStatus(false));
+        //测试拆分数据(did, startTime, endTime, jobWidth, true);
         测试拆分数据(did, startTime, endTime, jobWidth);
     }
 
@@ -964,5 +966,39 @@ public class TestUtilGis {
         log.info("总点数 {}", farmPlot.getClusterPointCount());
         log.info("亩数 {}", farmPlot.getMu());
         log.info("作业时间 {} {}", farmPlot.getStartTime(), farmPlot.getEndTime());
+    }
+
+    @Test
+    void 测试getFarmPlot2() {
+        String did = "LFS1032311100736";
+        String startTime = "20260116104103";
+        String endTime = "20260116153830";
+        double jobWidth = 3.5;
+        List<DP> dps = selectWorkPoints(did, LocalDateTimeUtil.parse(startTime, "yyyyMMddHHmmss"), LocalDateTimeUtil.parse(endTime, "yyyyMMddHHmmss"));
+        List<Wgs84Point> l = new ArrayList<>();
+        for (DP dp : dps) {
+            Wgs84Point wgs84Point = new Wgs84Point();
+            wgs84Point.setGpsTime(dp.getP3014());
+            wgs84Point.setLongitude(dp.getP2602());
+            wgs84Point.setLatitude(dp.getP2603());
+            if (dp.getP3020() != null) {
+                wgs84Point.setJobStatus(2);//先设置非作业状态
+                if (dp.getP3020() == 1) {// 终端ACC状态,0关闭，1开启
+                    wgs84Point.setJobStatus(1);
+                }
+            }
+            if (dp.getP4031() != null) {// 作业标识,1作业,0非作业,2暂停
+                wgs84Point.setJobStatus(2);//先设置非作业状态
+                if (dp.getP4031() == 1) {
+                    wgs84Point.setJobStatus(1);//作业标识是1，认为是作业
+                }
+            }
+            l.add(wgs84Point);
+        }
+        FarmPlot farmPlot = gisUtil.getFarmPlot(l, jobWidth);
+        log.info("总点数 {}", farmPlot.getClusterPointCount());
+        log.info("亩数 {}", farmPlot.getMu());
+        log.info("作业时间 {} {}", farmPlot.getStartTime(), farmPlot.getEndTime());
+        log.info("中心点 {} {}", farmPlot.getCenterWgs84Point().getLongitude(), farmPlot.getCenterWgs84Point().getLatitude());
     }
 }
