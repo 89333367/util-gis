@@ -3984,7 +3984,6 @@ public class GisUtil implements AutoCloseable {
                 eps = config.DBSCAN_EPSILON * minEffectiveInterval;
             }
         }
-        // 由于最小间隔时间超过10秒后，聚类的最小点位数量再增多就会识别不出来聚类簇，所以这里限制一下，最大只乘10倍
         int minPts = splitRoadParams.getDbScanMinPoints() == null ? config.DBSCAN_MIN_POINTS : splitRoadParams.getDbScanMinPoints();
 
         // 【坐标转换】WGS84转高斯投影，保证距离计算和几何操作的精度
