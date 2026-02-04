@@ -7,7 +7,7 @@
     <groupId>sunyu.util</groupId>
     <artifactId>util-gis</artifactId>
     <!-- {util.version}_{jdk.version}_{architecture.version} -->
-    <version>2.1_jdk8_x64</version>
+    <version>3.0_jdk8_x64</version>
 
     <properties>
         <java.version>1.8</java.version>
@@ -45,23 +45,12 @@
     </repositories>
 
     <dependencies>
-        <dependency>
-            <groupId>com.fasterxml.jackson.core</groupId>
-            <artifactId>jackson-databind</artifactId>
-            <version>2.18.0</version>
-            <scope>test</scope>
-        </dependency>
-        <dependency>
-            <groupId>com.fasterxml.jackson.datatype</groupId>
-            <artifactId>jackson-datatype-jsr310</artifactId>
-            <version>2.18.0</version>
-            <scope>test</scope>
-        </dependency>
         <!-- https://central.sonatype.com/artifact/cn.hutool/hutool-all/versions -->
         <dependency>
             <groupId>cn.hutool</groupId>
             <artifactId>hutool-all</artifactId>
             <version>5.8.43</version>
+            <optional>true</optional>
         </dependency>
         <!-- JTS 核心 -->
         <!-- https://central.sonatype.com/artifact/org.locationtech.jts/jts-core/versions -->
@@ -69,6 +58,7 @@
             <groupId>org.locationtech.jts</groupId>
             <artifactId>jts-core</artifactId>
             <version>1.20.0</version>
+            <optional>true</optional>
         </dependency>
         <!-- GeoTools 投影 & EPSG 数据库 -->
         <!-- https://repo.osgeo.org/service/rest/repository/browse/release/org/geotools/ -->
@@ -77,28 +67,33 @@
             <artifactId>gt-epsg-hsql</artifactId>
             <!-- jdk8只能支持到这个版本 -->
             <version>28.6.1</version>
+            <optional>true</optional>
         </dependency>
         <dependency>
             <groupId>org.geotools</groupId>
             <artifactId>gt-main</artifactId>
             <version>28.6.1</version>
+            <optional>true</optional>
         </dependency>
         <dependency>
             <groupId>org.geotools</groupId>
             <artifactId>gt-geojson</artifactId>
             <version>28.6.1</version>
+            <optional>true</optional>
         </dependency>
         <!-- GeoTools 核心 & 投影操作 (关键依赖) -->
         <dependency>
             <groupId>org.geotools</groupId>
             <artifactId>gt-referencing</artifactId>
             <version>28.6.1</version>
+            <optional>true</optional>
         </dependency>
         <!-- https://central.sonatype.com/artifact/org.opengis/geoapi/versions -->
         <dependency>
             <groupId>org.opengis</groupId>
             <artifactId>geoapi</artifactId>
             <version>3.0.2</version>
+            <optional>true</optional>
         </dependency>
         <!-- https://central.sonatype.com/artifact/io.github.elki-project/elki/versions -->
         <!-- https://mvnrepository.com/artifact/io.github.elki-project/elki -->
@@ -106,23 +101,27 @@
             <groupId>io.github.elki-project</groupId>
             <artifactId>elki</artifactId>
             <version>0.8.0</version>
+            <optional>true</optional>
         </dependency>
         <dependency>
             <groupId>io.github.elki-project</groupId>
             <artifactId>elki-batik-visualization</artifactId>
             <version>0.8.0</version>
+            <optional>true</optional>
         </dependency>
         <!-- https://central.sonatype.com/artifact/org.jfree/jfreechart/versions -->
         <dependency>
             <groupId>org.jfree</groupId>
             <artifactId>jfreechart</artifactId>
             <version>1.5.6</version>
+            <optional>true</optional>
         </dependency>
         <!-- https://central.sonatype.com/artifact/org.jfree/jcommon/versions -->
         <dependency>
             <groupId>org.jfree</groupId>
             <artifactId>jcommon</artifactId>
             <version>1.0.24</version>
+            <optional>true</optional>
         </dependency>
         <!-- https://central.sonatype.com/artifact/org.junit.jupiter/junit-jupiter/versions -->
         <dependency>
@@ -146,11 +145,13 @@
             <version>4.0.3</version>
             <scope>test</scope>
         </dependency>
-        <!-- https://central.sonatype.com/artifact/com.taosdata.jdbc/taos-jdbcdriver/3.4.0/versions -->
+        <!-- https://central.sonatype.com/artifact/com.taosdata.jdbc/taos-jdbcdriver/versions -->
         <dependency>
             <groupId>com.taosdata.jdbc</groupId>
             <artifactId>taos-jdbcdriver</artifactId>
-            <version>3.4.0</version>
+            <version>3.8.1.fix.us.shaded</version>
+            <classifier>shaded</classifier>
+            <optional>true</optional>
             <scope>test</scope>
         </dependency>
 
@@ -159,13 +160,6 @@
             <groupId>org.mybatis</groupId>
             <artifactId>mybatis</artifactId>
             <version>3.5.19</version>
-            <scope>test</scope>
-        </dependency>
-        <!-- https://central.sonatype.com/artifact/org.slf4j/slf4j-simple/versions -->
-        <dependency>
-            <groupId>org.slf4j</groupId>
-            <artifactId>slf4j-simple</artifactId>
-            <version>1.7.36</version>
             <scope>test</scope>
         </dependency>
     </dependencies>
@@ -187,35 +181,58 @@
                         <configuration>
                             <!-- 禁用 dependency-reduced-pom.xml 文件生成 -->
                             <createDependencyReducedPom>false</createDependencyReducedPom>
+                            <!-- 重命名包：批量给第三方包加统一前缀 -->
                             <relocations>
-                                <!-- 重命名Hutool包 -->
                                 <relocation>
-                                    <pattern>cn.hutool</pattern>
-                                    <shadedPattern>sunyu.util.relocations.gis.cn.hutool</shadedPattern>
-                                </relocation>
-                                <!-- 重命名Apache包 -->
-                                <relocation>
-                                    <pattern>org.apache</pattern>
-                                    <shadedPattern>sunyu.util.relocations.gis.org.apache</shadedPattern>
-                                </relocation>
-                                <!-- 重命名Jackson包 -->
-                                <relocation>
-                                    <pattern>com.fasterxml</pattern>
-                                    <shadedPattern>sunyu.util.relocations.gis.com.fasterxml</shadedPattern>
-                                </relocation>
-                                <!-- 重命名Guava包 -->
-                                <relocation>
-                                    <pattern>com.google</pattern>
-                                    <shadedPattern>sunyu.util.relocations.gis.com.google</shadedPattern>
+                                    <!-- 基础匹配（这里用空或通配思路，核心靠includes限定） -->
+                                    <pattern></pattern>
+                                    <!-- 统一前缀：所有匹配的包都会被加到这个路径下 -->
+                                    <shadedPattern>relocations.${project.groupId}.</shadedPattern>
+                                    <!-- 重命名包 -->
+                                    <includes>
+                                        <include>org.apache.**</include>
+                                        <include>org.slf4j.**</include>
+                                        <include>org.springframework.**</include>
+                                        <include>org.junit.**</include>
+                                        <include>org.latencyutils.**</include>
+                                        <include>org.hdrhistogram.**</include>
+                                        <include>org.jetbrains.**</include>
+                                        <include>com.fasterxml.**</include>
+                                        <include>com.google.**</include>
+                                        <include>io.netty.**</include>
+                                        <include>io.projectreactor.**</include>
+                                        <include>io.zipkin.**</include>
+                                        <include>io.reactivex.**</include>
+                                        <include>javax.enterprise.**</include>
+                                        <include>javax.inject.**</include>
+                                        <include>cn.hutool.**</include>
+                                    </includes>
+                                    <!-- 不需要重命名的包 -->
+                                    <excludes>
+                                        <exclude>${project.groupId}.**</exclude>
+                                        <exclude>com.taosdata.**</exclude>
+                                        <exclude>io.lettuce.**</exclude>
+                                        <exclude>uml.tech.**</exclude>
+                                        <exclude>sunyu.**</exclude>
+                                    </excludes>
                                 </relocation>
                             </relocations>
                             <transformers>
                                 <!-- 合并META-INF/services文件 -->
                                 <transformer
                                         implementation="org.apache.maven.plugins.shade.resource.ServicesResourceTransformer"/>
-                                <!-- 处理Apache许可证 -->
+                                <!-- 处理Apache的META-INF/DISCLAIMER文件 -->
                                 <transformer
-                                        implementation="org.apache.maven.plugins.shade.resource.ApacheLicenseResourceTransformer"/>
+                                        implementation="org.apache.maven.plugins.shade.resource.AppendingTransformer">
+                                    <resource>META-INF/DISCLAIMER</resource>
+                                </transformer>
+                                <!-- 处理MANIFEST.MF文件 -->
+                                <transformer
+                                        implementation="org.apache.maven.plugins.shade.resource.ManifestResourceTransformer">
+                                    <manifestEntries>
+                                        <Multi-Release>true</Multi-Release>
+                                    </manifestEntries>
+                                </transformer>
                             </transformers>
                             <shadedArtifactAttached>true</shadedArtifactAttached>
                             <shadedClassifierName>shaded</shadedClassifierName>
@@ -227,9 +244,6 @@
                                         <exclude>META-INF/*.SF</exclude>
                                         <exclude>META-INF/*.DSA</exclude>
                                         <exclude>META-INF/*.RSA</exclude>
-                                        <!-- 排除重复的NOTICE文件 -->
-                                        <exclude>META-INF/NOTICE*</exclude>
-                                        <exclude>META-INF/LICENSE*</exclude>
                                     </excludes>
                                 </filter>
                             </filters>
@@ -272,7 +286,7 @@
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-compiler-plugin</artifactId>
-                <version>3.14.1</version>
+                <version>3.15.0</version>
                 <configuration>
                     <source>${java.version}</source>
                     <target>${java.version}</target>

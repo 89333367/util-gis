@@ -1,4 +1,4 @@
-package sunyu.util;
+package sunyu.util.test;
 
 import cn.hutool.core.io.FileUtil;
 import cn.hutool.core.util.StrUtil;
