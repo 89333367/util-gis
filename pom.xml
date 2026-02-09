@@ -7,7 +7,7 @@
     <groupId>sunyu.util</groupId>
     <artifactId>util-gis</artifactId>
     <!-- {util.version}_{jdk.version}_{architecture.version} -->
-    <version>3.0_jdk8_x64</version>
+    <version>3.1_jdk8_x64</version>
 
     <properties>
         <java.version>1.8</java.version>
@@ -181,44 +181,91 @@
                         <configuration>
                             <!-- 禁用 dependency-reduced-pom.xml 文件生成 -->
                             <createDependencyReducedPom>false</createDependencyReducedPom>
-                            <!-- 重命名包：批量给第三方包加统一前缀 -->
+                            <!-- 重命名包：拆分多个relocation，每个指定明确的源pattern -->
                             <relocations>
+                                <!-- Apache 相关包 -->
                                 <relocation>
-                                    <!-- 基础匹配（这里用空或通配思路，核心靠includes限定） -->
-                                    <pattern></pattern>
-                                    <!-- 统一前缀：所有匹配的包都会被加到这个路径下 -->
-                                    <shadedPattern>relocations.${project.groupId}.</shadedPattern>
-                                    <!-- 重命名包 -->
-                                    <includes>
-                                        <include>org.apache.**</include>
-                                        <include>org.slf4j.**</include>
-                                        <include>org.springframework.**</include>
-                                        <include>org.junit.**</include>
-                                        <include>org.latencyutils.**</include>
-                                        <include>org.hdrhistogram.**</include>
-                                        <include>org.jetbrains.**</include>
-                                        <include>com.fasterxml.**</include>
-                                        <include>com.google.**</include>
-                                        <include>io.netty.**</include>
-                                        <include>io.projectreactor.**</include>
-                                        <include>io.zipkin.**</include>
-                                        <include>io.reactivex.**</include>
-                                        <include>javax.enterprise.**</include>
-                                        <include>javax.inject.**</include>
-                                        <include>cn.hutool.**</include>
-                                    </includes>
-                                    <!-- 不需要重命名的包 -->
-                                    <excludes>
-                                        <exclude>${project.groupId}.**</exclude>
-                                        <exclude>com.taosdata.**</exclude>
-                                        <exclude>io.lettuce.**</exclude>
-                                        <exclude>uml.tech.**</exclude>
-                                        <exclude>sunyu.**</exclude>
-                                    </excludes>
+                                    <pattern>org.apache</pattern>
+                                    <shadedPattern>relocations.${project.groupId}.org.apache</shadedPattern>
+                                </relocation>
+                                <!-- SLF4J 相关包 -->
+                                <relocation>
+                                    <pattern>org.slf4j</pattern>
+                                    <shadedPattern>relocations.${project.groupId}.org.slf4j</shadedPattern>
+                                </relocation>
+                                <!-- Spring 相关包 -->
+                                <relocation>
+                                    <pattern>org.springframework</pattern>
+                                    <shadedPattern>relocations.${project.groupId}.org.springframework</shadedPattern>
+                                </relocation>
+                                <!-- JUnit 相关包 -->
+                                <relocation>
+                                    <pattern>org.junit</pattern>
+                                    <shadedPattern>relocations.${project.groupId}.org.junit</shadedPattern>
+                                </relocation>
+                                <!-- LatencyUtils 相关包 -->
+                                <relocation>
+                                    <pattern>org.latencyutils</pattern>
+                                    <shadedPattern>relocations.${project.groupId}.org.latencyutils</shadedPattern>
+                                </relocation>
+                                <!-- HDRHistogram 相关包 -->
+                                <relocation>
+                                    <pattern>org.hdrhistogram</pattern>
+                                    <shadedPattern>relocations.${project.groupId}.org.hdrhistogram</shadedPattern>
+                                </relocation>
+                                <!-- JetBrains 相关包 -->
+                                <relocation>
+                                    <pattern>org.jetbrains</pattern>
+                                    <shadedPattern>relocations.${project.groupId}.org.jetbrains</shadedPattern>
+                                </relocation>
+                                <!-- FasterXML 相关包 -->
+                                <relocation>
+                                    <pattern>com.fasterxml</pattern>
+                                    <shadedPattern>relocations.${project.groupId}.com.fasterxml</shadedPattern>
+                                </relocation>
+                                <!-- Google 相关包 -->
+                                <relocation>
+                                    <pattern>com.google</pattern>
+                                    <shadedPattern>relocations.${project.groupId}.com.google</shadedPattern>
+                                </relocation>
+                                <!-- Netty 相关包 -->
+                                <relocation>
+                                    <pattern>io.netty</pattern>
+                                    <shadedPattern>relocations.${project.groupId}.io.netty</shadedPattern>
+                                </relocation>
+                                <!-- Reactor 相关包 -->
+                                <relocation>
+                                    <pattern>io.projectreactor</pattern>
+                                    <shadedPattern>relocations.${project.groupId}.io.projectreactor</shadedPattern>
+                                </relocation>
+                                <!-- Zipkin 相关包 -->
+                                <relocation>
+                                    <pattern>io.zipkin</pattern>
+                                    <shadedPattern>relocations.${project.groupId}.io.zipkin</shadedPattern>
+                                </relocation>
+                                <!-- ReactiveX 相关包 -->
+                                <relocation>
+                                    <pattern>io.reactivex</pattern>
+                                    <shadedPattern>relocations.${project.groupId}.io.reactivex</shadedPattern>
+                                </relocation>
+                                <!-- Javax enterprise 相关包 -->
+                                <relocation>
+                                    <pattern>javax.enterprise</pattern>
+                                    <shadedPattern>relocations.${project.groupId}.javax.enterprise</shadedPattern>
+                                </relocation>
+                                <!-- Javax inject 相关包 -->
+                                <relocation>
+                                    <pattern>javax.inject</pattern>
+                                    <shadedPattern>relocations.${project.groupId}.javax.inject</shadedPattern>
+                                </relocation>
+                                <!-- Hutool 相关包 -->
+                                <relocation>
+                                    <pattern>cn.hutool</pattern>
+                                    <shadedPattern>relocations.${project.groupId}.cn.hutool</shadedPattern>
                                 </relocation>
                             </relocations>
                             <transformers>
-                                <!-- 合并META-INF/services文件 -->
+                                <!-- 合并META-INF/services文件（插件会自动根据relocation重写类名） -->
                                 <transformer
                                         implementation="org.apache.maven.plugins.shade.resource.ServicesResourceTransformer"/>
                                 <!-- 处理Apache的META-INF/DISCLAIMER文件 -->
