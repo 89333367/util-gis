@@ -899,6 +899,15 @@ public class TestUtilGis {
     }
 
     @Test
+    void 测试全是路的() {
+        String did = "NJHYOPWAT0000359";
+        String startTime = "20250106150910";
+        String endTime = "20250106170301";
+        double jobWidth = 2.6;
+        测试拆分数据(did, startTime, endTime, jobWidth);
+    }
+
+    @Test
     void 测试大幅宽2() {
         String did = "EC73BD2504111716";
         String startTime = "20260115145741";
