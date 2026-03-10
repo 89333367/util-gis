@@ -1458,6 +1458,71 @@ public class GisUtil implements AutoCloseable {
 
 
     /**
+     * 判断所有高斯投影点是否都在指定亩数的范围内
+     * <p>
+     * 算法原理：
+     * 1. 计算所有点的边界框（最小/最大X和Y坐标）
+     * 2. 根据最小亩数计算对应正方形的边长
+     * 3. 如果边界框的宽度和高度都小于等于该边长，说明所有点都在小范围内
+     * <p>
+     * 性能优化：
+     * - 时间复杂度O(n)，只需要遍历一次所有点
+     * - 不进行开方运算，直接比较平方值，提升效率
+     * - 保守判断策略，确保不会误判导致丢失有效数据
+     * <p>
+     * 业务逻辑：
+     * 如果所有点都在小范围内，说明车辆没有移动，不会产生有效作业面积，
+     * 可以提前终止计算，避免执行耗时的DBSCAN聚类算法
+     *
+     * @param gaussPoints 高斯投影点列表
+     * @param minReturnMu 最小返回亩数，小于该面积的结果将被过滤
+     * @return true表示所有点都在小范围内，可以提前返回；false表示需要继续处理
+     */
+    private boolean isAllPointsInSmallRange(List<GaussPoint> gaussPoints, double minReturnMu) {
+        if (gaussPoints == null || gaussPoints.size() <= 1) {
+            return true;
+        }
+
+        // 亩转平方米（1亩≈666.6667平方米）
+        double minReturnSquareMeters = minReturnMu * config.MU_TO_SQUARE_METER;
+        // 计算对应正方形的边长，乘以0.9作为安全系数，确保保守判断
+        double sideLength = Math.sqrt(minReturnSquareMeters) * 0.9;
+
+        // 初始化边界框坐标
+        double minX = gaussPoints.get(0).getGaussX();
+        double maxX = gaussPoints.get(0).getGaussX();
+        double minY = gaussPoints.get(0).getGaussY();
+        double maxY = gaussPoints.get(0).getGaussY();
+
+        // 遍历所有点，找到边界框
+        for (int i = 1; i < gaussPoints.size(); i++) {
+            GaussPoint point = gaussPoints.get(i);
+            double x = point.getGaussX();
+            double y = point.getGaussY();
+
+            if (x < minX) {
+                minX = x;
+            }
+            if (x > maxX) {
+                maxX = x;
+            }
+            if (y < minY) {
+                minY = y;
+            }
+            if (y > maxY) {
+                maxY = y;
+            }
+        }
+
+        // 计算边界框的宽度和高度
+        double width = maxX - minX;
+        double height = maxY - minY;
+
+        // 如果边界框的宽度和高度都小于等于边长，说明所有点都在小范围内
+        return width <= sideLength && height <= sideLength;
+    }
+
+    /**
      * 使用DBSCAN算法进行空间密集聚类分析
      * <p>
      * 算法原理：
@@ -3990,6 +4055,12 @@ public class GisUtil implements AutoCloseable {
         List<GaussPoint> gaussPoints = toGaussPointList(wgs84Points);
         if (gaussPoints.size() < minPts) {
             log.warn("作业轨迹点列表必须包含至少 {} 个有效点位", minPts);
+            return splitResult;
+        }
+
+        // 【早期终止】检查所有点是否都在最小亩数范围内，如果是则直接返回，避免执行耗时的聚类算法
+        if (isAllPointsInSmallRange(gaussPoints, minReturnMu)) {
+            log.warn("所有点位都在小范围内，不会产生有效作业面积，提前返回");
             return splitResult;
         }
 
