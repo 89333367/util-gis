@@ -874,6 +874,16 @@ public class TestUtilGis {
     }
 
     @Test
+    void 测试一个巨量的点但还没有亩数的() {
+        String did = "EC73BD2512030018";
+        String yyyyMMdd = "20260309";
+        String startTime = yyyyMMdd + "000000";
+        String endTime = yyyyMMdd + "235959";
+        double jobWidth = 3;
+        测试拆分数据(did, startTime, endTime, jobWidth);
+    }
+
+    @Test
     void 测试TdengineMapper() {
         TdengineMapper mapper = MyBatis.getMapper(TdengineMapper.class);
         List<DP> list = mapper.selectWorkPoints("EC73BD2509060248", LocalDateTimeUtil.parse("2025-10-23T00:00:00"), LocalDateTimeUtil.parse("2025-10-23T23:59:59"), true);
