@@ -42,8 +42,8 @@
 <dependency>
     <groupId>sunyu.util</groupId>
     <artifactId>util-gis</artifactId>
-    <!-- {util.version}_{jdk.version} -->
-    <version>3.2_jdk8</version>
+   <!-- {util.version}_{jdk.version} -->
+   <version>3.3_jdk8</version>
     <classifier>shaded</classifier>
 </dependency>
 ```

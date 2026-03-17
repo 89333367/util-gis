@@ -900,6 +900,26 @@ public class TestUtilGis {
     }
 
     @Test
+    void 测试一个EC7设备为啥作业时长24小时这么久() {
+        String did = "EC71BD2408230078";
+        String yyyyMMdd = "20260314";
+        String startTime = yyyyMMdd + "000000";
+        String endTime = yyyyMMdd + "235959";
+        double jobWidth = 2.8;
+        测试拆分数据(did, startTime, endTime, jobWidth);
+    }
+
+    @Test
+    void 测试一个为啥拆不出来的(){
+        String did = "EC73BD2510300293";
+        String yyyyMMdd = "20260310";
+        String startTime = yyyyMMdd + "000000";
+        String endTime = yyyyMMdd + "235959";
+        double jobWidth = 2.8;
+        测试拆分数据(did, startTime, endTime, jobWidth);
+    }
+
+    @Test
     void 测试大幅宽1() {
         String did = "EC73BD2504111716";
         String startTime = "20260115000000";

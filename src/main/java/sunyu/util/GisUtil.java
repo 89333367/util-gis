@@ -1,6 +1,7 @@
 package sunyu.util;
 
 import cn.hutool.core.collection.CollUtil;
+import cn.hutool.core.date.LocalDateTimeUtil;
 import cn.hutool.core.util.StrUtil;
 import cn.hutool.log.Log;
 import cn.hutool.log.LogFactory;
@@ -2018,6 +2019,34 @@ public class GisUtil implements AutoCloseable {
         }
         // 流式 union，避免一次性大 Union 爆炸
         return UnaryUnionOp.union(segments);
+    }
+
+    /**
+     * 获得在多边形内的点位集合
+     *
+     * @param pointIndex    所有点位索引(高斯坐标系)
+     * @param gaussGeometry 多边形(高斯坐标系)
+     * @return
+     */
+    private List<GaussPoint> getInGaussGeometryGaussPoints(STRtree pointIndex, Geometry gaussGeometry) {
+        // 定义一个子高斯点位集合列表
+        List<GaussPoint> subGaussPoints = new ArrayList<>();
+        // 【空间过滤】使用STRtree索引筛选出落在子多边形内的点位
+        // 先通过索引查询子多边形边界框内的候选点，再用contains精确判断
+        List<GaussPoint> candidatePoints = pointIndex.query(gaussGeometry.getEnvelopeInternal());
+        for (GaussPoint gaussPoint : candidatePoints) {
+            // 创建JTS点对象进行精确的空间关系判断
+            Coordinate coord = new Coordinate(gaussPoint.getGaussX(), gaussPoint.getGaussY());
+            Point point = config.GEOMETRY_FACTORY.createPoint(coord);
+            // contains()方法严格判断内部关系：点在几何内部返回true，在边界上或外部返回false
+            // 与covers()的区别：contains不包含边界，covers包含边界
+            if (gaussGeometry.covers(point)) {
+                subGaussPoints.add(gaussPoint);
+            }
+        }
+        // 按照时间正序排列
+        subGaussPoints.sort(Comparator.comparing(GaussPoint::getGpsTime));
+        return subGaussPoints;
     }
 
     /**
@@ -4197,6 +4226,20 @@ public class GisUtil implements AutoCloseable {
 
             List<GaussPoint> clusterGaussPoints = clusterGaussPointsMap.get(index);
 
+            // 【空间索引构建】为当前聚类的所有点构建STRtree空间索引，用于高效的空间查询
+            log.debug("准备创建 {} 的几何图形内点位的STRtree索引", index);
+            STRtree pointIndex = new STRtree();
+            for (GaussPoint gaussPoint : clusterGaussPoints) {
+                // 创建Envelope作为索引键，存储GaussPoint对象作为值
+                Envelope envelope = new Envelope(
+                        gaussPoint.getGaussX(), gaussPoint.getGaussX(),
+                        gaussPoint.getGaussY(), gaussPoint.getGaussY()
+                );
+                pointIndex.insert(envelope, gaussPoint);
+            }
+            pointIndex.build(); // 构建索引
+            log.debug("构建索引完毕");
+
             // 【多几何处理】处理MultiPolygon情况
             if (clusterGaussGeometry instanceof MultiPolygon) {
                 MultiPolygon multiPolygon = (MultiPolygon) clusterGaussGeometry;
@@ -4211,31 +4254,37 @@ public class GisUtil implements AutoCloseable {
                         continue;
                     }
 
+                    // 【多边形内点过滤】获得多边形内的点集合
+                    List<GaussPoint> subGaussPoints = getInGaussGeometryGaussPoints(pointIndex, subGeometry);
+
                     // 【坐标转换】转换为WGS84坐标系用于WKT输出
                     Geometry wgs84PartGeometry = toWgs84Geometry(subGeometry);
                     FarmPlot part = new FarmPlot();
                     part.setGaussGeometry(subGeometry);
                     part.setWgs84Geometry(wgs84PartGeometry);
-                    part.setStartTime(clusterGaussPoints.get(0).getGpsTime());
-                    part.setEndTime(clusterGaussPoints.get(clusterGaussPoints.size() - 1).getGpsTime());
+                    part.setStartTime(subGaussPoints.get(0).getGpsTime());
+                    part.setEndTime(subGaussPoints.get(subGaussPoints.size() - 1).getGpsTime());
                     part.setWkt(wgs84PartGeometry.toText());
                     part.setMu(calcMu(wgs84PartGeometry));
                     part.setWorkingWidth(workingWidth);
-                    part.setClusterPointCount(clusterGaussPoints.size());
+                    part.setClusterPointCount(subGaussPoints.size());
                     farmPlots.add(part);
                 }
             } else if (clusterGaussGeometry instanceof Polygon) {
+                // 【多边形内点过滤】获得多边形内的点集合
+                List<GaussPoint> subGaussPoints = getInGaussGeometryGaussPoints(pointIndex, clusterGaussGeometry);
+
                 // 【单多边形处理】标准Polygon情况
                 Geometry wgs84PartGeometry = toWgs84Geometry(clusterGaussGeometry);
                 FarmPlot part = new FarmPlot();
                 part.setGaussGeometry(clusterGaussGeometry);
                 part.setWgs84Geometry(wgs84PartGeometry);
-                part.setStartTime(clusterGaussPoints.get(0).getGpsTime());
-                part.setEndTime(clusterGaussPoints.get(clusterGaussPoints.size() - 1).getGpsTime());
+                part.setStartTime(subGaussPoints.get(0).getGpsTime());
+                part.setEndTime(subGaussPoints.get(subGaussPoints.size() - 1).getGpsTime());
                 part.setWkt(wgs84PartGeometry.toText());
                 part.setMu(calcMu(wgs84PartGeometry));
                 part.setWorkingWidth(workingWidth);
-                part.setClusterPointCount(clusterGaussPoints.size());
+                part.setClusterPointCount(subGaussPoints.size());
                 farmPlots.add(part);
             }
         }
@@ -4306,10 +4355,23 @@ public class GisUtil implements AutoCloseable {
         splitResult.setEndTime(unionParts.get(unionParts.size() - 1).getEndTime());
         splitResult.setSplitParts(unionParts);
 
+        log.debug("拆分结果：");
+        for (int i1 = 0; i1 < splitResult.getFarmPlots().size(); i1++) {
+            FarmPlot farmPlot = splitResult.getFarmPlots().get(i1);
+            log.debug("第 {} 段作业信息：", i1 + 1);
+            log.debug("{} 至 {} 共 {} 亩"
+                    , LocalDateTimeUtil.format(farmPlot.getStartTime(), "yyyy-MM-dd HH:mm:ss")
+                    , LocalDateTimeUtil.format(farmPlot.getEndTime(), "yyyy-MM-dd HH:mm:ss")
+                    , farmPlot.getMu());
+        }
+
         // 【性能统计】记录算法总耗时和最终结果统计
-        log.info("地块总面积={}亩 共 {} 个地块，耗时 {} 毫秒",
-                splitResult.getMu(), splitResult.getGaussGeometry().getNumGeometries(),
-                System.currentTimeMillis() - splitRoadStartTime);
+        log.info("{} 至 {} 地块总面积 {} 亩 共 {} 个地块，耗时 {} 毫秒"
+                , LocalDateTimeUtil.format(splitResult.getStartTime(), "yyyy-MM-dd HH:mm:ss")
+                , LocalDateTimeUtil.format(splitResult.getEndTime(), "yyyy-MM-dd HH:mm:ss")
+                , splitResult.getMu(), splitResult.getGaussGeometry().getNumGeometries()
+                , System.currentTimeMillis() - splitRoadStartTime);
+
         return splitResult;
     }
 
