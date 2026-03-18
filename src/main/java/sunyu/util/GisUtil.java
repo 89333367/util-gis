@@ -1579,7 +1579,7 @@ public class GisUtil implements AutoCloseable {
         db.initialize();
 
         // 配置DBSCAN聚类器：使用欧几里得距离度量，适用于平面坐标系
-        log.info("使用空间密集聚类参数 epsilon={} 米, minPts={}", String.format("%.2f", epsilon), minPts);
+        log.info("使用空间密集聚类参数 epsilon={} 米, minPts={}, 要计算的点位数量 {} 个", String.format("%.2f", epsilon), minPts, gaussPoints.size());
         DBSCAN<DoubleVector> dbscan = new DBSCAN<>(EuclideanDistance.STATIC, epsilon, minPts);
 
         // 执行聚类分析：获取数据关系并运行DBSCAN算法，识别密度相连的点群
@@ -2047,6 +2047,554 @@ public class GisUtil implements AutoCloseable {
         // 按照时间正序排列
         subGaussPoints.sort(Comparator.comparing(GaussPoint::getGpsTime));
         return subGaussPoints;
+    }
+
+    /**
+     * 利用STRtree空间索引检测并过滤停车点群
+     * <p>
+     * 原理：
+     * 1. 使用STRtree索引快速查询每个点的邻域点
+     * 2. 如果邻域内点数量超过阈值、空间范围小（GPS漂移范围）、且时间跨度长，则判定为停车点群
+     * 3. 将所有停车点群中的点从结果中移除
+     * <p>
+     * 性能优势：
+     * - 利用STRtree索引，邻域查询从O(n)降到O(log n)
+     * - 在DBSCAN之前过滤停车点，大幅减少聚类计算量
+     *
+     * @param gaussPoints  高斯投影点列表
+     * @param pointIndex   STRtree空间索引
+     * @param parkingRange 停车判断距离范围（米），如8米（GPS漂移通常5-10米）
+     * @param minPoints    判断为停车的最小点数，如30个
+     * @param minDuration  判断为停车的最短时间（秒），如300秒（5分钟）
+     * @return 过滤后的点列表
+     */
+    private List<GaussPoint> filterParkingPointsByIndex(
+            List<GaussPoint> gaussPoints,
+            STRtree pointIndex,
+            double parkingRange,
+            int minPoints,
+            int minDuration) {
+
+        if (gaussPoints.size() < minPoints) {
+            return gaussPoints;
+        }
+
+        // 标记每个点是否为停车点
+        boolean[] isParking = new boolean[gaussPoints.size()];
+        int parkingCount = 0;
+
+        // 遍历所有点，使用索引查询邻域
+        for (int i = 0; i < gaussPoints.size(); i++) {
+            if (isParking[i]) {
+                continue; // 已标记为停车点，跳过
+            }
+
+            GaussPoint center = gaussPoints.get(i);
+
+            // 创建查询范围（以当前点为中心，parkingRange为半径的矩形）
+            Envelope queryEnv = new Envelope(
+                    center.getGaussX() - parkingRange, center.getGaussX() + parkingRange,
+                    center.getGaussY() - parkingRange, center.getGaussY() + parkingRange
+            );
+
+            // 使用STRtree索引快速查询候选点
+            @SuppressWarnings("unchecked")
+            List<GaussPoint> candidates = pointIndex.query(queryEnv);
+
+            // 精确计算距离，找出真正在范围内的点
+            List<GaussPoint> neighbors = new ArrayList<>();
+            for (GaussPoint candidate : candidates) {
+                double dist = Math.sqrt(
+                        Math.pow(center.getGaussX() - candidate.getGaussX(), 2) +
+                                Math.pow(center.getGaussY() - candidate.getGaussY(), 2)
+                );
+                if (dist <= parkingRange) {
+                    neighbors.add(candidate);
+                }
+            }
+
+            // 判断是否为停车点群：点数足够多
+            if (neighbors.size() >= minPoints) {
+                // 按时间排序，计算时间跨度
+                neighbors.sort(Comparator.comparing(GaussPoint::getGpsTime));
+                long duration = Duration.between(
+                        neighbors.get(0).getGpsTime(),
+                        neighbors.get(neighbors.size() - 1).getGpsTime()
+                ).getSeconds();
+
+                // 计算空间范围（边界框）
+                double minX = Double.MAX_VALUE, maxX = -Double.MAX_VALUE;
+                double minY = Double.MAX_VALUE, maxY = -Double.MAX_VALUE;
+                for (GaussPoint p : neighbors) {
+                    minX = Math.min(minX, p.getGaussX());
+                    maxX = Math.max(maxX, p.getGaussX());
+                    minY = Math.min(minY, p.getGaussY());
+                    maxY = Math.max(maxY, p.getGaussY());
+                }
+                double width = maxX - minX;
+                double height = maxY - minY;
+
+                // 严格判断：时间跨度足够长 且 空间范围足够小（GPS漂移范围）
+                // 空间范围必须小于parkingRange的一半，确保是真正的停车（点密集聚集）
+                if (duration >= minDuration && width <= parkingRange * 0.6 && height <= parkingRange * 0.6) {
+                    // 标记所有邻域点为停车点
+                    for (GaussPoint neighbor : neighbors) {
+                        int idx = gaussPoints.indexOf(neighbor);
+                        if (idx >= 0 && !isParking[idx]) {
+                            isParking[idx] = true;
+                            parkingCount++;
+                        }
+                    }
+                    log.debug("检测到停车点群：中心点索引 {} ，包含 {} 个点，持续 {} 秒，空间范围 {:.2f}x{:.2f}米",
+                            i, neighbors.size(), duration, width, height);
+                }
+            }
+        }
+
+        // 收集非停车点
+        List<GaussPoint> result = new ArrayList<>();
+        for (int i = 0; i < gaussPoints.size(); i++) {
+            if (!isParking[i]) {
+                result.add(gaussPoints.get(i));
+            }
+        }
+
+        log.info("停车点过滤完成：原始 {} 个点，过滤 {} 个停车点，剩余 {} 个点",
+                gaussPoints.size(), parkingCount, result.size());
+
+        return result;
+    }
+
+    /**
+     * 基于中值滤波的停车点检测
+     * <p>
+     * 原理：
+     * 1. 用滑动窗口取中值，消除GPS随机漂移
+     * 2. 在中值滤波后的轨迹上计算速度
+     * 3. 速度持续接近0的就是停车
+     */
+    private List<GaussPoint> filterParkingPointsByMedianFilter(
+            List<GaussPoint> gaussPoints,
+            int filterWindow,         // 中值滤波窗口大小，如5个点
+            double speedThreshold,    // 速度阈值，如0.3 m/s
+            int minParkingTime        // 最少持续多少秒算停车，如60秒
+    ) {
+        if (gaussPoints.size() < filterWindow) {
+            return gaussPoints; // 点太少，不过滤
+        }
+
+        // 第一步：中值滤波，消除GPS漂移
+        List<GaussPoint> smoothed = new ArrayList<>();
+
+        for (int i = 0; i < gaussPoints.size(); i++) {
+            // 取窗口内的点
+            int start = Math.max(0, i - filterWindow / 2);
+            int end = Math.min(gaussPoints.size(), start + filterWindow);
+            start = Math.max(0, end - filterWindow); // 调整start确保窗口大小
+
+            List<Double> xList = new ArrayList<>();
+            List<Double> yList = new ArrayList<>();
+
+            for (int j = start; j < end; j++) {
+                xList.add(gaussPoints.get(j).getGaussX());
+                yList.add(gaussPoints.get(j).getGaussY());
+            }
+
+            // 计算中值
+            double medianX = getMedian(xList);
+            double medianY = getMedian(yList);
+
+            // 创建平滑后的点（保持原始时间）
+            GaussPoint smoothedPoint = new GaussPoint();
+            smoothedPoint.setGpsTime(gaussPoints.get(i).getGpsTime());
+            smoothedPoint.setGaussX(medianX);
+            smoothedPoint.setGaussY(medianY);
+            smoothed.add(smoothedPoint);
+        }
+
+        // 第二步：在平滑后的轨迹上计算速度
+        double[] speeds = new double[gaussPoints.size()];
+        speeds[0] = Double.MAX_VALUE;
+        speeds[speeds.length - 1] = Double.MAX_VALUE;
+
+        for (int i = 1; i < smoothed.size() - 1; i++) {
+            GaussPoint prev = smoothed.get(i - 1);
+            GaussPoint curr = smoothed.get(i);
+            GaussPoint next = smoothed.get(i + 1);
+
+            // 计算速度
+            double dist1 = Math.sqrt(
+                    Math.pow(curr.getGaussX() - prev.getGaussX(), 2) +
+                            Math.pow(curr.getGaussY() - prev.getGaussY(), 2)
+            );
+            long time1 = Duration.between(prev.getGpsTime(), curr.getGpsTime()).getSeconds();
+
+            double dist2 = Math.sqrt(
+                    Math.pow(next.getGaussX() - curr.getGaussX(), 2) +
+                            Math.pow(next.getGaussY() - curr.getGaussY(), 2)
+            );
+            long time2 = Duration.between(curr.getGpsTime(), next.getGpsTime()).getSeconds();
+
+            double speed1 = (time1 > 0) ? dist1 / time1 : Double.MAX_VALUE;
+            double speed2 = (time2 > 0) ? dist2 / time2 : Double.MAX_VALUE;
+            speeds[i] = (speed1 + speed2) / 2;
+        }
+
+        // 第三步：找出连续低速段落
+        List<GaussPoint> result = new ArrayList<>();
+        int i = 0;
+
+        while (i < gaussPoints.size()) {
+            if (speeds[i] > speedThreshold) {
+                result.add(gaussPoints.get(i));
+                i++;
+                continue;
+            }
+
+            int start = i;
+            while (i < gaussPoints.size() && speeds[i] <= speedThreshold) {
+                i++;
+            }
+            int end = i;
+
+            long duration = Duration.between(
+                    gaussPoints.get(start).getGpsTime(),
+                    gaussPoints.get(end - 1).getGpsTime()
+            ).getSeconds();
+
+            if (duration < minParkingTime) {
+                for (int j = start; j < end; j++) {
+                    result.add(gaussPoints.get(j));
+                }
+            } else {
+                log.debug("检测到停车段落：索引{}-{}，持续{}秒", start, end - 1, duration);
+            }
+        }
+
+        return result;
+    }
+
+    /**
+     * 计算中值
+     */
+    private double getMedian(List<Double> values) {
+        List<Double> sorted = new ArrayList<>(values);
+        Collections.sort(sorted);
+        int size = sorted.size();
+
+        if (size % 2 == 0) {
+            return (sorted.get(size / 2 - 1) + sorted.get(size / 2)) / 2;
+        } else {
+            return sorted.get(size / 2);
+        }
+    }
+
+    /**
+     * 基于密度的智能抽稀（保留DBSCAN核心点）
+     * <p>
+     * 核心思路：
+     * 1. 利用已有的STRtree索引快速查询每个点的epsilon邻域
+     * 2. 根据邻域点数量（密度）决定抽稀策略：
+     * - 高密度（>maxNeighbors）：停车区域，大幅抽稀，只保留边界点
+     * - 中密度（minPts~maxNeighbors）：作业区域，轻度抽稀，保留代表性点
+     * - 低密度（<minPts）：稀疏区域，不抽稀，保留所有点
+     * 3. 确保每个epsilon邻域内至少保留minPts个点，保证DBSCAN核心点判定有效
+     * <p>
+     * 性能优势：
+     * - 大幅减少停车点的数量（从数千降到数十）
+     * - 保留作业区域的轨迹形状
+     * - 保证DBSCAN聚类结果不变
+     *
+     * @param gaussPoints  原始高斯点列表
+     * @param pointIndex   STRtree空间索引（已构建）
+     * @param epsilon      DBSCAN的epsilon参数（邻域半径）
+     * @param minPts       DBSCAN的minPts参数（最小点数）
+     * @param maxNeighbors 判定为高密度的阈值，超过此值开始抽稀（如100个）
+     * @return 抽稀后的点列表
+     */
+    private List<GaussPoint> densityBasedSampling(
+            List<GaussPoint> gaussPoints,
+            STRtree pointIndex,
+            double epsilon,
+            int minPts,
+            int maxNeighbors) {
+
+        if (gaussPoints.size() <= minPts * 2) {
+            return gaussPoints; // 点太少，不抽稀
+        }
+
+        log.debug("开始基于密度的智能抽稀：原始{}个点，epsilon={}米，minPts={}",
+                gaussPoints.size(), epsilon, minPts);
+
+        // 标记每个点是否保留
+        boolean[] keep = new boolean[gaussPoints.size()];
+        int keptCount = 0;
+
+        // 按时间排序，确保抽稀后的点按时间连续
+        List<GaussPoint> sortedPoints = new ArrayList<>(gaussPoints);
+        sortedPoints.sort(Comparator.comparing(GaussPoint::getGpsTime));
+
+        // 第一遍：标记必须保留的点（低密度区域的核心点）
+        for (int i = 0; i < sortedPoints.size(); i++) {
+            GaussPoint point = sortedPoints.get(i);
+
+            // 查询epsilon邻域内的点
+            Envelope queryEnv = new Envelope(
+                    point.getGaussX() - epsilon, point.getGaussX() + epsilon,
+                    point.getGaussY() - epsilon, point.getGaussY() + epsilon
+            );
+            @SuppressWarnings("unchecked")
+            List<GaussPoint> candidates = pointIndex.query(queryEnv);
+
+            // 计算实际在epsilon范围内的邻居数量
+            int neighborCount = 0;
+            for (GaussPoint candidate : candidates) {
+                double dist = Math.sqrt(
+                        Math.pow(point.getGaussX() - candidate.getGaussX(), 2) +
+                                Math.pow(point.getGaussY() - candidate.getGaussY(), 2)
+                );
+                if (dist <= epsilon) {
+                    neighborCount++;
+                }
+            }
+
+            // 低密度区域（邻居少）：保留所有点
+            if (neighborCount < minPts * 2) {
+                keep[i] = true;
+                keptCount++;
+            }
+            // 中密度区域（minPts*2 ~ maxNeighbors）：选择性保留
+            else if (neighborCount <= maxNeighbors) {
+                // 每3个点保留1个，保留时间序列上的代表性点
+                keep[i] = (i % 3 == 0);
+                if (keep[i]) keptCount++;
+            }
+            // 高密度区域（>maxNeighbors）：停车区域，大幅抽稀
+            else {
+                // 每10个点保留1个，只保留少量代表点
+                keep[i] = (i % 10 == 0);
+                if (keep[i]) keptCount++;
+            }
+        }
+
+        // 第二遍：确保每个epsilon邻域内至少保留minPts个点
+        // 这是关键：保证DBSCAN的核心点判定仍然有效
+        for (int i = 0; i < sortedPoints.size(); i++) {
+            if (keep[i]) continue; // 已保留，跳过
+
+            GaussPoint point = sortedPoints.get(i);
+
+            // 查询epsilon邻域内已保留的点数
+            Envelope queryEnv = new Envelope(
+                    point.getGaussX() - epsilon, point.getGaussX() + epsilon,
+                    point.getGaussY() - epsilon, point.getGaussY() + epsilon
+            );
+            @SuppressWarnings("unchecked")
+            List<GaussPoint> candidates = pointIndex.query(queryEnv);
+
+            int keptNeighbors = 0;
+            for (GaussPoint candidate : candidates) {
+                int idx = sortedPoints.indexOf(candidate);
+                if (idx >= 0 && keep[idx]) {
+                    double dist = Math.sqrt(
+                            Math.pow(point.getGaussX() - candidate.getGaussX(), 2) +
+                                    Math.pow(point.getGaussY() - candidate.getGaussY(), 2)
+                    );
+                    if (dist <= epsilon) {
+                        keptNeighbors++;
+                    }
+                }
+            }
+
+            // 如果邻域内保留的点少于minPts，必须保留这个点
+            if (keptNeighbors < minPts) {
+                keep[i] = true;
+                keptCount++;
+            }
+        }
+
+        // 收集保留的点
+        List<GaussPoint> result = new ArrayList<>();
+        for (int i = 0; i < sortedPoints.size(); i++) {
+            if (keep[i]) {
+                result.add(sortedPoints.get(i));
+            }
+        }
+
+        log.info("智能抽稀完成：原始{}个点，保留{}个点，抽稀率{:.1f}%",
+                gaussPoints.size(), keptCount,
+                100.0 * (gaussPoints.size() - keptCount) / gaussPoints.size());
+
+        return result;
+    }
+
+    /**
+     * 基于空间距离的快速抽稀（保留几何形状）
+     * <p>
+     * 核心思路：
+     * 1. 按时间排序，确保轨迹顺序
+     * 2. 计算相邻点的空间距离
+     * 3. 如果距离小于阈值（说明是停车或密集区域），进行抽稀
+     * 4. 如果距离大于阈值（正常行驶），保留点
+     * <p>
+     * 性能优势：
+     * - O(n)时间复杂度，只遍历一次点列表
+     * - 不查询空间索引，速度极快
+     * - 基于距离抽稀，能有效保留几何形状
+     *
+     * @param gaussPoints 原始高斯点列表
+     * @param minDistance 最小距离阈值（米），小于此距离进行抽稀
+     * @param keepRatio   抽稀比例（如0.1表示每10个保留1个）
+     * @return 抽稀后的点列表
+     */
+    private List<GaussPoint> fastDistanceBasedSampling(
+            List<GaussPoint> gaussPoints,
+            double minDistance,
+            double keepRatio) {
+
+        if (gaussPoints.size() <= 100) {
+            return gaussPoints; // 点太少，不抽稀
+        }
+
+        log.debug("开始快速距离抽稀：原始{}个点，最小距离{}米，保留比例{}",
+                gaussPoints.size(), minDistance, keepRatio);
+
+        // 按时间排序
+        List<GaussPoint> sortedPoints = new ArrayList<>(gaussPoints);
+        sortedPoints.sort(Comparator.comparing(GaussPoint::getGpsTime));
+
+        List<GaussPoint> result = new ArrayList<>();
+        result.add(sortedPoints.get(0)); // 保留第一个点
+        GaussPoint lastKept = sortedPoints.get(0); // 记录上一个保留的点
+
+        int skipCounter = 0; // 跳过计数器
+
+        for (int i = 1; i < sortedPoints.size(); i++) {
+            GaussPoint curr = sortedPoints.get(i);
+
+            // 计算与上一个保留点的空间距离
+            double dist = Math.sqrt(
+                    Math.pow(curr.getGaussX() - lastKept.getGaussX(), 2) +
+                            Math.pow(curr.getGaussY() - lastKept.getGaussY(), 2)
+            );
+
+            if (dist < minDistance) {
+                // 距离太近，可能是停车或密集区域，进行抽稀
+                skipCounter++;
+                if (skipCounter >= (int) (1.0 / keepRatio)) {
+                    result.add(curr);
+                    lastKept = curr; // 更新上一个保留点
+                    skipCounter = 0;
+                }
+            } else {
+                // 距离足够远，保留点
+                result.add(curr);
+                lastKept = curr; // 更新上一个保留点
+                skipCounter = 0;
+            }
+        }
+
+        log.info("快速距离抽稀完成：原始{}个点，保留{}个点，抽稀率{}%",
+                gaussPoints.size(), result.size(),
+                100.0 * (gaussPoints.size() - result.size()) / gaussPoints.size());
+
+        return result;
+    }
+
+    /**
+     * 基于时间窗口的停车点检测（改进版）
+     * <p>
+     * 核心思路：
+     * 1. 将点按时间排序
+     * 2. 滑动时间窗口（如5分钟），检查每个窗口内的空间密度
+     * 3. 如果窗口内点很多但空间范围很小，则判定为停车
+     * 4. 只删除这些高密度时间段内的点，保留其他点
+     */
+    private List<GaussPoint> filterParkingByTimeWindow(
+            List<GaussPoint> gaussPoints,
+            STRtree pointIndex,
+            int windowMinutes,      // 时间窗口大小，如5分钟
+            double maxRange,        // 最大空间范围，如10米
+            int minPointsInWindow   // 窗口内最少点数，如50个
+    ) {
+        if (gaussPoints.size() < minPointsInWindow) {
+            return gaussPoints;
+        }
+
+        // 按时间排序
+        List<GaussPoint> sortedPoints = new ArrayList<>(gaussPoints);
+        sortedPoints.sort(Comparator.comparing(GaussPoint::getGpsTime));
+
+        // 标记要删除的点
+        boolean[] toRemove = new boolean[sortedPoints.size()];
+
+        // 滑动时间窗口
+        int startIdx = 0;
+        while (startIdx < sortedPoints.size()) {
+            GaussPoint startPoint = sortedPoints.get(startIdx);
+
+            // 找到窗口结束位置
+            int endIdx = startIdx;
+            while (endIdx < sortedPoints.size()) {
+                long minutes = Duration.between(
+                        startPoint.getGpsTime(),
+                        sortedPoints.get(endIdx).getGpsTime()
+                ).toMinutes();
+                if (minutes >= windowMinutes) {
+                    break;
+                }
+                endIdx++;
+            }
+
+            // 窗口内的点
+            List<GaussPoint> windowPoints = sortedPoints.subList(startIdx, endIdx);
+
+            if (windowPoints.size() >= minPointsInWindow) {
+                // 计算窗口内点的空间范围
+                double minX = Double.MAX_VALUE, maxX = -Double.MAX_VALUE;
+                double minY = Double.MAX_VALUE, maxY = -Double.MAX_VALUE;
+
+                for (GaussPoint p : windowPoints) {
+                    minX = Math.min(minX, p.getGaussX());
+                    maxX = Math.max(maxX, p.getGaussX());
+                    minY = Math.min(minY, p.getGaussY());
+                    maxY = Math.max(maxY, p.getGaussY());
+                }
+
+                double width = maxX - minX;
+                double height = maxY - minY;
+
+                // 如果空间范围很小，说明是停车
+                if (width <= maxRange && height <= maxRange) {
+                    // 标记这个窗口内的点为删除
+                    for (int i = startIdx; i < endIdx; i++) {
+                        toRemove[i] = true;
+                    }
+                    log.debug("检测到停车时间段：索引 {} - {}，共 {} 个点，范围 {} x {}米，持续 {} 分钟",
+                            startIdx, endIdx - 1, windowPoints.size(), width, height, windowMinutes);
+                }
+            }
+
+            // 窗口滑动：每次移动窗口大小的一半，避免漏检
+            int slideSteps = Math.max(1, (endIdx - startIdx) / 2);
+            startIdx += slideSteps;
+        }
+
+        // 收集保留的点
+        List<GaussPoint> result = new ArrayList<>();
+        int removedCount = 0;
+        for (int i = 0; i < sortedPoints.size(); i++) {
+            if (!toRemove[i]) {
+                result.add(sortedPoints.get(i));
+            } else {
+                removedCount++;
+            }
+        }
+
+        log.info("时间窗口过滤完成：原始 {} 个点，删除 {} 个停车点，保留 {} 个点",
+                sortedPoints.size(), removedCount, result.size());
+
+        return result;
     }
 
     /**
@@ -4093,6 +4641,29 @@ public class GisUtil implements AutoCloseable {
             return splitResult;
         }
 
+        log.debug("准备创建所有高斯点位的STRtree索引");
+        STRtree gaussPointSTRtreeIndex = new STRtree();
+        for (GaussPoint gaussPoint : gaussPoints) {
+            // 创建Envelope作为索引键，存储GaussPoint对象作为值
+            Envelope envelope = new Envelope(
+                    gaussPoint.getGaussX(), gaussPoint.getGaussX(),
+                    gaussPoint.getGaussY(), gaussPoint.getGaussY()
+            );
+            gaussPointSTRtreeIndex.insert(envelope, gaussPoint);
+        }
+        gaussPointSTRtreeIndex.build(); // 构建索引
+        log.debug("构建索引完毕");
+
+        // 【快速抽稀】基于空间距离的简单抽稀，O(n)复杂度，避免空间查询
+        // 策略：如果点与上一个保留点的距离<1米，只保留10%的点（大幅抽稀停车点）
+        gaussPoints = fastDistanceBasedSampling(gaussPoints, 1, 0.1);
+
+        // 如果抽稀后点数太少，直接返回
+        if (gaussPoints.size() < minPts) {
+            log.warn("距离抽稀后剩余{}个点，少于最小聚类点数{}，直接返回", gaussPoints.size(), minPts);
+            return splitResult;
+        }
+
         // 【密度聚类】执行DBSCAN聚类，识别潜在的作业簇群
         List<List<GaussPoint>> clusters = dbScanClusters(gaussPoints, eps, minPts);
         log.info("聚类完成，总共有 {} 个聚类簇", clusters.size());
@@ -4106,9 +4677,8 @@ public class GisUtil implements AutoCloseable {
         // 【几何生成】循环处理每个聚类簇，生成对应的作业区域
         log.debug("循环所有聚类簇，生成几何图形");
         int clusterIndex = 1;//聚类编号
-        // 【数据缓存】存储聚类生成的几何图形和对应点位，key为聚类索引
+        // 【数据缓存】存储聚类生成的几何图形，key为聚类索引
         Map<Integer, Geometry> clusterGaussGeometryMap = new LinkedHashMap<>();
-        Map<Integer, List<GaussPoint>> clusterGaussPointsMap = new LinkedHashMap<>();
         for (List<GaussPoint> cluster : clusters) {
             log.debug("聚类簇包含 {} 个点", cluster.size());
             if (cluster.size() >= minPts) {
@@ -4163,13 +4733,12 @@ public class GisUtil implements AutoCloseable {
 
                 // 【结果存储】缓存生成的几何图形和对应点位
                 clusterGaussGeometryMap.put(clusterIndex, gaussGeometry);
-                clusterGaussPointsMap.put(clusterIndex, cluster);
                 clusterIndex++;
             }
         }
 
         // 【进度监控】记录几何生成阶段的统计信息
-        log.info("生成了 {} 个几何图形，生成了 {} 组点位列表", clusterGaussGeometryMap.size(), clusterGaussPointsMap.size());
+        log.info("生成了 {} 个几何图形", clusterGaussGeometryMap.size());
         if (clusterGaussGeometryMap.isEmpty()) {
             log.debug("没有生成任何几何图形");
             return splitResult;
@@ -4201,7 +4770,6 @@ public class GisUtil implements AutoCloseable {
                         key, currGeom.getArea() * config.SQUARE_TO_MU_METER, minReturnMu);
                 it.remove();
                 clusterGaussGeometryMap.remove(key);
-                clusterGaussPointsMap.remove(key);
                 continue;
             }
             clusterGaussGeometryMap.put(key, currGeom);
@@ -4224,22 +4792,6 @@ public class GisUtil implements AutoCloseable {
                 continue;
             }
 
-            List<GaussPoint> clusterGaussPoints = clusterGaussPointsMap.get(index);
-
-            // 【空间索引构建】为当前聚类的所有点构建STRtree空间索引，用于高效的空间查询
-            log.debug("准备创建 {} 的几何图形内点位的STRtree索引", index);
-            STRtree pointIndex = new STRtree();
-            for (GaussPoint gaussPoint : clusterGaussPoints) {
-                // 创建Envelope作为索引键，存储GaussPoint对象作为值
-                Envelope envelope = new Envelope(
-                        gaussPoint.getGaussX(), gaussPoint.getGaussX(),
-                        gaussPoint.getGaussY(), gaussPoint.getGaussY()
-                );
-                pointIndex.insert(envelope, gaussPoint);
-            }
-            pointIndex.build(); // 构建索引
-            log.debug("构建索引完毕");
-
             // 【多几何处理】处理MultiPolygon情况
             if (clusterGaussGeometry instanceof MultiPolygon) {
                 MultiPolygon multiPolygon = (MultiPolygon) clusterGaussGeometry;
@@ -4255,7 +4807,7 @@ public class GisUtil implements AutoCloseable {
                     }
 
                     // 【多边形内点过滤】获得多边形内的点集合
-                    List<GaussPoint> subGaussPoints = getInGaussGeometryGaussPoints(pointIndex, subGeometry);
+                    List<GaussPoint> subGaussPoints = getInGaussGeometryGaussPoints(gaussPointSTRtreeIndex, subGeometry);
 
                     // 【坐标转换】转换为WGS84坐标系用于WKT输出
                     Geometry wgs84PartGeometry = toWgs84Geometry(subGeometry);
@@ -4272,7 +4824,7 @@ public class GisUtil implements AutoCloseable {
                 }
             } else if (clusterGaussGeometry instanceof Polygon) {
                 // 【多边形内点过滤】获得多边形内的点集合
-                List<GaussPoint> subGaussPoints = getInGaussGeometryGaussPoints(pointIndex, clusterGaussGeometry);
+                List<GaussPoint> subGaussPoints = getInGaussGeometryGaussPoints(gaussPointSTRtreeIndex, clusterGaussGeometry);
 
                 // 【单多边形处理】标准Polygon情况
                 Geometry wgs84PartGeometry = toWgs84Geometry(clusterGaussGeometry);

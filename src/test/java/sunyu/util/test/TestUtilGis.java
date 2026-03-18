@@ -288,7 +288,7 @@ public class TestUtilGis {
         String startTime = "20251103130852";
         String endTime = "20251103151309";
         double jobWidth = 1.0;
-        测试拆分数据(did, startTime, endTime, jobWidth);
+        测试拆分数据(did, startTime, endTime, jobWidth, false, new SplitRoadParams().setRoadWidth(0.1));
     }
 
     @Test
@@ -741,7 +741,7 @@ public class TestUtilGis {
         String startTime = "20251103000000";
         String endTime = "20251103235959";
         double jobWidth = 2.4;
-        测试拆分数据(did, startTime, endTime, jobWidth, false, new SplitRoadParams().setDbScanEpsilon(12.0));
+        测试拆分数据(did, startTime, endTime, jobWidth, false, new SplitRoadParams().setDbScanEpsilon(12.0).setMinReturnMu(0.55));
     }
 
     @Test
@@ -896,7 +896,7 @@ public class TestUtilGis {
         String startTime = "20251223000000";
         String endTime = "20251223235959";
         double jobWidth = 3.5;
-        测试拆分数据(did, startTime, endTime, jobWidth);
+        测试拆分数据(did, startTime, endTime, jobWidth, false, new SplitRoadParams().setDbScanEpsilon(12.0));
     }
 
     @Test
@@ -910,7 +910,7 @@ public class TestUtilGis {
     }
 
     @Test
-    void 测试一个为啥拆不出来的(){
+    void 测试一个为啥拆不出来的() {
         String did = "EC73BD2510300293";
         String yyyyMMdd = "20260310";
         String startTime = yyyyMMdd + "000000";
@@ -925,7 +925,7 @@ public class TestUtilGis {
         String startTime = "20260115000000";
         String endTime = "20260115235959";
         double jobWidth = 20;
-        测试拆分数据(did, startTime, endTime, jobWidth);
+        测试拆分数据(did, startTime, endTime, jobWidth, false, new SplitRoadParams().setMinReturnMu(0.1));
     }
 
     @Test
