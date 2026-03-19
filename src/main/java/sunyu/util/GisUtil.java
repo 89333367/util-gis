@@ -159,6 +159,11 @@ public class GisUtil implements AutoCloseable {
         private final double MIN_RETURN_MU = 0.5;
 
         /**
+         * 最小作业幅宽（米）
+         */
+        private final double MIN_WORKING_WIDTH = 0.5;
+
+        /**
          * 默认道路宽度（米）这个参数会将几何图形收缩来实现切割道路的功能s
          */
         private final double DEFAULT_ROAD_WIDTH = 4.2;
@@ -4406,9 +4411,9 @@ public class GisUtil implements AutoCloseable {
             return farmPlot;
         }
 
-        // 【参数验证】作业幅宽有效性检查，必须≥1米保证几何计算合理性
-        if (workingWidth < 1) {
-            log.error("作业幅宽必须大于等于 1 米");
+        // 【参数验证】作业幅宽有效性检查
+        if (workingWidth < config.MIN_WORKING_WIDTH) {
+            log.error("作业幅宽必须大于等于 {} 米", config.MIN_WORKING_WIDTH);
             return farmPlot;
         }
 
@@ -4591,9 +4596,9 @@ public class GisUtil implements AutoCloseable {
             return splitResult;
         }
 
-        // 【参数验证】作业幅宽有效性检查，必须≥1米保证几何计算合理性
-        if (workingWidth < 1) {
-            log.error("作业幅宽必须大于等于 1 米");
+        // 【参数验证】作业幅宽有效性检查
+        if (workingWidth < config.MIN_WORKING_WIDTH) {
+            log.error("作业幅宽必须大于等于 {} 米", config.MIN_WORKING_WIDTH);
             return splitResult;
         }
 
