@@ -137,7 +137,7 @@ public class GisUtil implements AutoCloseable {
          * 当两个点之间的距离小于此值时，被认为是邻居点，属于同一个聚类。
          * </p>
          */
-        private final double DBSCAN_EPSILON = 6;
+        private final double DBSCAN_EPSILON = 8;
 
         /**
          * DBSCAN最小点数

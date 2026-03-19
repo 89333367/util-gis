@@ -169,7 +169,7 @@ public class TestUtilGis {
         if (!outlineList.isEmpty()) {
             html = StrUtil.replace(html, "${outline}", StrUtil.join("\n", outlineList));
         } else {
-            String outline = FileUtil.readUtf8Lines(path + StrUtil.format("/{}_{}_{}_parts.txt", did, startTime, endTime)).get(1);
+            String outline = FileUtil.readUtf8Lines(path + StrUtil.format("/{}_{}_{}_parts.txt", did, startTime, endTime)).get(2);
             html = StrUtil.replace(html, "${outline}", outline.replace("总WKT: ", ""));
         }
         FileUtil.writeUtf8String(html, path + StrUtil.format("/{}_{}_{}.html", did, startTime, endTime));
@@ -323,8 +323,8 @@ public class TestUtilGis {
 
     @Test
     void 计算重复亩数0018_1335() {
-        String wkt1 = FileUtil.readUtf8Lines(path + "/EC73BD2506050018_20251104090717_20251104092257_parts.txt").get(1).replace("总WKT: ", "");
-        String wkt2 = FileUtil.readUtf8Lines(path + "/EC73BD2509061335_20251104100606_20251104101419_parts.txt").get(1).replace("总WKT: ", "");
+        String wkt1 = FileUtil.readUtf8Lines(path + "/EC73BD2506050018_20251104090717_20251104092257_parts.txt").get(2).replace("总WKT: ", "");
+        String wkt2 = FileUtil.readUtf8Lines(path + "/EC73BD2509061335_20251104100606_20251104101419_parts.txt").get(2).replace("总WKT: ", "");
         WktIntersectionResult r = gisUtil.intersection(wkt1, wkt2);
         log.info("相交轮廓WKT: {}", r.getWkt());
         log.info("相交面积：{} 亩", r.getMu());
