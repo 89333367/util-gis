@@ -159,6 +159,11 @@ public class GisUtil implements AutoCloseable {
         private final double MIN_RETURN_MU = 0.5;
 
         /**
+         * 默认道路宽度（米）这个参数会将几何图形收缩来实现切割道路的功能s
+         */
+        private final double DEFAULT_ROAD_WIDTH = 4.2;
+
+        /**
          * 最大返回聚类簇数，超过这个数量认为聚类过多，应该调大eps和minPts参数，再重新聚类
          */
         private final int MAX_RETURN_CLUSTERS = 30;
@@ -4600,10 +4605,23 @@ public class GisUtil implements AutoCloseable {
 
         // 【几何参数】计算机具半幅宽，用于后续缓冲半径计算
         double halfWorkingWidth = workingWidth / 2.0;
-        // 【缓冲策略】正缓冲参数：向上取整，确保缝隙完全填补
-        double positiveBuffer = Math.ceil(halfWorkingWidth + 0.1);
+        // 【缓冲策略】正缓冲参数
+        double positiveBuffer;
+        if (splitRoadParams.getPositiveBuffer() != null) {
+            positiveBuffer = splitRoadParams.getPositiveBuffer();
+        } else {
+            //向上取整，确保缝隙完全填补
+            positiveBuffer = Math.ceil(halfWorkingWidth + 0.2);
+        }
         // 【缓冲策略】负缓冲参数：向下取整，精确切除道路轨迹
-        double negativeBuffer = splitRoadParams.getRoadWidth() == null ? Math.floor(workingWidth + 0.1) : splitRoadParams.getRoadWidth();
+        double negativeBuffer;
+        if (splitRoadParams.getNegativeBuffer() != null) {
+            negativeBuffer = splitRoadParams.getNegativeBuffer();
+        } else if (positiveBuffer * 2 < config.DEFAULT_ROAD_WIDTH) {
+            negativeBuffer = Math.floor(positiveBuffer * 2 - 0.1);
+        } else {
+            negativeBuffer = config.DEFAULT_ROAD_WIDTH;
+        }
 
         // 【数据清洗】过滤异常点位，提高聚类准确性
         wgs84Points = filterWgs84Points(wgs84Points);

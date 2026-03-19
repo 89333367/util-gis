@@ -23,13 +23,13 @@ public class SplitRoadParams {
      */
     private Integer dbScanMinPoints;
     /**
-     * 道路宽度(米)
-     * <p>
-     * 用于定义切割后的道路宽度。
-     * 切割时，会根据此宽度将道路切割掉。
-     * </p>
+     * 正缓冲
      */
-    private Double roadWidth;
+    private Double positiveBuffer;
+    /**
+     * 负缓冲
+     */
+    private Double negativeBuffer;
     /**
      * 最小返回多边形面积限制(亩)
      * <p>
@@ -44,7 +44,7 @@ public class SplitRoadParams {
      * 如果为false，则会忽略作业状态，直接切割。
      * </p>
      */
-    private Boolean checkWorkingStatus = true;
+    private Boolean checkWorkingStatus = false;
 
     public SplitRoadParams() {
     }
@@ -81,22 +81,6 @@ public class SplitRoadParams {
         return this;
     }
 
-    public Double getRoadWidth() {
-        return roadWidth;
-    }
-
-    /**
-     * 道路宽度(米)
-     * <p>
-     * 用于定义切割后的道路宽度。
-     * 切割时，会根据此宽度将道路切割掉。
-     * </p>
-     */
-    public SplitRoadParams setRoadWidth(Double roadWidth) {
-        this.roadWidth = roadWidth;
-        return this;
-    }
-
     public Double getMinReturnMu() {
         return minReturnMu;
     }
@@ -125,6 +109,36 @@ public class SplitRoadParams {
      */
     public SplitRoadParams setCheckWorkingStatus(Boolean checkWorkingStatus) {
         this.checkWorkingStatus = checkWorkingStatus;
+        return this;
+    }
+
+    public Double getPositiveBuffer() {
+        return positiveBuffer;
+    }
+
+    /**
+     * 设置正缓冲，单位（米）
+     *
+     * @param positiveBuffer
+     * @return
+     */
+    public SplitRoadParams setPositiveBuffer(Double positiveBuffer) {
+        this.positiveBuffer = positiveBuffer;
+        return this;
+    }
+
+    public Double getNegativeBuffer() {
+        return negativeBuffer;
+    }
+
+    /**
+     * 设置负缓冲，单位（米）
+     *
+     * @param negativeBuffer
+     * @return
+     */
+    public SplitRoadParams setNegativeBuffer(Double negativeBuffer) {
+        this.negativeBuffer = negativeBuffer;
         return this;
     }
 }
