@@ -43,7 +43,7 @@
     <groupId>sunyu.util</groupId>
     <artifactId>util-gis</artifactId>
    <!-- {util.version}_{jdk.version} -->
-   <version>4.1_jdk8</version>
+   <version>5.0_jdk8</version>
     <classifier>shaded</classifier>
 </dependency>
 ```
