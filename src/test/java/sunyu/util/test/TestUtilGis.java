@@ -108,7 +108,9 @@ public class TestUtilGis {
         String partsFile = StrUtil.format(path + "/{}_{}_{}_parts.txt", did, startTime, endTime);
         List<String> partsInfo = new ArrayList<>();
         SplitResult splitResult = gisUtil.splitRoad(l, jobWidth, splitRoadParams);
-        partsInfo.add(StrUtil.format("共有 {} 个地块", splitResult.getGaussGeometry().getNumGeometries()));
+        partsInfo.add(StrUtil.format("共有 {} 个地块", splitResult.getFarmPlots().stream()
+                .mapToInt(farmPlot -> farmPlot.getWgs84Geometry().getNumGeometries())
+                .sum()));
         partsInfo.add(StrUtil.format("作业总幅宽（米）: {}", splitResult.getWorkingWidth()));
         partsInfo.add(StrUtil.format("总WKT: {}", splitResult.getWkt()));
         partsInfo.add(StrUtil.format("作业总面积（亩）: {}", splitResult.getMu()));
@@ -160,12 +162,8 @@ public class TestUtilGis {
                 outlineList.add(line.replace("子WKT: ", ""));
             }
         }
-        if (!outlineList.isEmpty()) {
-            html = StrUtil.replace(html, "${outline}", StrUtil.join("\n", outlineList));
-        } else {
-            String outline = FileUtil.readUtf8Lines(path + StrUtil.format("/{}_{}_{}_parts.txt", did, startTime, endTime)).get(2);
-            html = StrUtil.replace(html, "${outline}", outline.replace("总WKT: ", ""));
-        }
+        String outline = FileUtil.readUtf8Lines(path + StrUtil.format("/{}_{}_{}_parts.txt", did, startTime, endTime)).get(2);
+        html = StrUtil.replace(html, "${outline}", outline.replace("总WKT: ", ""));
         FileUtil.writeUtf8String(html, path + StrUtil.format("/{}_{}_{}.html", did, startTime, endTime));
 
         /*if (updateFarmWorkTable != null && updateFarmWorkTable) {
@@ -930,6 +928,15 @@ public class TestUtilGis {
         String startTime = "20250106150910";
         String endTime = "20250106170301";
         double jobWidth = 2.6;
+        测试拆分数据(did, startTime, endTime, jobWidth);
+    }
+
+    @Test
+    void 测试有一块左上角画不出轮廓的() {
+        String did = "EC73BD2512030064";
+        String startTime = "20260322000000";
+        String endTime = "20260322235959";
+        double jobWidth = 2.8;
         测试拆分数据(did, startTime, endTime, jobWidth);
     }
 

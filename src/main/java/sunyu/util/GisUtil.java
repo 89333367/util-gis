@@ -4586,7 +4586,6 @@ public class GisUtil implements AutoCloseable {
 
         // 【结果容器】初始化返回对象，设置默认值避免空指针异常
         SplitResult splitResult = new SplitResult();
-        splitResult.setGaussGeometry(config.EMPTY_GEOMETRY);
         splitResult.setWorkingWidth(workingWidth);
         splitResult.setWkt(config.EMPTY_GEOMETRY.toText());
 
@@ -4911,12 +4910,10 @@ public class GisUtil implements AutoCloseable {
         }
 
         // 【最终聚合】将所有Part聚合成总的几何图形和统计信息
-        Geometry unionPartsGaussGeometry = config.GEOMETRY_FACTORY.createGeometryCollection(
-                unionParts.stream().map(FarmPlot::getGaussGeometry).toArray(Geometry[]::new)).union().buffer(0);
-        Geometry wgs84UnionGeometry = toWgs84Geometry(unionPartsGaussGeometry);
+        Geometry wgs84UnionGeometry = config.GEOMETRY_FACTORY.createGeometryCollection(
+                unionParts.stream().map(FarmPlot::getWgs84Geometry).toArray(Geometry[]::new)).union().buffer(0);
 
         // 【结果填充】设置最终结果对象的各项属性
-        splitResult.setGaussGeometry(unionPartsGaussGeometry);
         splitResult.setWgs84Geometry(wgs84UnionGeometry);
         splitResult.setWkt(wgs84UnionGeometry.toText());
         splitResult.setMu(calcMu(wgs84UnionGeometry));
@@ -4938,7 +4935,9 @@ public class GisUtil implements AutoCloseable {
         log.info("{} 至 {} 地块总面积 {} 亩 共 {} 个地块，耗时 {} 毫秒"
                 , LocalDateTimeUtil.format(splitResult.getStartTime(), "yyyy-MM-dd HH:mm:ss")
                 , LocalDateTimeUtil.format(splitResult.getEndTime(), "yyyy-MM-dd HH:mm:ss")
-                , splitResult.getMu(), splitResult.getGaussGeometry().getNumGeometries()
+                , splitResult.getMu(), splitResult.getFarmPlots().stream()
+                        .mapToInt(farmPlot -> farmPlot.getWgs84Geometry().getNumGeometries())
+                        .sum()
                 , System.currentTimeMillis() - splitRoadStartTime);
 
         return splitResult;

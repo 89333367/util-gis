@@ -37,10 +37,6 @@ public class SplitResult {
      */
     private List<FarmPlot> farmPlots = new ArrayList<>();
     /**
-     * 地块的高斯投影几何图形（高斯投影坐标系）
-     */
-    private Geometry gaussGeometry;
-    /**
      * 地块的WGS84坐标系几何图形
      */
     private Geometry wgs84Geometry;
@@ -79,14 +75,6 @@ public class SplitResult {
 
     public void setMu(double mu) {
         this.mu = mu;
-    }
-
-    public Geometry getGaussGeometry() {
-        return gaussGeometry;
-    }
-
-    public void setGaussGeometry(Geometry gaussGeometry) {
-        this.gaussGeometry = gaussGeometry;
     }
 
     public LocalDateTime getStartTime() {
