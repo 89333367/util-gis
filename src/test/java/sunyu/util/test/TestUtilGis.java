@@ -23,7 +23,7 @@ import java.util.*;
 public class TestUtilGis {
     Log log = LogFactory.get();
     GisUtil gisUtil = GisUtil.builder().build();
-    String path = "D:/tmp/testFiles";
+    String path = "c:/tmp/testFiles";
     private final String DID_REG = "[a-zA-Z0-9]+[ ]?[a-zA-Z0-9]+";
 
     private TreeMap<String, String> parseProtocolString(String protocolString) {
