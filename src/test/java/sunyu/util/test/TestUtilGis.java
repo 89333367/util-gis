@@ -914,6 +914,16 @@ public class TestUtilGis {
     }
 
     @Test
+    void 测试中耕培土类型1() {
+        String did = "EC73BD2512020048";
+        String yyyyMMdd = "20260320";
+        String startTime = yyyyMMdd + "000000";
+        String endTime = yyyyMMdd + "235959";
+        double jobWidth = 1.5;
+        测试拆分数据(did, startTime, endTime, jobWidth, new SplitRoadParams().setMinReturnMu(0.1));
+    }
+
+    @Test
     void 测试大幅宽1() {
         String did = "EC73BD2504111716";
         String startTime = "20260115000000";

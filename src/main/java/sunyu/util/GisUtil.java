@@ -4637,8 +4637,8 @@ public class GisUtil implements AutoCloseable {
         int minPts = config.DBSCAN_MIN_POINTS;
         if (minEffectiveInterval == 1) {
             eps = workingWidth * 1.5;
-            if (eps < 2.6) {
-                eps = 2.6;
+            if (eps < 3) {//太小了不行，好多真实作业轨迹聚类不成功，比如中耕培土作业，幅宽1.5米，带弯的轨迹
+                eps = 3;
             }
         } else if (minEffectiveInterval == 10) {
             eps = 20;
