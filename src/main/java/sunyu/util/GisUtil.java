@@ -4636,8 +4636,8 @@ public class GisUtil implements AutoCloseable {
         int minPts = config.DBSCAN_MIN_POINTS;
         if (minEffectiveInterval == 1) {
             eps = workingWidth * 1.5;
-            if (eps < 2.5) {
-                eps = 2.5;
+            if (eps < 2.6) {
+                eps = 2.6;
             }
         } else if (minEffectiveInterval == 10) {
             eps = 20;
