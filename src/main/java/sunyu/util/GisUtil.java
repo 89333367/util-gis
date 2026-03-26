@@ -4435,7 +4435,7 @@ public class GisUtil implements AutoCloseable {
         // 【几何参数】计算机具半幅宽，用于后续缓冲半径计算
         double halfWorkingWidth = workingWidth / 2.0;
         // 【缓冲策略】正缓冲参数：向上取整，确保缝隙完全填补
-        double positiveBuffer = Math.ceil(halfWorkingWidth + 0.1);
+        double positiveBuffer = halfWorkingWidth + 0.1;
 
         // 【坐标提取】将高斯点转换为JTS坐标数组
         Coordinate[] coords = gaussPoints.stream()
