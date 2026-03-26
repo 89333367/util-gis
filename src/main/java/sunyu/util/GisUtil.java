@@ -3,6 +3,7 @@ package sunyu.util;
 import cn.hutool.core.collection.CollUtil;
 import cn.hutool.core.date.LocalDateTimeUtil;
 import cn.hutool.core.util.StrUtil;
+import cn.hutool.json.JSONUtil;
 import cn.hutool.log.Log;
 import cn.hutool.log.LogFactory;
 import elki.clustering.dbscan.DBSCAN;
@@ -4601,7 +4602,7 @@ public class GisUtil implements AutoCloseable {
         }
 
         // 【业务日志】记录算法输入参数，便于问题追踪和数据分析
-        log.info("道路拆分入参 wgs84点位集合大小：{} 幅宽：{}米", wgs84Points.size(), workingWidth);
+        log.info("道路拆分入参 wgs84点位集合大小：{} 幅宽：{}米 聚类参数： {}", wgs84Points.size(), workingWidth, JSONUtil.toJsonStr(splitRoadParams));
 
         // 【几何参数】计算机具半幅宽，用于后续缓冲半径计算
         double halfWorkingWidth = workingWidth / 2.0;
@@ -4684,6 +4685,9 @@ public class GisUtil implements AutoCloseable {
             log.warn("距离抽稀后剩余{}个点，少于最小聚类点数{}，直接返回", gaussPoints.size(), minPts);
             return splitResult;
         }
+
+        log.info("聚类前参数固定：点位数量[{}]个 eps[{}]米 minPts[{}]个 膨胀[{}]米 收缩[{}]米 最小返回亩数限制[{}]亩"
+                , gaussPoints.size(), eps, minPts, positiveBuffer, negativeBuffer, minReturnMu);
 
         // 【密度聚类】执行DBSCAN聚类，识别潜在的作业簇群
         List<List<GaussPoint>> clusters = dbScanClusters(gaussPoints, eps, minPts);
