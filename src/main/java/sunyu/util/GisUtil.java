@@ -4435,7 +4435,7 @@ public class GisUtil implements AutoCloseable {
         // 【几何参数】计算机具半幅宽，用于后续缓冲半径计算
         double halfWorkingWidth = workingWidth / 2.0;
         // 【缓冲策略】正缓冲参数：向上取整，确保缝隙完全填补
-        double positiveBuffer = halfWorkingWidth + 0.1;
+        double positiveBuffer = halfWorkingWidth;
 
         // 【坐标提取】将高斯点转换为JTS坐标数组
         Coordinate[] coords = gaussPoints.stream()
@@ -4448,14 +4448,13 @@ public class GisUtil implements AutoCloseable {
         if (coords.length > minPts) {
             // 【几何创建】构建线串并应用缓冲，形成作业区域
             LineString line = config.GEOMETRY_FACTORY.createLineString(coords);
-            //Geometry gaussGeometry = line.buffer(halfWorkingWidth);
             Geometry gaussGeometry = lowMemBuffer(line, halfWorkingWidth);
             log.debug("几何图形创建完毕 {}亩", gaussGeometry.getArea() * config.SQUARE_TO_MU_METER);
 
             // 【缝隙填补】正缓冲→负缓冲策略，减少地块间的缝隙
             log.info("正缓冲->负缓冲 减少地块缝隙，缓冲半径：{} 米", positiveBuffer);
             // 应用双向缓冲：先扩张再收缩，填补细小缝隙
-            gaussGeometry = gaussGeometry.buffer(positiveBuffer).buffer(-positiveBuffer);
+            gaussGeometry = gaussGeometry.buffer(positiveBuffer).buffer(0).buffer(-positiveBuffer).buffer(0);
 
             // 【单多边形处理】标准Polygon情况
             Geometry wgs84PartGeometry = toWgs84Geometry(gaussGeometry);
