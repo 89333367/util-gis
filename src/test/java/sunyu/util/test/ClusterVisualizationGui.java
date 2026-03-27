@@ -96,7 +96,7 @@ public class ClusterVisualizationGui extends JFrame {
         selectFileButton = new JButton("选择数据文件");
 
         // eps参数输入验证 - 必须是正整数
-        epsField = new JTextField("6", 8);
+        epsField = new JTextField("15", 8);
         ((AbstractDocument) epsField.getDocument()).setDocumentFilter(new DocumentFilter() {
             /**
              * 插入字符串时验证eps参数的有效性
@@ -141,7 +141,7 @@ public class ClusterVisualizationGui extends JFrame {
 
             /**
              * 验证eps参数的有效性
-             * 检查输入文本是否为有效的正整数
+             * 检查输入文本是否为有效的正浮点数
              *
              * @param text 要验证的文本
              * @return 如果文本有效返回true，否则返回false
@@ -149,24 +149,31 @@ public class ClusterVisualizationGui extends JFrame {
             private boolean isValidEps(String text) {
                 if (text.isEmpty()) return true; // 允许空字符串
 
-                // 检查是否只包含数字
+                // 检查是否只包含数字和小数点，且小数点只出现一次
+                int dotCount = 0;
                 for (int i = 0; i < text.length(); i++) {
                     char c = text.charAt(i);
-                    if (!Character.isDigit(c)) {
+                    if (!Character.isDigit(c) && c != '.') {
                         return false;
+                    }
+                    if (c == '.') {
+                        dotCount++;
+                        if (dotCount > 1) {
+                            return false;
+                        }
                     }
                 }
 
                 try {
-                    int value = Integer.parseInt(text);
-                    return value > 0; // eps参数必须是正整数
+                    double value = Double.parseDouble(text);
+                    return value > 0; // eps参数必须是正数
                 } catch (NumberFormatException e) {
                     return false;
                 }
             }
         });
 
-        minPtsField = new JTextField("16", 8);
+        minPtsField = new JTextField("60", 8);
         // minPts参数输入验证 - 必须是正整数
         ((AbstractDocument) minPtsField.getDocument()).setDocumentFilter(new DocumentFilter() {
             /**
@@ -842,7 +849,6 @@ public class ClusterVisualizationGui extends JFrame {
      * @param data   输入数据点数组
      * @param eps    邻域半径参数
      * @param minPts 最小点数参数
-     *
      * @return 聚类标签数组，-1表示噪声点
      */
     private int[] performDBSCAN(double[][] data, double eps, int minPts) {

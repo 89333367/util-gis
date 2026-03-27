@@ -1,6 +1,7 @@
 package sunyu.util.test;
 
 import cn.hutool.core.convert.Convert;
+import cn.hutool.core.date.DateUtil;
 import cn.hutool.core.date.LocalDateTimeUtil;
 import cn.hutool.core.io.FileUtil;
 import cn.hutool.core.io.resource.ResourceUtil;
@@ -15,6 +16,8 @@ import sunyu.util.GisUtil;
 import sunyu.util.pojo.*;
 import sunyu.util.test.config.MyBatis;
 import sunyu.util.test.entity.DP;
+import sunyu.util.test.entity.FarmWorkSplitDay;
+import sunyu.util.test.mapper.farm.FarmMapper;
 import sunyu.util.test.mapper.tdengine.TdengineMapper;
 
 import java.time.LocalDateTime;
@@ -280,8 +283,8 @@ public class TestUtilGis {
         String startTime = "20251103130852";
         String endTime = "20251103151309";
         double jobWidth = 1.0;
-        //测试拆分数据(did, startTime, endTime, jobWidth);
-        测试拆分数据(did, startTime, endTime, jobWidth, new SplitRoadParams().setDbScanEpsilon(5.0).setPositiveBuffer(3.0));
+        测试拆分数据(did, startTime, endTime, jobWidth);
+        //测试拆分数据(did, startTime, endTime, jobWidth, new SplitRoadParams().setDbScanEpsilon(5.0).setPositiveBuffer(3.0));
     }
 
     @Test
@@ -812,7 +815,8 @@ public class TestUtilGis {
         String startTime = yyyyMMdd + "000000";
         String endTime = yyyyMMdd + "235959";
         double jobWidth = 3.5;
-        测试拆分数据(did, startTime, endTime, jobWidth, new SplitRoadParams().setDbScanEpsilon(28.0));
+        测试拆分数据(did, startTime, endTime, jobWidth);
+        //测试拆分数据(did, startTime, endTime, jobWidth, new SplitRoadParams().setDbScanEpsilon(28.0));
     }
 
     @Test
@@ -910,7 +914,8 @@ public class TestUtilGis {
         String startTime = yyyyMMdd + "000000";
         String endTime = yyyyMMdd + "235959";
         double jobWidth = 0.9;
-        测试拆分数据(did, startTime, endTime, jobWidth, new SplitRoadParams().setDbScanEpsilon(8.0).setDbScanMinPoints(3).setPositiveBuffer(5.0).setNegativeBuffer(5.0));
+        测试拆分数据(did, startTime, endTime, jobWidth);
+        //测试拆分数据(did, startTime, endTime, jobWidth, new SplitRoadParams().setDbScanEpsilon(8.0).setDbScanMinPoints(3).setPositiveBuffer(5.0).setNegativeBuffer(5.0));
     }
 
     @Test
@@ -1054,5 +1059,30 @@ public class TestUtilGis {
         log.info("中心点 {} {}", farmPlot.getCenterWgs84Point().getLongitude(), farmPlot.getCenterWgs84Point().getLatitude());
     }
 
+    @Test
+    void 测试20260326() {
+        String did;
+        double jobWidth;
+        String yyyyMMdd = "20260326";
+        String startTime = yyyyMMdd + "000000";
+        String endTime = yyyyMMdd + "235959";
+        did = "EC73BD2504110247";
+        jobWidth = 2.5;
+        测试拆分数据(did, startTime, endTime, jobWidth, new SplitRoadParams());
+    }
 
+    @Test
+    void 重跑某一日测试() {
+        String yyyyMMdd = "20260326";
+        String startTime = yyyyMMdd + "000000";
+        String endTime = yyyyMMdd + "235959";
+        FarmMapper mapper = MyBatis.getMapper(FarmMapper.class);
+        List<FarmWorkSplitDay> l = mapper.selectFarmWorkSplitDay(DateUtil.parse(yyyyMMdd, "yyyyMMdd").toString("yyyy-MM-dd"));
+        for (FarmWorkSplitDay farmWorkSplitDay : l) {
+            log.info("{} {}", farmWorkSplitDay.getDid(), farmWorkSplitDay.getJobWidth());
+            String did = farmWorkSplitDay.getDid();
+            double jobWidth = farmWorkSplitDay.getJobWidth();
+            测试拆分数据(did, startTime, endTime, jobWidth);
+        }
+    }
 }

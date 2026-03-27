@@ -14,5 +14,14 @@
         did = #{farmWork.did}
         and jobEndTime = #{farmWork.jobEndTime}
     </update>
+    <select id="selectFarmWorkSplitDay" resultType="sunyu.util.test.entity.FarmWorkSplitDay">
+        select
+        did,
+        jobWidth
+        from
+        farm_work_split_day
+        where
+        jobDay = #{day}
+    </select>
 
 </mapper>

@@ -138,7 +138,7 @@ public class GisUtil implements AutoCloseable {
          * 当两个点之间的距离小于此值时，被认为是邻居点，属于同一个聚类。
          * </p>
          */
-        private final double DBSCAN_EPSILON = 25;
+        private final double DBSCAN_EPSILON = 15;
 
         /**
          * DBSCAN最小点数
@@ -147,7 +147,7 @@ public class GisUtil implements AutoCloseable {
          * 当一个区域内的点数量小于此值时，被认为是噪声点或异常值，不会被分配到任何聚类中。
          * </p>
          */
-        private final int DBSCAN_MIN_POINTS = 6;
+        private final int DBSCAN_MIN_POINTS = 60;
 
         /**
          * 最大切分时间间隔（秒）
@@ -157,12 +157,12 @@ public class GisUtil implements AutoCloseable {
         /**
          * 最小返回面积（亩）
          */
-        private final double MIN_RETURN_MU = 0.55;
+        private final double MIN_RETURN_MU = 0.3;
 
         /**
          * 最小作业幅宽（米）
          */
-        private final double MIN_WORKING_WIDTH = 0.5;
+        private final double MIN_WORKING_WIDTH = 0.1;
 
         /**
          * 默认道路宽度（米）这个参数会将几何图形收缩来实现切割道路的功能s
@@ -214,6 +214,21 @@ public class GisUtil implements AutoCloseable {
          * 两点间距小于它就跳过（删点）
          */
         private final double SIMPLIFY_TOLERANCE = 1;
+
+        /**
+         * 最小抽稀点位限制(大于此点位才进行抽稀)
+         */
+        private final int SIMPLIFY_MIN_POINT = 1000;
+
+        /**
+         * 是否将聚类结果再次按照时间或者距离切分
+         */
+        private final boolean SPLIT_CLUSTER_BY_TIME_OR_DISTANCE = true;
+
+        /**
+         * 如果膨胀收缩后的多边形与原始多边形面积相差N个百分比，那么就使用原始多边形
+         */
+        private final double AREA_DIFFERENCE_PERCENTAGE = 10;
     }
 
     public static class Builder {
@@ -1943,7 +1958,7 @@ public class GisUtil implements AutoCloseable {
         if (pts.length < 3) return pts;
 
         // 小于500个点就不抽稀，直接返回原数组
-        if (pts.length < 500) return pts;
+        if (pts.length < config.SIMPLIFY_MIN_POINT) return pts;
 
         // 使用FastUtil的DoubleArrayList优化内存分配：避免频繁的数组扩容，提高存储效率
         DoubleList keep = new DoubleArrayList();
@@ -2043,7 +2058,7 @@ public class GisUtil implements AutoCloseable {
         // 定义一个子高斯点位集合列表
         List<GaussPoint> subGaussPoints = new ArrayList<>();
         // 【空间过滤】使用STRtree索引筛选出落在子多边形内的点位
-        // 先通过索引查询子多边形边界框内的候选点，再用contains精确判断
+        // 先通过索引查询子多边形边界框内的候选点，再精确判断是否在多边形内
         List<GaussPoint> candidatePoints = pointIndex.query(gaussGeometry.getEnvelopeInternal());
         for (GaussPoint gaussPoint : candidatePoints) {
             // 创建JTS点对象进行精确的空间关系判断
@@ -4604,27 +4619,6 @@ public class GisUtil implements AutoCloseable {
         // 【业务日志】记录算法输入参数，便于问题追踪和数据分析
         log.info("道路拆分入参 wgs84点位集合大小：{} 幅宽：{}米 聚类参数： {}", wgs84Points.size(), workingWidth, JSONUtil.toJsonStr(splitRoadParams));
 
-        // 【几何参数】计算机具半幅宽，用于后续缓冲半径计算
-        double halfWorkingWidth = workingWidth / 2.0;
-
-        // 定义最小返回面积（亩）
-        double minReturnMu = config.MIN_RETURN_MU;
-        if (splitRoadParams.getMinReturnMu() != null) {
-            minReturnMu = splitRoadParams.getMinReturnMu();
-        }
-
-        // 【缓冲策略】正缓冲参数
-        double positiveBuffer = halfWorkingWidth;
-        if (splitRoadParams.getPositiveBuffer() != null) {
-            positiveBuffer = splitRoadParams.getPositiveBuffer();
-        }
-
-        // 【缓冲策略】负缓冲参数：向下取整，精确切除道路轨迹
-        double negativeBuffer = workingWidth * 0.8;
-        if (splitRoadParams.getNegativeBuffer() != null) {
-            negativeBuffer = splitRoadParams.getNegativeBuffer();
-        }
-
         // 【数据清洗】过滤异常点位，提高聚类准确性
         wgs84Points = filterWgs84Points(wgs84Points);
 
@@ -4632,22 +4626,48 @@ public class GisUtil implements AutoCloseable {
         int minEffectiveInterval = getMinEffectiveInterval(wgs84Points);
         splitResult.setMinEffectiveInterval(minEffectiveInterval);
 
+        // 【几何参数】计算机具半幅宽，用于后续缓冲半径计算
+        double halfWorkingWidth = workingWidth / 2.0;
+        // 定义最小返回面积（亩）
+        double minReturnMu = config.MIN_RETURN_MU;
+        // 【缓冲策略】正缓冲参数
+        double positiveBuffer = halfWorkingWidth;
+        // 【缓冲策略】负缓冲参数：向下取整，精确切除道路轨迹
+        double negativeBuffer = workingWidth;
+
         // 【聚类参数配置】
         double eps = config.DBSCAN_EPSILON;
         int minPts = config.DBSCAN_MIN_POINTS;
         if (minEffectiveInterval == 1) {
-            eps = workingWidth * 1.5;
-            if (eps < 4) {//太小了不行，好多真实作业轨迹聚类不成功，比如中耕培土作业，幅宽1.5米，带弯的轨迹
-                eps = 4;
+            if (workingWidth <= 1.7) {
+                minPts = 50;
+            } else if (workingWidth <= 2.5) {
+                eps = 15;
+                minPts = 60;
             }
-        } else if (minEffectiveInterval == 10) {
-            eps = 20;
+        } else if (minEffectiveInterval <= 5) {
+        } else if (minEffectiveInterval <= 10) {
+            eps = 45;
+            minPts = 21;
+        } else if (minEffectiveInterval <= 15) {
+            eps = 45;
+        } else {
+            eps = 55;
         }
         if (splitRoadParams.getDbScanEpsilon() != null) {
             eps = splitRoadParams.getDbScanEpsilon();
         }
         if (splitRoadParams.getDbScanMinPoints() != null) {
             minPts = splitRoadParams.getDbScanMinPoints();
+        }
+        if (splitRoadParams.getPositiveBuffer() != null) {
+            positiveBuffer = splitRoadParams.getPositiveBuffer();
+        }
+        if (splitRoadParams.getNegativeBuffer() != null) {
+            negativeBuffer = splitRoadParams.getNegativeBuffer();
+        }
+        if (splitRoadParams.getMinReturnMu() != null) {
+            minReturnMu = splitRoadParams.getMinReturnMu();
         }
 
         // 【坐标转换】WGS84转高斯投影，保证距离计算和几何操作的精度
@@ -4658,7 +4678,7 @@ public class GisUtil implements AutoCloseable {
         }
 
         // 【早期终止】检查所有点是否都在最小亩数范围内，如果是则直接返回，避免执行耗时的聚类算法
-        if (isAllPointsInSmallRange(gaussPoints, minReturnMu)) {
+        if (isAllPointsInSmallRange(gaussPoints, 0.55)) {
             log.warn("所有点位都在小范围内，不会产生有效作业面积，提前返回");
             return splitResult;
         }
@@ -4677,8 +4697,10 @@ public class GisUtil implements AutoCloseable {
         log.debug("构建索引完毕");
 
         // 【快速抽稀】基于空间距离的简单抽稀，O(n)复杂度，避免空间查询
-        // 策略：如果点与上一个保留点的距离<1米，只保留10%的点（大幅抽稀停车点）
-        gaussPoints = fastDistanceBasedSampling(gaussPoints, 1, 0.1);
+        if (gaussPoints.size() > config.SIMPLIFY_MIN_POINT) {
+            // 策略：如果点与上一个保留点的距离<1米，只保留10%的点（大幅抽稀停车点）
+            gaussPoints = fastDistanceBasedSampling(gaussPoints, 1, 0.1);
+        }
 
         // 如果抽稀后点数太少，直接返回
         if (gaussPoints.size() < minPts) {
@@ -4703,27 +4725,51 @@ public class GisUtil implements AutoCloseable {
         log.debug("循环所有聚类簇，生成几何图形");
         int clusterIndex = 1;//聚类编号
         // 【数据缓存】存储聚类生成的几何图形，key为聚类索引
-        Map<Integer, Geometry> clusterGaussGeometryMap = new LinkedHashMap<>();
+        Map<Integer, Geometry> clusterGaussGeometryMap = new LinkedHashMap<>();//集合图形列表，key是几何图形索引，value是几何图形
+        Map<Integer, List<GaussPoint>> clusterGaussPointsMap = new LinkedHashMap<>();//每一个集合图形的点位列表，key是几何图形索引，value是几何图形内的点位列表
         for (List<GaussPoint> cluster : clusters) {
             log.debug("聚类簇包含 {} 个点", cluster.size());
             if (cluster.size() >= minPts) {
                 Geometry gaussGeometry = config.EMPTY_GEOMETRY;
                 log.debug("创建线缓冲，缓冲半径：{} 米", halfWorkingWidth);
 
-                // 【坐标提取】将高斯点转换为JTS坐标数组
-                Coordinate[] coords = cluster.stream()
-                        .map(p -> new Coordinate(p.getGaussX(), p.getGaussY()))
-                        .toArray(Coordinate[]::new);
+                List<List<GaussPoint>> splitCluster = splitClusterByTimeOrDistance(cluster, config.MAX_SPLIT_SECONDS, eps * 2);
+                //List<List<GaussPoint>> splitCluster = splitClusterByTime(cluster, config.MAX_SPLIT_SECONDS);
+                if (config.SPLIT_CLUSTER_BY_TIME_OR_DISTANCE && splitCluster.size() > 1) {
+                    // 类簇被按策略拆分，需要多次创建多边形
+                    for (List<GaussPoint> subCluster : splitCluster) {
+                        // 【坐标提取】将高斯点转换为JTS坐标数组
+                        Coordinate[] coords = subCluster.stream()
+                                .map(p -> new Coordinate(p.getGaussX(), p.getGaussY()))
+                                .toArray(Coordinate[]::new);
 
-                // 【数据优化】点位过多时进行角度抽稀，平衡精度与性能
-                coords = simplifyByAngle(coords, config.SIMPLIFY_TOLERANCE, config.SIMPLIFY_ANGLE);
+                        // 【数据优化】点位过多时进行角度抽稀，平衡精度与性能
+                        coords = simplifyByAngle(coords, config.SIMPLIFY_TOLERANCE, config.SIMPLIFY_ANGLE);
 
-                if (coords.length > minPts) {
-                    // 【几何创建】构建线串并应用缓冲，形成作业区域
-                    LineString line = config.GEOMETRY_FACTORY.createLineString(coords);
-                    //gaussGeometry = line.buffer(halfWorkingWidth);
-                    gaussGeometry = lowMemBuffer(line, halfWorkingWidth);
+                        if (coords.length > minPts) {
+                            // 【几何创建】构建线串并应用缓冲，形成作业区域
+                            LineString line = config.GEOMETRY_FACTORY.createLineString(coords);
+                            Geometry subGaussGeometry = lowMemBuffer(line, halfWorkingWidth);
+
+                            gaussGeometry = gaussGeometry.union(subGaussGeometry).buffer(0);
+                        }
+                    }
                     log.debug("几何图形创建完毕 {}亩", gaussGeometry.getArea() * config.SQUARE_TO_MU_METER);
+                } else {
+                    // 【坐标提取】将高斯点转换为JTS坐标数组
+                    Coordinate[] coords = cluster.stream()
+                            .map(p -> new Coordinate(p.getGaussX(), p.getGaussY()))
+                            .toArray(Coordinate[]::new);
+
+                    // 【数据优化】点位过多时进行角度抽稀，平衡精度与性能
+                    coords = simplifyByAngle(coords, config.SIMPLIFY_TOLERANCE, config.SIMPLIFY_ANGLE);
+
+                    if (coords.length > minPts) {
+                        // 【几何创建】构建线串并应用缓冲，形成作业区域
+                        LineString line = config.GEOMETRY_FACTORY.createLineString(coords);
+                        gaussGeometry = lowMemBuffer(line, halfWorkingWidth);
+                        log.debug("几何图形创建完毕 {}亩", gaussGeometry.getArea() * config.SQUARE_TO_MU_METER);
+                    }
                 }
 
                 if (gaussGeometry.getArea() < minReturnMu * config.MU_TO_SQUARE_METER) {
@@ -4734,61 +4780,67 @@ public class GisUtil implements AutoCloseable {
 
                 // 【结果存储】缓存生成的几何图形和对应点位
                 clusterGaussGeometryMap.put(clusterIndex, gaussGeometry);
+                clusterGaussPointsMap.put(clusterIndex, cluster);
                 clusterIndex++;
             }
         }
 
         // 【进度监控】记录几何生成阶段的统计信息
-        log.info("生成了 {} 个几何图形", clusterGaussGeometryMap.size());
+        log.info("生成了 {} 个几何图形，生成了 {} 组点位列表", clusterGaussGeometryMap.size(), clusterGaussPointsMap.size());
         if (clusterGaussGeometryMap.isEmpty()) {
             log.debug("没有生成任何几何图形");
             return splitResult;
         }
 
-        // 【缝隙填补】正缓冲→负缓冲策略，减少地块间的缝隙
-        log.info("正缓冲->负缓冲 减少地块缝隙，缓冲半径：{} 米", positiveBuffer);
-        for (Map.Entry<Integer, Geometry> integerGeometryEntry : clusterGaussGeometryMap.entrySet()) {
-            Integer key = integerGeometryEntry.getKey();
-            Geometry currGeom = integerGeometryEntry.getValue();
-            // 先扩张再收缩，填补细小缝隙
-            currGeom = currGeom.buffer(positiveBuffer).buffer(0).buffer(-positiveBuffer).buffer(0);
-            clusterGaussGeometryMap.put(key, currGeom);
-        }
-
-        // 【道路切除】负缓冲→正缓冲策略，切除细条状道路轨迹
-        log.info("负缓冲->正缓冲 切割道路，缓冲半径：{} 米", negativeBuffer);
-        List<Integer> indexList = new ArrayList<>(clusterGaussGeometryMap.keySet());
-        Iterator<Integer> it = indexList.iterator();
-        while (it.hasNext()) {
-            Integer key = it.next();
-            Geometry currGeom = clusterGaussGeometryMap.get(key);
-            // 应用负向缓冲：先收缩再扩张，切除细长部分
-            currGeom = currGeom.buffer(-negativeBuffer).buffer(0).buffer(negativeBuffer).buffer(0);
-
-            // 【面积过滤】删除面积过小的几何图形，避免噪声数据
-            if (currGeom.getArea() < minReturnMu * config.MU_TO_SQUARE_METER) {
-                log.debug("索引 {} 的几何图形面积：{}亩，小于最小返回面积 {}亩，直接删除",
-                        key, currGeom.getArea() * config.SQUARE_TO_MU_METER, minReturnMu);
-                it.remove();
-                clusterGaussGeometryMap.remove(key);
-                continue;
+        // 进行膨胀收缩
+        double oldArea = 0;
+        double newArea = 0;
+        boolean useOld = true;//是否使用旧多边形
+        if (minEffectiveInterval > 10) {
+            log.info("由于最小有效上报时间间隔大于10秒，直接使用原始多边形，因为大于10秒的计算精度不够");
+            useOld = true;
+        } else {
+            Map<Integer, Geometry> newClusterGaussGeometryMap = new LinkedHashMap<>();
+            log.info("为每一个多边形先使用膨胀参数 {}米 填补缝隙，再使用收缩参数 {}米 切割细长条", positiveBuffer, negativeBuffer);
+            for (Map.Entry<Integer, Geometry> integerGeometryEntry : clusterGaussGeometryMap.entrySet()) {
+                Integer key = integerGeometryEntry.getKey();
+                Geometry currGeom = integerGeometryEntry.getValue();
+                oldArea += currGeom.getArea();
+                // 先扩张再收缩，填补细小缝隙
+                log.debug("为索引 {} 新多边形填补缝隙，使用膨胀参数 {}米", key, positiveBuffer);
+                currGeom = currGeom.buffer(positiveBuffer).buffer(0).buffer(-positiveBuffer).buffer(0);
+                // 应用负向缓冲：先收缩再扩张，切除细长部分
+                log.debug("为索引 {} 新多边形收缩细长条，使用收缩参数 {}米", key, negativeBuffer);
+                currGeom = currGeom.buffer(-negativeBuffer).buffer(0).buffer(negativeBuffer).buffer(0);
+                // 【面积过滤】删除面积过小的几何图形，避免噪声数据
+                if (currGeom.getArea() < minReturnMu * config.MU_TO_SQUARE_METER) {
+                    log.debug("索引 {} 的几何图形面积：{}亩，小于最小返回面积 {}亩，直接删除",
+                            key, currGeom.getArea() * config.SQUARE_TO_MU_METER, minReturnMu);
+                } else {
+                    newClusterGaussGeometryMap.put(key, currGeom);
+                    newArea += currGeom.getArea();
+                }
             }
-            clusterGaussGeometryMap.put(key, currGeom);
-        }
-        if (clusterGaussGeometryMap.isEmpty()) {
-            return splitResult;
-        }
-        log.info("负缓冲后剩下 {} 个几何图形", clusterGaussGeometryMap.size());
-
-        // 【再次缝隙填补】正缓冲→负缓冲策略，减少地块间的缝隙
-        positiveBuffer = workingWidth + 1;
-        log.info("正缓冲->负缓冲 填补地块缝隙，缓冲半径：{} 米", positiveBuffer);
-        for (Map.Entry<Integer, Geometry> integerGeometryEntry : clusterGaussGeometryMap.entrySet()) {
-            Integer key = integerGeometryEntry.getKey();
-            Geometry currGeom = integerGeometryEntry.getValue();
-            // 先扩张再收缩，填补细小缝隙
-            currGeom = currGeom.buffer(positiveBuffer).buffer(0).buffer(-positiveBuffer).buffer(0);
-            clusterGaussGeometryMap.put(key, currGeom);
+            // todo 计算原始面积与膨胀收缩后的面积差异
+            double areaDifferencePercentage = Math.abs(newArea - oldArea) / oldArea * 100.0;
+            if (areaDifferencePercentage <= config.AREA_DIFFERENCE_PERCENTAGE) {
+                // 使用新的 newClusterGaussGeometryMap
+                clusterGaussGeometryMap = newClusterGaussGeometryMap;
+                log.info("面积差异在可接受范围内 ({}% < {}%)，原始面积 {}亩，新面积 {}亩", areaDifferencePercentage, config.AREA_DIFFERENCE_PERCENTAGE, oldArea * config.SQUARE_TO_MU_METER, newArea * config.SQUARE_TO_MU_METER);
+                log.info("使用新多边形");
+                useOld = false;
+            } else {
+                // 使用原始的 clusterGaussGeometryMap
+                log.info("面积差异过大 ({}% > {}%)，原始面积 {}亩，新面积 {}亩", areaDifferencePercentage, config.AREA_DIFFERENCE_PERCENTAGE, oldArea * config.SQUARE_TO_MU_METER, newArea * config.SQUARE_TO_MU_METER);
+                if (newArea >= oldArea) {
+                    log.info("新多边形比旧多边形大，使用新多边形");
+                    clusterGaussGeometryMap = newClusterGaussGeometryMap;
+                    useOld = false;
+                } else {
+                    log.info("旧多边形比新多边形大，使用旧多边形");
+                    useOld = true;
+                }
+            }
         }
 
         // 【结果构建】将处理后的几何图形转换为SplitPart对象列表
@@ -4819,10 +4871,17 @@ public class GisUtil implements AutoCloseable {
                         continue;
                     }
 
-                    // 【多边形内点过滤】获得多边形内的点集合
-                    List<GaussPoint> subGaussPoints = getInGaussGeometryGaussPoints(gaussPointSTRtreeIndex, subGeometry);
-                    if (CollUtil.isEmpty(subGaussPoints)) {
-                        continue;
+                    List<GaussPoint> subGaussPoints;
+                    if (useOld) {
+                        log.debug("索引 {} 的子多边形 {} 使用了旧多边形点位", index, i);
+                        subGaussPoints = clusterGaussPointsMap.get(index);
+                    } else {
+                        // 【多边形内点过滤】获得多边形内的点集合
+                        subGaussPoints = getInGaussGeometryGaussPoints(gaussPointSTRtreeIndex, subGeometry);
+                        if (CollUtil.isEmpty(subGaussPoints)) {
+                            continue;
+                        }
+                        log.debug("索引 {} 的子多边形 {} 使用新多边形点位", index, i);
                     }
 
                     // 【坐标转换】转换为WGS84坐标系用于WKT输出
@@ -4839,10 +4898,17 @@ public class GisUtil implements AutoCloseable {
                     farmPlots.add(part);
                 }
             } else if (clusterGaussGeometry instanceof Polygon) {
-                // 【多边形内点过滤】获得多边形内的点集合
-                List<GaussPoint> subGaussPoints = getInGaussGeometryGaussPoints(gaussPointSTRtreeIndex, clusterGaussGeometry);
-                if (CollUtil.isEmpty(subGaussPoints)) {
-                    continue;
+                List<GaussPoint> subGaussPoints;
+                if (useOld) {
+                    log.debug("索引 {} 使用了旧多边形点位", index);
+                    subGaussPoints = clusterGaussPointsMap.get(index);
+                } else {
+                    // 【多边形内点过滤】获得多边形内的点集合
+                    subGaussPoints = getInGaussGeometryGaussPoints(gaussPointSTRtreeIndex, clusterGaussGeometry);
+                    if (CollUtil.isEmpty(subGaussPoints)) {
+                        continue;
+                    }
+                    log.debug("索引 {} 使用新多边形点位", index);
                 }
 
                 // 【单多边形处理】标准Polygon情况
@@ -4909,7 +4975,6 @@ public class GisUtil implements AutoCloseable {
         // 【属性补充】为所有合并后的Part设置最小有效间隔
         for (FarmPlot unionPart : unionParts) {
             unionPart.setMinEffectiveInterval(splitResult.getMinEffectiveInterval());
-
         }
 
         // 【最终聚合】将所有Part聚合成总的几何图形和统计信息
