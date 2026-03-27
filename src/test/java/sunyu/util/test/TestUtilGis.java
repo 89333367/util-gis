@@ -1053,4 +1053,6 @@ public class TestUtilGis {
         log.info("作业时间 {} {}", farmPlot.getStartTime(), farmPlot.getEndTime());
         log.info("中心点 {} {}", farmPlot.getCenterWgs84Point().getLongitude(), farmPlot.getCenterWgs84Point().getLatitude());
     }
+
+
 }

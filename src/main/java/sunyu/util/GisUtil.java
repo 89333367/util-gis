@@ -147,7 +147,7 @@ public class GisUtil implements AutoCloseable {
          * 当一个区域内的点数量小于此值时，被认为是噪声点或异常值，不会被分配到任何聚类中。
          * </p>
          */
-        private final int DBSCAN_MIN_POINTS = 8;
+        private final int DBSCAN_MIN_POINTS = 6;
 
         /**
          * 最大切分时间间隔（秒）
@@ -4614,13 +4614,13 @@ public class GisUtil implements AutoCloseable {
         }
 
         // 【缓冲策略】正缓冲参数
-        double positiveBuffer = halfWorkingWidth + 0.2;
+        double positiveBuffer = halfWorkingWidth;
         if (splitRoadParams.getPositiveBuffer() != null) {
             positiveBuffer = splitRoadParams.getPositiveBuffer();
         }
 
         // 【缓冲策略】负缓冲参数：向下取整，精确切除道路轨迹
-        double negativeBuffer = workingWidth;
+        double negativeBuffer = workingWidth * 0.8;
         if (splitRoadParams.getNegativeBuffer() != null) {
             negativeBuffer = splitRoadParams.getNegativeBuffer();
         }
@@ -4637,8 +4637,8 @@ public class GisUtil implements AutoCloseable {
         int minPts = config.DBSCAN_MIN_POINTS;
         if (minEffectiveInterval == 1) {
             eps = workingWidth * 1.5;
-            if (eps < 3) {//太小了不行，好多真实作业轨迹聚类不成功，比如中耕培土作业，幅宽1.5米，带弯的轨迹
-                eps = 3;
+            if (eps < 4) {//太小了不行，好多真实作业轨迹聚类不成功，比如中耕培土作业，幅宽1.5米，带弯的轨迹
+                eps = 4;
             }
         } else if (minEffectiveInterval == 10) {
             eps = 20;
