@@ -34,9 +34,9 @@ public class FarmPlot {
      */
     private Geometry wgs84Geometry;
     /**
-     * 最小有效时间间隔（秒）
+     * 轨迹点位时间间隔（秒）
      */
-    private int minEffectiveInterval;
+    private int interval;
     /**
      * 聚类点的数量
      */
@@ -90,15 +90,6 @@ public class FarmPlot {
         this.gaussGeometry = gaussGeometry;
     }
 
-    public int getMinEffectiveInterval() {
-        return minEffectiveInterval;
-    }
-
-    public void setMinEffectiveInterval(int minEffectiveInterval) {
-        this.minEffectiveInterval = minEffectiveInterval;
-    }
-
-
     public double getWorkingWidth() {
         return workingWidth;
     }
@@ -136,5 +127,13 @@ public class FarmPlot {
 
     public void setCenterWgs84Point(Wgs84Point centerWgs84Point) {
         this.centerWgs84Point = centerWgs84Point;
+    }
+
+    public int getInterval() {
+        return interval;
+    }
+
+    public void setInterval(int interval) {
+        this.interval = interval;
     }
 }

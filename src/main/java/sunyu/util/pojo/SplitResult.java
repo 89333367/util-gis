@@ -41,9 +41,9 @@ public class SplitResult {
      */
     private Geometry wgs84Geometry;
     /**
-     * 最小有效时间间隔（秒）
+     * 轨迹点位时间间隔（秒）
      */
-    private int minEffectiveInterval;
+    private int interval;
     /**
      * 聚类点的数量
      */
@@ -97,14 +97,6 @@ public class SplitResult {
         this.farmPlots = farmPlots;
     }
 
-    public int getMinEffectiveInterval() {
-        return minEffectiveInterval;
-    }
-
-    public void setMinEffectiveInterval(int minEffectiveInterval) {
-        this.minEffectiveInterval = minEffectiveInterval;
-    }
-
     public Geometry getWgs84Geometry() {
         return wgs84Geometry;
     }
@@ -145,5 +137,13 @@ public class SplitResult {
 
     public void setFarmPlots(List<FarmPlot> farmPlots) {
         this.farmPlots = farmPlots;
+    }
+
+    public int getInterval() {
+        return interval;
+    }
+
+    public void setInterval(int interval) {
+        this.interval = interval;
     }
 }

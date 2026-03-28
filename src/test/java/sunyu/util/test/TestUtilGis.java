@@ -118,7 +118,7 @@ public class TestUtilGis {
         partsInfo.add(StrUtil.format("总WKT: {}", splitResult.getWkt()));
         partsInfo.add(StrUtil.format("作业总面积（亩）: {}", splitResult.getMu()));
         partsInfo.add(StrUtil.format("作业时间范围: {} - {}", splitResult.getStartTime(), splitResult.getEndTime()));
-        partsInfo.add(StrUtil.format("最小有效时间间隔（秒）: {}", splitResult.getMinEffectiveInterval()));
+        partsInfo.add(StrUtil.format("最小有效时间间隔（秒）: {}", splitResult.getInterval()));
         partsInfo.add(StrUtil.format("聚类总点数: {}", splitResult.getClusterPointCount()));
         if (splitResult.getCenterWgs84Point() != null) {
             partsInfo.add(StrUtil.format("中心点：经度{},纬度{}", splitResult.getCenterWgs84Point().getLongitude(), splitResult.getCenterWgs84Point().getLatitude()));
@@ -135,7 +135,7 @@ public class TestUtilGis {
             partInfo.add(StrUtil.format("子WKT: {}", farmPlot.getWkt()));
             partInfo.add(StrUtil.format("作业面积（亩）: {}", farmPlot.getMu()));
             partInfo.add(StrUtil.format("作业时间范围: {} - {}", farmPlot.getStartTime(), farmPlot.getEndTime()));
-            partInfo.add(StrUtil.format("最小有效时间间隔（秒）: {}", farmPlot.getMinEffectiveInterval()));
+            partInfo.add(StrUtil.format("最小有效时间间隔（秒）: {}", farmPlot.getInterval()));
             partInfo.add(StrUtil.format("聚类点数: {}", farmPlot.getClusterPointCount()));
             if (farmPlot.getCenterWgs84Point() != null) {
                 partInfo.add(StrUtil.format("中心点：经度{},纬度{}", farmPlot.getCenterWgs84Point().getLongitude(), farmPlot.getCenterWgs84Point().getLatitude()));
@@ -1060,7 +1060,7 @@ public class TestUtilGis {
     }
 
     @Test
-    void 测试20260326() {
+    void 测试15秒1() {
         String did;
         double jobWidth;
         String yyyyMMdd = "20260326";
@@ -1069,6 +1069,18 @@ public class TestUtilGis {
         did = "EC73BD2504110247";
         jobWidth = 2.5;
         测试拆分数据(did, startTime, endTime, jobWidth, new SplitRoadParams());
+    }
+
+    @Test
+    void 临时测试() {
+        String did;
+        double jobWidth;
+        String yyyyMMdd = "20260326";
+        String startTime = yyyyMMdd + "000000";
+        String endTime = yyyyMMdd + "235959";
+        did = "EC73BD2512020089";
+        jobWidth = 1.1;
+        测试拆分数据(did, startTime, endTime, jobWidth, new SplitRoadParams().setDbScanEpsilon(50.0).setDbScanMinPoints(3));
     }
 
     @Test
