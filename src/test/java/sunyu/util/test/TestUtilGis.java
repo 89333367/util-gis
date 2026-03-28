@@ -1078,9 +1078,9 @@ public class TestUtilGis {
         String yyyyMMdd = "20260326";
         String startTime = yyyyMMdd + "000000";
         String endTime = yyyyMMdd + "235959";
-        did = "EC73BD2512020089";
-        jobWidth = 1.1;
-        测试拆分数据(did, startTime, endTime, jobWidth, new SplitRoadParams().setDbScanEpsilon(50.0).setDbScanMinPoints(3));
+        did = "EC71BD2408280108";
+        jobWidth = 2.5;
+        测试拆分数据(did, startTime, endTime, jobWidth, new SplitRoadParams());
     }
 
     @Test

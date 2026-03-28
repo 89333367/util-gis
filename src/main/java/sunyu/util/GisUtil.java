@@ -157,7 +157,7 @@ public class GisUtil implements AutoCloseable {
         /**
          * 最大切分距离
          */
-        private final double MAX_SPLIT_DISTANCE = 25;
+        private final double MAX_SPLIT_DISTANCE = 5;
 
         /**
          * 最小返回面积（亩）
@@ -4797,6 +4797,12 @@ public class GisUtil implements AutoCloseable {
         int interval = calcMostFrequentInterval(wgs84Points);
         log.info("相邻点时间间隔 {}秒", interval);
         splitResult.setInterval(interval);
+        double maxSplitDistance = config.MAX_SPLIT_DISTANCE * interval;
+        if (maxSplitDistance < 20) {
+            maxSplitDistance = 20;
+        } else if (maxSplitDistance > 50) {
+            maxSplitDistance = 50;
+        }
 
         // 【几何参数】计算机具半幅宽，用于后续缓冲半径计算
         double halfWorkingWidth = workingWidth * 0.5;
@@ -4869,8 +4875,8 @@ public class GisUtil implements AutoCloseable {
             return splitResult;
         }
 
-        log.info("聚类前参数固定：点位数量[{}]个 eps[{}]米 minPts[{}]个 膨胀[{}]米 收缩[{}]米 最小返回亩数限制[{}]亩"
-                , gaussPoints.size(), eps, minPts, positiveBuffer, negativeBuffer, minReturnMu);
+        log.info("聚类前参数固定：点位数量[{}]个 eps[{}]米 minPts[{}]个 膨胀[{}]米 收缩[{}]米 最小返回亩数限制[{}]亩 最大时间切分[{}]秒 最大距离切分[{}]米"
+                , gaussPoints.size(), eps, minPts, positiveBuffer, negativeBuffer, minReturnMu, config.MAX_SPLIT_SECONDS, maxSplitDistance);
 
         // 【密度聚类】执行DBSCAN聚类，识别潜在的作业簇群
         List<List<GaussPoint>> clusters = dbScanClusters(gaussPoints, eps, minPts);
@@ -4959,7 +4965,7 @@ public class GisUtil implements AutoCloseable {
             } else {
                 log.info("使用原始多边形");
                 Geometry unionSplitGuassGeometry = config.EMPTY_GEOMETRY;
-                List<List<GaussPoint>> splitCluster = splitClusterByTimeOrDistance(subGaussPoints, config.MAX_SPLIT_SECONDS, config.MAX_SPLIT_DISTANCE);
+                List<List<GaussPoint>> splitCluster = splitClusterByTimeOrDistance(subGaussPoints, config.MAX_SPLIT_SECONDS, maxSplitDistance);
                 //List<List<GaussPoint>> splitCluster = splitClusterByTime(subGaussPoints, config.MAX_SPLIT_SECONDS);
                 for (List<GaussPoint> subCluster : splitCluster) {
                     // 【坐标提取】将高斯点转换为JTS坐标数组
