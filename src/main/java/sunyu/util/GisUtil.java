@@ -5032,6 +5032,8 @@ public class GisUtil implements AutoCloseable {
                             subGaussGeometry = newSubGaussGeometry;
                         }
 
+                        // todo 这里再次膨胀，但不收缩，来达到填补缝隙的功能，但是会增大地块面积
+                        //subGaussGeometry = subGaussGeometry.buffer(0.5).buffer(0);
                         unionSplitGuassGeometry = unionSplitGuassGeometry.union(subGaussGeometry).buffer(0);
                     }
                 }
