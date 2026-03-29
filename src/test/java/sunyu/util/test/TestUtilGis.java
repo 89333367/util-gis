@@ -108,7 +108,6 @@ public class TestUtilGis {
             l.add(wgs84Point);
         }
 
-        String partsFile = StrUtil.format(path + "/{}_{}_{}_parts.txt", did, startTime, endTime);
         List<String> partsInfo = new ArrayList<>();
         SplitResult splitResult = gisUtil.splitRoad(l, jobWidth, splitRoadParams);
         partsInfo.add(StrUtil.format("共有 {} 个地块", splitResult.getFarmPlots().stream()
@@ -142,15 +141,16 @@ public class TestUtilGis {
             }
             partsInfo.add(StrUtil.join("\n", partInfo) + "\n");
         }
+        String partsFile = StrUtil.format(path + "/{}_{}_{}_{}_{}_parts.txt", did, startTime, endTime, splitResult.getWorkingWidth(), splitResult.getInterval());
         FileUtil.writeUtf8Lines(partsInfo, partsFile);
 
-        String fileName = path + StrUtil.format("/{}_{}_{}_gauss.txt", did, startTime, endTime);
         l = gisUtil.filterWgs84Points(l);
         List<GaussPoint> gaussPointList = gisUtil.toGaussPointList(l);
         List<String> gaussXyList = new ArrayList<>();
         for (GaussPoint gaussPoint : gaussPointList) {
             gaussXyList.add(StrUtil.format("{},{}", gaussPoint.getGaussX(), gaussPoint.getGaussY()));
         }
+        String fileName = path + StrUtil.format("/{}_{}_{}_{}_{}_gauss.txt", did, startTime, endTime, splitResult.getWorkingWidth(), splitResult.getInterval());
         FileUtil.writeUtf8Lines(gaussXyList, fileName);
 
         String html = ResourceUtil.readUtf8Str("showGeometrysTemplate_leaflet.html");
@@ -159,26 +159,8 @@ public class TestUtilGis {
             trace.append(StrUtil.format("{},{},{}\n", LocalDateTimeUtil.format(wgs84Point.getGpsTime(), "yyyyMMddHHmmss"), wgs84Point.getLongitude(), wgs84Point.getLatitude()));
         }
         html = StrUtil.replace(html, "${trace}", trace.toString());
-        List<String> outlineList = new ArrayList<>();
-        for (String line : FileUtil.readUtf8Lines(path + StrUtil.format("/{}_{}_{}_parts.txt", did, startTime, endTime))) {
-            if (line.startsWith("子WKT")) {
-                outlineList.add(line.replace("子WKT: ", ""));
-            }
-        }
-        String outline = FileUtil.readUtf8Lines(path + StrUtil.format("/{}_{}_{}_parts.txt", did, startTime, endTime)).get(2);
-        html = StrUtil.replace(html, "${outline}", outline.replace("总WKT: ", ""));
-        FileUtil.writeUtf8String(html, path + StrUtil.format("/{}_{}_{}.html", did, startTime, endTime));
-
-        /*if (updateFarmWorkTable != null && updateFarmWorkTable) {
-            // 直接更新farm_work表的复算亩数以及WKT
-            FarmMapper mapper = MyBatis.getMapper(FarmMapper.class);
-            FarmWork farmWork = new FarmWork();
-            farmWork.setDid(did);
-            farmWork.setJobEndTime(LocalDateTimeUtil.parse(endTime, "yyyyMMddHHmmss"));
-            farmWork.setEffectiveJobArea(splitResult.getMu());
-            farmWork.setWktPoly(splitResult.getWkt());
-            mapper.updateFarmWork(farmWork);
-        }*/
+        html = StrUtil.replace(html, "${outline}", splitResult.getWkt());
+        FileUtil.writeUtf8String(html, path + StrUtil.format("/{}_{}_{}_{}_{}.html", did, startTime, endTime, splitResult.getWorkingWidth(), splitResult.getInterval()));
     }
 
     @Test
@@ -305,7 +287,7 @@ public class TestUtilGis {
         String endTime = "20251104092257";
         double jobWidth = 2.8;
         //测试拆分数据(did, startTime, endTime, jobWidth);
-        测试拆分数据(did, startTime, endTime, jobWidth, new SplitRoadParams().setCheckWorkingStatus(true));
+        测试拆分数据(did, startTime, endTime, jobWidth, new SplitRoadParams().setCheckWorkingStatus(true).setPositiveBuffer(1.0));
     }
 
     @Test
@@ -357,7 +339,7 @@ public class TestUtilGis {
         String startTime = yyyyMMdd + "000000";
         String endTime = yyyyMMdd + "235959";
         double jobWidth = 2.7;
-        测试拆分数据(did, startTime, endTime, jobWidth);
+        测试拆分数据(did, startTime, endTime, jobWidth, new SplitRoadParams());
     }
 
     @Test
@@ -914,7 +896,7 @@ public class TestUtilGis {
         String startTime = yyyyMMdd + "000000";
         String endTime = yyyyMMdd + "235959";
         double jobWidth = 0.9;
-        测试拆分数据(did, startTime, endTime, jobWidth);
+        测试拆分数据(did, startTime, endTime, jobWidth,new SplitRoadParams());
         //测试拆分数据(did, startTime, endTime, jobWidth, new SplitRoadParams().setDbScanEpsilon(8.0).setDbScanMinPoints(3).setPositiveBuffer(5.0).setNegativeBuffer(5.0));
     }
 
@@ -1066,8 +1048,8 @@ public class TestUtilGis {
         String yyyyMMdd = "20260326";
         String startTime = yyyyMMdd + "000000";
         String endTime = yyyyMMdd + "235959";
-        did = "EC73BD2504110247";
-        jobWidth = 2.5;
+        did = "EC73BD2509060009";
+        jobWidth = 2.8;
         测试拆分数据(did, startTime, endTime, jobWidth, new SplitRoadParams());
     }
 
@@ -1078,8 +1060,8 @@ public class TestUtilGis {
         String yyyyMMdd = "20260326";
         String startTime = yyyyMMdd + "000000";
         String endTime = yyyyMMdd + "235959";
-        did = "EC71BD2408280108";
-        jobWidth = 2.5;
+        did = "EC73BD2509060065";
+        jobWidth = 2.6;
         测试拆分数据(did, startTime, endTime, jobWidth, new SplitRoadParams());
     }
 

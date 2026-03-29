@@ -67,6 +67,9 @@ public class ClusterVisualizationGui extends JFrame {
     private final List<double[]> coordinates = new ArrayList<>();
     private XYSeriesCollection dataset;
 
+    // 聚类状态标志
+    private volatile boolean isClustering = false;
+
     // 聚类颜色配置
     private static final Color[] CLUSTER_COLORS = {new Color(255, 99, 71), new Color(30, 144, 255), new Color(50, 205, 50), new Color(255, 215, 0), new Color(138, 43, 226), new Color(255, 140, 0), new Color(220, 20, 60), new Color(0, 191, 255), new Color(255, 20, 147), new Color(0, 250, 154), new Color(255, 69, 0), new Color(106, 90, 205), new Color(255, 255, 0), new Color(186, 85, 211), new Color(0, 255, 127), new Color(123, 104, 238)};
     private static final Color NOISE_COLOR = Color.BLACK;
@@ -173,7 +176,7 @@ public class ClusterVisualizationGui extends JFrame {
             }
         });
 
-        minPtsField = new JTextField("60", 8);
+        minPtsField = new JTextField("50", 8);
         // minPts参数输入验证 - 必须是正整数
         ((AbstractDocument) minPtsField.getDocument()).setDocumentFilter(new DocumentFilter() {
             /**
@@ -811,36 +814,75 @@ public class ClusterVisualizationGui extends JFrame {
      * 获取用户输入的参数并执行聚类算法
      */
     private void performClustering() {
+        // 【防止重复点击】如果正在聚类中，直接返回
+        if (isClustering) {
+            return;
+        }
+
         if (coordinates.isEmpty()) {
             JOptionPane.showMessageDialog(this, "请先加载数据文件！", "警告", JOptionPane.WARNING_MESSAGE);
             return;
         }
 
-        try {
-            double eps = Double.parseDouble(epsField.getText());
-            int minPts = Integer.parseInt(minPtsField.getText());
+        // 【设置聚类状态】标记为正在聚类，更新按钮状态
+        isClustering = true;
+        clusterButton.setText("聚类中请稍后...");
+        clusterButton.setEnabled(false);
 
-            if (eps <= 0 || minPts < 2) {
-                JOptionPane.showMessageDialog(this, "请输入有效的参数 (eps > 0, minPts ≥ 2)", "参数错误", JOptionPane.ERROR_MESSAGE);
-                return;
+        // 在后台线程执行聚类，避免阻塞UI
+        new Thread(() -> {
+            try {
+                double eps = Double.parseDouble(epsField.getText());
+                int minPts = Integer.parseInt(minPtsField.getText());
+
+                if (eps <= 0 || minPts < 2) {
+                    SwingUtilities.invokeLater(() -> {
+                        JOptionPane.showMessageDialog(this, "请输入有效的参数 (eps > 0, minPts ≥ 2)", "参数错误", JOptionPane.ERROR_MESSAGE);
+                        resetClusterButton();
+                    });
+                    return;
+                }
+
+                log.info("开始执行DBSCAN聚类: eps={}, minPts={}", eps, minPts);
+
+                double[][] data = new double[coordinates.size()][2];
+                for (int i = 0; i < coordinates.size(); i++) {
+                    data[i] = coordinates.get(i);
+                }
+
+                int[] labels = performDBSCAN(data, eps, minPts);
+
+                // 在EDT线程更新UI
+                SwingUtilities.invokeLater(() -> {
+                    displayClusteringResults(labels, eps, minPts);
+                    // 【聚类完成提示】显示成功提示框
+                    JOptionPane.showMessageDialog(this, "DBSCAN聚类完成！", "聚类成功", JOptionPane.INFORMATION_MESSAGE);
+                    resetClusterButton();
+                });
+
+            } catch (NumberFormatException e) {
+                SwingUtilities.invokeLater(() -> {
+                    JOptionPane.showMessageDialog(this, "参数格式错误，请输入有效的数字！", "参数错误", JOptionPane.ERROR_MESSAGE);
+                    resetClusterButton();
+                });
+            } catch (Exception e) {
+                log.error("聚类执行失败", e);
+                SwingUtilities.invokeLater(() -> {
+                    JOptionPane.showMessageDialog(this, "聚类执行失败: " + e.getMessage(), "错误", JOptionPane.ERROR_MESSAGE);
+                    resetClusterButton();
+                });
             }
+        }).start();
+    }
 
-            log.info("开始执行DBSCAN聚类: eps={}, minPts={}", eps, minPts);
-
-            double[][] data = new double[coordinates.size()][2];
-            for (int i = 0; i < coordinates.size(); i++) {
-                data[i] = coordinates.get(i);
-            }
-
-            int[] labels = performDBSCAN(data, eps, minPts);
-            displayClusteringResults(labels, eps, minPts);
-
-        } catch (NumberFormatException e) {
-            JOptionPane.showMessageDialog(this, "参数格式错误，请输入有效的数字！", "参数错误", JOptionPane.ERROR_MESSAGE);
-        } catch (Exception e) {
-            log.error("聚类执行失败", e);
-            JOptionPane.showMessageDialog(this, "聚类执行失败: " + e.getMessage(), "错误", JOptionPane.ERROR_MESSAGE);
-        }
+    /**
+     * 重置聚类按钮状态
+     * 恢复按钮文字和可用状态
+     */
+    private void resetClusterButton() {
+        isClustering = false;
+        clusterButton.setText("执行聚类");
+        clusterButton.setEnabled(true);
     }
 
     /**
