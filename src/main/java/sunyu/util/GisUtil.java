@@ -266,6 +266,11 @@ public class GisUtil implements AutoCloseable {
          * 如果查询是否在多边形中的总点位数量超过此阈值，则使用模糊查询，否则使用精确查询
          */
         private final int MAX_SEARCH_STRTREE_INDEX = 5000;
+
+        /**
+         * 将最终几何图形膨胀N米来达到填补缝隙的目的
+         */
+        private final double ADD_POSITIVE_BUFFER = 1;
     }
 
     public static class Builder {
@@ -5004,6 +5009,8 @@ public class GisUtil implements AutoCloseable {
                     log.info("收缩[{}]米", negativeBuffer);
                     clusterGaussGeometry = clusterGaussGeometry.buffer(-negativeBuffer).buffer(0).buffer(negativeBuffer).buffer(0);
                 }
+                // todo 这里再次膨胀，但不收缩，来达到填补缝隙的功能，但是会增大地块面积
+                clusterGaussGeometry = clusterGaussGeometry.buffer(config.ADD_POSITIVE_BUFFER).buffer(0);
             } else {
                 Geometry unionSplitGuassGeometry = config.EMPTY_GEOMETRY;
                 List<List<GaussPoint>> splitCluster = splitClusterByTimeOrDistance(subGaussPoints, config.MAX_SPLIT_SECONDS, maxSplitDistance);
@@ -5033,7 +5040,7 @@ public class GisUtil implements AutoCloseable {
                         }
 
                         // todo 这里再次膨胀，但不收缩，来达到填补缝隙的功能，但是会增大地块面积
-                        //subGaussGeometry = subGaussGeometry.buffer(0.5).buffer(0);
+                        subGaussGeometry = subGaussGeometry.buffer(config.ADD_POSITIVE_BUFFER).buffer(0);
                         unionSplitGuassGeometry = unionSplitGuassGeometry.union(subGaussGeometry).buffer(0);
                     }
                 }
