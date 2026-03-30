@@ -169,7 +169,7 @@ public class GisUtil implements AutoCloseable {
         /**
          * 最大切分时间间隔（秒）
          */
-        private final double MAX_SPLIT_SECONDS = 60;
+        private final double MAX_SPLIT_SECONDS = 60 * 5;
 
         /**
          * 最大切分距离
