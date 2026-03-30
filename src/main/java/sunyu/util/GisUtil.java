@@ -270,7 +270,7 @@ public class GisUtil implements AutoCloseable {
         /**
          * 将最终几何图形膨胀系数（幅宽 * 这个系数)
          */
-        private final double ADD_POSITIVE_BUFFER = 0.020;
+        private final double ADD_POSITIVE_BUFFER = 0.315;
     }
 
     public static class Builder {
