@@ -1057,11 +1057,11 @@ public class TestUtilGis {
     void 临时测试() {
         String did;
         double jobWidth;
-        String yyyyMMdd = "20260326";
+        String yyyyMMdd = "20260318";
         String startTime = yyyyMMdd + "000000";
         String endTime = yyyyMMdd + "235959";
-        did = "EC73BD2503100003";
-        jobWidth = 2.6;
+        did = "EC73BD2512020036";
+        jobWidth = 2.8;
         测试拆分数据(did, startTime, endTime, jobWidth, new SplitRoadParams());
     }
 
@@ -1069,11 +1069,11 @@ public class TestUtilGis {
     void 临时测试2() {
         String did;
         double jobWidth;
-        String yyyyMMdd = "20260313";
+        String yyyyMMdd = "20260203";
         String startTime = yyyyMMdd + "000000";
         String endTime = yyyyMMdd + "235959";
-        did = "EC73BD2512020089";
-        jobWidth = 1.1;
+        did = "EC73BD2509060201";
+        jobWidth = 2.4;
         测试拆分数据(did, startTime, endTime, jobWidth, new SplitRoadParams());
     }
 

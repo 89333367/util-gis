@@ -174,7 +174,7 @@ public class GisUtil implements AutoCloseable {
         /**
          * 最大切分距离
          */
-        private final double MAX_SPLIT_DISTANCE = 15;
+        private final double MAX_SPLIT_DISTANCE = 20;
 
         /**
          * 最小返回面积（亩）
