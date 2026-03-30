@@ -174,7 +174,7 @@ public class GisUtil implements AutoCloseable {
         /**
          * 最大切分距离
          */
-        private final double MAX_SPLIT_DISTANCE = 25;
+        private final double MAX_SPLIT_DISTANCE = 45;
 
         /**
          * 最小返回面积（亩）
@@ -2107,7 +2107,7 @@ public class GisUtil implements AutoCloseable {
                 Point point = config.GEOMETRY_FACTORY.createPoint(coord);
                 // contains()方法严格判断内部关系：点在几何内部返回true，在边界上或外部返回false
                 // 与covers()的区别：contains不包含边界，covers包含边界
-                if (gaussGeometry.contains(point)) {
+                if (gaussGeometry.covers(point)) {
                     subGaussPoints.add(gaussPoint);
                 }
             }
@@ -4885,7 +4885,6 @@ public class GisUtil implements AutoCloseable {
         } else {
             eps = 40;
             minPts = 30;
-            maxSplitDistance = maxSplitDistance * 1.6;
         }
         if (splitRoadParams.getDbScanEpsilon() != null) {
             eps = splitRoadParams.getDbScanEpsilon();
@@ -5019,6 +5018,7 @@ public class GisUtil implements AutoCloseable {
                 Geometry unionSplitGuassGeometry = config.EMPTY_GEOMETRY;
                 List<List<GaussPoint>> splitCluster = splitClusterByTimeOrDistance(subGaussPoints, config.MAX_SPLIT_SECONDS, maxSplitDistance);
                 //List<List<GaussPoint>> splitCluster = splitClusterByTime(subGaussPoints, config.MAX_SPLIT_SECONDS);
+                //List<List<GaussPoint>> splitCluster = splitClusterByDistance(subGaussPoints, maxSplitDistance);
                 for (List<GaussPoint> subCluster : splitCluster) {
                     // 【坐标提取】将高斯点转换为JTS坐标数组
                     Coordinate[] coords = subCluster.stream()
