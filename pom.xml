@@ -7,7 +7,7 @@
     <groupId>sunyu.util</groupId>
     <artifactId>util-gis</artifactId>
     <!-- {util.version}_{jdk.version} -->
-    <version>9.3_jdk8</version>
+    <version>9.4_jdk8</version>
 
     <properties>
         <java.version>1.8</java.version>

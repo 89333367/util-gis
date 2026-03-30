@@ -1066,6 +1066,18 @@ public class TestUtilGis {
     }
 
     @Test
+    void 临时测试2() {
+        String did;
+        double jobWidth;
+        String yyyyMMdd = "20260313";
+        String startTime = yyyyMMdd + "000000";
+        String endTime = yyyyMMdd + "235959";
+        did = "EC73BD2512020089";
+        jobWidth = 1.1;
+        测试拆分数据(did, startTime, endTime, jobWidth, new SplitRoadParams());
+    }
+
+    @Test
     void 重跑某一日测试() {
         String yyyyMMdd = "20260326";
         String startTime = yyyyMMdd + "000000";
