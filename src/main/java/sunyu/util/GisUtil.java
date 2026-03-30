@@ -268,9 +268,9 @@ public class GisUtil implements AutoCloseable {
         private final int MAX_SEARCH_STRTREE_INDEX = 5000;
 
         /**
-         * 将最终几何图形膨胀N米来达到填补缝隙的目的
+         * 将最终几何图形膨胀系数（幅宽 * 这个系数)
          */
-        private final double ADD_POSITIVE_BUFFER = 1;
+        private final double ADD_POSITIVE_BUFFER = 0.020;
     }
 
     public static class Builder {
@@ -4694,6 +4694,9 @@ public class GisUtil implements AutoCloseable {
             // 【几何创建】构建线串并应用缓冲，形成作业区域
             LineString line = config.GEOMETRY_FACTORY.createLineString(coords);
             Geometry gaussGeometry = lowMemBuffer(line, halfWorkingWidth);
+            // todo 这里再次膨胀，但不收缩，来达到填补缝隙的功能，但是会增大地块面积
+            log.info("最终多边形再膨胀 {}米，用来填补缝隙", workingWidth * config.ADD_POSITIVE_BUFFER);
+            gaussGeometry = gaussGeometry.buffer(workingWidth * config.ADD_POSITIVE_BUFFER).buffer(0);
             log.debug("几何图形创建完毕 {}亩", gaussGeometry.getArea() * config.SQUARE_TO_MU_METER);
 
             Geometry wgs84PartGeometry = toWgs84Geometry(gaussGeometry);
@@ -5010,7 +5013,8 @@ public class GisUtil implements AutoCloseable {
                     clusterGaussGeometry = clusterGaussGeometry.buffer(-negativeBuffer).buffer(0).buffer(negativeBuffer).buffer(0);
                 }
                 // todo 这里再次膨胀，但不收缩，来达到填补缝隙的功能，但是会增大地块面积
-                clusterGaussGeometry = clusterGaussGeometry.buffer(config.ADD_POSITIVE_BUFFER).buffer(0);
+                log.info("最终多边形再膨胀 {}米，用来填补缝隙", workingWidth * config.ADD_POSITIVE_BUFFER);
+                clusterGaussGeometry = clusterGaussGeometry.buffer(workingWidth * config.ADD_POSITIVE_BUFFER).buffer(0);
             } else {
                 Geometry unionSplitGuassGeometry = config.EMPTY_GEOMETRY;
                 List<List<GaussPoint>> splitCluster = splitClusterByTimeOrDistance(subGaussPoints, config.MAX_SPLIT_SECONDS, maxSplitDistance);
@@ -5040,7 +5044,8 @@ public class GisUtil implements AutoCloseable {
                         }
 
                         // todo 这里再次膨胀，但不收缩，来达到填补缝隙的功能，但是会增大地块面积
-                        subGaussGeometry = subGaussGeometry.buffer(config.ADD_POSITIVE_BUFFER).buffer(0);
+                        log.info("最终多边形再膨胀 {}米，用来填补缝隙", workingWidth * config.ADD_POSITIVE_BUFFER);
+                        subGaussGeometry = subGaussGeometry.buffer(workingWidth * config.ADD_POSITIVE_BUFFER).buffer(0);
                         unionSplitGuassGeometry = unionSplitGuassGeometry.union(subGaussGeometry).buffer(0);
                     }
                 }
