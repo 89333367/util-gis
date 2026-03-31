@@ -1069,11 +1069,71 @@ public class TestUtilGis {
     void 临时测试2() {
         String did;
         double jobWidth;
-        String yyyyMMdd = "20260203";
+        String yyyyMMdd = "20260326";
         String startTime = yyyyMMdd + "000000";
         String endTime = yyyyMMdd + "235959";
-        did = "EC73BD2509060201";
-        jobWidth = 2.4;
+        did = "EC71BD2408280012";
+        jobWidth = 2.8;
+        测试拆分数据(did, startTime, endTime, jobWidth, new SplitRoadParams());
+    }
+
+    @Test
+    void 临时测试3() {
+        String did;
+        double jobWidth;
+        String yyyyMMdd = "20260326";
+        String startTime = yyyyMMdd + "000000";
+        String endTime = yyyyMMdd + "235959";
+        did = "EC71GD2503240127";
+        jobWidth = 2.5;
+        测试拆分数据(did, startTime, endTime, jobWidth, new SplitRoadParams());
+    }
+
+    @Test
+    void 测试水稻插秧() {
+        String did;
+        double jobWidth;
+        String yyyyMMdd = "20260326";
+        String startTime = yyyyMMdd + "000000";
+        String endTime = yyyyMMdd + "235959";
+        did = "EC73BD2503100003";
+        jobWidth = 2.6;
+        测试拆分数据(did, startTime, endTime, jobWidth, new SplitRoadParams());
+    }
+
+    @Test
+    void 测试小幅宽1() {
+        String did;
+        double jobWidth;
+        String yyyyMMdd = "20260326";
+        String startTime = yyyyMMdd + "000000";
+        String endTime = yyyyMMdd + "235959";
+        did = "EC71GD2411150076";
+        jobWidth = 0.3;
+        测试拆分数据(did, startTime, endTime, jobWidth, new SplitRoadParams());
+    }
+
+    @Test
+    void 测试小幅宽2() {
+        String did;
+        double jobWidth;
+        String yyyyMMdd = "20260326";
+        String startTime = yyyyMMdd + "000000";
+        String endTime = yyyyMMdd + "235959";
+        did = "EC71GD2503240058";
+        jobWidth = 0.3;
+        测试拆分数据(did, startTime, endTime, jobWidth, new SplitRoadParams());
+    }
+
+    @Test
+    void 测试小幅宽3() {
+        String did;
+        double jobWidth;
+        String yyyyMMdd = "20260326";
+        String startTime = yyyyMMdd + "000000";
+        String endTime = yyyyMMdd + "235959";
+        did = "EC71GD2503240148";
+        jobWidth = 0.3;
         测试拆分数据(did, startTime, endTime, jobWidth, new SplitRoadParams());
     }
 
