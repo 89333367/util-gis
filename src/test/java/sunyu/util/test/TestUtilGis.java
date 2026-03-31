@@ -1190,7 +1190,7 @@ public class TestUtilGis {
     void 测试一天两种不同频率() {
         String did;
         double jobWidth;
-        String yyyyMMdd = "20260328";
+        String yyyyMMdd = "20260325";
         String startTime = yyyyMMdd + "000000";
         String endTime = yyyyMMdd + "235959";
         did = "EC73BD2512220073";
