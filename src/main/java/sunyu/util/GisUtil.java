@@ -138,7 +138,7 @@ public class GisUtil implements AutoCloseable {
          * 当两个点之间的距离小于此值时，被认为是邻居点，属于同一个聚类。
          * </p>
          */
-        private final double DBSCAN_EPSILON = 15;
+        private final double DBSCAN_EPSILON = 10;
 
         /**
          * DBSCAN最小点数
@@ -147,7 +147,7 @@ public class GisUtil implements AutoCloseable {
          * 当一个区域内的点数量小于此值时，被认为是噪声点或异常值，不会被分配到任何聚类中。
          * </p>
          */
-        private final int DBSCAN_MIN_POINTS = 50;
+        private final int DBSCAN_MIN_POINTS = 60;
 
         /**
          * 幅宽安全系数：覆盖作业行间距偏差+GPS定位误差，RTK-GPS用1.1，普通GPS用1.3
@@ -179,7 +179,7 @@ public class GisUtil implements AutoCloseable {
         /**
          * 最小返回面积（亩）
          */
-        private final double MIN_RETURN_MU = 0.2;
+        private final double MIN_RETURN_MU = 0.3;
 
         /**
          * 最小作业幅宽（米）
@@ -270,7 +270,7 @@ public class GisUtil implements AutoCloseable {
         /**
          * 将最终几何图形膨胀系数（幅宽 * 这个系数)
          */
-        private final double ADD_POSITIVE_BUFFER = 1;
+        private final double ADD_POSITIVE_BUFFER = 1.5;
     }
 
     public static class Builder {
@@ -4857,10 +4857,6 @@ public class GisUtil implements AutoCloseable {
         // 【数据清洗】过滤异常点位，提高聚类准确性
         wgs84Points = filterWgs84Points(wgs84Points);
 
-        // 【时间间隔计算】计算相邻点位的时间间隔，取最频繁的时间间隔
-        int interval = calcMostFrequentInterval(wgs84Points);
-        splitResult.setInterval(interval);
-
         // 【几何参数】计算机具半幅宽，用于后续缓冲半径计算
         double halfWorkingWidth = workingWidth * 0.5;
         // 定义最小返回面积（亩）
@@ -4872,13 +4868,17 @@ public class GisUtil implements AutoCloseable {
         // 最大切分距离
         double maxSplitDistance = config.MAX_SPLIT_DISTANCE;
 
+        // 【时间间隔计算】计算相邻点位的时间间隔，取最频繁的时间间隔
+        int interval = calcMostFrequentInterval(wgs84Points);
+        splitResult.setInterval(interval);
+
         // 【聚类参数配置】
         double eps = config.DBSCAN_EPSILON;
         int minPts = config.DBSCAN_MIN_POINTS;
-        if (interval > 5) {
+        if (interval > 1) {
             eps = 20;
             minPts = 10;
-            positiveBuffer = positiveBuffer * 4;
+            positiveBuffer = positiveBuffer * 2;
         }
         if (splitRoadParams.getDbScanEpsilon() != null) {
             eps = splitRoadParams.getDbScanEpsilon();
@@ -5024,12 +5024,12 @@ public class GisUtil implements AutoCloseable {
                     // 【数据优化】点位过多时进行角度抽稀，平衡精度与性能
                     coords = simplifyByAngle(coords, config.SIMPLIFY_TOLERANCE, config.SIMPLIFY_ANGLE);
 
-                    if (coords.length > 2) {
+                    if (coords.length > 3) {
                         // 【几何创建】构建线串并应用缓冲，形成作业区域
                         LineString line = config.GEOMETRY_FACTORY.createLineString(coords);
                         Geometry subGaussGeometry = lowMemBuffer(line, halfWorkingWidth);
 
-                        // todo 填补缝隙
+                        /*// todo 填补缝隙
                         subGaussGeometry = subGaussGeometry
                                 .buffer(positiveBuffer).buffer(0).buffer(-positiveBuffer).buffer(0);
 
@@ -5041,13 +5041,21 @@ public class GisUtil implements AutoCloseable {
                             log.info("裁剪掉了疑似道路的多边形 {}亩", subGaussGeometry.getArea() * config.SQUARE_TO_MU_METER);
                         } else {
                             unionSplitGuassGeometry = unionSplitGuassGeometry.union(subGaussGeometry).buffer(0);
-                        }
+                        }*/
+
+                        unionSplitGuassGeometry = unionSplitGuassGeometry.union(subGaussGeometry).buffer(0);
                     }
                 }
 
-                // todo 再次裁剪道路
-                unionSplitGuassGeometry = unionSplitGuassGeometry
-                        .buffer(-negativeBuffer).buffer(0).buffer(negativeBuffer).buffer(0);
+                if (!unionSplitGuassGeometry.isEmpty()) {
+                    // todo 再次填补缝隙
+                    unionSplitGuassGeometry = unionSplitGuassGeometry
+                            .buffer(positiveBuffer).buffer(0).buffer(-positiveBuffer).buffer(0);
+
+                    // todo 再次裁剪道路
+                    unionSplitGuassGeometry = unionSplitGuassGeometry
+                            .buffer(-negativeBuffer).buffer(0).buffer(negativeBuffer).buffer(0);
+                }
 
                 log.debug("几何图形创建完毕 {}亩", unionSplitGuassGeometry.getArea() * config.SQUARE_TO_MU_METER);
                 clusterGaussGeometry = unionSplitGuassGeometry;

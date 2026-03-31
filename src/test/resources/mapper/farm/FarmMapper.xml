@@ -21,7 +21,7 @@
         from
         farm_work_split_day
         where
-        jobDay = #{day}
+        jobDay = #{day} and jobWidth is not null
     </select>
 
 </mapper>

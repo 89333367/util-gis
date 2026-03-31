@@ -1102,6 +1102,18 @@ public class TestUtilGis {
     }
 
     @Test
+    void 临时测试4() {
+        String did;
+        double jobWidth;
+        String yyyyMMdd = "20260330";
+        String startTime = yyyyMMdd + "000000";
+        String endTime = yyyyMMdd + "235959";
+        did = "EC73BD2512200156";
+        jobWidth = 2.5;
+        测试拆分数据(did, startTime, endTime, jobWidth, new SplitRoadParams());
+    }
+
+    @Test
     void 测试水稻插秧() {
         String did;
         double jobWidth;
@@ -1161,6 +1173,18 @@ public class TestUtilGis {
         测试拆分数据(did, startTime, endTime, jobWidth, new SplitRoadParams());
     }
 
+    @Test
+    void 疑似15秒() {
+        String did;
+        double jobWidth;
+        String yyyyMMdd = "20260309";
+        String startTime = yyyyMMdd + "000000";
+        String endTime = yyyyMMdd + "235959";
+        did = "EC71GD2411150027";
+        jobWidth = 2.8;
+        测试拆分数据(did, startTime, endTime, jobWidth, new SplitRoadParams());
+    }
+
 
     @Test
     void 测试一天两种不同频率() {
@@ -1171,12 +1195,24 @@ public class TestUtilGis {
         String endTime = yyyyMMdd + "235959";
         did = "EC73BD2512220073";
         jobWidth = 2.05;
-        测试拆分数据(did, startTime, endTime, jobWidth, new SplitRoadParams().setDbScanEpsilon(20.0).setDbScanMinPoints(10));
+        测试拆分数据(did, startTime, endTime, jobWidth, new SplitRoadParams());
+    }
+
+    @Test
+    void 测试一天两种不同频率2() {
+        String did;
+        double jobWidth;
+        String yyyyMMdd = "20260330";
+        String startTime = yyyyMMdd + "000000";
+        String endTime = yyyyMMdd + "235959";
+        did = "EC71GD2503240117";
+        jobWidth = 2.3;
+        测试拆分数据(did, startTime, endTime, jobWidth, new SplitRoadParams());
     }
 
     @Test
     void 重跑某一日测试() {
-        String yyyyMMdd = "20260330";
+        String yyyyMMdd = "20260309";
         String startTime = yyyyMMdd + "000000";
         String endTime = yyyyMMdd + "235959";
         FarmMapper mapper = MyBatis.getMapper(FarmMapper.class);

@@ -70,6 +70,9 @@ public class ClusterVisualizationGui extends JFrame {
     // 聚类状态标志
     private volatile boolean isClustering = false;
 
+    // 上次选择的文件目录
+    private File lastSelectedDirectory = null;
+
     // 聚类颜色配置
     private static final Color[] CLUSTER_COLORS = {new Color(255, 99, 71), new Color(30, 144, 255), new Color(50, 205, 50), new Color(255, 215, 0), new Color(138, 43, 226), new Color(255, 140, 0), new Color(220, 20, 60), new Color(0, 191, 255), new Color(255, 20, 147), new Color(0, 250, 154), new Color(255, 69, 0), new Color(106, 90, 205), new Color(255, 255, 0), new Color(186, 85, 211), new Color(0, 255, 127), new Color(123, 104, 238)};
     private static final Color NOISE_COLOR = Color.BLACK;
@@ -722,15 +725,21 @@ public class ClusterVisualizationGui extends JFrame {
         fileChooser.setFileFilter(new FileNameExtensionFilter("坐标文件 (*.txt, *.csv)", "txt", "csv"));
         // 标准JFileChooser不支持直接设置视图模式，移除不兼容代码
 
-        // 设置默认目录
-        File testDir = new File("testFiles");
-        if (testDir.exists() && testDir.isDirectory()) {
-            fileChooser.setCurrentDirectory(testDir);
+        // 设置默认目录：优先使用上次选择的目录，否则使用testFiles目录
+        if (lastSelectedDirectory != null && lastSelectedDirectory.exists() && lastSelectedDirectory.isDirectory()) {
+            fileChooser.setCurrentDirectory(lastSelectedDirectory);
+        } else {
+            File testDir = new File("testFiles");
+            if (testDir.exists() && testDir.isDirectory()) {
+                fileChooser.setCurrentDirectory(testDir);
+            }
         }
 
         int result = fileChooser.showOpenDialog(this);
         if (result == JFileChooser.APPROVE_OPTION) {
             File selectedFile = fileChooser.getSelectedFile();
+            // 记住选择的文件所在目录
+            lastSelectedDirectory = selectedFile.getParentFile();
             loadCoordinateFile(selectedFile);
         }
     }
