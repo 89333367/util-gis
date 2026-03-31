@@ -286,8 +286,8 @@ public class TestUtilGis {
         String startTime = "20251104090717";
         String endTime = "20251104092257";
         double jobWidth = 2.8;
-        //测试拆分数据(did, startTime, endTime, jobWidth);
-        测试拆分数据(did, startTime, endTime, jobWidth, new SplitRoadParams().setCheckWorkingStatus(true).setPositiveBuffer(1.0));
+        测试拆分数据(did, startTime, endTime, jobWidth, new SplitRoadParams().setCheckWorkingStatus(true));
+        //测试拆分数据(did, startTime, endTime, jobWidth, new SplitRoadParams().setCheckWorkingStatus(true).setPositiveBuffer(1.0));
     }
 
     @Test
@@ -1054,6 +1054,18 @@ public class TestUtilGis {
     }
 
     @Test
+    void 测试15秒2() {
+        String did;
+        double jobWidth;
+        String yyyyMMdd = "20260330";
+        String startTime = yyyyMMdd + "000000";
+        String endTime = yyyyMMdd + "235959";
+        did = "EC73BD2509060278";
+        jobWidth = 2.6;
+        测试拆分数据(did, startTime, endTime, jobWidth, new SplitRoadParams());
+    }
+
+    @Test
     void 临时测试() {
         String did;
         double jobWidth;
@@ -1138,8 +1150,33 @@ public class TestUtilGis {
     }
 
     @Test
+    void 测试小幅宽4() {
+        String did;
+        double jobWidth;
+        String yyyyMMdd = "20260330";
+        String startTime = yyyyMMdd + "000000";
+        String endTime = yyyyMMdd + "235959";
+        did = "EC71GD2503240155";
+        jobWidth = 0.3;
+        测试拆分数据(did, startTime, endTime, jobWidth, new SplitRoadParams());
+    }
+
+
+    @Test
+    void 测试一天两种不同频率() {
+        String did;
+        double jobWidth;
+        String yyyyMMdd = "20260328";
+        String startTime = yyyyMMdd + "000000";
+        String endTime = yyyyMMdd + "235959";
+        did = "EC73BD2512220073";
+        jobWidth = 2.05;
+        测试拆分数据(did, startTime, endTime, jobWidth, new SplitRoadParams().setDbScanEpsilon(20.0).setDbScanMinPoints(10));
+    }
+
+    @Test
     void 重跑某一日测试() {
-        String yyyyMMdd = "20260326";
+        String yyyyMMdd = "20260330";
         String startTime = yyyyMMdd + "000000";
         String endTime = yyyyMMdd + "235959";
         FarmMapper mapper = MyBatis.getMapper(FarmMapper.class);

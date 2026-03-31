@@ -856,7 +856,7 @@ public class ClusterVisualizationGui extends JFrame {
                 SwingUtilities.invokeLater(() -> {
                     displayClusteringResults(labels, eps, minPts);
                     // 【聚类完成提示】显示成功提示框
-                    JOptionPane.showMessageDialog(this, "DBSCAN聚类完成！", "聚类成功", JOptionPane.INFORMATION_MESSAGE);
+                    //JOptionPane.showMessageDialog(this, "DBSCAN聚类完成！", "聚类成功", JOptionPane.INFORMATION_MESSAGE);
                     resetClusterButton();
                 });
 

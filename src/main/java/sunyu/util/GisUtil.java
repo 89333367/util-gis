@@ -169,7 +169,7 @@ public class GisUtil implements AutoCloseable {
         /**
          * 最大切分时间间隔（秒）
          */
-        private final double MAX_SPLIT_SECONDS = 60 * 10;
+        private final double MAX_SPLIT_SECONDS = 60 * 50;
 
         /**
          * 最大切分距离
@@ -4866,7 +4866,7 @@ public class GisUtil implements AutoCloseable {
         // 定义最小返回面积（亩）
         double minReturnMu = config.MIN_RETURN_MU;
         // 【缓冲策略】正缓冲参数
-        double positiveBuffer = Math.max(1.5, workingWidth * config.ADD_POSITIVE_BUFFER);
+        double positiveBuffer = Math.max(2, workingWidth * config.ADD_POSITIVE_BUFFER);
         // 【缓冲策略】负缓冲参数：向下取整，精确切除道路轨迹
         double negativeBuffer = workingWidth * 0.55;
         // 最大切分距离
@@ -4875,18 +4875,10 @@ public class GisUtil implements AutoCloseable {
         // 【聚类参数配置】
         double eps = config.DBSCAN_EPSILON;
         int minPts = config.DBSCAN_MIN_POINTS;
-        if (interval == 1) {
-            eps = 15;
-            minPts = 50;
-        } else if (interval <= 5) {
-            eps = 15;
-            minPts = 50;
-        } else if (interval <= 10) {
-            eps = 40;
-            minPts = 30;
-        } else {
-            eps = 40;
-            minPts = 30;
+        if (interval > 5) {
+            eps = 20;
+            minPts = 10;
+            positiveBuffer = positiveBuffer * 4;
         }
         if (splitRoadParams.getDbScanEpsilon() != null) {
             eps = splitRoadParams.getDbScanEpsilon();
@@ -4929,8 +4921,8 @@ public class GisUtil implements AutoCloseable {
             return splitResult;
         }
 
-        log.info("聚类前参数固定：点位数量[{}]个 数据频率 {}秒 eps[{}]米 minPts[{}]个 最小返回亩数限制[{}]亩 最大时间切分[{}]秒 最大距离切分[{}]米"
-                , gaussPoints.size(), interval, eps, minPts, minReturnMu, config.MAX_SPLIT_SECONDS, maxSplitDistance);
+        log.info("聚类前参数固定：点位数量[{}]个 数据频率 {}秒 eps[{}]米 minPts[{}]个 最小返回亩数限制[{}]亩 正缓冲[{}]米 负缓冲[{}]米 最大时间切分[{}]秒 最大距离切分[{}]米"
+                , gaussPoints.size(), interval, eps, minPts, minReturnMu, positiveBuffer, negativeBuffer, config.MAX_SPLIT_SECONDS, maxSplitDistance);
 
         // 【密度聚类】执行DBSCAN聚类，识别潜在的作业簇群
         List<List<GaussPoint>> clusters = dbScanClusters(gaussPoints, eps, minPts);
@@ -5020,8 +5012,8 @@ public class GisUtil implements AutoCloseable {
                 }
             } else {
                 Geometry unionSplitGuassGeometry = config.EMPTY_GEOMETRY;
-                List<List<GaussPoint>> splitCluster = splitClusterByTimeOrDistance(subGaussPoints, config.MAX_SPLIT_SECONDS, maxSplitDistance);
-                //List<List<GaussPoint>> splitCluster = splitClusterByTime(subGaussPoints, config.MAX_SPLIT_SECONDS);
+                //List<List<GaussPoint>> splitCluster = splitClusterByTimeOrDistance(subGaussPoints, config.MAX_SPLIT_SECONDS, maxSplitDistance);
+                List<List<GaussPoint>> splitCluster = splitClusterByTime(subGaussPoints, config.MAX_SPLIT_SECONDS);
                 //List<List<GaussPoint>> splitCluster = splitClusterByDistance(subGaussPoints, maxSplitDistance);
                 for (List<GaussPoint> subCluster : splitCluster) {
                     // 【坐标提取】将高斯点转换为JTS坐标数组
@@ -5047,10 +5039,9 @@ public class GisUtil implements AutoCloseable {
                         if (newSubGaussGeometry.isEmpty()) {
                             // todo 如果全都能裁剪完成，那么大概率就是道路
                             log.info("裁剪掉了疑似道路的多边形 {}亩", subGaussGeometry.getArea() * config.SQUARE_TO_MU_METER);
-                            subGaussGeometry = newSubGaussGeometry;
+                        } else {
+                            unionSplitGuassGeometry = unionSplitGuassGeometry.union(subGaussGeometry).buffer(0);
                         }
-
-                        unionSplitGuassGeometry = unionSplitGuassGeometry.union(subGaussGeometry).buffer(0);
                     }
                 }
 
@@ -5063,7 +5054,7 @@ public class GisUtil implements AutoCloseable {
             }
 
             if (!clusterGaussGeometry.isEmpty() && clusterGaussGeometry.getArea() * config.SQUARE_TO_MU_METER > minReturnMu) {
-                if (clusterGaussGeometry instanceof MultiPolygon) {
+                if (!clusterGaussGeometry.isEmpty() && clusterGaussGeometry instanceof MultiPolygon) {
                     MultiPolygon multiPolygon = (MultiPolygon) clusterGaussGeometry;
                     for (int i = 0; i < multiPolygon.getNumGeometries(); i++) {
                         Geometry subGeometry = multiPolygon.getGeometryN(i);
