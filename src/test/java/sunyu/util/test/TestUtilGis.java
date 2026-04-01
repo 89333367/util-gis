@@ -7,6 +7,7 @@ import cn.hutool.core.io.FileUtil;
 import cn.hutool.core.io.resource.ResourceUtil;
 import cn.hutool.core.util.ReUtil;
 import cn.hutool.core.util.StrUtil;
+import cn.hutool.json.JSONUtil;
 import cn.hutool.log.Log;
 import cn.hutool.log.LogFactory;
 import org.junit.jupiter.api.Test;
@@ -19,6 +20,7 @@ import sunyu.util.test.entity.DP;
 import sunyu.util.test.entity.FarmWorkSplitDay;
 import sunyu.util.test.mapper.farm.FarmMapper;
 import sunyu.util.test.mapper.tdengine.TdengineMapper;
+import sunyu.util.test.pojo.TestInfo;
 
 import java.time.LocalDateTime;
 import java.util.*;
@@ -117,7 +119,6 @@ public class TestUtilGis {
         partsInfo.add(StrUtil.format("总WKT: {}", splitResult.getWkt()));
         partsInfo.add(StrUtil.format("作业总面积（亩）: {}", splitResult.getMu()));
         partsInfo.add(StrUtil.format("作业时间范围: {} - {}", splitResult.getStartTime(), splitResult.getEndTime()));
-        partsInfo.add(StrUtil.format("最小有效时间间隔（秒）: {}", splitResult.getInterval()));
         partsInfo.add(StrUtil.format("聚类总点数: {}", splitResult.getClusterPointCount()));
         if (splitResult.getCenterWgs84Point() != null) {
             partsInfo.add(StrUtil.format("中心点：经度{},纬度{}", splitResult.getCenterWgs84Point().getLongitude(), splitResult.getCenterWgs84Point().getLatitude()));
@@ -134,14 +135,13 @@ public class TestUtilGis {
             partInfo.add(StrUtil.format("子WKT: {}", farmPlot.getWkt()));
             partInfo.add(StrUtil.format("作业面积（亩）: {}", farmPlot.getMu()));
             partInfo.add(StrUtil.format("作业时间范围: {} - {}", farmPlot.getStartTime(), farmPlot.getEndTime()));
-            partInfo.add(StrUtil.format("最小有效时间间隔（秒）: {}", farmPlot.getInterval()));
             partInfo.add(StrUtil.format("聚类点数: {}", farmPlot.getClusterPointCount()));
             if (farmPlot.getCenterWgs84Point() != null) {
                 partInfo.add(StrUtil.format("中心点：经度{},纬度{}", farmPlot.getCenterWgs84Point().getLongitude(), farmPlot.getCenterWgs84Point().getLatitude()));
             }
             partsInfo.add(StrUtil.join("\n", partInfo) + "\n");
         }
-        String partsFile = StrUtil.format(path + "/{}_{}_{}_{}_{}_parts.txt", did, startTime, endTime, splitResult.getWorkingWidth(), splitResult.getInterval());
+        String partsFile = StrUtil.format(path + "/{}_{}_{}_{}_parts.txt", did, startTime, endTime, splitResult.getWorkingWidth());
         FileUtil.writeUtf8Lines(partsInfo, partsFile);
 
         l = gisUtil.filterWgs84Points(l);
@@ -150,7 +150,7 @@ public class TestUtilGis {
         for (GaussPoint gaussPoint : gaussPointList) {
             gaussXyList.add(StrUtil.format("{},{}", gaussPoint.getGaussX(), gaussPoint.getGaussY()));
         }
-        String fileName = path + StrUtil.format("/{}_{}_{}_{}_{}_gauss.txt", did, startTime, endTime, splitResult.getWorkingWidth(), splitResult.getInterval());
+        String fileName = path + StrUtil.format("/{}_{}_{}_{}_gauss.txt", did, startTime, endTime, splitResult.getWorkingWidth());
         FileUtil.writeUtf8Lines(gaussXyList, fileName);
 
         String html = ResourceUtil.readUtf8Str("showGeometrysTemplate_leaflet.html");
@@ -160,7 +160,7 @@ public class TestUtilGis {
         }
         html = StrUtil.replace(html, "${trace}", trace.toString());
         html = StrUtil.replace(html, "${outline}", splitResult.getWkt());
-        FileUtil.writeUtf8String(html, path + StrUtil.format("/{}_{}_{}_{}_{}.html", did, startTime, endTime, splitResult.getWorkingWidth(), splitResult.getInterval()));
+        FileUtil.writeUtf8String(html, path + StrUtil.format("/{}_{}_{}_{}.html", did, startTime, endTime, splitResult.getWorkingWidth()));
     }
 
     @Test
@@ -1208,6 +1208,52 @@ public class TestUtilGis {
         did = "EC71GD2503240117";
         jobWidth = 2.3;
         测试拆分数据(did, startTime, endTime, jobWidth, new SplitRoadParams());
+    }
+
+    @Test
+    void 测试一个点比较分散的() {
+        String did = "EC71BD2506140030";
+        double jobWidth;
+        String yyyyMMdd = "20260309";
+        String startTime = yyyyMMdd + "000000";
+        String endTime = yyyyMMdd + "235959";
+        jobWidth = 3.61;
+        测试拆分数据(did, startTime, endTime, jobWidth, new SplitRoadParams());
+    }
+
+    @Test
+    void 测试一个大长条() {
+        String did = "EC73BD2510300226";
+        double jobWidth;
+        String yyyyMMdd = "20260309";
+        String startTime = yyyyMMdd + "000000";
+        String endTime = yyyyMMdd + "235959";
+        jobWidth = 1.8;
+        测试拆分数据(did, startTime, endTime, jobWidth, new SplitRoadParams());
+    }
+
+    @Test
+    void 测试停车点() {
+        String did = "EC71GD2411150028";
+        double jobWidth;
+        String yyyyMMdd = "20260309";
+        String startTime = yyyyMMdd + "000000";
+        String endTime = yyyyMMdd + "235959";
+        jobWidth = 2.3;
+        测试拆分数据(did, startTime, endTime, jobWidth, new SplitRoadParams());
+    }
+
+    @Test
+    void 批量测试() {
+        for (TestInfo testInfo : JSONUtil.parseArray(ResourceUtil.readUtf8Str("test.json")).toList(TestInfo.class)) {
+            String did = testInfo.getDid();
+            String day = testInfo.getDay();
+            double width = testInfo.getWidth();
+            String startTime = day + "000000";
+            String endTime = day + "235959";
+            log.info("{} {} {} {} {}", did, day, width, startTime, endTime);
+            测试拆分数据(did, startTime, endTime, width, new SplitRoadParams());
+        }
     }
 
     @Test

@@ -34,10 +34,6 @@ public class FarmPlot {
      */
     private Geometry wgs84Geometry;
     /**
-     * 轨迹点位时间间隔（秒）
-     */
-    private int interval;
-    /**
      * 聚类点的数量
      */
     private int clusterPointCount;
@@ -129,11 +125,4 @@ public class FarmPlot {
         this.centerWgs84Point = centerWgs84Point;
     }
 
-    public int getInterval() {
-        return interval;
-    }
-
-    public void setInterval(int interval) {
-        this.interval = interval;
-    }
 }
