@@ -2174,6 +2174,95 @@ public class GisUtil implements AutoCloseable {
     }
 
     /**
+     * 按时间间隔特征将轨迹分割成多个窗口
+     * <p>
+     * 分割规则：
+     * 1. 间隔秒数完全相同的才算同类型
+     * 2. 必须连续 minConsecutiveCount 个同类型间隔才切换窗口
+     *
+     * @param wgs84Points         WGS84点位列表（已按时间排序）
+     * @param minConsecutiveCount 最小连续间隔数，达到此数量才切换窗口类型
+     * @return 分割后的时间窗口列表
+     */
+    private List<TimeWindow> splitTimeWindows(List<Wgs84Point> wgs84Points, int minConsecutiveCount) {
+        List<TimeWindow> windows = new ArrayList<>();
+
+        if (wgs84Points == null || wgs84Points.size() < 2) {
+            if (wgs84Points != null && !wgs84Points.isEmpty()) {
+                windows.add(new TimeWindow(0, new ArrayList<>(wgs84Points)));
+            }
+            return windows;
+        }
+
+        // 当前窗口
+        List<Wgs84Point> currentWindow = new ArrayList<>();
+        // 当前窗口的间隔类型（用秒数作为类型标识）
+        Long currentIntervalType = null;
+        // 连续计数器
+        int consecutiveCount = 0;
+        // 上一个间隔的类型
+        Long lastIntervalType = null;
+
+        // 添加第一个点
+        currentWindow.add(wgs84Points.get(0));
+
+        for (int i = 0; i < wgs84Points.size() - 1; i++) {
+            Wgs84Point currentPoint = wgs84Points.get(i);
+            Wgs84Point nextPoint = wgs84Points.get(i + 1);
+
+            LocalDateTime currentTime = currentPoint.getGpsTime();
+            LocalDateTime nextTime = nextPoint.getGpsTime();
+
+            if (currentTime == null || nextTime == null) {
+                currentWindow.add(nextPoint);
+                continue;
+            }
+
+            long intervalSeconds = Duration.between(currentTime, nextTime).getSeconds();
+
+            // 使用间隔秒数作为类型标识
+            Long intervalType = intervalSeconds;
+
+            // 初始化当前窗口类型
+            if (currentIntervalType == null) {
+                currentIntervalType = intervalType;
+            }
+
+            // 如果间隔类型变化了
+            if (!intervalType.equals(lastIntervalType)) {
+                consecutiveCount = 1;
+            } else {
+                consecutiveCount++;
+            }
+
+            // 检查是否满足切换条件：不同类型且连续达到阈值
+            if (!intervalType.equals(currentIntervalType) && consecutiveCount >= minConsecutiveCount) {
+                // 切换窗口，保存当前窗口
+                if (!currentWindow.isEmpty()) {
+                    windows.add(new TimeWindow(currentIntervalType, new ArrayList<>(currentWindow)));
+                }
+                currentWindow.clear();
+                currentWindow.add(currentPoint); // 当前点作为新窗口的第一个点
+                currentWindow.add(nextPoint);
+                currentIntervalType = intervalType;
+                consecutiveCount = 0;
+            } else {
+                // 继续当前窗口
+                currentWindow.add(nextPoint);
+            }
+
+            lastIntervalType = intervalType;
+        }
+
+        // 添加最后一个窗口
+        if (!currentWindow.isEmpty()) {
+            windows.add(new TimeWindow(currentIntervalType != null ? currentIntervalType : 0, currentWindow));
+        }
+
+        return windows;
+    }
+
+    /**
      * 仅收缩多边形外边缘，保持内孔洞不变
      * <p>
      * 算法原理：
@@ -4856,6 +4945,14 @@ public class GisUtil implements AutoCloseable {
 
         // 【数据清洗】过滤异常点位，提高聚类准确性
         wgs84Points = filterWgs84Points(wgs84Points);
+
+        // 【时间窗口分割】按时间间隔特征将轨迹分割成多个窗口
+        List<TimeWindow> timeWindows = splitTimeWindows(wgs84Points, 10);
+        log.debug("时间窗口分割完成，共 {} 个窗口", timeWindows.size());
+        for (int i = 0; i < timeWindows.size(); i++) {
+            TimeWindow window = timeWindows.get(i);
+            log.debug("窗口 {}: {}秒间隔 {}个点位", i + 1, window.getInterval(), window.getPoints().size());
+        }
 
         // 【几何参数】计算机具半幅宽，用于后续缓冲半径计算
         double halfWorkingWidth = workingWidth * 0.5;

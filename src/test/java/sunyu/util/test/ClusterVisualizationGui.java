@@ -102,7 +102,7 @@ public class ClusterVisualizationGui extends JFrame {
         selectFileButton = new JButton("选择数据文件");
 
         // eps参数输入验证 - 必须是正整数
-        epsField = new JTextField("15", 8);
+        epsField = new JTextField("10", 8);
         ((AbstractDocument) epsField.getDocument()).setDocumentFilter(new DocumentFilter() {
             /**
              * 插入字符串时验证eps参数的有效性
@@ -179,7 +179,7 @@ public class ClusterVisualizationGui extends JFrame {
             }
         });
 
-        minPtsField = new JTextField("50", 8);
+        minPtsField = new JTextField("45", 8);
         // minPts参数输入验证 - 必须是正整数
         ((AbstractDocument) minPtsField.getDocument()).setDocumentFilter(new DocumentFilter() {
             /**
