@@ -258,9 +258,9 @@ public class GisUtil implements AutoCloseable {
         private final double AREA_DIFFERENCE_MU = 5;
 
         /**
-         * 停车点位范围，如果说有点都在这个范围内，可能是停车
+         * 停车点位圆范围，如果说有点都在这个范围内，可能是停车，单位米
          */
-        private final double PARKING_AREA = 0.6;
+        private final double PARKING_AREA = 30;
 
         /**
          * 如果查询是否在多边形中的总点位数量超过此阈值，则使用模糊查询，否则使用精确查询
@@ -1543,52 +1543,44 @@ public class GisUtil implements AutoCloseable {
      * 如果所有点都在小范围内，说明车辆没有移动，不会产生有效作业面积，
      * 可以提前终止计算，避免执行耗时的DBSCAN聚类算法
      *
-     * @param gaussPoints 高斯投影点列表
-     * @param minReturnMu 最小返回亩数，小于该面积的结果将被过滤
-     * @return true表示所有点都在小范围内，可以提前返回；false表示需要继续处理
+     * @param gaussPoints         高斯投影点列表
+     * @param radiusMeters        圆的半径（米）
+     * @param tolerancePercentage 冗余百分比（如3.5表示允许3.5%的点在圆外），如果圆外点数占比小于等于该值，返回true
+     * @return true表示绝大多数点都在小范围内（停车状态），可以提前返回；false表示需要继续处理
      */
-    private boolean isAllPointsInSmallRange(List<GaussPoint> gaussPoints, double minReturnMu) {
+    private boolean isAllPointsInSmallRange(List<GaussPoint> gaussPoints, double radiusMeters, double tolerancePercentage) {
         if (gaussPoints == null || gaussPoints.size() <= 1) {
             return true;
         }
 
-        // 亩转平方米（1亩≈666.6667平方米）
-        double minReturnSquareMeters = minReturnMu * config.MU_TO_SQUARE_METER;
-        // 计算对应正方形的边长，乘以0.9作为安全系数，确保保守判断
-        double sideLength = Math.sqrt(minReturnSquareMeters) * 0.9;
+        // 计算中心点（所有点的平均位置）
+        double sumX = 0, sumY = 0;
+        for (GaussPoint point : gaussPoints) {
+            sumX += point.getGaussX();
+            sumY += point.getGaussY();
+        }
+        double centerX = sumX / gaussPoints.size();
+        double centerY = sumY / gaussPoints.size();
 
-        // 初始化边界框坐标
-        double minX = gaussPoints.get(0).getGaussX();
-        double maxX = gaussPoints.get(0).getGaussX();
-        double minY = gaussPoints.get(0).getGaussY();
-        double maxY = gaussPoints.get(0).getGaussY();
-
-        // 遍历所有点，找到边界框
-        for (int i = 1; i < gaussPoints.size(); i++) {
-            GaussPoint point = gaussPoints.get(i);
-            double x = point.getGaussX();
-            double y = point.getGaussY();
-
-            if (x < minX) {
-                minX = x;
-            }
-            if (x > maxX) {
-                maxX = x;
-            }
-            if (y < minY) {
-                minY = y;
-            }
-            if (y > maxY) {
-                maxY = y;
+        // 统计在圆内和圆外的点数
+        int insideCount = 0;
+        int outsideCount = 0;
+        for (GaussPoint point : gaussPoints) {
+            double dx = point.getGaussX() - centerX;
+            double dy = point.getGaussY() - centerY;
+            double distance = Math.sqrt(dx * dx + dy * dy);
+            if (distance <= radiusMeters) {
+                insideCount++;
+            } else {
+                outsideCount++;
             }
         }
 
-        // 计算边界框的宽度和高度
-        double width = maxX - minX;
-        double height = maxY - minY;
+        // 计算圆外点的百分比
+        double outsidePercentage = (outsideCount * 100.0) / gaussPoints.size();
 
-        // 如果边界框的宽度和高度都小于等于边长，说明所有点都在小范围内
-        return width <= sideLength && height <= sideLength;
+        // 如果圆外点百分比小于等于冗余百分比，说明是停车状态
+        return outsidePercentage <= tolerancePercentage;
     }
 
     /**
@@ -4953,12 +4945,6 @@ public class GisUtil implements AutoCloseable {
         // 【数据清洗】过滤异常点位，提高聚类准确性
         wgs84Points = filterWgs84Points(wgs84Points);
         List<GaussPoint> allGgaussPoints = toGaussPointList(wgs84Points);
-
-        // 【早期终止】检查所有点是否都在最小亩数范围内，如果是则直接返回，避免执行耗时的聚类算法
-        if (isAllPointsInSmallRange(allGgaussPoints, config.PARKING_AREA)) {
-            log.warn("所有点位都在小范围内，可能是停车点，提前返回");
-            return splitResult;
-        }
 
         log.debug("准备创建所有高斯点位的STRtree索引");
         STRtree gaussPointSTRtreeIndex = new STRtree();

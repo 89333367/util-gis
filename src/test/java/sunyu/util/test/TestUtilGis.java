@@ -1244,6 +1244,17 @@ public class TestUtilGis {
     }
 
     @Test
+    void 测试停车点2() {
+        String did = "EC71BD2505090169";
+        double jobWidth;
+        String yyyyMMdd = "20260309";
+        String startTime = yyyyMMdd + "000000";
+        String endTime = yyyyMMdd + "235959";
+        jobWidth = 2.5;
+        测试拆分数据(did, startTime, endTime, jobWidth, new SplitRoadParams());
+    }
+
+    @Test
     void 批量测试() {
         for (TestInfo testInfo : JSONUtil.parseArray(ResourceUtil.readUtf8Str("test.json")).toList(TestInfo.class)) {
             String did = testInfo.getDid();
