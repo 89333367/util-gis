@@ -1160,10 +1160,17 @@
         map = L.map('map', {
             center: [39.9042, 116.4074], // 北京
             zoom: 11,
-            maxZoom: 23,  // 设置最大缩放级别，支持高精度查看
+            maxZoom: 18,  // 默认最大缩放级别18，自动缩放时限制为18级
             zoomControl: false,
             attributionControl: false
         });
+
+        // 监听滚轮事件，用户手动缩放时放开限制到23级
+        map.getContainer().addEventListener('wheel', function() {
+            if (map.getMaxZoom() !== 23) {
+                map.setMaxZoom(23);
+            }
+        }, { passive: true });
 
         console.log('Map created:', map);
 
