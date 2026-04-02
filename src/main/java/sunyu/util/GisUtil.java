@@ -226,21 +226,55 @@ public class GisUtil implements AutoCloseable {
         private final double MI_TO_DEGREE = 111000.0;
 
         /**
-         * 抽稀角度（度）
-         * 拐角夹角大于它才保留（保点）
+         * 抽稀最小边长（米）
+         * 小于此长度的边视为噪声，不参与计算
          */
-        private final double SIMPLIFY_ANGLE = 15;
+        private final double SIMPLIFY_MIN_EDGE_LEN = 0.5;
 
         /**
-         * 抽稀容差（米）
-         * 两点间距小于它就跳过（删点）
+         * 抽稀拐角角度（度）
+         * 大于此角度的拐角被视为有效转弯，保留拐点
          */
-        private final double SIMPLIFY_TOLERANCE = 1;
+        private final double SIMPLIFY_ANGLE = 10;
+
+        /**
+         * 抽稀最大边长（米）
+         * 超过此距离强制保留点，防止过度简化导致图形失真
+         * 农机作业建议：1.0米（平衡精度和性能）
+         */
+        private final double SIMPLIFY_MAX_EDGE_LEN = 1.0;
 
         /**
          * 最小抽稀点位限制(大于此点位才进行抽稀)
          */
         private final int SIMPLIFY_MIN_POINT = 1000;
+
+        /**
+         * 聚类前距离抽稀的最小距离（米）
+         * 小于此距离视为密集区域（停车点），进行大幅抽稀
+         * 建议：0.5-1.0米，小于作业宽度的一半
+         */
+        private final double CLUSTER_SAMPLING_MIN_DISTANCE = 0.5;
+
+        /**
+         * 聚类前距离抽稀的保留比例
+         * 密集区域（停车点）保留的点比例，大幅抽稀以减少噪声
+         * 建议：0.05-0.1（保留5%-10%的点），停车点只需要少量代表点
+         */
+        private final double CLUSTER_SAMPLING_KEEP_RATIO = 0.1;
+
+        /**
+         * 时间窗口分割的最小连续点数
+         * 小于此数量的连续点不形成独立窗口，会被合并或丢弃
+         */
+        private final int TIME_WINDOW_MIN_CONSECUTIVE_COUNT = 5;
+
+        /**
+         * 时间窗口分割的最大间隔（秒）
+         * 超过此间隔视为新的时间窗口
+         * 默认20分钟（60 * 20）
+         */
+        private final long TIME_WINDOW_MAX_INTERVAL_SECONDS = 60 * 20;
 
         /**
          * 是否将聚类结果再次按照时间或者距离切分
@@ -260,7 +294,7 @@ public class GisUtil implements AutoCloseable {
         /**
          * 停车点位圆范围，如果说有点都在这个范围内，可能是停车，单位米
          */
-        private final double PARKING_AREA = 30;
+        private final double PARKING_AREA = 0.6;
 
         /**
          * 如果查询是否在多边形中的总点位数量超过此阈值，则使用模糊查询，否则使用精确查询
@@ -270,7 +304,7 @@ public class GisUtil implements AutoCloseable {
         /**
          * 将最终几何图形膨胀系数（幅宽 * 这个系数)
          */
-        private final double ADD_POSITIVE_BUFFER = 2;
+        private final double ADD_POSITIVE_BUFFER = 1.5;
     }
 
     public static class Builder {
@@ -1543,44 +1577,52 @@ public class GisUtil implements AutoCloseable {
      * 如果所有点都在小范围内，说明车辆没有移动，不会产生有效作业面积，
      * 可以提前终止计算，避免执行耗时的DBSCAN聚类算法
      *
-     * @param gaussPoints         高斯投影点列表
-     * @param radiusMeters        圆的半径（米）
-     * @param tolerancePercentage 冗余百分比（如3.5表示允许3.5%的点在圆外），如果圆外点数占比小于等于该值，返回true
-     * @return true表示绝大多数点都在小范围内（停车状态），可以提前返回；false表示需要继续处理
+     * @param gaussPoints 高斯投影点列表
+     * @param minReturnMu 最小返回亩数，小于该面积的结果将被过滤
+     * @return true表示所有点都在小范围内，可以提前返回；false表示需要继续处理
      */
-    private boolean isAllPointsInSmallRange(List<GaussPoint> gaussPoints, double radiusMeters, double tolerancePercentage) {
+    private boolean isAllPointsInSmallRange(List<GaussPoint> gaussPoints, double minReturnMu) {
         if (gaussPoints == null || gaussPoints.size() <= 1) {
             return true;
         }
 
-        // 计算中心点（所有点的平均位置）
-        double sumX = 0, sumY = 0;
-        for (GaussPoint point : gaussPoints) {
-            sumX += point.getGaussX();
-            sumY += point.getGaussY();
-        }
-        double centerX = sumX / gaussPoints.size();
-        double centerY = sumY / gaussPoints.size();
+        // 亩转平方米（1亩≈666.6667平方米）
+        double minReturnSquareMeters = minReturnMu * config.MU_TO_SQUARE_METER;
+        // 计算对应正方形的边长，乘以0.9作为安全系数，确保保守判断
+        double sideLength = Math.sqrt(minReturnSquareMeters) * 0.9;
 
-        // 统计在圆内和圆外的点数
-        int insideCount = 0;
-        int outsideCount = 0;
-        for (GaussPoint point : gaussPoints) {
-            double dx = point.getGaussX() - centerX;
-            double dy = point.getGaussY() - centerY;
-            double distance = Math.sqrt(dx * dx + dy * dy);
-            if (distance <= radiusMeters) {
-                insideCount++;
-            } else {
-                outsideCount++;
+        // 初始化边界框坐标
+        double minX = gaussPoints.get(0).getGaussX();
+        double maxX = gaussPoints.get(0).getGaussX();
+        double minY = gaussPoints.get(0).getGaussY();
+        double maxY = gaussPoints.get(0).getGaussY();
+
+        // 遍历所有点，找到边界框
+        for (int i = 1; i < gaussPoints.size(); i++) {
+            GaussPoint point = gaussPoints.get(i);
+            double x = point.getGaussX();
+            double y = point.getGaussY();
+
+            if (x < minX) {
+                minX = x;
+            }
+            if (x > maxX) {
+                maxX = x;
+            }
+            if (y < minY) {
+                minY = y;
+            }
+            if (y > maxY) {
+                maxY = y;
             }
         }
 
-        // 计算圆外点的百分比
-        double outsidePercentage = (outsideCount * 100.0) / gaussPoints.size();
+        // 计算边界框的宽度和高度
+        double width = maxX - minX;
+        double height = maxY - minY;
 
-        // 如果圆外点百分比小于等于冗余百分比，说明是停车状态
-        return outsidePercentage <= tolerancePercentage;
+        // 如果边界框的宽度和高度都小于等于边长，说明所有点都在小范围内
+        return width <= sideLength && height <= sideLength;
     }
 
     /**
@@ -1913,129 +1955,135 @@ public class GisUtil implements AutoCloseable {
     }
 
     /**
-     * 基于角度阈值的快速几何抽稀算法 - 保留特征拐点的高效简化方法。
+     * 基于角度和距离阈值的轨迹抽稀算法 - 保留特征拐点且控制点间距的简化方法
      * <p>
-     * 该算法通过计算连续三点形成的夹角来识别几何图形中的关键拐点，
-     * 实现保留几何特征的同时大幅减少点数量。相比传统的Douglas-Peucker算法，
-     * 该方法具有以下优势：
-     * <ul>
-     *   <li><b>计算复杂度低</b>：线性时间复杂度O(n)，适合实时处理</li>
-     *   <li><b>内存占用少</b>：单次遍历，无需递归或栈结构</li>
-     *   <li><b>特征保留好</b>：基于角度识别，有效保留几何拐点</li>
-     *   <li><b>参数直观</b>：角度阈值易于理解和调整</li>
-     * </ul>
+     * 【核心思想】
+     * 三点形成的夹角越大，说明弯道越急，越需要保留中间点；
+     * 夹角越小（接近180度直线），中间点可以删除；
+     * 但即使直线，也要控制最大间距，防止过度简化导致图形失真。
      * </p>
      * <p>
-     * <b>算法原理：</b>
+     * 【算法流程】
      * <ol>
      *   <li>遍历坐标点序列，计算连续三点形成的向量夹角</li>
-     *   <li>当夹角大于指定阈值时，认定该点为特征拐点并保留</li>
-     *   <li>短边过滤机制：小于最小长度的边直接参与计算但不单独保留端点</li>
+     *   <li>累积从上一次保留点到当前点的距离</li>
+     *   <li>保留条件（满足任一）：
+     *       <ul>
+     *           <li>夹角大于阈值（拐角点）</li>
+     *           <li>累积距离超过最大边长（防止过度简化）</li>
+     *       </ul>
+     *   </li>
+     *   <li>短边过滤：小于最小边长的线段视为噪声，跳过但不重置累积距离</li>
      *   <li>始终保留首尾点，确保几何图形的完整性</li>
      * </ol>
      * </p>
      * <p>
-     * <b>适用场景：</b>
+     * 【参数说明】
      * <ul>
-     *   <li>轨迹数据压缩：GPS轨迹点的简化存储和传输</li>
-     *   <li>几何图形优化：地块边界、道路网络的简化显示</li>
-     *   <li>实时处理：移动端轨迹实时抽稀和上传优化</li>
-     *   <li>数据预处理：为后续空间分析减少计算量</li>
+     *   <li><b>minEdgeLen</b>：最小边长阈值（米），建议 0.3-0.5 米
+     *       <br>作用：过滤GPS抖动产生的噪声点，小于此长度的边视为噪声</li>
+     *   <li><b>minAngleDeg</b>：最小拐角角度（度），建议 5-10 度
+     *       <br>作用：大于此角度的拐角被视为有效转弯，保留拐点</li>
+     *   <li><b>maxEdgeLen</b>：最大边长阈值（米），建议 1-2 米
+     *       <br>作用：即使直线，超过此距离也要保留一个点，防止过度简化</li>
      * </ul>
      * </p>
      * <p>
-     * <b>参数选择建议：</b>
+     * 【使用场景建议】
      * <ul>
-     *   <li><code>minLen</code>：建议设置为轨迹精度的2-3倍，过滤噪声点</li>
-     *   <li><code>minAngleDeg</code>：建议设置为15-30度，平衡简化率和特征保留</li>
-     *   <li>对于城市复杂轨迹：minLen=5-10米，minAngleDeg=20-25度</li>
-     *   <li>对于郊区简单轨迹：minLen=15-25米，minAngleDeg=15-20度</li>
+     *   <li>农机作业轨迹：minEdgeLen=0.5, minAngleDeg=10, maxEdgeLen=1.0</li>
+     *   <li>车辆GPS轨迹：minEdgeLen=1.0, minAngleDeg=5, maxEdgeLen=2.0</li>
+     *   <li>步行/巡检轨迹：minEdgeLen=0.3, minAngleDeg=15, maxEdgeLen=0.5</li>
+     *   <li>无人机航线：minEdgeLen=0.3, minAngleDeg=5, maxEdgeLen=0.5</li>
      * </ul>
      * </p>
      * <p>
-     * <b>实现特点：</b>
-     * <ul>
-     *   <li>使用FastUtil的DoubleList优化内存分配和访问性能</li>
-     *   <li>采用向量化计算，避免复杂的三角函数运算</li>
-     *   <li>支持批量坐标转换，提高处理效率</li>
-     *   <li>边界条件处理：少于3个点直接返回，确保算法稳定性</li>
-     * </ul>
-     * </p>
-     * <p>
-     * <b>注意事项：</b>
+     * 【注意事项】
      * <ul>
      *   <li>输入坐标必须基于高斯投影坐标系，确保距离计算的准确性</li>
-     *   <li>角度计算使用弧度制，内部自动转换为角度进行比较</li>
-     *   <li>算法对噪声敏感，建议先进行轨迹清洗再抽稀</li>
-     *   <li>对于闭合图形，建议手动添加起点到末尾以确保闭合性</li>
+     *   <li>少于3个点无法形成夹角，直接返回原数组</li>
+     *   <li>少于SIMPLIFY_MIN_POINT（默认1000）个点不抽稀，直接返回原数组</li>
+     *   <li>maxEdgeLen 应该明显大于 minEdgeLen，建议比例 2:1 到 5:1</li>
      * </ul>
      * </p>
      *
-     * @param pts         原始坐标点数组，必须基于高斯投影坐标系且包含有效坐标值
-     * @param minLen      最小边长阈值（米），小于该长度的边参与角度计算但不保留中间点，用于过滤短边噪声
-     * @param minAngleDeg 角度阈值（度），连续三点夹角大于该值时保留中间点，建议范围15-30度
-     * @return 抽稀后的坐标数组，保留特征拐点和首尾点，数量小于等于输入点数
+     * @param pts         原始坐标点数组，必须基于高斯投影坐标系
+     * @param minEdgeLen  最小边长阈值（米），小于该长度的边视为噪声
+     * @param minAngleDeg 最小拐角角度（度），大于该角度的拐角保留
+     * @param maxEdgeLen  最大边长阈值（米），超过该距离强制保留点，防止过度简化
+     * @return 抽稀后的坐标数组，保留特征拐点和控制间距的点
      * @see Math#atan2(double, double)
      * @see Math#toDegrees(double)
      * @see Math#hypot(double, double)
-     * @see DoubleArrayList
      */
-    private Coordinate[] simplifyByAngle(Coordinate[] pts, double minLen, double minAngleDeg) {
-        // 边界条件处理：少于3个点无法形成夹角，直接返回原数组，确保算法稳定性
+    private Coordinate[] simplifyByAngle(Coordinate[] pts, double minEdgeLen, double minAngleDeg, double maxEdgeLen) {
+        // 边界条件处理：少于3个点无法形成夹角，直接返回原数组
         if (pts.length < 3) return pts;
 
         log.trace("原始点位数量：{}", pts.length);
 
-        // 小于500个点就不抽稀，直接返回原数组
-        if (pts.length < config.SIMPLIFY_MIN_POINT) return pts;
-
-        // 使用FastUtil的DoubleArrayList优化内存分配：避免频繁的数组扩容，提高存储效率
+        // 使用FastUtil的DoubleArrayList优化内存分配
         DoubleList keep = new DoubleArrayList();
-        // 保留起点：确保几何图形的起始边界，维护图形的完整性
+        // 保留起点
         keep.add(pts[0].x);
         keep.add(pts[0].y);
 
-        // last指针：记录上一个被保留的点的索引，用于计算向量夹角
+        // last指针：记录上一个被保留的点的索引
         int last = 0;
+        // 累积距离：从上一次保留点到当前点的距离
+        double accumulatedLen = 0;
 
-        // 核心算法循环：遍历中间点（排除首尾），计算连续三点形成的向量夹角
+        // 核心算法循环：遍历中间点（排除首尾）
         for (int i = 1; i < pts.length - 1; i++) {
-            // 计算前一个向量：从last点到当前点的向量，用于后续角度计算
+            // 计算从last点到当前点的向量
             double dx1 = pts[i].x - pts[last].x;
             double dy1 = pts[i].y - pts[last].y;
-            // 计算向量长度：使用Math.hypot避免溢出，比sqrt(dx*dx + dy*dy)更安全
             double len1 = Math.hypot(dx1, dy1);
 
-            // 短边过滤机制：小于阈值的边参与角度计算但不保留中间点，有效过滤噪声点
-            if (len1 < minLen) continue;// 短边直接跳过，避免噪声点被误判为拐点
+            // 短边过滤：小于阈值的边视为噪声，跳过但不重置累积距离
+            if (len1 < minEdgeLen) {
+                continue;
+            }
 
-            // 计算后一个向量：从当前点到下一个点的向量，形成三点夹角计算的基础
+            // 累积距离增加
+            accumulatedLen += len1;
+
+            // 计算从当前点到下一个点的向量
             double dx2 = pts[i + 1].x - pts[i].x;
             double dy2 = pts[i + 1].y - pts[i].y;
 
-            // 计算向量夹角：使用atan2获取精确角度，Math.PI - abs(...)确保获得内角
-            // 公式解释：两个向量的方向角差值的补角即为三点形成的夹角
-            double angle = Math.abs(Math.PI - Math.abs(Math.atan2(dy1, dx1) - Math.atan2(dy2, dx2)));
+            // 计算转向角（两向量的夹角）
+            double angle1 = Math.atan2(dy1, dx1);
+            double angle2 = Math.atan2(dy2, dx2);
+            double turnAngle = Math.abs(angle2 - angle1);
+            // 规范化到 [0, PI]
+            if (turnAngle > Math.PI) {
+                turnAngle = 2 * Math.PI - turnAngle;
+            }
+            turnAngle = Math.toDegrees(turnAngle);
 
-            // 拐点判断：角度大于阈值认定为特征拐点，保留该点以维持几何形状特征
-            if (Math.toDegrees(angle) > minAngleDeg) {// 大拐角保留：将弧度转换为角度进行阈值比较
+            // 保留条件：大拐角 或 累积距离超过最大边长
+            boolean isCorner = turnAngle > minAngleDeg;
+            boolean isTooFar = accumulatedLen > maxEdgeLen;
+
+            if (isCorner || isTooFar) {
                 keep.add(pts[i].x);
                 keep.add(pts[i].y);
-                last = i; // 更新last指针：确保后续计算基于最新的特征点
+                last = i;
+                accumulatedLen = 0; // 重置累积距离
             }
         }
 
-        // 保留终点：确保几何图形的结束边界，与起点形成完整的几何图形
+        // 保留终点
         keep.add(pts[pts.length - 1].x);
         keep.add(pts[pts.length - 1].y);
 
-        // 坐标数组转换：将DoubleList中的x,y坐标对转换为Coordinate对象数组
-        Coordinate[] out = new Coordinate[keep.size() >> 1]; // 使用位运算优化：size/2等价于size>>1
+        // 转换为Coordinate数组
+        Coordinate[] out = new Coordinate[keep.size() >> 1];
         for (int i = 0, j = 0; i < out.length; i++, j += 2) {
-            // 批量创建Coordinate对象：每两个double值组成一个坐标点
             out[i] = new Coordinate(keep.getDouble(j), keep.getDouble(j + 1));
         }
-        log.debug("抽稀后点位数量：{}", out.length);
+        log.debug("抽稀后点位数量：{}，抽稀率：{}%", out.length, (1 - (double) out.length / pts.length) * 100);
         return out;
     }
 
@@ -2760,33 +2808,48 @@ public class GisUtil implements AutoCloseable {
     }
 
     /**
-     * 基于空间距离的快速抽稀（保留几何形状）
+     * 基于空间距离的快速抽稀（用于聚类前预处理）
      * <p>
-     * 核心思路：
+     * 【核心思路】
+     * 区分"停车点/密集噪声"和"正常行驶点"：
      * 1. 按时间排序，确保轨迹顺序
-     * 2. 计算相邻点的空间距离
-     * 3. 如果距离小于阈值（说明是停车或密集区域），进行抽稀
-     * 4. 如果距离大于阈值（正常行驶），保留点
+     * 2. 计算与上一个保留点的空间距离
+     * 3. 距离小于minDistance（停车/密集）：大幅抽稀，只保留少量代表点
+     * 4. 距离大于minDistance（正常行驶）：直接保留
      * <p>
-     * 性能优势：
+     * 【为什么这样设计】
+     * - 停车时GPS会产生大量密集点（0.5米内几十个），这些不是有效作业点
+     * - 正常行驶时点位分布合理，应该保留
+     * - 大幅抽稀停车点可以减少噪声，同时不影响聚类
+     * <p>
+     * 【参数建议】
+     * <ul>
+     *   <li>minDistance：0.5-1.0米（小于作业宽度的一半）</li>
+     *   <li>keepRatio：0.05-0.1（停车点只保留5%-10%）</li>
+     * </ul>
+     * <p>
+     * 【注意事项】
+     * <ul>
+     *   <li>minDistance应明显小于eps，避免误伤正常行驶点</li>
+     *   <li>停车点即使抽稀到5%，对于eps=10,minPts=30，0.5米内保留的几个点仍可能被聚类</li>
+     *   <li>如果作业速度很慢（<0.5米/秒），可能需要调大minDistance</li>
+     * </ul>
+     * <p>
+     * 【性能优势】
      * - O(n)时间复杂度，只遍历一次点列表
      * - 不查询空间索引，速度极快
-     * - 基于距离抽稀，能有效保留几何形状
+     * - 大幅抽稀停车点，减少后续聚类计算量
      *
      * @param gaussPoints 原始高斯点列表
-     * @param minDistance 最小距离阈值（米），小于此距离进行抽稀
-     * @param keepRatio   抽稀比例（如0.1表示每10个保留1个）
+     * @param minDistance 最小距离阈值（米），小于此距离视为停车/密集区域进行大幅抽稀
+     * @param keepRatio   密集区域保留比例（如0.1表示每10个保留1个），建议0.05-0.1
      * @return 抽稀后的点列表
+     * @see #dbScanClusters(List, double, int) DBSCAN聚类方法
      */
     private List<GaussPoint> fastDistanceBasedSampling(
             List<GaussPoint> gaussPoints,
             double minDistance,
             double keepRatio) {
-
-        if (gaussPoints.size() <= 100) {
-            return gaussPoints; // 点太少，不抽稀
-        }
-
         log.debug("开始快速距离抽稀：原始{}个点，最小距离{}米，保留比例{}",
                 gaussPoints.size(), minDistance, keepRatio);
 
@@ -4823,14 +4886,12 @@ public class GisUtil implements AutoCloseable {
         log.info("相邻点时间间隔 {}秒", interval);
 
         // 【缓冲策略】正缓冲参数
-        double positiveBuffer = Math.max(1, workingWidth * config.ADD_POSITIVE_BUFFER);
-
-        int minPts = config.DBSCAN_MIN_POINTS;
+        double positiveBuffer = Math.max(2, workingWidth * config.ADD_POSITIVE_BUFFER);
 
         // 【坐标转换】WGS84转高斯投影，保证距离计算和几何操作的精度
         List<GaussPoint> gaussPoints = toGaussPointList(wgs84Points);
-        if (gaussPoints.size() < minPts) {
-            log.warn("作业轨迹点列表必须包含至少 {} 个有效点位", minPts);
+        if (gaussPoints.size() < 3) {
+            log.warn("作业轨迹点列表必须包含至少 {} 个有效点位", 3);
             return farmPlot;
         }
 
@@ -4842,10 +4903,10 @@ public class GisUtil implements AutoCloseable {
                 .map(p -> new Coordinate(p.getGaussX(), p.getGaussY()))
                 .toArray(Coordinate[]::new);
 
-        // 【数据优化】点位过多时进行角度抽稀，平衡精度与性能
-        coords = simplifyByAngle(coords, config.SIMPLIFY_TOLERANCE, config.SIMPLIFY_ANGLE);
+        // 【数据优化】点位过多时进行抽稀，平衡精度与性能
+        coords = simplifyByAngle(coords, config.SIMPLIFY_MIN_EDGE_LEN, config.SIMPLIFY_ANGLE, config.SIMPLIFY_MAX_EDGE_LEN);
 
-        if (coords.length > minPts) {
+        if (coords.length >= 3) {
             // 【几何创建】构建线串并应用缓冲，形成作业区域
             LineString line = config.GEOMETRY_FACTORY.createLineString(coords);
             Geometry gaussGeometry = lowMemBuffer(line, halfWorkingWidth);
@@ -5036,18 +5097,18 @@ public class GisUtil implements AutoCloseable {
             minReturnMu = config.MIN_RETURN_MU;
         }
         // 【缓冲策略】正缓冲参数
-        double positiveBuffer = Math.min(2, workingWidth * config.ADD_POSITIVE_BUFFER);
+        double positiveBuffer = Math.max(2, workingWidth * config.ADD_POSITIVE_BUFFER);
         if (splitRoadParams.getPositiveBuffer() != null) {
             positiveBuffer = splitRoadParams.getPositiveBuffer();
         }
         // 【缓冲策略】负缓冲参数
-        double negativeBuffer = workingWidth * 0.5001;
+        double negativeBuffer = workingWidth * 0.6;
         if (splitRoadParams.getNegativeBuffer() != null) {
             negativeBuffer = splitRoadParams.getNegativeBuffer();
         }
 
         // 【时间窗口分割】按时间间隔特征将轨迹分割成多个窗口
-        List<TimeWindow> timeWindows = splitTimeWindows(wgs84Points, 5, 60 * 5);
+        List<TimeWindow> timeWindows = splitTimeWindows(wgs84Points, config.TIME_WINDOW_MIN_CONSECUTIVE_COUNT, config.TIME_WINDOW_MAX_INTERVAL_SECONDS);
         log.info("时间窗口分割完成，共 {} 个窗口", timeWindows.size());
         for (int timeWindowIndex = 0; timeWindowIndex < timeWindows.size(); timeWindowIndex++) {
             TimeWindow window = timeWindows.get(timeWindowIndex);
@@ -5057,8 +5118,6 @@ public class GisUtil implements AutoCloseable {
                     , timeWindowIndex + 1, window.getInterval(), window.getPoints().size()
                     , windowWgs84Points.get(0).getGpsTime(), windowWgs84Points.get(windowWgs84Points.size() - 1).getGpsTime());
 
-            // 【缓冲策略】正缓冲参数
-            double windowPositiveBuffer = positiveBuffer;
             // 聚类参数
             double eps;
             int minPts;
@@ -5069,7 +5128,6 @@ public class GisUtil implements AutoCloseable {
             } else {
                 eps = 20;
                 minPts = 10;
-                windowPositiveBuffer = windowPositiveBuffer * config.ADD_POSITIVE_BUFFER;
             }
             if (splitRoadParams.getDbScanEpsilon() != null) {
                 eps = splitRoadParams.getDbScanEpsilon();
@@ -5084,17 +5142,15 @@ public class GisUtil implements AutoCloseable {
                 log.debug("高斯点位不足 {}个，抛弃", 3);
             } else {
                 // 【快速抽稀】基于空间距离的简单抽稀，O(n)复杂度，避免空间查询
-                if (gaussPoints.size() > config.SIMPLIFY_MIN_POINT) {
-                    // 策略：如果点与上一个保留点的距离<1米，只保留10%的点（大幅抽稀停车点）
-                    gaussPoints = fastDistanceBasedSampling(gaussPoints, 0.5, 0.1);
-                }
+                // 策略：密集区域进行距离抽稀，平衡性能和聚类成功率
+                gaussPoints = fastDistanceBasedSampling(gaussPoints, config.CLUSTER_SAMPLING_MIN_DISTANCE, config.CLUSTER_SAMPLING_KEEP_RATIO);
 
                 // 如果抽稀后点数太少，直接返回
                 if (gaussPoints.size() < 3) {
                     log.debug("距离抽稀后剩余 {}个 点，少于最小聚类点数 {}个，不再进行后续计算", gaussPoints.size(), 3);
                 } else {
-                    log.info("聚类前参数固定：点位数量[{}]个 数据频率 {}秒 eps[{}]米 minPts[{}]个 最小返回亩数限制[{}]亩 正缓冲[{}]米 负缓冲[{}]米"
-                            , gaussPoints.size(), interval, eps, minPts, minReturnMu, windowPositiveBuffer, negativeBuffer);
+                    log.info("聚类前参数固定：点位数量[{}]个 数据频率 {}秒 eps[{}]米 minPts[{}]个 最小返回亩数限制[{}]亩 正缓冲[{}]米"
+                            , gaussPoints.size(), interval, eps, minPts, minReturnMu, positiveBuffer);
 
                     // 【密度聚类】执行DBSCAN聚类，识别潜在的作业簇群
                     List<List<GaussPoint>> clusters = dbScanClusters(gaussPoints, eps, minPts);
@@ -5117,8 +5173,8 @@ public class GisUtil implements AutoCloseable {
                                         .map(p -> new Coordinate(p.getGaussX(), p.getGaussY()))
                                         .toArray(Coordinate[]::new);
 
-                                // 【数据优化】点位过多时进行角度抽稀，平衡精度与性能
-                                coords = simplifyByAngle(coords, config.SIMPLIFY_TOLERANCE, config.SIMPLIFY_ANGLE);
+                                // 【数据优化】点位过多时进行抽稀，平衡精度与性能
+                                coords = simplifyByAngle(coords, config.SIMPLIFY_MIN_EDGE_LEN, config.SIMPLIFY_ANGLE, config.SIMPLIFY_MAX_EDGE_LEN);
 
                                 if (coords.length < 3) {
                                     log.debug("容差抽稀后点位小于 {}，抛弃", 3);
@@ -5128,13 +5184,8 @@ public class GisUtil implements AutoCloseable {
                                     Geometry gaussGeometry = lowMemBuffer(line, halfWorkingWidth);
 
                                     // todo 填补缝隙
-                                    log.debug("膨胀收缩 {} 米，填补缝隙，膨胀前 {}亩", windowPositiveBuffer, gaussGeometry.getArea() * config.SQUARE_TO_MU_METER);
-                                    gaussGeometry = gaussGeometry
-                                            .buffer(windowPositiveBuffer).buffer(0).buffer(-windowPositiveBuffer).buffer(0);
-                                    log.debug("膨胀后 {}亩", gaussGeometry.getArea() * config.SQUARE_TO_MU_METER);
-
+                                    gaussGeometry = gaussGeometry.buffer(positiveBuffer).buffer(0).buffer(-positiveBuffer).buffer(0);
                                     log.debug("几何图形创建完毕 {}亩", gaussGeometry.getArea() * config.SQUARE_TO_MU_METER);
-
                                     allGeometry.add(gaussGeometry);
                                 }
                             }
@@ -5148,11 +5199,11 @@ public class GisUtil implements AutoCloseable {
         Geometry unionAllGeo = config.GEOMETRY_FACTORY
                 .createGeometryCollection(allGeometry.toArray(new Geometry[0]))
                 // todo 合并所有多边形
-                .union()
-                // todo 再次填补缝隙
-                .buffer(positiveBuffer).buffer(0).buffer(-positiveBuffer).buffer(0)
-                // todo 再次裁切道路
-                .buffer(-negativeBuffer).buffer(0).buffer(negativeBuffer).buffer(0);
+                .union().buffer(0);
+        // todo 再次填补缝隙
+        unionAllGeo = unionAllGeo.buffer(positiveBuffer).buffer(0).buffer(-positiveBuffer).buffer(0);
+        // todo 再次裁切道路
+        unionAllGeo = unionAllGeo.buffer(-negativeBuffer).buffer(0).buffer(negativeBuffer).buffer(0);
         log.info("合并所有几何图形后，生成 {} 个集合图形", unionAllGeo.getNumGeometries());
 
         if (unionAllGeo instanceof MultiPolygon) {
@@ -5253,10 +5304,16 @@ public class GisUtil implements AutoCloseable {
         Geometry wgs84UnionGeometry = config.GEOMETRY_FACTORY.createGeometryCollection(
                 farmPlots.stream().map(FarmPlot::getWgs84Geometry).toArray(Geometry[]::new)).union().buffer(0);
 
+        double sumMu = farmPlots.stream().mapToDouble(FarmPlot::getMu).sum();
+        if (sumMu < minReturnMu) {
+            log.info("最终亩数小于 {}亩，跳过", minReturnMu);
+            return splitResult;
+        }
+
         // 【结果填充】设置最终结果对象的各项属性
         splitResult.setWgs84Geometry(wgs84UnionGeometry);
         splitResult.setWkt(wgs84UnionGeometry.toText());
-        splitResult.setMu(farmPlots.stream().mapToDouble(FarmPlot::getMu).sum());
+        splitResult.setMu(sumMu);
         splitResult.setStartTime(farmPlots.get(0).getStartTime());
         splitResult.setEndTime(farmPlots.get(farmPlots.size() - 1).getEndTime());
         splitResult.setSplitParts(farmPlots);

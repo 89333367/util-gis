@@ -1153,12 +1153,12 @@ public class TestUtilGis {
     void 测试小幅宽1() {
         String did;
         double jobWidth;
-        String yyyyMMdd = "20260326";
+        String yyyyMMdd = "20260309";
         String startTime = yyyyMMdd + "000000";
         String endTime = yyyyMMdd + "235959";
         did = "EC71GD2411150076";
         jobWidth = 0.3;
-        测试拆分数据(did, startTime, endTime, jobWidth, new SplitRoadParams());
+        测试拆分数据(did, startTime, endTime, jobWidth, new SplitRoadParams().setPositiveBuffer(3.0));
     }
 
     @Test
@@ -1301,21 +1301,45 @@ public class TestUtilGis {
     }
 
     @Test
+    void 测试孔洞未填补上() {
+        String did = "EC73BD2510280021";
+        double jobWidth;
+        String yyyyMMdd = "20260309";
+        String startTime = yyyyMMdd + "000000";
+        String endTime = yyyyMMdd + "235959";
+        jobWidth = 2.5;
+        测试拆分数据(did, startTime, endTime, jobWidth, new SplitRoadParams());
+    }
+
+    @Test
+    void 测试1秒拆分有问题的() {
+        String did = "EC73BD2510300358";
+        double jobWidth;
+        String yyyyMMdd = "20260326";
+        String startTime = yyyyMMdd + "000000";
+        String endTime = yyyyMMdd + "235959";
+        jobWidth = 1.7;
+        测试拆分数据(did, startTime, endTime, jobWidth, new SplitRoadParams());
+    }
+
+    @Test
     void 批量测试() {
         for (TestInfo testInfo : JSONUtil.parseArray(ResourceUtil.readUtf8Str("test.json")).toList(TestInfo.class)) {
-            String did = testInfo.getDid();
-            String day = testInfo.getDay();
-            double width = testInfo.getWidth();
-            String startTime = day + "000000";
-            String endTime = day + "235959";
-            log.info("{} {} {} {} {}", did, day, width, startTime, endTime);
-            测试拆分数据(did, startTime, endTime, width, new SplitRoadParams());
+            if (testInfo.getDebug()) {
+                String did = testInfo.getDid();
+                String day = testInfo.getDay();
+                double width = testInfo.getWidth();
+                String startTime = day + "000000";
+                String endTime = day + "235959";
+                log.info("{} {} {} {} {}", did, day, width, startTime, endTime);
+                测试拆分数据(did, startTime, endTime, width, new SplitRoadParams());
+            }
         }
     }
 
     @Test
     void 重跑某一日测试() {
-        String yyyyMMdd = "20260309";
+        String yyyyMMdd = "20260401";
         String startTime = yyyyMMdd + "000000";
         String endTime = yyyyMMdd + "235959";
         FarmMapper mapper = MyBatis.getMapper(FarmMapper.class);

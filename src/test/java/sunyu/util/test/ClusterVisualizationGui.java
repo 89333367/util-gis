@@ -179,7 +179,7 @@ public class ClusterVisualizationGui extends JFrame {
             }
         });
 
-        minPtsField = new JTextField("45", 8);
+        minPtsField = new JTextField("30", 8);
         // minPts参数输入验证 - 必须是正整数
         ((AbstractDocument) minPtsField.getDocument()).setDocumentFilter(new DocumentFilter() {
             /**

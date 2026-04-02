@@ -4,6 +4,7 @@ public class TestInfo {
     private String did;
     private String day;
     private double width;
+    private boolean debug;
 
     public String getDid() {
         return did;
@@ -27,5 +28,13 @@ public class TestInfo {
 
     public void setWidth(double width) {
         this.width = width;
+    }
+
+    public boolean getDebug() {
+        return debug;
+    }
+
+    public void setDebug(boolean debug) {
+        this.debug = debug;
     }
 }
