@@ -10,6 +10,7 @@ import cn.hutool.core.util.StrUtil;
 import cn.hutool.json.JSONUtil;
 import cn.hutool.log.Log;
 import cn.hutool.log.LogFactory;
+import org.jspecify.annotations.NonNull;
 import org.junit.jupiter.api.Test;
 import org.locationtech.jts.geom.Geometry;
 import org.locationtech.jts.geom.MultiPolygon;
@@ -88,27 +89,7 @@ public class TestUtilGis {
     }
 
     void 测试拆分数据(String did, String startTime, String endTime, double jobWidth, SplitRoadParams splitRoadParams) {
-        List<DP> dps = selectWorkPoints(did, LocalDateTimeUtil.parse(startTime, "yyyyMMddHHmmss"), LocalDateTimeUtil.parse(endTime, "yyyyMMddHHmmss"));
-        List<Wgs84Point> l = new ArrayList<>();
-        for (DP dp : dps) {
-            Wgs84Point wgs84Point = new Wgs84Point();
-            wgs84Point.setGpsTime(dp.getP3014());
-            wgs84Point.setLongitude(dp.getP2602());
-            wgs84Point.setLatitude(dp.getP2603());
-            if (dp.getP3020() != null) {
-                wgs84Point.setJobStatus(2);//先设置非作业状态
-                if (dp.getP3020() == 1) {// 终端ACC状态,0关闭，1开启
-                    wgs84Point.setJobStatus(1);
-                }
-            }
-            if (splitRoadParams.getCheckWorkingStatus() && dp.getP4031() != null) {// 作业标识,1作业,0非作业,2暂停
-                wgs84Point.setJobStatus(2);//先设置非作业状态
-                if (dp.getP4031() == 1) {
-                    wgs84Point.setJobStatus(1);//作业标识是1，认为是作业
-                }
-            }
-            l.add(wgs84Point);
-        }
+        List<Wgs84Point> l = getWgs84Points(did, startTime, endTime, splitRoadParams);
 
         List<String> partsInfo = new ArrayList<>();
         SplitResult splitResult = gisUtil.splitRoad(l, jobWidth, splitRoadParams);
@@ -161,6 +142,49 @@ public class TestUtilGis {
         html = StrUtil.replace(html, "${trace}", trace.toString());
         html = StrUtil.replace(html, "${outline}", splitResult.getWkt());
         FileUtil.writeUtf8String(html, path + StrUtil.format("/{}_{}_{}_{}.html", did, startTime, endTime, splitResult.getWorkingWidth()));
+    }
+
+    private @NonNull List<Wgs84Point> getWgs84Points(String did, String startTime, String endTime, SplitRoadParams splitRoadParams) {
+        List<DP> dps = selectWorkPoints(did, LocalDateTimeUtil.parse(startTime, "yyyyMMddHHmmss"), LocalDateTimeUtil.parse(endTime, "yyyyMMddHHmmss"));
+        List<Wgs84Point> l = new ArrayList<>();
+        for (DP dp : dps) {
+            Wgs84Point wgs84Point = new Wgs84Point();
+            wgs84Point.setGpsTime(dp.getP3014());
+            wgs84Point.setLongitude(dp.getP2602());
+            wgs84Point.setLatitude(dp.getP2603());
+            if (dp.getP3020() != null) {
+                wgs84Point.setJobStatus(2);//先设置非作业状态
+                if (dp.getP3020() == 1) {// 终端ACC状态,0关闭，1开启
+                    wgs84Point.setJobStatus(1);
+                }
+            }
+            if (splitRoadParams.getCheckWorkingStatus() && dp.getP4031() != null) {// 作业标识,1作业,0非作业,2暂停
+                wgs84Point.setJobStatus(2);//先设置非作业状态
+                if (dp.getP4031() == 1) {
+                    wgs84Point.setJobStatus(1);//作业标识是1，认为是作业
+                }
+            }
+            l.add(wgs84Point);
+        }
+        return l;
+    }
+
+    @Test
+    void 测试获取wgs84wkt内的点位信息() {
+        String did = "EC73BD2509060248";
+        String yyyyMMdd = "20251023";
+        String startTime = yyyyMMdd + "000000";
+        String endTime = yyyyMMdd + "235959";
+        double jobWidth = 2.5;
+        测试拆分数据(did, startTime, endTime, jobWidth);
+        List<Wgs84Point> l = getWgs84Points(did, startTime, endTime, new SplitRoadParams());
+        SplitResult r = gisUtil.splitRoad(l, jobWidth);
+        List<GaussPoint> gl = gisUtil.getContainsWgs84GeometryPoints(r.getWkt(), l);
+        List<String> trace = new ArrayList<>();
+        for (Wgs84Point wgs84Point : gl) {
+            trace.add(StrUtil.format("{},{},{}", LocalDateTimeUtil.format(wgs84Point.getGpsTime(), "yyyyMMddHHmmss"), wgs84Point.getLongitude(), wgs84Point.getLatitude()));
+        }
+        FileUtil.writeUtf8Lines(trace, path + "/" + did + "_trace.txt");
     }
 
     @Test
@@ -1251,6 +1275,17 @@ public class TestUtilGis {
         String startTime = yyyyMMdd + "000000";
         String endTime = yyyyMMdd + "235959";
         jobWidth = 2.5;
+        测试拆分数据(did, startTime, endTime, jobWidth, new SplitRoadParams());
+    }
+
+    @Test
+    void 测试一个路切不掉的() {
+        String did = "EC71GD2411150022";
+        double jobWidth;
+        String yyyyMMdd = "20260309";
+        String startTime = yyyyMMdd + "000000";
+        String endTime = yyyyMMdd + "235959";
+        jobWidth = 2.4;
         测试拆分数据(did, startTime, endTime, jobWidth, new SplitRoadParams());
     }
 

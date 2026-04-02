@@ -43,7 +43,7 @@
     <groupId>sunyu.util</groupId>
     <artifactId>util-gis</artifactId>
    <!-- {util.version}_{jdk.version} -->
-   <version>10.0_jdk8</version>
+   <version>10.1_jdk8</version>
     <classifier>shaded</classifier>
 </dependency>
 ```
@@ -184,4 +184,7 @@ SplitResult splitResult = gisUtil.splitRoad(wgs84Points, workingWidth);
 
 // 智能作业轨迹道路拆分（自定义参数）
 SplitResult splitResult = gisUtil.splitRoad(wgs84Points, workingWidth, splitRoadParams);
+
+// 获取在wkt内的点位集合
+public List<GaussPoint> getContainsWgs84GeometryPoints(String wgs84Wkt, List<Wgs84Point> wgs84Points);
 ```

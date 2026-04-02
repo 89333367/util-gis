@@ -2084,7 +2084,7 @@ public class GisUtil implements AutoCloseable {
      * @param gaussGeometry 多边形(高斯坐标系)
      * @return
      */
-    private List<GaussPoint> getInGaussGeometryGaussPoints(STRtree pointIndex, Geometry gaussGeometry) {
+    private List<GaussPoint> getInGaussGeometryPoints(STRtree pointIndex, Geometry gaussGeometry) {
         // 定义一个子高斯点位集合列表
         // 【空间过滤】使用STRtree索引筛选出落在子多边形内的点位
         // 先通过索引查询子多边形边界框内的候选点，再精确判断是否在多边形内
@@ -2092,7 +2092,11 @@ public class GisUtil implements AutoCloseable {
         // 按照时间正序排列
         candidatePoints.sort(Comparator.comparing(GaussPoint::getGpsTime));
         return candidatePoints;
-        /*List<GaussPoint> subGaussPoints = new ArrayList<>();
+    }
+
+    private List<GaussPoint> getContainsGaussGeometryPoints(STRtree pointIndex, Geometry gaussGeometry) {
+        List<GaussPoint> candidatePoints = getInGaussGeometryPoints(pointIndex, gaussGeometry);
+        List<GaussPoint> subGaussPoints = new ArrayList<>();
         for (GaussPoint gaussPoint : candidatePoints) {
             // 创建JTS点对象进行精确的空间关系判断
             Coordinate coord = new Coordinate(gaussPoint.getGaussX(), gaussPoint.getGaussY());
@@ -2103,7 +2107,7 @@ public class GisUtil implements AutoCloseable {
                 subGaussPoints.add(gaussPoint);
             }
         }
-        return subGaussPoints;*/
+        return subGaussPoints;
     }
 
     /**
@@ -2937,6 +2941,60 @@ public class GisUtil implements AutoCloseable {
     }
 
     /**
+     * 筛选位于WGS84几何多边形内的点位集合
+     * <p>
+     * 【算法流程】
+     * <ol>
+     * <li>WKT解析：将WGS84坐标系的WKT字符串解析为JTS Geometry对象</li>
+     * <li>投影转换：将WGS84几何转换为高斯投影几何，便于平面空间计算</li>
+     * <li>点位投影：将WGS84点位批量转换为高斯投影点位（保留原始WGS84信息）</li>
+     * <li>空间索引：使用STRtree构建高斯投影点位的空间索引，加速范围查询</li>
+     * <li>空间过滤：通过索引快速筛选落在多边形内的点位</li>
+     * </ol>
+     * <p>
+     * 【技术特点】
+     * <ul>
+     * <li>继承保留：返回的GaussPoint继承自Wgs84Point，同时包含WGS84和高斯投影坐标</li>
+     * <li>高效查询：STRtree空间索引将查询复杂度从O(n)优化至O(log n)</li>
+     * <li>投影一致：自动根据几何中心计算统一投影带，确保坐标一致性</li>
+     * </ul>
+     * <p>
+     * 【适用场景】
+     * <ul>
+     * <li>地理围栏：筛选进入指定区域的GPS轨迹点</li>
+     * <li>地块分析：提取位于特定地块内的作业点位</li>
+     * <li>空间统计：计算多边形内的点位密度和分布</li>
+     * </ul>
+     *
+     * @param wgs84Wkt    WGS84坐标系的多边形WKT字符串，支持POLYGON、MULTIPOLYGON等类型
+     * @param wgs84Points WGS84坐标系的点位集合，每个点包含经纬度和时间信息
+     * @return 位于多边形内的GaussPoint集合，包含原始WGS84和高斯投影坐标；无匹配点返回空列表
+     * @see #toWgs84Geometry(String) WKT解析方法
+     * @see #toGaussGeometry(Geometry) 投影转换方法
+     * @see #toGaussPointList(List) 点位投影转换方法
+     * @see #getInGaussGeometryPoints(STRtree, Geometry) 空间查询方法
+     */
+    public List<GaussPoint> getContainsWgs84GeometryPoints(String wgs84Wkt, List<Wgs84Point> wgs84Points) {
+        List<Wgs84Point> l = new ArrayList<>();
+        Geometry wgs84Geomtry = toWgs84Geometry(wgs84Wkt);
+        Geometry gaussGeometry = toGaussGeometry(wgs84Geomtry);
+        List<GaussPoint> gaussPoints = toGaussPointList(wgs84Points);
+        log.debug("准备创建所有高斯点位的STRtree索引");
+        STRtree gaussPointSTRtreeIndex = new STRtree();
+        for (GaussPoint gaussPoint : gaussPoints) {
+            // 创建Envelope作为索引键，存储GaussPoint对象作为值
+            Envelope envelope = new Envelope(
+                    gaussPoint.getGaussX(), gaussPoint.getGaussX(),
+                    gaussPoint.getGaussY(), gaussPoint.getGaussY()
+            );
+            gaussPointSTRtreeIndex.insert(envelope, gaussPoint);
+        }
+        gaussPointSTRtreeIndex.build(); // 构建索引
+        log.debug("构建索引完毕");
+        return getContainsGaussGeometryPoints(gaussPointSTRtreeIndex, gaussGeometry);
+    }
+
+    /**
      * 将WGS84 WKT字符串转换为四维坐标数组
      * <p>
      * 【数据结构】返回标准四维数组：[几何索引][环索引][点索引][坐标分量]
@@ -3216,7 +3274,6 @@ public class GisUtil implements AutoCloseable {
 
         // 【空间去重阶段】去除完全重复的点位，减少数据冗余并提高后续处理效率
         log.debug("准备去重完全重复的轨迹点");
-
         // 【LinkedHashMap有序去重】使用LinkedHashMap保持点位的时间顺序
         // key使用"经度,纬度"格式，确保坐标完全相同的点位被识别为重复
         Map<String, Wgs84Point> pointMap = new LinkedHashMap<>();
@@ -4944,11 +5001,11 @@ public class GisUtil implements AutoCloseable {
 
         // 【数据清洗】过滤异常点位，提高聚类准确性
         wgs84Points = filterWgs84Points(wgs84Points);
-        List<GaussPoint> allGgaussPoints = toGaussPointList(wgs84Points);
+        List<GaussPoint> allGaussPoints = toGaussPointList(wgs84Points);
 
         log.debug("准备创建所有高斯点位的STRtree索引");
         STRtree gaussPointSTRtreeIndex = new STRtree();
-        for (GaussPoint gaussPoint : allGgaussPoints) {
+        for (GaussPoint gaussPoint : allGaussPoints) {
             // 创建Envelope作为索引键，存储GaussPoint对象作为值
             Envelope envelope = new Envelope(
                     gaussPoint.getGaussX(), gaussPoint.getGaussX(),
@@ -5099,7 +5156,7 @@ public class GisUtil implements AutoCloseable {
                     log.debug("抛弃了一个多边形 {}亩", subGeometry.getArea() * config.SQUARE_TO_MU_METER);
                     continue;
                 }
-                List<GaussPoint> inSubGaussPoints = getInGaussGeometryGaussPoints(gaussPointSTRtreeIndex, subGeometry);
+                List<GaussPoint> inSubGaussPoints = getInGaussGeometryPoints(gaussPointSTRtreeIndex, subGeometry);
                 if (CollUtil.isEmpty(inSubGaussPoints)) {
                     log.debug("没有找到在多边形内的点位信息");
                 } else {
@@ -5117,7 +5174,7 @@ public class GisUtil implements AutoCloseable {
                 }
             }
         } else if (unionAllGeo instanceof Polygon) {
-            List<GaussPoint> inSubGaussPoints = getInGaussGeometryGaussPoints(gaussPointSTRtreeIndex, unionAllGeo);
+            List<GaussPoint> inSubGaussPoints = getInGaussGeometryPoints(gaussPointSTRtreeIndex, unionAllGeo);
             if (CollUtil.isEmpty(inSubGaussPoints)) {
                 log.debug("没有找到在多边形内的点位信息");
             } else {
