@@ -2094,6 +2094,13 @@ public class GisUtil implements AutoCloseable {
         return candidatePoints;
     }
 
+    /**
+     * 获得在多边形内的点位集合，但是会精确判断点位是否在轮廓内
+     *
+     * @param pointIndex    所有点位索引(高斯坐标系)
+     * @param gaussGeometry 多边形(高斯坐标系)
+     * @return
+     */
     private List<GaussPoint> getContainsGaussGeometryPoints(STRtree pointIndex, Geometry gaussGeometry) {
         List<GaussPoint> candidatePoints = getInGaussGeometryPoints(pointIndex, gaussGeometry);
         List<GaussPoint> subGaussPoints = new ArrayList<>();
@@ -5019,12 +5026,24 @@ public class GisUtil implements AutoCloseable {
         // 所有多边形
         List<Geometry> allGeometry = new ArrayList<>();
         List<FarmPlot> farmPlots = new ArrayList<>();
+        // 【几何参数】计算机具半幅宽，用于后续缓冲半径计算
+        double halfWorkingWidth = workingWidth * 0.5;
         // 定义最小返回面积（亩）
         double minReturnMu;
         if (splitRoadParams.getMinReturnMu() != null) {
             minReturnMu = splitRoadParams.getMinReturnMu();
         } else {
             minReturnMu = config.MIN_RETURN_MU;
+        }
+        // 【缓冲策略】正缓冲参数
+        double positiveBuffer = Math.min(2, workingWidth * config.ADD_POSITIVE_BUFFER);
+        if (splitRoadParams.getPositiveBuffer() != null) {
+            positiveBuffer = splitRoadParams.getPositiveBuffer();
+        }
+        // 【缓冲策略】负缓冲参数
+        double negativeBuffer = workingWidth * 0.5001;
+        if (splitRoadParams.getNegativeBuffer() != null) {
+            negativeBuffer = splitRoadParams.getNegativeBuffer();
         }
 
         // 【时间窗口分割】按时间间隔特征将轨迹分割成多个窗口
@@ -5038,12 +5057,8 @@ public class GisUtil implements AutoCloseable {
                     , timeWindowIndex + 1, window.getInterval(), window.getPoints().size()
                     , windowWgs84Points.get(0).getGpsTime(), windowWgs84Points.get(windowWgs84Points.size() - 1).getGpsTime());
 
-            // 【几何参数】计算机具半幅宽，用于后续缓冲半径计算
-            double halfWorkingWidth = workingWidth * 0.5;
             // 【缓冲策略】正缓冲参数
-            double positiveBuffer = Math.max(1.5, workingWidth);
-            // 【缓冲策略】负缓冲参数：向下取整，精确切除道路轨迹
-            double negativeBuffer = workingWidth * 0.5;
+            double windowPositiveBuffer = positiveBuffer;
             // 聚类参数
             double eps;
             int minPts;
@@ -5054,19 +5069,13 @@ public class GisUtil implements AutoCloseable {
             } else {
                 eps = 20;
                 minPts = 10;
-                positiveBuffer = positiveBuffer * config.ADD_POSITIVE_BUFFER;
+                windowPositiveBuffer = windowPositiveBuffer * config.ADD_POSITIVE_BUFFER;
             }
             if (splitRoadParams.getDbScanEpsilon() != null) {
                 eps = splitRoadParams.getDbScanEpsilon();
             }
             if (splitRoadParams.getDbScanMinPoints() != null) {
                 minPts = splitRoadParams.getDbScanMinPoints();
-            }
-            if (splitRoadParams.getPositiveBuffer() != null) {
-                positiveBuffer = splitRoadParams.getPositiveBuffer();
-            }
-            if (splitRoadParams.getNegativeBuffer() != null) {
-                negativeBuffer = splitRoadParams.getNegativeBuffer();
             }
 
             // 【坐标转换】WGS84转高斯投影，保证距离计算和几何操作的精度
@@ -5085,7 +5094,7 @@ public class GisUtil implements AutoCloseable {
                     log.debug("距离抽稀后剩余 {}个 点，少于最小聚类点数 {}个，不再进行后续计算", gaussPoints.size(), 3);
                 } else {
                     log.info("聚类前参数固定：点位数量[{}]个 数据频率 {}秒 eps[{}]米 minPts[{}]个 最小返回亩数限制[{}]亩 正缓冲[{}]米 负缓冲[{}]米"
-                            , gaussPoints.size(), interval, eps, minPts, minReturnMu, positiveBuffer, negativeBuffer);
+                            , gaussPoints.size(), interval, eps, minPts, minReturnMu, windowPositiveBuffer, negativeBuffer);
 
                     // 【密度聚类】执行DBSCAN聚类，识别潜在的作业簇群
                     List<List<GaussPoint>> clusters = dbScanClusters(gaussPoints, eps, minPts);
@@ -5119,9 +5128,9 @@ public class GisUtil implements AutoCloseable {
                                     Geometry gaussGeometry = lowMemBuffer(line, halfWorkingWidth);
 
                                     // todo 填补缝隙
-                                    log.debug("膨胀收缩 {} 米，填补缝隙，膨胀前 {}亩", positiveBuffer, gaussGeometry.getArea() * config.SQUARE_TO_MU_METER);
+                                    log.debug("膨胀收缩 {} 米，填补缝隙，膨胀前 {}亩", windowPositiveBuffer, gaussGeometry.getArea() * config.SQUARE_TO_MU_METER);
                                     gaussGeometry = gaussGeometry
-                                            .buffer(positiveBuffer).buffer(0).buffer(-positiveBuffer).buffer(0);
+                                            .buffer(windowPositiveBuffer).buffer(0).buffer(-windowPositiveBuffer).buffer(0);
                                     log.debug("膨胀后 {}亩", gaussGeometry.getArea() * config.SQUARE_TO_MU_METER);
 
                                     log.debug("几何图形创建完毕 {}亩", gaussGeometry.getArea() * config.SQUARE_TO_MU_METER);
@@ -5136,7 +5145,6 @@ public class GisUtil implements AutoCloseable {
         }
 
         log.info("生成 {} 个几何图形", allGeometry.size());
-        double positiveBuffer = Math.min(2, workingWidth * config.ADD_POSITIVE_BUFFER);
         Geometry unionAllGeo = config.GEOMETRY_FACTORY
                 .createGeometryCollection(allGeometry.toArray(new Geometry[0]))
                 // todo 合并所有多边形
@@ -5144,7 +5152,7 @@ public class GisUtil implements AutoCloseable {
                 // todo 再次填补缝隙
                 .buffer(positiveBuffer).buffer(0).buffer(-positiveBuffer).buffer(0)
                 // todo 再次裁切道路
-                .buffer(-workingWidth * 0.5).buffer(0).buffer(workingWidth * 0.5).buffer(0);
+                .buffer(-negativeBuffer).buffer(0).buffer(negativeBuffer).buffer(0);
         log.info("合并所有几何图形后，生成 {} 个集合图形", unionAllGeo.getNumGeometries());
 
         if (unionAllGeo instanceof MultiPolygon) {
