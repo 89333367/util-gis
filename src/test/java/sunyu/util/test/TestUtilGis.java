@@ -1323,6 +1323,17 @@ public class TestUtilGis {
     }
 
     @Test
+    void 验证测试() {
+        String did = "EC73BD2601030101";
+        double jobWidth;
+        String yyyyMMdd = "20260324";
+        String startTime = yyyyMMdd + "000000";
+        String endTime = yyyyMMdd + "235959";
+        jobWidth = 2.5;
+        测试拆分数据(did, startTime, endTime, jobWidth, new SplitRoadParams());
+    }
+
+    @Test
     void 批量测试() {
         for (TestInfo testInfo : JSONUtil.parseArray(ResourceUtil.readUtf8Str("test.json")).toList(TestInfo.class)) {
             if (testInfo.getDebug()) {
@@ -1339,7 +1350,7 @@ public class TestUtilGis {
 
     @Test
     void 重跑某一日测试() {
-        String yyyyMMdd = "20260401";
+        String yyyyMMdd = "20260331";
         String startTime = yyyyMMdd + "000000";
         String endTime = yyyyMMdd + "235959";
         FarmMapper mapper = MyBatis.getMapper(FarmMapper.class);
