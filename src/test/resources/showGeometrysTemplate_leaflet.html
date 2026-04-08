@@ -1043,6 +1043,42 @@
         { outline: "#800000", fill: "#CC6666", opacity: 0.5 }
     ];
 
+    // 将十六进制颜色转换为RGB
+    function hexToRgb(hex) {
+        const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+        return result ? {
+            r: parseInt(result[1], 16),
+            g: parseInt(result[2], 16),
+            b: parseInt(result[3], 16)
+        } : null;
+    }
+
+    // 计算两个颜色的相似度（欧几里得距离）
+    function colorDistance(color1, color2) {
+        const rgb1 = hexToRgb(color1);
+        const rgb2 = hexToRgb(color2);
+        if (!rgb1 || !rgb2) return 0;
+        return Math.sqrt(
+            Math.pow(rgb1.r - rgb2.r, 2) +
+            Math.pow(rgb1.g - rgb2.g, 2) +
+            Math.pow(rgb1.b - rgb2.b, 2)
+        );
+    }
+
+    // 检查颜色是否与轨迹颜色冲突（太相似）
+    function isColorConflictingWithTrack(polygonColor) {
+        const threshold = 150; // 颜色相似度阈值，调整以正确过滤红色系
+        const trackLineDist = colorDistance(polygonColor.fill, currentTrackLineColor);
+        const trackPointDist = colorDistance(polygonColor.fill, currentTrackPointColor);
+        // 如果与轨迹线颜色或轨迹点颜色太相似，则认为冲突
+        return trackLineDist < threshold || trackPointDist < threshold;
+    }
+
+    // 获取可用的多边形颜色（排除与轨迹颜色冲突的颜色）
+    function getAvailablePolygonColors() {
+        return polygonColors.filter(color => !isColorConflictingWithTrack(color));
+    }
+
     // 显示播放器
     function showPlaybackPlayer() {
         if (playbackPlayer) {
@@ -2177,8 +2213,12 @@
             }
 
             // 为每个多边形创建图层
+            const availableColors = getAvailablePolygonColors();
+            // 如果所有颜色都与轨迹冲突，使用原始颜色池但发出警告
+            const useColorPool = availableColors.length > 0 ? availableColors : polygonColors;
+
             polygonData.forEach((data, idx) => {
-                const colorScheme = polygonColors[data.colorIndex % polygonColors.length];
+                const colorScheme = useColorPool[data.colorIndex % useColorPool.length];
                 const style = {
                     color: '#FFD700',
                     weight: 1,
