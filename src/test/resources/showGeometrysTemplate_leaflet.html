@@ -873,6 +873,30 @@
                                 <button id="playbackToggleBtn" class="btn btn-primary">▶️ 轨迹回放</button>
                             </div>
                         </div>
+                        <!-- 速度过滤 -->
+                        <div class="split-section" style="margin-top:8px;">
+                            <div class="speed-filter-actions" style="display:flex;gap:8px;margin-bottom:8px;align-items:center;flex-wrap:wrap;">
+                                <button id="filterSpeedBtn" class="btn btn-primary">🚫 过滤速度</button>
+                                <div style="display:flex;align-items:center;gap:4px;">
+                                    <input type="number" id="speedFilterMin" value="0.3" step="0.1" min="0"
+                                           style="width:60px;padding:4px;border:1px solid #ddd;border-radius:4px;font-size:12px;"
+                                           title="最小速度">
+                                    <span style="font-size:12px;color:#666;">-</span>
+                                    <input type="number" id="speedFilterMax" value="15.5" step="0.1" min="0"
+                                           style="width:60px;padding:4px;border:1px solid #ddd;border-radius:4px;font-size:12px;"
+                                           title="最大速度">
+                                    <span style="font-size:12px;color:#666;">km/h</span>
+                                </div>
+                            </div>
+                            <!-- 统计信息显示 -->
+                            <div id="speedFilterStats" style="font-size:11px;color:#666;background:#f5f5f5;padding:6px 8px;border-radius:4px;display:none;">
+                                <div>总点数: <span id="totalPointsCount">0</span></div>
+                                <div>显示: <span id="shownPointsCount" style="color:#28a745;font-weight:bold;">0</span> | 过滤: <span id="filteredPointsCount" style="color:#dc3545;font-weight:bold;">0</span></div>
+                                <div style="margin-top:2px;padding-top:2px;border-top:1px dashed #ddd;">
+                                    小于最小值: <span id="filteredByMinCount" style="color:#fd7e14;">0</span> | 大于最大值: <span id="filteredByMaxCount" style="color:#fd7e14;">0</span>
+                                </div>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -952,6 +976,9 @@
     // 当前几何图形
     let currentOutline = null;
     let currentTrack = null;
+
+    // 轨迹显示模式：'line' 表示画线，'points' 表示打点
+    let trackDisplayMode = 'line';
 
     // 轨迹回放相关
     let playbackState = {
@@ -1566,6 +1593,25 @@
         }
     }
 
+    // 更新速度过滤统计信息显示
+    function updateSpeedFilterStats(total, shown, filteredByMin, filteredByMax) {
+        const statsDiv = document.getElementById('speedFilterStats');
+        const totalSpan = document.getElementById('totalPointsCount');
+        const shownSpan = document.getElementById('shownPointsCount');
+        const filteredSpan = document.getElementById('filteredPointsCount');
+        const filteredByMinSpan = document.getElementById('filteredByMinCount');
+        const filteredByMaxSpan = document.getElementById('filteredByMaxCount');
+
+        if (statsDiv) {
+            statsDiv.style.display = 'block';
+        }
+        if (totalSpan) totalSpan.textContent = total;
+        if (shownSpan) shownSpan.textContent = shown;
+        if (filteredSpan) filteredSpan.textContent = filteredByMin + filteredByMax;
+        if (filteredByMinSpan) filteredByMinSpan.textContent = filteredByMin;
+        if (filteredByMaxSpan) filteredByMaxSpan.textContent = filteredByMax;
+    }
+
     // 右键菜单功能函数
     function showContextMenu(event) {
         if (!contextMenu) {
@@ -1852,9 +1898,28 @@
         const showTrackPointsBtn = document.getElementById('showTrackPointsButton');
         const clearTrackBtn = document.getElementById('clearTrackButton');
 
-        if (drawTrackBtn) drawTrackBtn.addEventListener('click', drawTrack);
-        if (showTrackPointsBtn) showTrackPointsBtn.addEventListener('click', showTrackPoints);
+        if (drawTrackBtn) drawTrackBtn.addEventListener('click', function() {
+            trackDisplayMode = 'line';
+            drawTrack();
+        });
+        if (showTrackPointsBtn) showTrackPointsBtn.addEventListener('click', function() {
+            trackDisplayMode = 'points';
+            showTrackPoints();
+        });
         if (clearTrackBtn) clearTrackBtn.addEventListener('click', clearTrack);
+
+        // 速度过滤按钮
+        const filterSpeedBtn = document.getElementById('filterSpeedBtn');
+        if (filterSpeedBtn) {
+            filterSpeedBtn.addEventListener('click', function() {
+                // 根据当前显示模式决定是画线还是打点
+                if (trackDisplayMode === 'line') {
+                    drawTrack();
+                } else {
+                    showTrackPoints();
+                }
+            });
+        }
 
         // 轨迹回放切换按钮 - 始终可点击，点击时进行初始化检查
         const playbackToggleBtn = document.getElementById('playbackToggleBtn');
@@ -2549,6 +2614,18 @@
             }
         }
 
+        // 解析速度过滤值
+        const speedFilterMinInput = document.getElementById('speedFilterMin');
+        const speedFilterMaxInput = document.getElementById('speedFilterMax');
+        const speedMin = speedFilterMinInput ? parseFloat(speedFilterMinInput.value) || 0 : 0;
+        const speedMax = speedFilterMaxInput ? parseFloat(speedFilterMaxInput.value) || Infinity : Infinity;
+
+        // 统计信息
+        let totalPointsCount = 0;
+        let filteredByMinCount = 0;
+        let filteredByMaxCount = 0;
+        let shownPointsCount = 0;
+
         // 解析轨迹数据
         const points = [];
         const lines = trackText.split('\n');
@@ -2557,24 +2634,24 @@
             line = line.trim();
             if (!line) return;
 
-            // 支持两种格式：
-            // 1. 经度,纬度,时间戳
-            // 2. 时间戳,经度,纬度
+            // 支持格式：时间戳,经度,纬度,速度
             const parts = line.split(',');
             if (parts.length >= 3) {
-                let lng, lat, timestamp;
+                let lng, lat, timestamp, speed;
 
                 // 判断格式：如果第一部分是数字且长度大于10，可能是时间戳
                 if (parts[0].trim().length > 10 && !isNaN(parts[0].trim())) {
-                    // 格式：时间戳,经度,纬度
+                    // 格式：时间戳,经度,纬度[,速度]
                     timestamp = parts[0].trim();
                     lng = parseFloat(parts[1].trim());
                     lat = parseFloat(parts[2].trim());
+                    speed = parts.length >= 4 ? parseFloat(parts[3].trim()) : null;
                 } else {
-                    // 格式：经度,纬度,时间戳
+                    // 格式：经度,纬度,时间戳[,速度]
                     lng = parseFloat(parts[0].trim());
                     lat = parseFloat(parts[1].trim());
                     timestamp = parts[2].trim();
+                    speed = parts.length >= 4 ? parseFloat(parts[3].trim()) : null;
                 }
 
                 if (!isNaN(lng) && !isNaN(lat) && timestamp && lat !== 0 && lng !== 0) {
@@ -2587,15 +2664,35 @@
                         }
                     }
 
+                    totalPointsCount++;
+
+                    // 速度范围过滤：只保留在[speedMin, speedMax]范围内的点
+                    // 如果速度值为null或无效，则保留该点（不过滤）
+                    if (speed !== null && !isNaN(speed)) {
+                        if (speed < speedMin) {
+                            filteredByMinCount++;
+                            return; // 跳过速度小于最小值的点
+                        }
+                        if (speed > speedMax) {
+                            filteredByMaxCount++;
+                            return; // 跳过速度大于最大值的点
+                        }
+                    }
+
+                    shownPointsCount++;
                     points.push({
                         lat: lat,
                         lng: lng,
                         timestamp: timestamp,
-                        time: pointTime
+                        time: pointTime,
+                        speed: speed
                     });
                 }
             }
         });
+
+        // 更新统计信息显示
+        updateSpeedFilterStats(totalPointsCount, shownPointsCount, filteredByMinCount, filteredByMaxCount);
 
         if (points.length < 2) {
             alert('该时间范围内的有效轨迹点不足，至少需要两点');
@@ -2770,6 +2867,18 @@
             }
         }
 
+        // 解析速度过滤值
+        const speedFilterMinInput = document.getElementById('speedFilterMin');
+        const speedFilterMaxInput = document.getElementById('speedFilterMax');
+        const speedMin = speedFilterMinInput ? parseFloat(speedFilterMinInput.value) || 0 : 0;
+        const speedMax = speedFilterMaxInput ? parseFloat(speedFilterMaxInput.value) || Infinity : Infinity;
+
+        // 统计信息
+        let totalPointsCount = 0;
+        let filteredByMinCount = 0;
+        let filteredByMaxCount = 0;
+        let shownPointsCount = 0;
+
         // 解析轨迹数据
         const points = [];
         const lines = trackText.split('\n');
@@ -2778,24 +2887,24 @@
             line = line.trim();
             if (!line) return;
 
-            // 支持两种格式：
-            // 1. 经度,纬度,时间戳
-            // 2. 时间戳,经度,纬度
+            // 支持格式：时间戳,经度,纬度,速度
             const parts = line.split(',');
             if (parts.length >= 3) {
-                let lng, lat, timestamp;
+                let lng, lat, timestamp, speed;
 
                 // 判断格式：如果第一部分是数字且长度大于10，可能是时间戳
                 if (parts[0].trim().length > 10 && !isNaN(parts[0].trim())) {
-                    // 格式：时间戳,经度,纬度
+                    // 格式：时间戳,经度,纬度[,速度]
                     timestamp = parts[0].trim();
                     lng = parseFloat(parts[1].trim());
                     lat = parseFloat(parts[2].trim());
+                    speed = parts.length >= 4 ? parseFloat(parts[3].trim()) : null;
                 } else {
-                    // 格式：经度,纬度,时间戳
+                    // 格式：经度,纬度,时间戳[,速度]
                     lng = parseFloat(parts[0].trim());
                     lat = parseFloat(parts[1].trim());
                     timestamp = parts[2].trim();
+                    speed = parts.length >= 4 ? parseFloat(parts[3].trim()) : null;
                 }
 
                 if (!isNaN(lng) && !isNaN(lat) && timestamp && lat !== 0 && lng !== 0) {
@@ -2808,15 +2917,35 @@
                         }
                     }
 
+                    totalPointsCount++;
+
+                    // 速度范围过滤：只保留在[speedMin, speedMax]范围内的点
+                    // 如果速度值为null或无效，则保留该点（不过滤）
+                    if (speed !== null && !isNaN(speed)) {
+                        if (speed < speedMin) {
+                            filteredByMinCount++;
+                            return; // 跳过速度小于最小值的点
+                        }
+                        if (speed > speedMax) {
+                            filteredByMaxCount++;
+                            return; // 跳过速度大于最大值的点
+                        }
+                    }
+
+                    shownPointsCount++;
                     points.push({
                         lat: lat,
                         lng: lng,
                         timestamp: timestamp,
-                        time: pointTime
+                        time: pointTime,
+                        speed: speed
                     });
                 }
             }
         });
+
+        // 更新统计信息显示
+        updateSpeedFilterStats(totalPointsCount, shownPointsCount, filteredByMinCount, filteredByMaxCount);
 
         if (points.length === 0) {
             alert('该时间范围内没有找到轨迹点');
