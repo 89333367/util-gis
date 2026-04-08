@@ -9,6 +9,7 @@ public class DP {
     private Integer p3020;
     private Integer p4031;
     private String protocol;
+    private Double p2204;
 
     public LocalDateTime getP3014() {
         return p3014;
@@ -56,5 +57,13 @@ public class DP {
 
     public void setProtocol(String protocol) {
         this.protocol = protocol;
+    }
+
+    public Double getP2204() {
+        return p2204;
+    }
+
+    public void setP2204(Double p2204) {
+        this.p2204 = p2204;
     }
 }

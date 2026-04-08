@@ -4,7 +4,7 @@
 <mapper namespace="sunyu.util.test.mapper.tdengine.TdengineMapper">
 
     <select id="selectWorkPoints" resultType="sunyu.util.test.entity.DP">
-        select `3014` p3014,`2602` p2602,`2603` p2603,`3020` p3020,`4031` p4031 from frequent.d_p
+        select `3014` p3014,`2602` p2602,`2603` p2603,`3020` p3020,`4031` p4031,`2204` p2204 from frequent.d_p
         <where>
             did=#{did}
             and _rowts <![CDATA[>=]]> #{startTime} and _rowts <![CDATA[<=]]> #{endTime}

@@ -2610,11 +2610,47 @@
 
         currentTrack = L.polyline(latlngs, {
             color: currentTrackLineColor,
-            weight: 1,
+            weight: 0.5,  // 最细的线
             opacity: 0.9
         });
 
         trackLayerGroup.addLayer(currentTrack);
+
+        // 绘制方向箭头（每隔50米添加一个箭头）
+        const arrowDistance = 50;  // 每隔50米添加一个箭头
+        let accumulatedDistance = 0;  // 累积距离
+        
+        for (let i = 1; i < latlngs.length; i++) {
+            const start = latlngs[i - 1];  // [lat, lng]
+            const end = latlngs[i];        // [lat, lng]
+            
+            // 计算两点之间的距离（使用简单的欧几里得距离，近似即可）
+            const dx = end[1] - start[1];  // 经度差
+            const dy = end[0] - start[0];  // 纬度差
+            
+            // 经纬度转换为米的近似计算（1度 ≈ 111000米）
+            const distance = Math.sqrt(dx * dx + dy * dy) * 111000;
+            accumulatedDistance += distance;
+            
+            // 累积距离超过50米时添加箭头
+            if (accumulatedDistance >= arrowDistance) {
+                // 计算方向角
+                const angle = Math.atan2(dy, dx) * 180 / Math.PI;
+                
+                // 创建箭头标记
+                const arrowMarker = L.marker(end, {
+                    icon: L.divIcon({
+                        className: 'track-arrow',
+                        html: `<div style="transform: rotate(${-angle}deg); color: ${currentTrackLineColor}; font-size: 8px; font-weight: bold;">&gt;</div>`,
+                        iconSize: [8, 8],
+                        iconAnchor: [4, 4]
+                    })
+                });
+                
+                trackLayerGroup.addLayer(arrowMarker);
+                accumulatedDistance = 0;  // 重置累积距离
+            }
+        }
 
         // 自适应视野
         const group = new L.featureGroup([currentTrack]);
@@ -4944,10 +4980,8 @@
 
     // 页面加载完成后自动调用轨迹和轮廓绘制功能
     document.addEventListener('DOMContentLoaded', function() {
-        // 先调用轨迹TAB中的轨迹按钮方法
-        // drawTrack();
-        // 先调用轨迹TAB中的打点按钮方法
-        showTrackPoints();
+        // 先调用轨迹TAB中的轨迹按钮方法（绘制轨迹线）
+        drawTrack();
         setTimeout(() => {
             // 再调用轮廓TAB中的回执轮廓方法
             drawOutline();

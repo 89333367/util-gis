@@ -68,5 +68,19 @@
     "width": 2.0,
     "msg": "算了好多路进来",
     "debug": false
+  },
+  {
+    "did": "EC73BD2503190160",
+    "day": "20260403",
+    "width": 3.9,
+    "msg": "不应该算出亩数",
+    "debug": false
+  },
+  {
+    "did": "EC73BD2502270363",
+    "day": "20260404",
+    "width": 5.31,
+    "msg": "一天两种频率",
+    "debug": false
   }
 ]

@@ -27,6 +27,11 @@ public class Wgs84Point {
      */
     private int jobStatus;
 
+    /**
+     * GPS速度
+     */
+    private Double speed;
+
     public Wgs84Point() {
     }
 
@@ -126,4 +131,12 @@ public class Wgs84Point {
         this.jobStatus = jobStatus;
     }
 
+
+    public Double getSpeed() {
+        return speed;
+    }
+
+    public void setSpeed(Double speed) {
+        this.speed = speed;
+    }
 }

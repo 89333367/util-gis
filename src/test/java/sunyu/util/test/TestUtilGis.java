@@ -79,6 +79,7 @@ public class TestUtilGis {
                 dp.setP2603(Double.parseDouble(protocol.get("2603")));
                 dp.setP3020(Convert.toInt(protocol.get("3020")));
                 dp.setP4031(Convert.toInt(protocol.get("4031")));
+                dp.setP2204(Convert.toDouble(protocol.get("2204")));
             }
         }
         return l;
@@ -137,9 +138,10 @@ public class TestUtilGis {
         String html = ResourceUtil.readUtf8Str("showGeometrysTemplate_leaflet.html");
         StringBuilder trace = new StringBuilder();
         for (Wgs84Point wgs84Point : l) {
-            trace.append(StrUtil.format("{},{},{}\n", LocalDateTimeUtil.format(wgs84Point.getGpsTime(), "yyyyMMddHHmmss"), wgs84Point.getLongitude(), wgs84Point.getLatitude()));
+            trace.append(StrUtil.format("{},{},{},{}\n", LocalDateTimeUtil.format(wgs84Point.getGpsTime(), "yyyyMMddHHmmss"), wgs84Point.getLongitude(), wgs84Point.getLatitude(), wgs84Point.getSpeed()));
         }
         html = StrUtil.replace(html, "${trace}", trace.toString());
+        FileUtil.writeUtf8String(trace.toString(), path + StrUtil.format("/{}_{}_{}_{}_trace.txt", did, startTime, endTime, splitResult.getWorkingWidth()));
         html = StrUtil.replace(html, "${outline}", splitResult.getWkt());
         FileUtil.writeUtf8String(html, path + StrUtil.format("/{}_{}_{}_{}.html", did, startTime, endTime, splitResult.getWorkingWidth()));
     }
@@ -163,6 +165,9 @@ public class TestUtilGis {
                 if (dp.getP4031() == 1) {
                     wgs84Point.setJobStatus(1);//作业标识是1，认为是作业
                 }
+            }
+            if (dp.getP2204() != null) {
+                wgs84Point.setSpeed(dp.getP2204());
             }
             l.add(wgs84Point);
         }
@@ -1350,7 +1355,7 @@ public class TestUtilGis {
 
     @Test
     void 重跑某一日测试() {
-        String yyyyMMdd = "20260331";
+        String yyyyMMdd = "20260407";
         String startTime = yyyyMMdd + "000000";
         String endTime = yyyyMMdd + "235959";
         FarmMapper mapper = MyBatis.getMapper(FarmMapper.class);

@@ -305,6 +305,11 @@ public class GisUtil implements AutoCloseable {
          * 将最终几何图形膨胀系数（幅宽 * 这个系数)
          */
         private final double ADD_POSITIVE_BUFFER = 1.5;
+
+        /**
+         * 点过滤使用的速度限制，大于此速度的点位保留
+         */
+        private final double MIN_SPEED = 0.3;
     }
 
     public static class Builder {
@@ -3330,6 +3335,11 @@ public class GisUtil implements AutoCloseable {
             // 【作业状态验证】只保留未知(0)和作业中(1)状态，确保轨迹点与作业相关
             if (p.getJobStatus() != 0 && p.getJobStatus() != 1) {
                 log.trace("定位时间: {} 轨迹点作业状态为 {} ，抛弃", p.getGpsTime(), p.getJobStatus());
+                return false;
+            }
+            // 速度限制
+            if (p.getSpeed() != null && p.getSpeed() < config.MIN_SPEED) {
+                log.trace("GPS点位速度小于 {} km/h ，抛弃", config.MIN_SPEED);
                 return false;
             }
             return true;
