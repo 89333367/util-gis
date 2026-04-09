@@ -176,11 +176,11 @@ public class TestUtilGis {
 
     @Test
     void 测试获取wgs84wkt内的点位信息() {
-        String did = "EC73BD2509060248";
-        String yyyyMMdd = "20251023";
+        String did = "EC73BD2512030058";
+        String yyyyMMdd = "20260403";
         String startTime = yyyyMMdd + "000000";
         String endTime = yyyyMMdd + "235959";
-        double jobWidth = 2.5;
+        double jobWidth = 2.8;
         测试拆分数据(did, startTime, endTime, jobWidth);
         List<Wgs84Point> l = getWgs84Points(did, startTime, endTime, new SplitRoadParams());
         SplitResult r = gisUtil.splitRoad(l, jobWidth);
@@ -189,7 +189,7 @@ public class TestUtilGis {
         for (Wgs84Point wgs84Point : gl) {
             trace.add(StrUtil.format("{},{},{}", LocalDateTimeUtil.format(wgs84Point.getGpsTime(), "yyyyMMddHHmmss"), wgs84Point.getLongitude(), wgs84Point.getLatitude()));
         }
-        FileUtil.writeUtf8Lines(trace, path + "/" + did + "_trace.txt");
+        FileUtil.writeUtf8Lines(trace, path + "/" + did + "_trace2.txt");
     }
 
     @Test

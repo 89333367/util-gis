@@ -1,0 +1,1172 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GPS轨迹飘点分析工具</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            color: #eee;
+            min-height: 100vh;
+            padding: 20px;
+        }
+        .container { max-width: 1600px; margin: 0 auto; }
+        h1 {
+            text-align: center;
+            color: #00d4ff;
+            margin-bottom: 30px;
+            font-size: 2.5em;
+            text-shadow: 0 0 20px rgba(0, 212, 255, 0.5);
+        }
+        .upload-section {
+            background: rgba(255,255,255,0.05);
+            border-radius: 15px;
+            padding: 25px;
+            margin-bottom: 25px;
+            border: 1px solid rgba(255,255,255,0.1);
+        }
+        .file-input-wrapper {
+            display: flex;
+            gap: 20px;
+            flex-wrap: wrap;
+            align-items: center;
+        }
+        .file-group {
+            flex: 1;
+            min-width: 300px;
+        }
+        .file-group label {
+            display: block;
+            margin-bottom: 8px;
+            color: #00d4ff;
+            font-weight: bold;
+        }
+        input[type="file"] {
+            width: 100%;
+            padding: 12px;
+            background: rgba(0,0,0,0.3);
+            border: 2px dashed #00d4ff;
+            border-radius: 8px;
+            color: #fff;
+            cursor: pointer;
+        }
+        .btn {
+            padding: 12px 30px;
+            background: linear-gradient(45deg, #00d4ff, #0099cc);
+            border: none;
+            border-radius: 8px;
+            color: #fff;
+            font-size: 16px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 20px rgba(0, 212, 255, 0.4);
+        }
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+            margin-bottom: 25px;
+        }
+        .stat-card {
+            background: rgba(255,255,255,0.05);
+            border-radius: 12px;
+            padding: 20px;
+            border-left: 4px solid #00d4ff;
+        }
+        .stat-card h3 {
+            color: #888;
+            font-size: 14px;
+            margin-bottom: 10px;
+        }
+        .stat-value {
+            font-size: 24px;
+            font-weight: bold;
+            color: #00d4ff;
+        }
+        .stat-card.drift { border-left-color: #ff6b6b; }
+        .stat-card.drift .stat-value { color: #ff6b6b; }
+        .stat-card.normal { border-left-color: #51cf66; }
+        .stat-card.normal .stat-value { color: #51cf66; }
+        .stat-card.warning { border-left-color: #ffd93d; }
+        .stat-card.warning .stat-value { color: #ffd93d; }
+        .chart-container {
+            background: rgba(255,255,255,0.05);
+            border-radius: 15px;
+            padding: 20px;
+            margin-bottom: 25px;
+            border: 1px solid rgba(255,255,255,0.1);
+        }
+        .chart-title {
+            color: #00d4ff;
+            margin-bottom: 15px;
+            font-size: 18px;
+        }
+        .chart-wrapper {
+            position: relative;
+            height: 350px;
+        }
+        .two-charts {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+        }
+        @media (max-width: 1000px) {
+            .two-charts { grid-template-columns: 1fr; }
+        }
+        .analysis-section {
+            background: rgba(255,255,255,0.05);
+            border-radius: 15px;
+            padding: 25px;
+            margin-bottom: 25px;
+            border: 1px solid rgba(255,255,255,0.1);
+        }
+        .analysis-section h2 {
+            color: #00d4ff;
+            margin-bottom: 20px;
+        }
+        .conclusion-box {
+            background: rgba(255,255,255,0.08);
+            border-radius: 12px;
+            padding: 25px;
+            margin-bottom: 25px;
+            text-align: center;
+            border: 2px solid;
+        }
+        .conclusion-box.drift {
+            border-color: #ff6b6b;
+            background: rgba(255, 107, 107, 0.1);
+        }
+        .conclusion-box.normal {
+            border-color: #51cf66;
+            background: rgba(81, 207, 102, 0.1);
+        }
+        .conclusion-box.warning {
+            border-color: #ffd93d;
+            background: rgba(255, 217, 61, 0.1);
+        }
+        .conclusion-title {
+            font-size: 28px;
+            font-weight: bold;
+            margin-bottom: 10px;
+        }
+        .conclusion-box.drift .conclusion-title { color: #ff6b6b; }
+        .conclusion-box.normal .conclusion-title { color: #51cf66; }
+        .conclusion-box.warning .conclusion-title { color: #ffd93d; }
+        .conclusion-desc {
+            font-size: 16px;
+            color: #aaa;
+        }
+        .data-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 15px;
+            font-size: 14px;
+        }
+        .data-table th, .data-table td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid rgba(255,255,255,0.1);
+        }
+        .data-table th {
+            background: rgba(0, 212, 255, 0.2);
+            color: #00d4ff;
+        }
+        .data-table tr:hover {
+            background: rgba(255,255,255,0.05);
+        }
+        .metric-good { color: #51cf66; }
+        .metric-bad { color: #ff6b6b; }
+        .metric-warning { color: #ff9800; }
+        .metric-warning { color: #ffd93d; }
+        #mapCanvas {
+            width: 100%;
+            height: 500px;
+            background: #0a0a15;
+            border-radius: 10px;
+        }
+        .legend {
+            display: flex;
+            gap: 20px;
+            margin-top: 15px;
+            flex-wrap: wrap;
+        }
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .legend-color {
+            width: 20px;
+            height: 20px;
+            border-radius: 4px;
+        }
+        .hidden { display: none; }
+        .file-name {
+            color: #888;
+            font-size: 14px;
+            margin-top: 5px;
+        }
+        .threshold-info {
+            background: rgba(0, 212, 255, 0.1);
+            border-radius: 8px;
+            padding: 15px;
+            margin-top: 15px;
+            font-size: 14px;
+        }
+        .threshold-info h4 {
+            color: #00d4ff;
+            margin-bottom: 10px;
+        }
+        .threshold-item {
+            display: flex;
+            justify-content: space-between;
+            padding: 5px 0;
+            border-bottom: 1px solid rgba(255,255,255,0.05);
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🛰️ GPS轨迹飘点分析工具</h1>
+        
+        <div class="upload-section">
+            <div class="file-input-wrapper">
+                <div class="file-group">
+                    <label>📁 选择GPS轨迹文件</label>
+                    <input type="file" id="gpsFile" accept=".txt">
+                    <div class="file-name" id="fileName"></div>
+                </div>
+                <button class="btn" onclick="analyzeFile()">开始分析</button>
+            </div>
+        </div>
+
+        <div id="results" class="hidden">
+            <!-- 分析结论 -->
+            <div id="conclusionBox" class="conclusion-box">
+                <div class="conclusion-title" id="conclusionTitle">-</div>
+                <div class="conclusion-desc" id="conclusionDesc">-</div>
+            </div>
+
+            <!-- 统计概览 -->
+            <div class="stats-grid">
+                <div class="stat-card">
+                    <h3>总点数</h3>
+                    <div class="stat-value" id="totalPoints">-</div>
+                </div>
+                <div class="stat-card">
+                    <h3>平均速度</h3>
+                    <div class="stat-value" id="avgSpeed">-</div>
+                </div>
+                <div class="stat-card">
+                    <h3>最大速度</h3>
+                    <div class="stat-value" id="maxSpeed">-</div>
+                </div>
+                <div class="stat-card">
+                    <h3>圆形区域</h3>
+                    <div class="stat-value" id="distributionArea">-</div>
+                </div>
+                <div class="stat-card">
+                    <h3>大角度点占比</h3>
+                    <div class="stat-value" id="highAngleRatio">-</div>
+                </div>
+                <div class="stat-card">
+                    <h3>飘点占比</h3>
+                    <div class="stat-value" id="driftRatio">-</div>
+                </div>
+                <div class="stat-card">
+                    <h3>低速点数量</h3>
+                    <div class="stat-value" id="lowSpeedCount">-</div>
+                </div>
+                <div class="stat-card">
+                    <h3>低速点占比</h3>
+                    <div class="stat-value" id="lowSpeedRatio">-</div>
+                </div>
+            </div>
+
+            <!-- 轨迹地图 -->
+            <div class="chart-container">
+                <div class="chart-title">🗺️ 轨迹可视化</div>
+                <canvas id="mapCanvas"></canvas>
+                <div class="legend">
+                    <div class="legend-item">
+                        <div class="legend-color" style="background: #ff6b6b;"></div>
+                        <span>飘点</span>
+                    </div>
+                    <div class="legend-item">
+                        <div class="legend-color" style="background: #51cf66;"></div>
+                        <span>正常点</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 速度分布 -->
+            <div class="two-charts">
+                <div class="chart-container">
+                    <div class="chart-title">📊 速度分布</div>
+                    <div class="chart-wrapper">
+                        <canvas id="speedChart"></canvas>
+                    </div>
+                </div>
+                <div class="chart-container">
+                    <div class="chart-title">📏 点间距分布</div>
+                    <div class="chart-wrapper">
+                        <canvas id="distChart"></canvas>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 角度变化 -->
+            <div class="chart-container">
+                <div class="chart-title">🔄 航向角变化分布</div>
+                <div class="chart-wrapper">
+                    <canvas id="angleChart"></canvas>
+                </div>
+            </div>
+
+            <!-- 时间序列分析 -->
+            <div class="chart-container">
+                <div class="chart-title">📈 速度与飘点检测时间序列</div>
+                <div class="chart-wrapper">
+                    <canvas id="timeSeriesChart"></canvas>
+                </div>
+            </div>
+
+            <!-- 详细指标 -->
+            <div class="analysis-section">
+                <h2>📋 详细分析指标</h2>
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>指标</th>
+                            <th>数值</th>
+                            <th>判断标准</th>
+                            <th>结果</th>
+                        </tr>
+                    </thead>
+                    <tbody id="metricsTable">
+                    </tbody>
+                </table>
+            </div>
+
+            <!-- 检测阈值设置 -->
+            <div class="analysis-section">
+                <h2>⚙️ 飘点检测阈值设置</h2>
+                <div class="threshold-info">
+                    <h4>飘点判定核心逻辑（两步判断）：</h4>
+                    <p style="color: #aaa; margin-bottom: 15px;">
+                        <strong>第一步：</strong>90%的点集中在小范围内（如3亩）→ <span style="color: #ff9800;">疑似停车飘点</span><br>
+                        <strong>第二步：</strong>50%以上的点角度变化 > 45° → <span style="color: #f44336;">确定停车飘点</span>
+                    </p>
+                    <div class="threshold-control">
+                        <label>空间范围阈值 (亩)：</label>
+                        <input type="number" id="areaThresholdInput" value="3" min="0.5" max="20" step="0.1" style="width: 80px; padding: 5px; background: rgba(0,0,0,0.3); border: 1px solid #00d4ff; color: #fff; border-radius: 4px;">
+                        <span style="color: #888; margin-left: 10px;">90%的点分布在此范围内（默认3亩）</span>
+                    </div>
+                    <div class="threshold-control" style="margin-top: 10px;">
+                        <label>角度变化阈值 (°)：</label>
+                        <input type="number" id="angleThresholdInput" value="50" min="0" max="180" step="1" style="width: 80px; padding: 5px; background: rgba(0,0,0,0.3); border: 1px solid #00d4ff; color: #fff; border-radius: 4px;">
+                        <span style="color: #888; margin-left: 10px;">角度变化超过此值视为"剧烈"</span>
+                    </div>
+                    <div class="threshold-control" style="margin-top: 10px;">
+                        <label>大角度点比例阈值 (%)：</label>
+                        <input type="number" id="highAngleRatioInput" value="45" min="0" max="100" step="1" style="width: 80px; padding: 5px; background: rgba(0,0,0,0.3); border: 1px solid #00d4ff; color: #fff; border-radius: 4px;">
+                        <span style="color: #888; margin-left: 10px;">超过此比例确定是飘点</span>
+                    </div>
+                    <div class="threshold-control" style="margin-top: 10px;">
+                        <label>低速点速度阈值 (km/h)：</label>
+                        <input type="number" id="lowSpeedThresholdInput" value="0.3" min="0" max="5" step="0.1" style="width: 80px; padding: 5px; background: rgba(0,0,0,0.3); border: 1px solid #00d4ff; color: #fff; border-radius: 4px;">
+                        <span style="color: #888; margin-left: 10px;">低于此速度视为低速点（默认0.3km/h）</span>
+                    </div>
+                    <div class="threshold-control" style="margin-top: 10px;">
+                        <label>低速点比例阈值 (%)：</label>
+                        <input type="number" id="lowSpeedRatioInput" value="80" min="0" max="100" step="1" style="width: 80px; padding: 5px; background: rgba(0,0,0,0.3); border: 1px solid #00d4ff; color: #fff; border-radius: 4px;">
+                        <span style="color: #888; margin-left: 10px;">超过此比例且在小范围内，判定为停车飘点</span>
+                    </div>
+                    <button class="btn" onclick="reanalyze()" style="margin-top: 15px;">重新分析</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let gpsData = null;
+        let charts = {};
+        let analysisResult = null;
+
+        // 解析GPS数据
+        function parseGPSData(content) {
+            const lines = content.trim().split('\n');
+            const points = [];
+            
+            for (const line of lines) {
+                const parts = line.trim().split(',');
+                if (parts.length >= 4) {
+                    const timeStr = parts[0];
+                    const year = parseInt(timeStr.substring(0, 4));
+                    const month = parseInt(timeStr.substring(4, 6)) - 1;
+                    const day = parseInt(timeStr.substring(6, 8));
+                    const hour = parseInt(timeStr.substring(8, 10));
+                    const minute = parseInt(timeStr.substring(10, 12));
+                    const second = parseInt(timeStr.substring(12, 14));
+                    
+                    points.push({
+                        time: new Date(year, month, day, hour, minute, second),
+                        timeStr: timeStr,
+                        lon: parseFloat(parts[1]),
+                        lat: parseFloat(parts[2]),
+                        speed: parseFloat(parts[3])
+                    });
+                }
+            }
+            
+            // 按时间排序
+            points.sort((a, b) => a.time - b.time);
+            
+            // 计算额外特征
+            for (let i = 1; i < points.length; i++) {
+                const prev = points[i - 1];
+                const curr = points[i];
+                
+                // 计算距离（米）
+                curr.distance = calculateDistance(prev.lat, prev.lon, curr.lat, curr.lon);
+                
+                // 计算时间差（秒）
+                curr.timeDiff = (curr.time - prev.time) / 1000;
+                
+                // 计算航向角
+                curr.heading = calculateHeading(prev.lat, prev.lon, curr.lat, curr.lon);
+                
+                // 计算角度变化
+                if (i > 1) {
+                    curr.angleChange = calculateAngleDiff(points[i-1].heading, curr.heading);
+                } else {
+                    curr.angleChange = 0;
+                }
+            }
+            
+            if (points.length > 0) {
+                points[0].distance = 0;
+                points[0].timeDiff = 0;
+                points[0].heading = 0;
+                points[0].angleChange = 0;
+            }
+            
+            return points;
+        }
+
+        // 计算两点间距离（米）
+        function calculateDistance(lat1, lon1, lat2, lon2) {
+            const R = 6371000;
+            const dLat = (lat2 - lat1) * Math.PI / 180;
+            const dLon = (lon2 - lon1) * Math.PI / 180;
+            const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+                      Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+                      Math.sin(dLon/2) * Math.sin(dLon/2);
+            const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+            return R * c;
+        }
+
+        // 计算航向角
+        function calculateHeading(lat1, lon1, lat2, lon2) {
+            const dLon = (lon2 - lon1) * Math.PI / 180;
+            const lat1Rad = lat1 * Math.PI / 180;
+            const lat2Rad = lat2 * Math.PI / 180;
+            
+            const y = Math.sin(dLon) * Math.cos(lat2Rad);
+            const x = Math.cos(lat1Rad) * Math.sin(lat2Rad) -
+                      Math.sin(lat1Rad) * Math.cos(lat2Rad) * Math.cos(dLon);
+            
+            let heading = Math.atan2(y, x) * 180 / Math.PI;
+            if (heading < 0) heading += 360;
+            return heading;
+        }
+
+        // 计算角度差
+        function calculateAngleDiff(angle1, angle2) {
+            let diff = Math.abs(angle2 - angle1);
+            if (diff > 180) diff = 360 - diff;
+            return diff;
+        }
+
+        // 飘点检测算法 - 三步判断：空间范围 + 角度变化 + 低速点比例
+        function detectDriftPoints(points) {
+            // 从输入控件获取阈值参数
+            const areaThresholdMu = parseFloat(document.getElementById('areaThresholdInput').value) || 3;  // 空间范围阈值 亩
+            const angleThreshold = parseFloat(document.getElementById('angleThresholdInput').value) || 45;  // 角度变化阈值 度
+            const highAngleRatioThreshold = (parseFloat(document.getElementById('highAngleRatioInput').value) || 50) / 100;  // 大角度点比例阈值
+            const lowSpeedThresholdKmh = parseFloat(document.getElementById('lowSpeedThresholdInput').value) || 0.3;  // 低速点速度阈值 km/h
+            const lowSpeedRatioThreshold = (parseFloat(document.getElementById('lowSpeedRatioInput').value) || 80) / 100;  // 低速点比例阈值
+
+            // 单位转换
+            const areaThresholdSqm = areaThresholdMu * 666.666667;  // 亩转平方米
+            const lowSpeedThresholdMs = lowSpeedThresholdKmh / 3.6;  // km/h 转 m/s
+
+            // 标记每个点
+            const markedPoints = points.map((p, idx) => ({
+                ...p,
+                isDrift: false,
+                isHighAngle: false,
+                isLowSpeed: false,
+                reasons: []
+            }));
+
+            // 【第一步】计算90%点的空间分布范围（排除10%最远的离群点）
+            const distributionRatio = 0.90;  // 90%的点
+            const distributionArea = calculateDistributionArea(points, distributionRatio);
+            const isInSmallArea = distributionArea <= areaThresholdSqm;
+
+            // 统计低速点数量
+            let lowSpeedCount = 0;
+            for (let i = 0; i < markedPoints.length; i++) {
+                if (markedPoints[i].speed <= lowSpeedThresholdMs) {
+                    markedPoints[i].isLowSpeed = true;
+                    lowSpeedCount++;
+                }
+            }
+            const lowSpeedRatio = lowSpeedCount / markedPoints.length;
+
+            // 如果不在小范围内，直接返回正常轨迹
+            if (!isInSmallArea) {
+                return {
+                    points: markedPoints,
+                    driftSegments: [],
+                    driftCount: 0,
+                    isDriftTrajectory: false,
+                    conclusion: '正常轨迹',
+                    reason: `分布范围${(distributionArea/666.67).toFixed(1)}亩 > ${areaThresholdMu}亩，不是停车状态`,
+                    areaThreshold: areaThresholdMu,
+                    distributionArea: distributionArea,
+                    isInSmallArea: false,
+                    angleThreshold: angleThreshold,
+                    highAngleRatio: 0,
+                    avgAngleChange: 0,
+                    validAngleCount: 0,
+                    highAngleCount: 0,
+                    lowSpeedThreshold: lowSpeedThresholdKmh,
+                    lowSpeedRatio: lowSpeedRatio,
+                    lowSpeedCount: lowSpeedCount,
+                    lowSpeedRatioThreshold: lowSpeedRatioThreshold * 100
+                };
+            }
+
+            // 【第二步】在小范围内，统计角度变化剧烈的点
+            let highAngleCount = 0;
+            let validAngleCount = 0;
+
+            for (let i = 2; i < markedPoints.length; i++) {
+                if (markedPoints[i].angleChange > 0) {
+                    validAngleCount++;
+                    if (markedPoints[i].angleChange > angleThreshold) {
+                        markedPoints[i].isHighAngle = true;
+                        markedPoints[i].isDrift = true;
+                        markedPoints[i].reasons.push(`角度突变(${markedPoints[i].angleChange.toFixed(1)}°)`);
+                        highAngleCount++;
+                    }
+                }
+            }
+
+            // 计算大角度点比例
+            const highAngleRatio = validAngleCount > 0 ? highAngleCount / validAngleCount : 0;
+
+            // 【第三步】判断是否为飘点：小范围 + (大角度比例达标 或 低速点比例达标)
+            const isHighAngleDrift = highAngleRatio >= highAngleRatioThreshold;
+            const isLowSpeedDrift = lowSpeedRatio >= lowSpeedRatioThreshold;
+            const isDriftTrajectory = isHighAngleDrift || isLowSpeedDrift;
+
+            // 收集飘点段信息
+            const driftSegments = [];
+            let currentSegment = [];
+            for (let i = 0; i < markedPoints.length; i++) {
+                if (markedPoints[i].isDrift) {
+                    currentSegment.push(i);
+                } else {
+                    if (currentSegment.length > 0) {
+                        driftSegments.push([...currentSegment]);
+                    }
+                    currentSegment = [];
+                }
+            }
+            if (currentSegment.length > 0) {
+                driftSegments.push(currentSegment);
+            }
+
+            // 计算平均角度变化
+            const avgAngleChange = points.reduce((sum, p) => sum + p.angleChange, 0) / points.length;
+
+            // 生成结论
+            let conclusion, reason;
+            if (isDriftTrajectory) {
+                conclusion = '飘点轨迹';
+                if (isHighAngleDrift && isLowSpeedDrift) {
+                    reason = `90%点在${(distributionArea/666.67).toFixed(1)}亩内，${(highAngleRatio*100).toFixed(0)}%的点角度>${angleThreshold}°，且${(lowSpeedRatio*100).toFixed(0)}%的点速度<${lowSpeedThresholdKmh}km/h`;
+                } else if (isHighAngleDrift) {
+                    reason = `90%点在${(distributionArea/666.67).toFixed(1)}亩内，且${(highAngleRatio*100).toFixed(0)}%的点角度>${angleThreshold}°`;
+                } else {
+                    reason = `90%点在${(distributionArea/666.67).toFixed(1)}亩内，且${(lowSpeedRatio*100).toFixed(0)}%的点速度<${lowSpeedThresholdKmh}km/h`;
+                }
+            } else {
+                conclusion = '疑似飘点（特征不够）';
+                reason = `90%点在${(distributionArea/666.67).toFixed(1)}亩内，但${(highAngleRatio*100).toFixed(0)}%的点角度>${angleThreshold}°，${(lowSpeedRatio*100).toFixed(0)}%的点速度<${lowSpeedThresholdKmh}km/h`;
+            }
+
+            return {
+                points: markedPoints,
+                driftSegments: driftSegments,
+                driftCount: markedPoints.filter(p => p.isDrift).length,
+                isDriftTrajectory: isDriftTrajectory,
+                isHighAngleDrift: isHighAngleDrift,
+                isLowSpeedDrift: isLowSpeedDrift,
+                conclusion: conclusion,
+                reason: reason,
+                areaThreshold: areaThresholdMu,
+                distributionArea: distributionArea,
+                isInSmallArea: true,
+                angleThreshold: angleThreshold,
+                highAngleRatio: highAngleRatio,
+                avgAngleChange: avgAngleChange,
+                validAngleCount: validAngleCount,
+                highAngleCount: highAngleCount,
+                lowSpeedThreshold: lowSpeedThresholdKmh,
+                lowSpeedRatio: lowSpeedRatio,
+                lowSpeedCount: lowSpeedCount,
+                lowSpeedRatioThreshold: lowSpeedRatioThreshold * 100
+            };
+        }
+
+        // 计算指定比例点的空间分布面积（基于圆形区域）
+        function calculateDistributionArea(points, ratio) {
+            if (points.length < 3) return 0;
+            
+            // 确保比例在有效范围
+            ratio = Math.max(0.5, Math.min(1.0, ratio));
+            
+            // 计算中心点（平均经纬度）
+            const avgLon = points.reduce((sum, p) => sum + p.lon, 0) / points.length;
+            const avgLat = points.reduce((sum, p) => sum + p.lat, 0) / points.length;
+            
+            // 计算所有点到中心点的距离（使用已有的calculateDistance函数）
+            const distances = points.map(p => calculateDistance(avgLat, avgLon, p.lat, p.lon));
+            
+            // 按距离排序
+            distances.sort((a, b) => a - b);
+            
+            // 取指定比例点的最远距离作为圆半径
+            const radiusIndex = Math.ceil(points.length * ratio) - 1;
+            const radius = distances[Math.min(radiusIndex, distances.length - 1)];
+            
+            // 返回圆形面积
+            return Math.PI * radius * radius;  // 平方米
+        }
+        
+        // 重新分析函数
+        function reanalyze() {
+            if (!gpsData) {
+                alert('请先选择GPS轨迹文件');
+                return;
+            }
+            analysisResult = detectDriftPoints(gpsData);
+            updateConclusion();
+            updateStats();
+            drawMap();
+            drawSpeedChart();
+            drawDistChart();
+            drawAngleChart();
+            drawTimeSeriesChart();
+            updateMetricsTable();
+        }
+
+        // 分析文件
+        async function analyzeFile() {
+            const file = document.getElementById('gpsFile').files[0];
+            
+            if (!file) {
+                alert('请选择GPS轨迹文件');
+                return;
+            }
+            
+            document.getElementById('fileName').textContent = '当前文件: ' + file.name;
+            
+            try {
+                const content = await file.text();
+                gpsData = parseGPSData(content);
+                analysisResult = detectDriftPoints(gpsData);
+                
+                document.getElementById('results').classList.remove('hidden');
+                
+                updateConclusion();
+                updateStats();
+                drawMap();
+                drawSpeedChart();
+                drawDistChart();
+                drawAngleChart();
+                drawTimeSeriesChart();
+                updateMetricsTable();
+                
+            } catch (error) {
+                alert('解析文件出错: ' + error.message);
+            }
+        }
+
+        // 更新分析结论
+        function updateConclusion() {
+            const conclusionBox = document.getElementById('conclusionBox');
+            const conclusionTitle = document.getElementById('conclusionTitle');
+            const conclusionDesc = document.getElementById('conclusionDesc');
+
+            // 使用detectDriftPoints返回的结论
+            const isDrift = analysisResult.isDriftTrajectory;
+            const isHighAngleDrift = analysisResult.isHighAngleDrift || false;
+            const isLowSpeedDrift = analysisResult.isLowSpeedDrift || false;
+            const lowSpeedRatio = (analysisResult.lowSpeedRatio || 0) * 100;
+
+            conclusionBox.className = 'conclusion-box ' + (isDrift ? 'drift' : 'normal');
+
+            if (isDrift) {
+                conclusionTitle.textContent = '⚠️ 判定结果：飘点轨迹（停车漂移）';
+                conclusionTitle.style.color = '#f44336';
+
+                let featureDesc = '';
+                if (isHighAngleDrift && isLowSpeedDrift) {
+                    featureDesc = `第二步：${(analysisResult.highAngleRatio * 100).toFixed(0)}%的点角度>${analysisResult.angleThreshold}° ✓<br>
+                    第三步：${lowSpeedRatio.toFixed(0)}%的点速度<${analysisResult.lowSpeedThreshold}km/h ✓`;
+                } else if (isHighAngleDrift) {
+                    featureDesc = `第二步：${(analysisResult.highAngleRatio * 100).toFixed(0)}%的点角度>${analysisResult.angleThreshold}° ✓`;
+                } else {
+                    featureDesc = `第二步：${lowSpeedRatio.toFixed(0)}%的点速度<${analysisResult.lowSpeedThreshold}km/h ✓`;
+                }
+
+                conclusionDesc.innerHTML = `
+                    <strong>${analysisResult.reason}</strong><br><br>
+                    第一步：90%点分布在${(analysisResult.distributionArea/666.67).toFixed(2)}亩圆形区域内 ✓<br>
+                    ${featureDesc}<br><br>
+                    <span style="color: #f44336;">确定是停车状态下GPS信号漂移，不是正常田间作业轨迹。</span>
+                `;
+            } else if (analysisResult.isInSmallArea) {
+                // 在小范围内但特征不够
+                conclusionTitle.textContent = '⚡ 判定结果：' + analysisResult.conclusion;
+                conclusionTitle.style.color = '#ff9800';
+                conclusionDesc.innerHTML = `
+                    <strong>${analysisResult.reason}</strong><br><br>
+                    第一步：90%点分布在${(analysisResult.distributionArea/666.67).toFixed(2)}亩圆形区域内 ✓<br>
+                    第二步：${(analysisResult.highAngleRatio * 100).toFixed(0)}%的点角度>${analysisResult.angleThreshold}° ${isHighAngleDrift ? '✓' : '✗'}<br>
+                    第三步：${lowSpeedRatio.toFixed(0)}%的点速度<${analysisResult.lowSpeedThreshold || 0.3}km/h ${isLowSpeedDrift ? '✓' : '✗'}<br><br>
+                    <span style="color: #ff9800;">疑似停车状态，但方向变化或低速特征不够明显，可能是正常静止。</span>
+                `;
+            } else {
+                conclusionTitle.textContent = '✅ 判定结果：' + analysisResult.conclusion;
+                conclusionTitle.style.color = '#4caf50';
+                conclusionDesc.innerHTML = `
+                    <strong>${analysisResult.reason}</strong><br><br>
+                    分布范围过大（${(analysisResult.distributionArea/666.67).toFixed(2)}亩 > ${analysisResult.areaThreshold}亩）<br>
+                    设备处于移动状态，不是停车飘点。
+                `;
+            }
+        }
+
+        // 更新统计
+        function updateStats() {
+            const total = gpsData.length;
+            const avgSpeed = gpsData.reduce((a, b) => a + b.speed, 0) / total;
+            const maxSpeed = Math.max(...gpsData.map(p => p.speed));
+            const driftRatio = analysisResult.driftCount / total;
+            const lowSpeedRatio = analysisResult.lowSpeedRatio || 0;
+            const lowSpeedCount = analysisResult.lowSpeedCount || 0;
+
+            document.getElementById('totalPoints').textContent = total.toLocaleString();
+            document.getElementById('avgSpeed').textContent = avgSpeed.toFixed(2) + ' m/s';
+            document.getElementById('maxSpeed').textContent = maxSpeed.toFixed(2) + ' m/s';
+            document.getElementById('distributionArea').textContent = (analysisResult.distributionArea / 666.67).toFixed(2) + ' 亩';
+            document.getElementById('highAngleRatio').textContent = (analysisResult.highAngleRatio * 100).toFixed(1) + '%';
+            document.getElementById('driftRatio').textContent = (driftRatio * 100).toFixed(1) + '%';
+            document.getElementById('lowSpeedCount').textContent = lowSpeedCount.toLocaleString();
+            document.getElementById('lowSpeedRatio').textContent = (lowSpeedRatio * 100).toFixed(1) + '%';
+
+            // 根据数值设置颜色
+            const areaThreshold = parseFloat(document.getElementById('areaThresholdInput').value) || 3;
+            const highAngleInput = parseFloat(document.getElementById('highAngleRatioInput').value) || 50;
+            const lowSpeedRatioInput = parseFloat(document.getElementById('lowSpeedRatioInput').value) || 80;
+            document.getElementById('distributionArea').className = 'stat-value ' + (analysisResult.distributionArea / 666.67 > areaThreshold ? 'metric-bad' : 'metric-good');
+            document.getElementById('highAngleRatio').className = 'stat-value ' + (analysisResult.highAngleRatio * 100 > highAngleInput ? 'metric-bad' : 'metric-good');
+            document.getElementById('driftRatio').className = 'stat-value ' + (driftRatio > 0.3 ? 'metric-bad' : 'metric-good');
+            document.getElementById('lowSpeedRatio').className = 'stat-value ' + (lowSpeedRatio * 100 > lowSpeedRatioInput ? 'metric-bad' : 'metric-good');
+        }
+
+        // 绘制轨迹地图
+        function drawMap() {
+            const canvas = document.getElementById('mapCanvas');
+            const ctx = canvas.getContext('2d');
+            
+            const rect = canvas.parentElement.getBoundingClientRect();
+            canvas.width = rect.width;
+            canvas.height = 500;
+            
+            ctx.fillStyle = '#0a0a15';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            
+            if (gpsData.length === 0) return;
+            
+            // 计算边界
+            const lons = gpsData.map(p => p.lon);
+            const lats = gpsData.map(p => p.lat);
+            const minLon = Math.min(...lons);
+            const maxLon = Math.max(...lons);
+            const minLat = Math.min(...lats);
+            const maxLat = Math.max(...lats);
+            
+            const lonMargin = (maxLon - minLon) * 0.1 || 0.001;
+            const latMargin = (maxLat - minLat) * 0.1 || 0.001;
+            
+            function toCanvas(lon, lat) {
+                const x = (lon - minLon + lonMargin) / (maxLon - minLon + 2 * lonMargin) * canvas.width;
+                const y = canvas.height - (lat - minLat + latMargin) / (maxLat - minLat + 2 * latMargin) * canvas.height;
+                return {x, y};
+            }
+            
+            // 绘制网格
+            ctx.strokeStyle = 'rgba(255,255,255,0.05)';
+            ctx.lineWidth = 1;
+            for (let i = 0; i <= 10; i++) {
+                const x = i * canvas.width / 10;
+                ctx.beginPath();
+                ctx.moveTo(x, 0);
+                ctx.lineTo(x, canvas.height);
+                ctx.stroke();
+                
+                const y = i * canvas.height / 10;
+                ctx.beginPath();
+                ctx.moveTo(0, y);
+                ctx.lineTo(canvas.width, y);
+                ctx.stroke();
+            }
+            
+            // 绘制轨迹线
+            ctx.strokeStyle = 'rgba(255,255,255,0.3)';
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            for (let i = 0; i < gpsData.length; i++) {
+                const pos = toCanvas(gpsData[i].lon, gpsData[i].lat);
+                if (i === 0) ctx.moveTo(pos.x, pos.y);
+                else ctx.lineTo(pos.x, pos.y);
+            }
+            ctx.stroke();
+            
+            // 绘制点
+            for (let i = 0; i < gpsData.length; i++) {
+                const p = analysisResult.points[i];
+                const pos = toCanvas(p.lon, p.lat);
+                
+                ctx.fillStyle = p.isDrift ? '#ff6b6b' : '#51cf66';
+                ctx.beginPath();
+                ctx.arc(pos.x, pos.y, p.isDrift ? 3 : 2, 0, Math.PI * 2);
+                ctx.fill();
+            }
+        }
+
+        // 绘制速度分布图
+        function drawSpeedChart() {
+            const ctx = document.getElementById('speedChart').getContext('2d');
+            
+            const labels = ['0', '0-0.1', '0.1-0.5', '0.5-1', '1-2', '2-5', '5-10', '>10'];
+            const counts = [0, 0, 0, 0, 0, 0, 0, 0];
+            
+            for (const p of gpsData) {
+                if (p.speed === 0) counts[0]++;
+                else if (p.speed < 0.1) counts[1]++;
+                else if (p.speed < 0.5) counts[2]++;
+                else if (p.speed < 1) counts[3]++;
+                else if (p.speed < 2) counts[4]++;
+                else if (p.speed < 5) counts[5]++;
+                else if (p.speed < 10) counts[6]++;
+                else counts[7]++;
+            }
+            
+            if (charts.speed) charts.speed.destroy();
+            
+            charts.speed = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: '点数',
+                        data: counts,
+                        backgroundColor: counts.map((_, i) => i <= 2 ? '#ff6b6b' : '#51cf66'),
+                        borderWidth: 0
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: { legend: { display: false } },
+                    scales: {
+                        y: { beginAtZero: true, grid: { color: 'rgba(255,255,255,0.1)' }, ticks: { color: '#aaa' } },
+                        x: { grid: { color: 'rgba(255,255,255,0.1)' }, ticks: { color: '#aaa' } }
+                    }
+                }
+            });
+        }
+
+        // 绘制距离分布图
+        function drawDistChart() {
+            const ctx = document.getElementById('distChart').getContext('2d');
+            
+            const labels = ['0-1m', '1-2m', '2-5m', '5-10m', '10-20m', '20-50m', '>50m'];
+            const counts = [0, 0, 0, 0, 0, 0, 0];
+            
+            for (const p of gpsData) {
+                if (p.distance < 1) counts[0]++;
+                else if (p.distance < 2) counts[1]++;
+                else if (p.distance < 5) counts[2]++;
+                else if (p.distance < 10) counts[3]++;
+                else if (p.distance < 20) counts[4]++;
+                else if (p.distance < 50) counts[5]++;
+                else counts[6]++;
+            }
+            
+            if (charts.dist) charts.dist.destroy();
+            
+            charts.dist = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: '点数',
+                        data: counts,
+                        backgroundColor: counts.map((_, i) => i <= 1 ? '#ff6b6b' : '#51cf66'),
+                        borderWidth: 0
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: { legend: { display: false } },
+                    scales: {
+                        y: { beginAtZero: true, grid: { color: 'rgba(255,255,255,0.1)' }, ticks: { color: '#aaa' } },
+                        x: { grid: { color: 'rgba(255,255,255,0.1)' }, ticks: { color: '#aaa' } }
+                    }
+                }
+            });
+        }
+
+        // 绘制角度变化图
+        function drawAngleChart() {
+            const ctx = document.getElementById('angleChart').getContext('2d');
+            
+            const labels = ['0-10°', '10-30°', '30-60°', '60-90°', '90-120°', '120-180°'];
+            const counts = [0, 0, 0, 0, 0, 0];
+            
+            for (const p of gpsData) {
+                const change = p.angleChange;
+                if (change < 10) counts[0]++;
+                else if (change < 30) counts[1]++;
+                else if (change < 60) counts[2]++;
+                else if (change < 90) counts[3]++;
+                else if (change < 120) counts[4]++;
+                else counts[5]++;
+            }
+            
+            if (charts.angle) charts.angle.destroy();
+            
+            charts.angle = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: '点数',
+                        data: counts,
+                        backgroundColor: counts.map((_, i) => i >= 3 ? '#ff6b6b' : '#51cf66'),
+                        borderWidth: 0
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: { legend: { display: false } },
+                    scales: {
+                        y: { beginAtZero: true, grid: { color: 'rgba(255,255,255,0.1)' }, ticks: { color: '#aaa' } },
+                        x: { grid: { color: 'rgba(255,255,255,0.1)' }, ticks: { color: '#aaa' } }
+                    }
+                }
+            });
+        }
+
+        // 绘制时间序列图
+        function drawTimeSeriesChart() {
+            const ctx = document.getElementById('timeSeriesChart').getContext('2d');
+            
+            // 采样显示
+            const sampleRate = Math.ceil(gpsData.length / 800);
+            const sampled = analysisResult.points.filter((_, i) => i % sampleRate === 0);
+            
+            if (charts.timeSeries) charts.timeSeries.destroy();
+            
+            charts.timeSeries = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: sampled.map((_, i) => i),
+                    datasets: [{
+                        label: '速度 (m/s)',
+                        data: sampled.map(p => p.speed),
+                        borderColor: '#00d4ff',
+                        backgroundColor: 'rgba(0, 212, 255, 0.1)',
+                        fill: true,
+                        pointRadius: 0,
+                        tension: 0.4,
+                        yAxisID: 'y'
+                    }, {
+                        label: '飘点',
+                        data: sampled.map(p => p.isDrift ? p.speed : null),
+                        borderColor: '#ff6b6b',
+                        backgroundColor: '#ff6b6b',
+                        pointRadius: 4,
+                        showLine: false,
+                        yAxisID: 'y'
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    interaction: { mode: 'index', intersect: false },
+                    plugins: {
+                        legend: { labels: { color: '#fff' } }
+                    },
+                    scales: {
+                        y: {
+                            type: 'linear',
+                            display: true,
+                            position: 'left',
+                            grid: { color: 'rgba(255,255,255,0.1)' },
+                            ticks: { color: '#aaa' },
+                            title: { display: true, text: '速度 (m/s)', color: '#aaa' }
+                        },
+                        x: {
+                            grid: { color: 'rgba(255,255,255,0.1)' },
+                            ticks: { color: '#aaa' }
+                        }
+                    }
+                }
+            });
+        }
+
+        // 更新指标表格
+        function updateMetricsTable() {
+            const tbody = document.getElementById('metricsTable');
+            tbody.innerHTML = '';
+
+            const total = gpsData.length;
+            const avgSpeed = gpsData.reduce((a, b) => a + b.speed, 0) / total;
+            const maxSpeed = Math.max(...gpsData.map(p => p.speed));
+            const driftRatio = analysisResult.driftCount / total;
+            const avgAngleChange = gpsData.reduce((a, b) => a + b.angleChange, 0) / total;
+
+            // 获取当前阈值设置
+            const angleThreshold = parseFloat(document.getElementById('angleThresholdInput').value) || 45;
+            const highAngleRatioThreshold = parseFloat(document.getElementById('highAngleRatioInput').value) || 50;
+            const areaThreshold = parseFloat(document.getElementById('areaThresholdInput').value) || 3;
+            const lowSpeedThreshold = parseFloat(document.getElementById('lowSpeedThresholdInput').value) || 0.3;
+            const lowSpeedRatioThreshold = parseFloat(document.getElementById('lowSpeedRatioInput').value) || 80;
+
+            // 根据判定结果决定指标的"好"/"坏"方向
+            const isDrift = analysisResult.isDriftTrajectory;
+            const isSuspect = analysisResult.isInSmallArea && !isDrift;
+            const isLowSpeedDrift = analysisResult.isLowSpeedDrift || false;
+            const isHighAngleDrift = analysisResult.isHighAngleDrift || false;
+
+            // 计算圆形区域半径（用于显示）
+            const radius = Math.sqrt(analysisResult.distributionArea / Math.PI);
+
+            const metrics = [
+                {
+                    name: '轨迹点总数',
+                    value: total + ' 个',
+                    threshold: '-',
+                    result: 'info'
+                },
+                {
+                    name: '90%点分布半径',
+                    value: radius.toFixed(1) + ' 米',
+                    threshold: isDrift ? '小范围（飘点特征）' : '大范围（正常作业）',
+                    result: isDrift ? 'bad' : (isSuspect ? 'warning' : 'good')
+                },
+                {
+                    name: '90%点圆形区域',
+                    value: (analysisResult.distributionArea / 666.67).toFixed(2) + ' 亩',
+                    threshold: isDrift ? '< ' + areaThreshold + ' 亩（飘点）' : '> ' + areaThreshold + ' 亩（正常）',
+                    result: isDrift ? 'bad' : (isSuspect ? 'warning' : 'good')
+                },
+                {
+                    name: '平均角度变化',
+                    value: avgAngleChange.toFixed(1) + '°',
+                    threshold: isDrift ? '> ' + angleThreshold + '°（飘点）' : '< ' + angleThreshold + '°（正常）',
+                    result: isDrift ? 'bad' : (avgAngleChange < angleThreshold ? 'good' : 'warning')
+                },
+                {
+                    name: '大角度点比例',
+                    value: (analysisResult.highAngleRatio * 100).toFixed(1) + '%',
+                    threshold: isDrift ? '> ' + highAngleRatioThreshold + '%（飘点）' : '< ' + highAngleRatioThreshold + '%（正常）',
+                    result: isDrift ? 'bad' : (analysisResult.highAngleRatio * 100 < highAngleRatioThreshold ? 'good' : 'warning')
+                },
+                {
+                    name: '低速点数量',
+                    value: (analysisResult.lowSpeedCount || 0) + ' 个',
+                    threshold: '< ' + lowSpeedThreshold + ' km/h',
+                    result: isLowSpeedDrift ? 'bad' : 'info'
+                },
+                {
+                    name: '低速点比例',
+                    value: ((analysisResult.lowSpeedRatio || 0) * 100).toFixed(1) + '%',
+                    threshold: isDrift ? '> ' + lowSpeedRatioThreshold + '%（飘点）' : '< ' + lowSpeedRatioThreshold + '%（正常）',
+                    result: isLowSpeedDrift ? 'bad' : ((analysisResult.lowSpeedRatio || 0) * 100 < lowSpeedRatioThreshold ? 'good' : 'warning')
+                },
+                {
+                    name: '飘点判定结果',
+                    value: analysisResult.conclusion,
+                    threshold: isHighAngleDrift && isLowSpeedDrift ? '角度+速度双特征' : (isHighAngleDrift ? '角度特征' : (isLowSpeedDrift ? '速度特征' : '无飘点特征')),
+                    result: isDrift ? 'bad' : (isSuspect ? 'warning' : 'good')
+                }
+            ];
+            
+            for (const m of metrics) {
+                const tr = document.createElement('tr');
+                let resultClass, resultText;
+
+                if (m.result === 'good') {
+                    resultClass = 'metric-good';
+                    resultText = '✅ 正常';
+                } else if (m.result === 'bad') {
+                    resultClass = 'metric-bad';
+                    resultText = '❌ 异常';
+                } else if (m.result === 'warning') {
+                    resultClass = 'metric-warning';
+                    resultText = '⚡ 疑似';
+                } else {
+                    resultClass = '';
+                    resultText = '-';
+                }
+
+                tr.innerHTML = `
+                    <td>${m.name}</td>
+                    <td>${m.value}</td>
+                    <td>${m.threshold}</td>
+                    <td class="${resultClass}">${resultText}</td>
+                `;
+                tbody.appendChild(tr);
+            }
+        }
+
+        // 窗口大小改变时重绘地图
+        window.addEventListener('resize', () => {
+            if (gpsData) {
+                drawMap();
+            }
+        });
+    </script>
+</body>
+</html>

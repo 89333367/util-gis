@@ -179,7 +179,7 @@ public class GisUtil implements AutoCloseable {
         /**
          * 最小返回面积（亩）
          */
-        private final double MIN_RETURN_MU = 0.5;
+        private final double MIN_RETURN_MU = 0.55;
 
         /**
          * 最小作业幅宽（米）
@@ -292,9 +292,10 @@ public class GisUtil implements AutoCloseable {
         private final double AREA_DIFFERENCE_MU = 5;
 
         /**
-         * 停车点位圆范围，如果说有点都在这个范围内，可能是停车，单位米
+         * 空间分布面积阈值（单位：亩）：90%的轨迹点分布在此面积内才进行角度判断
+         * 业务依据：农机正常作业面积通常>3亩，静止漂移时集中在小范围
          */
-        private final double PARKING_AREA = 0.6;
+        private final double AREA_THRESHOLD_MU = 3.0;
 
         /**
          * 如果查询是否在多边形中的总点位数量超过此阈值，则使用模糊查询，否则使用精确查询
@@ -310,6 +311,29 @@ public class GisUtil implements AutoCloseable {
          * 点过滤使用的速度限制，大于此速度的点位保留
          */
         private final double MIN_SPEED = 0.3;
+
+        /**
+         * 点过滤使用的速度限制，小于此速度的点位保留
+         */
+        private final double MAX_SPEED = 18;
+
+        /**
+         * 分布比例阈值（单位：百分比）：计算分布面积时包含的点比例
+         * 业务依据：排除10%的离群点，避免个别异常点影响整体分布判断
+         */
+        final double DISTRIBUTION_RATIO = 0.90;
+
+        /**
+         * 角度变化阈值（单位：度）：超过此角度视为方向剧烈变化
+         * 业务依据：停车漂移时GPS信号不稳定，方向会剧烈变化
+         */
+        final double ANGLE_THRESHOLD = 85.0;
+
+        /**
+         * 大角度点比例阈值（单位：百分比）：超过此比例确定为飘点
+         * 业务依据：超过N%的点方向剧烈变化，确定为停车漂移
+         */
+        final double HIGH_ANGLE_RATIO_THRESHOLD = 0.3;
     }
 
     public static class Builder {
@@ -2238,8 +2262,21 @@ public class GisUtil implements AutoCloseable {
     private List<TimeWindow> splitTimeWindows(List<Wgs84Point> wgs84Points, int minConsecutiveCount, long maxIntervalSeconds) {
         List<TimeWindow> windows = new ArrayList<>();
 
-        if (wgs84Points == null || wgs84Points.size() < 2) {
-            if (wgs84Points != null && !wgs84Points.isEmpty()) {
+        // todo 速度过滤
+        log.debug("过滤速度前 {} 个点", wgs84Points.size());
+        List<Wgs84Point> l = new ArrayList<>();
+        for (Wgs84Point wgs84Point : wgs84Points) {
+            if (wgs84Point.getSpeed() != null
+                    && config.MIN_SPEED < wgs84Point.getSpeed()
+                    && wgs84Point.getSpeed() < config.MAX_SPEED) {
+                l.add(wgs84Point);
+            }
+        }
+        wgs84Points = l;
+        log.debug("过滤速度后 {} 个点", wgs84Points.size());
+
+        if (wgs84Points.size() < 2) {
+            if (!wgs84Points.isEmpty()) {
                 windows.add(new TimeWindow(0, new ArrayList<>(wgs84Points)));
             }
             return windows;
@@ -3016,6 +3053,333 @@ public class GisUtil implements AutoCloseable {
     }
 
     /**
+     * 计算轨迹点的空间分布面积（基于圆形区域）
+     * <p>
+     * 【核心功能】计算指定比例轨迹点的空间分布圆形面积，用于判断轨迹是否聚集在小范围内。
+     * 这是飘点检测的前置条件检查，只有当轨迹集中分布时才需要进行飘点分析。
+     * </p>
+     * <p>
+     * 【算法原理】采用圆形区域法计算分布面积：
+     * <ol>
+     *   <li>计算所有点的中心点（平均经纬度）</li>
+     *   <li>计算所有点到中心点的距离</li>
+     *   <li>取指定比例点的最远距离作为圆半径</li>
+     *   <li>计算圆形面积（π × r²）</li>
+     * </ol>
+     * </p>
+     * <p>
+     * 【离群点处理】
+     * <ul>
+     *   <li>如果ratio < 1.0，按到中心点的距离排序</li>
+     *   <li>只取前ratio比例的点参与半径计算，排除离群点干扰</li>
+     *   <li>例如ratio=0.9表示排除最远的10%的点</li>
+     * </ul>
+     * </p>
+     * <p>
+     * 【应用场景】
+     * <ul>
+     *   <li>飘点检测前置判断：轨迹分布面积>3亩视为正常作业</li>
+     *   <li>轨迹聚集度分析：判断设备是否长时间停留在某区域</li>
+     *   <li>GPS信号质量评估：分布面积异常小可能表示信号问题</li>
+     * </ul>
+     * </p>
+     *
+     * @param points 轨迹点列表
+     * @param ratio  参与计算的点比例（0.0-1.0），例如0.9表示取90%的点
+     * @return 分布面积（平方米）
+     * @see #isParkingDrift(List) 停车飘点检测方法（使用本方法进行前置判断）
+     * @since 1.0.0
+     */
+    private double calculateDistributionArea(List<Wgs84Point> points, double ratio) {
+        // 【参数校验】
+        if (CollUtil.isEmpty(points) || points.size() < 3) {
+            return 0.0;
+        }
+
+        // 确保比例在有效范围内
+        ratio = Math.max(0.5, Math.min(1.0, ratio));
+
+        // 计算中心点（平均经纬度）
+        double avgLon = points.stream().mapToDouble(Wgs84Point::getLongitude).average().orElse(0);
+        double avgLat = points.stream().mapToDouble(Wgs84Point::getLatitude).average().orElse(0);
+        Wgs84Point center = new Wgs84Point(avgLon, avgLat);
+
+        // 计算所有点到中心点的距离
+        List<Double> distances = points.stream()
+                .map(p -> haversine(center, p))
+                .sorted()
+                .collect(Collectors.toList());
+
+        // 取指定比例点的最远距离作为圆半径
+        int radiusIndex = (int) Math.ceil(points.size() * ratio) - 1;
+        double radius = distances.get(Math.min(radiusIndex, distances.size() - 1));
+
+        // 返回圆形面积
+        return Math.PI * radius * radius;
+    }
+
+    /**
+     * 计算两点间的航向角（方位角）
+     * <p>
+     * 【核心功能】基于球面三角学计算从起点到终点的航向角，即相对于正北方向的顺时针角度。
+     * 该方法是GPS轨迹分析、导航计算、飘点检测等应用的基础算法，能够准确反映两点间的相对方位关系。
+     * </p>
+     * <p>
+     * 【技术原理】采用球面方位角公式（Forward Azimuth）：
+     * <pre>
+     * θ = atan2(sin(Δlon) * cos(lat2),
+     *           cos(lat1) * sin(lat2) - sin(lat1) * cos(lat2) * cos(Δlon))
+     * </pre>
+     * 其中：
+     * <ul>
+     *   <li>Δlon = lon2 - lon1（经度差，单位为弧度）</li>
+     *   <li>lat1, lat2分别为起点和终点的纬度（弧度）</li>
+     *   <li>atan2函数确保结果在正确的象限</li>
+     * </ul>
+     * </p>
+     * <p>
+     * 【返回值说明】
+     * <ul>
+     *   <li>0°：正北方向</li>
+     *   <li>90°：正东方向</li>
+     *   <li>180°：正南方向</li>
+     *   <li>270°：正西方向</li>
+     *   <li>范围：0° ≤ 航向角 < 360°</li>
+     * </ul>
+     * </p>
+     * <p>
+     * 【应用场景】
+     * <ul>
+     *   <li>GPS轨迹角度变化分析</li>
+     *   <li>飘点检测中的角度突变判断</li>
+     *   <li>农机作业方向一致性检查</li>
+     *   <li>导航路径规划</li>
+     * </ul>
+     * </p>
+     * <p>
+     * 【注意事项】
+     * <ul>
+     *   <li>输入坐标必须为WGS84坐标系</li>
+     *   <li>当两点重合时返回0度</li>
+     *   <li>该方法计算的是大圆航向，非平面角度</li>
+     * </ul>
+     * </p>
+     *
+     * @param from 起始点，包含经度、纬度信息（WGS84坐标系）
+     * @param to   目标点，包含经度、纬度信息（WGS84坐标系）
+     * @return 航向角，范围0-360度，0度为正北，顺时针增加
+     * @see #haversine(Wgs84Point, Wgs84Point) 距离计算方法
+     * @since 1.0.0
+     */
+    public double calculateHeading(Wgs84Point from, Wgs84Point to) {
+        // 【坐标转换】将WGS84经纬度从角度制转换为弧度制，满足三角函数计算要求
+        double lat1 = Math.toRadians(from.getLatitude());
+        double lat2 = Math.toRadians(to.getLatitude());
+        double dLon = Math.toRadians(to.getLongitude() - from.getLongitude());
+
+        // 【边界处理】当两点重合时，航向角无意义，返回0度
+        if (from.getLatitude() == to.getLatitude() && from.getLongitude() == to.getLongitude()) {
+            return 0.0;
+        }
+
+        // 【球面方位角计算】应用球面三角学公式计算航向角
+        // y = sin(Δlon) * cos(lat2)
+        // x = cos(lat1) * sin(lat2) - sin(lat1) * cos(lat2) * cos(Δlon)
+        double y = Math.sin(dLon) * Math.cos(lat2);
+        double x = Math.cos(lat1) * Math.sin(lat2) - Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLon);
+
+        // 【角度转换】使用atan2计算方位角并转换为0-360度范围
+        // atan2(y, x)返回的是相对于正东方向的角度（-π到π），需要转换为相对于正北方向的顺时针角度
+        double heading = Math.toDegrees(Math.atan2(y, x));
+
+        // 【标准化处理】确保航向角在0-360度范围内
+        // 公式：(θ + 360) % 360 确保结果始终为正且小于360
+        heading = (heading + 360.0) % 360.0;
+
+        return heading;
+    }
+
+
+    /**
+     * 停车飘点检测器 - 基于圆形区域和角度变化的两步判断算法
+     * <p>
+     * 【核心功能】通过分析GPS轨迹点的空间分布范围和方向角度变化，智能识别
+     * "停车飘点"（即设备静止时由于GPS信号漂移产生的异常轨迹）。该算法特别适用于
+     * 农业机械田间作业轨迹的质量评估，能够有效区分正常作业轨迹和停车漂移轨迹。
+     * </p>
+     * <p>
+     * 【判定逻辑】采用两步判断机制：
+     * <ol>
+     *   <li><b>第一步（空间范围判断）</b>：计算90%点的圆形分布面积
+     *       <ul>
+     *         <li>如果面积 ≤ 3亩（约2000㎡）：疑似停车状态，进入第二步</li>
+     *         <li>如果面积 > 3亩：设备在移动，直接返回false（正常轨迹）</li>
+     *       </ul>
+     *   </li>
+     *   <li><b>第二步（角度变化判断）</b>：统计角度变化剧烈的点比例
+     *       <ul>
+     *         <li>计算每个点的航向角变化（与前一点的方向差）</li>
+     *         <li>统计角度变化 > 45° 的点比例</li>
+     *         <li>如果比例 ≥ 50%：返回true（停车飘点）</li>
+     *         <li>如果比例 < 50%：返回false（疑似停车但方向稳定）</li>
+     *       </ul>
+     *   </li>
+     * </ol>
+     * </p>
+     * <p>
+     * 【阈值参数说明】（固定值配置）
+     * <table border="1">
+     *   <tr><th>参数名称</th><th>固定值</th><th>含义</th><th>业务逻辑</th></tr>
+     *   <tr><td>空间范围阈值（AREA_THRESHOLD_MU）</td><td>3 亩</td><td>90%点分布面积上限</td><td>超过此面积视为正常作业，不在小范围内</td></tr>
+     *   <tr><td>分布比例阈值（DISTRIBUTION_RATIO）</td><td>90%</td><td>参与面积计算的点比例</td><td>排除10%的离群点，避免异常值影响</td></tr>
+     *   <tr><td>角度变化阈值（ANGLE_THRESHOLD）</td><td>45°</td><td>角度剧烈变化界限</td><td>超过此角度视为方向剧烈变化</td></tr>
+     *   <tr><td>大角度点比例阈值（HIGH_ANGLE_RATIO_THRESHOLD）</td><td>50%</td><td>飘点判定界限</td><td>大角度点超过此比例确定为飘点</td></tr>
+     * </table>
+     * </p>
+     * <p>
+     * 【返回值定义】
+     * <ul>
+     *   <li><b>true（停车飘点）</b>：90%点在3亩内，且50%以上点角度>45°，轨迹为停车漂移</li>
+     *   <li><b>false（正常轨迹）</b>：不满足上述条件，轨迹为正常作业或静止但方向稳定</li>
+     * </ul>
+     * </p>
+     * <p>
+     * 【使用前提】
+     * <ul>
+     *   <li>输入列表必须按时间顺序排序（从早到晚）</li>
+     *   <li>每个点需包含有效的经度、纬度、时间信息</li>
+     *   <li>最少需要10个点才能进行有效分析（少于10个点直接返回false）</li>
+     * </ul>
+     * </p>
+     * <p>
+     * 【业务应用场景】
+     * <ul>
+     *   <li>农机作业轨迹质量预检</li>
+     *   <li>GPS数据入库前清洗判断</li>
+     *   <li>作业面积计算前的轨迹有效性验证</li>
+     *   <li>设备GPS性能监控</li>
+     * </ul>
+     * </p>
+     * <p>
+     * 【性能指标】
+     * <ul>
+     *   <li>时间复杂度：O(n log n)，n为轨迹点数量（主要是排序）</li>
+     *   <li>空间复杂度：O(n)，需要存储每个点的航向角信息</li>
+     *   <li>处理速度：1000个点 < 2ms</li>
+     * </ul>
+     * </p>
+     *
+     * @param points GPS轨迹点列表（Wgs84Point类型），必须按时间排序
+     * @return 检测结果：true-停车飘点，false-正常轨迹
+     * @see #calculateHeading(Wgs84Point, Wgs84Point) 航向角计算方法
+     * @see #calculateDistributionArea(List, double) 空间分布面积计算方法
+     * @see #haversine(Wgs84Point, Wgs84Point) 距离计算方法
+     * @since 1.0.0
+     */
+    public boolean isParkingDrift(List<Wgs84Point> points) {
+        // 最少点数要求
+        final int MIN_POINTS = 10;
+        // ============================================================
+
+        // 【参数校验】输入列表非空检查
+        if (CollUtil.isEmpty(points)) {
+            log.warn("停车飘点检测：输入轨迹点列表为空，返回正常");
+            return false;
+        }
+
+        // 【参数校验】最少需要10个点才能进行有效分析
+        if (points.size() < MIN_POINTS) {
+            log.debug("停车飘点检测：轨迹点数量({})少于{}个，无法有效分析，返回正常", points.size(), MIN_POINTS);
+            return false;
+        }
+
+        // 【数据预处理】按时间排序（确保轨迹顺序正确）
+        List<Wgs84Point> sortedPoints = points.stream()
+                .filter(p -> p != null && p.getGpsTime() != null)
+                .sorted(Comparator.comparing(Wgs84Point::getGpsTime))
+                .collect(Collectors.toList());
+
+        if (sortedPoints.size() < MIN_POINTS) {
+            log.debug("停车飘点检测：有效轨迹点数量({})少于{}个，返回正常", sortedPoints.size(), MIN_POINTS);
+            return false;
+        }
+
+        int pointCount = sortedPoints.size();
+        log.debug("停车飘点检测开始：共{}个轨迹点", pointCount);
+
+        // 【第一步：空间范围判断】
+        // 计算90%点的圆形分布面积
+        double distributionAreaSqm = calculateDistributionArea(sortedPoints, config.DISTRIBUTION_RATIO);
+        double distributionAreaMu = distributionAreaSqm * config.SQUARE_TO_MU_METER;
+        log.debug("停车飘点检测：{}%点的圆形分布面积约为 {} 亩（{} 平方米）",
+                (int) (config.DISTRIBUTION_RATIO * 100), distributionAreaMu, distributionAreaSqm);
+
+        // 如果分布面积超过阈值，说明设备在移动，不是停车状态
+        if (distributionAreaMu > config.AREA_THRESHOLD_MU) {
+            log.info("停车飘点检测：轨迹分布面积({} 亩)超过阈值({} 亩)，判定为正常作业轨迹",
+                    distributionAreaMu, config.AREA_THRESHOLD_MU);
+            return false;
+        }
+
+        log.debug("停车飘点检测：轨迹分布面积符合小范围聚集特征，继续进行角度分析");
+
+        // 【第二步：角度变化判断】
+        // 计算每个点的航向角和角度变化
+        double[] headings = new double[pointCount];
+        double[] angleChanges = new double[pointCount];
+
+        for (int i = 1; i < pointCount; i++) {
+            Wgs84Point prev = sortedPoints.get(i - 1);
+            Wgs84Point curr = sortedPoints.get(i);
+
+            // 计算航向角（度）
+            headings[i] = calculateHeading(prev, curr);
+
+            // 计算角度变化（度），第一个点无角度变化
+            if (i > 1) {
+                double prevHeading = headings[i - 1];
+                double currHeading = headings[i];
+                double diff = Math.abs(currHeading - prevHeading);
+                // 处理角度环绕（如从350度到10度，实际变化20度而非340度）
+                angleChanges[i] = diff > 180.0 ? 360.0 - diff : diff;
+            }
+        }
+
+        // 统计角度变化剧烈的点
+        int highAngleCount = 0;
+        int validAngleCount = 0;
+
+        for (int i = 2; i < pointCount; i++) {
+            if (angleChanges[i] > 0) {
+                validAngleCount++;
+                if (angleChanges[i] > config.ANGLE_THRESHOLD) {
+                    highAngleCount++;
+                }
+            }
+        }
+
+        // 计算大角度点比例
+        double highAngleRatio = validAngleCount > 0 ? (double) highAngleCount / validAngleCount : 0;
+        log.debug("停车飘点检测：有效角度点数={}, 大角度点数={}, 大角度点比例={}%",
+                validAngleCount, highAngleCount, highAngleRatio);
+
+        // 【最终判定】
+        boolean isDrift = highAngleRatio >= config.HIGH_ANGLE_RATIO_THRESHOLD;
+
+        if (isDrift) {
+            log.info("停车飘点检测结果：是停车飘点（{}%点在{}亩内，且{}%点角度>{}°）",
+                    (int) (config.DISTRIBUTION_RATIO * 100), distributionAreaMu,
+                    highAngleRatio * 100, (int) config.ANGLE_THRESHOLD);
+        } else {
+            log.info("停车飘点检测结果：不是停车飘点（{}%点在{}亩内，但只有{}%点角度>{}°）",
+                    (int) (config.DISTRIBUTION_RATIO * 100), distributionAreaMu,
+                    highAngleRatio * 100, (int) config.ANGLE_THRESHOLD);
+        }
+
+        return isDrift;
+    }
+
+    /**
      * 筛选位于WGS84几何多边形内的点位集合
      * <p>
      * 【算法流程】
@@ -3335,11 +3699,6 @@ public class GisUtil implements AutoCloseable {
             // 【作业状态验证】只保留未知(0)和作业中(1)状态，确保轨迹点与作业相关
             if (p.getJobStatus() != 0 && p.getJobStatus() != 1) {
                 log.trace("定位时间: {} 轨迹点作业状态为 {} ，抛弃", p.getGpsTime(), p.getJobStatus());
-                return false;
-            }
-            // 速度限制
-            if (p.getSpeed() != null && p.getSpeed() < config.MIN_SPEED) {
-                log.trace("GPS点位速度小于 {} km/h ，抛弃", config.MIN_SPEED);
                 return false;
             }
             return true;
@@ -5112,7 +5471,7 @@ public class GisUtil implements AutoCloseable {
             positiveBuffer = splitRoadParams.getPositiveBuffer();
         }
         // 【缓冲策略】负缓冲参数
-        double negativeBuffer = workingWidth * 0.6;
+        double negativeBuffer = workingWidth * 0.9;
         if (splitRoadParams.getNegativeBuffer() != null) {
             negativeBuffer = splitRoadParams.getNegativeBuffer();
         }
@@ -5266,6 +5625,26 @@ public class GisUtil implements AutoCloseable {
             log.debug("没有生成任何几何图形");
             return splitResult;
         }
+
+        /*List<FarmPlot> tempFarmPlots = new ArrayList<>();
+        for (FarmPlot farmPlot : farmPlots) {
+            if (farmPlot.getMu() < config.AREA_THRESHOLD_MU) {
+                LocalDateTime startTime = farmPlot.getStartTime();
+                LocalDateTime endTime = farmPlot.getEndTime();
+                List<Wgs84Point> l = new ArrayList<>();
+                for (Wgs84Point wgs84Point : wgs84Points) {
+                    if (wgs84Point.getGpsTime().isAfter(startTime) && wgs84Point.getGpsTime().isBefore(endTime)) {
+                        l.add(wgs84Point);
+                    }
+                }
+                if (isParkingDrift(l)) {
+                    log.debug("疑似停车飘点，抛弃 {} - {}", startTime, endTime);
+                    continue;
+                }
+            }
+            tempFarmPlots.add(farmPlot);
+        }
+        farmPlots = tempFarmPlots;*/
 
         // 【时间排序】按开始时间排序，为后续时间合并做准备
         farmPlots.sort(Comparator.comparing(FarmPlot::getStartTime));

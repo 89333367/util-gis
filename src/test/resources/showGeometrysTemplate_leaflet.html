@@ -882,7 +882,7 @@
                                            style="width:60px;padding:4px;border:1px solid #ddd;border-radius:4px;font-size:12px;"
                                            title="最小速度">
                                     <span style="font-size:12px;color:#666;">-</span>
-                                    <input type="number" id="speedFilterMax" value="15.5" step="0.1" min="0"
+                                    <input type="number" id="speedFilterMax" value="18" step="0.1" min="0"
                                            style="width:60px;padding:4px;border:1px solid #ddd;border-radius:4px;font-size:12px;"
                                            title="最大速度">
                                     <span style="font-size:12px;color:#666;">km/h</span>
@@ -978,7 +978,7 @@
     let currentTrack = null;
 
     // 轨迹显示模式：'line' 表示画线，'points' 表示打点
-    let trackDisplayMode = 'line';
+    let trackDisplayMode = 'points';
 
     // 轨迹回放相关
     let playbackState = {
@@ -5149,10 +5149,14 @@
 
     // 页面加载完成后自动调用轨迹和轮廓绘制功能
     document.addEventListener('DOMContentLoaded', function() {
-        // 先调用轨迹TAB中的轨迹按钮方法（绘制轨迹线）
-        drawTrack();
+        // 根据显示模式决定是画线还是打点
+        if (trackDisplayMode === 'line') {
+            drawTrack();
+        } else {
+            showTrackPoints();
+        }
         setTimeout(() => {
-            // 再调用轮廓TAB中的回执轮廓方法
+            // 再调用轮廓TAB中的绘制轮廓方法
             drawOutline();
         },1000);
     });
