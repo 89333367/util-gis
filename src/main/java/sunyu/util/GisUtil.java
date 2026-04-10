@@ -3119,6 +3119,78 @@ public class GisUtil implements AutoCloseable {
     }
 
     /**
+     * 切割时间交叉
+     *
+     * @param wgs84Points
+     * @return
+     */
+    private List<List<Wgs84Point>> splitTimeOverlaps(List<List<Wgs84Point>> wgs84Points) {
+        while (true) {
+            // 按开始时间排序
+            wgs84Points.sort(Comparator.comparing(l -> l.get(0).getGpsTime()));
+
+            boolean foundOverlap = false;
+            List<List<Wgs84Point>> newLl = new ArrayList<>();
+
+            for (int i = 0; i < wgs84Points.size(); i++) {
+                List<Wgs84Point> current = wgs84Points.get(i);
+                LocalDateTime currentEnd = current.get(current.size() - 1).getGpsTime();
+
+                // 检查是否还有下一个列表
+                if (i < wgs84Points.size() - 1) {
+                    List<Wgs84Point> next = wgs84Points.get(i + 1);
+                    LocalDateTime nextStart = next.get(0).getGpsTime();
+
+                    // 如果当前段的结束时间比下一段的开始时间晚，需要拆分
+                    if (currentEnd.isAfter(nextStart)) {
+                        foundOverlap = true;
+                        // 拆分当前段：保留从开始到nextStart-1秒的部分
+                        LocalDateTime splitEnd = nextStart.minusSeconds(1);
+
+                        List<Wgs84Point> firstPart = new ArrayList<>();
+                        List<Wgs84Point> secondPart = new ArrayList<>();
+
+                        for (Wgs84Point p : current) {
+                            if (!p.getGpsTime().isAfter(splitEnd)) {
+                                firstPart.add(p);
+                            } else {
+                                secondPart.add(p);
+                            }
+                        }
+
+                        // 添加第一段（如果不为空）
+                        if (!firstPart.isEmpty()) {
+                            newLl.add(firstPart);
+                        }
+                        // 第二段留在原位置，下次循环处理
+                        if (!secondPart.isEmpty()) {
+                            // 将剩余的段加回去，但需要在处理完当前后再继续
+                            wgs84Points.set(i, secondPart);
+                            // 把剩下的所有列表（包括修改后的当前列表）添加到newLl
+                            for (int j = i; j < wgs84Points.size(); j++) {
+                                newLl.add(wgs84Points.get(j));
+                            }
+                            break; // 跳出循环，重新排序处理
+                        }
+                    } else {
+                        newLl.add(current);
+                    }
+                } else {
+                    newLl.add(current);
+                }
+            }
+
+            wgs84Points = newLl;
+
+            // 如果没有发现交叉，结束循环
+            if (!foundOverlap) {
+                break;
+            }
+        }
+        return wgs84Points;
+    }
+
+    /**
      * 计算两点间的航向角（方位角）
      * <p>
      * 【核心功能】基于球面三角学计算从起点到终点的航向角，即相对于正北方向的顺时针角度。
