@@ -2668,7 +2668,9 @@
 
         // 解析轨迹数据
         const points = [];
-        const lines = trackText.split('\n');
+        // 支持两种分隔格式：换行符 或 # 号
+        const normalizedText = trackText.replace(/#/g, '\n');
+        const lines = normalizedText.split('\n');
 
         lines.forEach(line => {
             line = line.trim();
@@ -2921,7 +2923,9 @@
 
         // 解析轨迹数据
         const points = [];
-        const lines = trackText.split('\n');
+        // 支持两种分隔格式：换行符 或 # 号
+        const normalizedText = trackText.replace(/#/g, '\n');
+        const lines = normalizedText.split('\n');
 
         lines.forEach(line => {
             line = line.trim();
@@ -3267,26 +3271,76 @@
     // 解析轨迹点 - 分批处理避免页面卡死
     function parseTrackPoints(text) {
         try {
-            const lines = text.trim().split('\n');
+            console.log('【调试】parseTrackPoints 被调用，输入文本长度:', text.length);
+            console.log('【调试】输入文本前100字符:', text.substring(0, 100));
+            
+            // 支持两种分隔格式：换行符 或 # 号
+            const normalizedText = text.trim().replace(/#/g, '\n');
+            const lines = normalizedText.split('\n');
+            console.log('【调试】分割后行数:', lines.length);
+            
             const points = [];
+            let skipCount = 0;
 
-            lines.forEach(line => {
+            lines.forEach((line, index) => {
+                line = line.trim();
+                if (!line) {
+                    skipCount++;
+                    return;
+                }
+
                 const parts = line.split(',');
                 if (parts.length >= 3) {
-                    const lng = parseFloat(parts[0].trim());
-                    const lat = parseFloat(parts[1].trim());
-                    const timestamp = parts[2].trim();
+                    let lng, lat, timestamp;
+
+                    // 判断格式：如果第一部分是数字且长度大于10，可能是时间戳
+                    const firstPart = parts[0].trim();
+                    const isTimestampFirst = firstPart.length > 10 && !isNaN(firstPart);
+                    
+                    if (index < 3) {
+                        console.log(`【调试】第${index}行: firstPart=${firstPart}, isTimestampFirst=${isTimestampFirst}, parts.length=${parts.length}`);
+                    }
+
+                    if (isTimestampFirst) {
+                        // 格式：时间戳,经度,纬度[,速度]
+                        timestamp = firstPart;
+                        lng = parseFloat(parts[1].trim());
+                        lat = parseFloat(parts[2].trim());
+                    } else {
+                        // 格式：经度,纬度,时间戳[,速度]
+                        lng = parseFloat(parts[0].trim());
+                        lat = parseFloat(parts[1].trim());
+                        timestamp = parts[2].trim();
+                    }
 
                     if (!isNaN(lng) && !isNaN(lat) && lat !== 0 && lng !== 0) {
-                        points.push({
-                            lat: lat,
-                            lng: lng,
-                            timestamp: timestamp,
-                            time: parseTimestamp(timestamp)
-                        });
+                        const parsedTime = parseTimestamp(timestamp);
+                        if (index < 3) {
+                            console.log(`【调试】第${index}行解析成功: lng=${lng}, lat=${lat}, timestamp=${timestamp}, parsedTime=${parsedTime}`);
+                        }
+                        if (parsedTime) {
+                            points.push({
+                                lat: lat,
+                                lng: lng,
+                                timestamp: timestamp,
+                                time: parsedTime
+                            });
+                        } else {
+                            console.warn(`【调试】第${index}行时间戳解析失败: timestamp=${timestamp}`);
+                        }
+                    } else {
+                        if (index < 3) {
+                            console.warn(`【调试】第${index}行坐标无效: lng=${lng}, lat=${lat}`);
+                        }
+                    }
+                } else {
+                    if (index < 3) {
+                        console.warn(`【调试】第${index}行字段不足: parts.length=${parts.length}, line=${line}`);
                     }
                 }
             });
+            
+            console.log('【调试】解析完成，有效点数:', points.length, '跳过空行:', skipCount);
 
             if (points.length > 0) {
                 // 按时间排序

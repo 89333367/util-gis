@@ -25,6 +25,7 @@ import sunyu.util.test.pojo.TestInfo;
 
 import java.time.LocalDateTime;
 import java.util.*;
+import java.util.stream.Collectors;
 
 public class TestUtilGis {
     Log log = LogFactory.get();
@@ -116,6 +117,14 @@ public class TestUtilGis {
             }
             partInfo.add(StrUtil.format("作业总幅宽（米）：{}", farmPlot.getWorkingWidth()));
             partInfo.add(StrUtil.format("子WKT: {}", farmPlot.getWkt()));
+            String pointsStr = farmPlot.getGeometryPoints().stream()
+                    .map(p -> StrUtil.format("{},{},{},{}",
+                            DateUtil.format(p.getGpsTime(), "yyyyMMddHHmmss"),
+                            p.getLongitude(),
+                            p.getLatitude(),
+                            p.getSpeed() != null ? p.getSpeed() : 0.0))
+                    .collect(Collectors.joining("#"));
+            partInfo.add(StrUtil.format("子点位集合：{}", pointsStr));
             partInfo.add(StrUtil.format("作业面积（亩）: {}", farmPlot.getMu()));
             partInfo.add(StrUtil.format("作业时间范围: {} - {}", farmPlot.getStartTime(), farmPlot.getEndTime()));
             partInfo.add(StrUtil.format("聚类点数: {}", farmPlot.getClusterPointCount()));
@@ -129,8 +138,8 @@ public class TestUtilGis {
                 splitResult.getWorkingWidth());
         FileUtil.writeUtf8Lines(partsInfo, partsFile);
 
-        l = gisUtil.filterWgs84Points(l);
-        List<GaussPoint> gaussPointList = gisUtil.toGaussPointList(l);
+        List<Wgs84Point> fl = gisUtil.filterWgs84Points(l);
+        List<GaussPoint> gaussPointList = gisUtil.toGaussPointList(fl);
         List<String> gaussXyList = new ArrayList<>();
         for (GaussPoint gaussPoint : gaussPointList) {
             gaussXyList.add(StrUtil.format("{},{}", gaussPoint.getGaussX(), gaussPoint.getGaussY()));
@@ -149,7 +158,13 @@ public class TestUtilGis {
         html = StrUtil.replace(html, "${trace}", trace.toString());
         FileUtil.writeUtf8String(trace.toString(), path
                 + StrUtil.format("/{}_{}_{}_{}_trace.txt", did, startTime, endTime, splitResult.getWorkingWidth()));
-        html = StrUtil.replace(html, "${outline}", splitResult.getWkt());
+        StringBuilder outline = new StringBuilder();
+        for (FarmPlot farmPlot : splitResult.getFarmPlots()) {
+            outline.append(farmPlot.getWkt());
+            outline.append("\n");
+        }
+        //html = StrUtil.replace(html, "${outline}", splitResult.getWkt());
+        html = StrUtil.replace(html, "${outline}", outline.toString());
         FileUtil.writeUtf8String(html,
                 path + StrUtil.format("/{}_{}_{}_{}.html", did, startTime, endTime, splitResult.getWorkingWidth()));
     }
@@ -1492,6 +1507,17 @@ public class TestUtilGis {
     }
 
     @Test
+    void 测试验证2() {
+        String did = "EC71GD2411150035";
+        double jobWidth;
+        String yyyyMMdd = "20260309";
+        String startTime = yyyyMMdd + "000000";
+        String endTime = yyyyMMdd + "235959";
+        jobWidth = 2.8;
+        测试拆分数据(did, startTime, endTime, jobWidth, new SplitRoadParams());
+    }
+
+    @Test
     void 批量测试() {
         for (TestInfo testInfo : JSONUtil.parseArray(ResourceUtil.readUtf8Str("test.json")).toList(TestInfo.class)) {
             if (testInfo.getDebug()) {
@@ -1508,19 +1534,17 @@ public class TestUtilGis {
 
     @Test
     void 重跑某一日测试() {
-        String yyyyMMdd = "20260407";
+        String yyyyMMdd = "20260309";
         String startTime = yyyyMMdd + "000000";
         String endTime = yyyyMMdd + "235959";
         FarmMapper mapper = MyBatis.getMapper(FarmMapper.class);
         List<FarmWorkSplitDay> l = mapper
                 .selectFarmWorkSplitDay(DateUtil.parse(yyyyMMdd, "yyyyMMdd").toString("yyyy-MM-dd"));
-        while (true) {
-            for (FarmWorkSplitDay farmWorkSplitDay : l) {
-                log.info("{} {}", farmWorkSplitDay.getDid(), farmWorkSplitDay.getJobWidth());
-                String did = farmWorkSplitDay.getDid();
-                double jobWidth = farmWorkSplitDay.getJobWidth();
-                测试拆分数据(did, startTime, endTime, jobWidth);
-            }
+        for (FarmWorkSplitDay farmWorkSplitDay : l) {
+            log.info("{} {}", farmWorkSplitDay.getDid(), farmWorkSplitDay.getJobWidth());
+            String did = farmWorkSplitDay.getDid();
+            double jobWidth = farmWorkSplitDay.getJobWidth();
+            测试拆分数据(did, startTime, endTime, jobWidth);
         }
     }
 }

@@ -4,6 +4,7 @@ import org.locationtech.jts.geom.Geometry;
 import org.locationtech.jts.geom.Point;
 
 import java.time.LocalDateTime;
+import java.util.List;
 
 /**
  * 地块信息
@@ -45,6 +46,19 @@ public class FarmPlot {
      * 中心点（WGS84坐标系）
      */
     private Wgs84Point centerWgs84Point;
+
+    /**
+     * 多边形内的点集合
+     */
+    private List<GaussPoint> geometryPoints;
+
+    public List<GaussPoint> getGeometryPoints() {
+        return geometryPoints;
+    }
+
+    public void setGeometryPoints(List<GaussPoint> geometryPoints) {
+        this.geometryPoints = geometryPoints;
+    }
 
     public LocalDateTime getStartTime() {
         return startTime;
