@@ -163,8 +163,11 @@ public class TestUtilGis {
             outline.append(farmPlot.getWkt());
             outline.append("\n");
         }
-        //html = StrUtil.replace(html, "${outline}", splitResult.getWkt());
-        html = StrUtil.replace(html, "${outline}", outline.toString());
+        if (StrUtil.isNotBlank(outline.toString())) {
+            html = StrUtil.replace(html, "${outline}", outline.toString());
+        } else {
+            html = StrUtil.replace(html, "${outline}", splitResult.getWkt());
+        }
         FileUtil.writeUtf8String(html,
                 path + StrUtil.format("/{}_{}_{}_{}.html", did, startTime, endTime, splitResult.getWorkingWidth()));
     }
@@ -1534,7 +1537,7 @@ public class TestUtilGis {
 
     @Test
     void 重跑某一日测试() {
-        String yyyyMMdd = "20260309";
+        String yyyyMMdd = "20260412";
         String startTime = yyyyMMdd + "000000";
         String endTime = yyyyMMdd + "235959";
         FarmMapper mapper = MyBatis.getMapper(FarmMapper.class);

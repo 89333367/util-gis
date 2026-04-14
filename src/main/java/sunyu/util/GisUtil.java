@@ -185,7 +185,7 @@ public class GisUtil implements AutoCloseable {
         /**
          * 最小返回点位(个)
          */
-        private final int MIN_RETURN_POINTS = 59;
+        private final int MIN_RETURN_POINTS = 60;
 
         /**
          * 最小作业幅宽（米）
@@ -273,14 +273,13 @@ public class GisUtil implements AutoCloseable {
          * 时间窗口分割的最小连续点数
          * 小于此数量的连续点不形成独立窗口，会被合并或丢弃
          */
-        private final int TIME_WINDOW_MIN_CONSECUTIVE_COUNT = 5;
+        private final int TIME_WINDOW_MIN_CONSECUTIVE_COUNT = 59;
 
         /**
          * 时间窗口分割的最大间隔（秒）
          * 超过此间隔视为新的时间窗口
-         * 默认20分钟（60 * 20）
          */
-        private final long TIME_WINDOW_MAX_INTERVAL_SECONDS = 60 * 20;
+        private final long TIME_WINDOW_MAX_INTERVAL_SECONDS = 60 * 2;
 
         /**
          * 是否将聚类结果再次按照时间或者距离切分
@@ -2441,22 +2440,19 @@ public class GisUtil implements AutoCloseable {
     private List<TimeWindow> splitTimeWindows(List<Wgs84Point> wgs84Points, int minConsecutiveCount, long maxIntervalSeconds) {
         List<TimeWindow> windows = new ArrayList<>();
 
-        // todo 速度过滤
-        log.debug("过滤速度前 {} 个点", wgs84Points.size());
-        List<Wgs84Point> l = new ArrayList<>();
+        // todo 异常时间过滤
+        log.debug("过滤异常前 {} 个点", wgs84Points.size());
+        List<Wgs84Point> filterWgs84Points = new ArrayList<>();
         for (Wgs84Point wgs84Point : wgs84Points) {
-            if (wgs84Point.getSpeed() != null
-                    && config.MIN_SPEED < wgs84Point.getSpeed()
-                    && wgs84Point.getSpeed() < config.MAX_SPEED) {
-                l.add(wgs84Point);
+            if (wgs84Point.getGpsTime() != null) {
+                filterWgs84Points.add(wgs84Point);
             }
         }
-        wgs84Points = l;
-        log.debug("过滤速度后 {} 个点", wgs84Points.size());
+        log.debug("过滤速异常后 {} 个点", filterWgs84Points.size());
 
-        if (wgs84Points.size() < 2) {
-            if (!wgs84Points.isEmpty()) {
-                windows.add(new TimeWindow(0, new ArrayList<>(wgs84Points)));
+        if (filterWgs84Points.size() < 2) {
+            if (!filterWgs84Points.isEmpty()) {
+                windows.add(new TimeWindow(0, new ArrayList<>(filterWgs84Points)));
             }
             return windows;
         }
@@ -2471,11 +2467,11 @@ public class GisUtil implements AutoCloseable {
         Long lastIntervalType = null;
 
         // 添加第一个点
-        currentWindow.add(wgs84Points.get(0));
+        currentWindow.add(filterWgs84Points.get(0));
 
-        for (int i = 0; i < wgs84Points.size() - 1; i++) {
-            Wgs84Point currentPoint = wgs84Points.get(i);
-            Wgs84Point nextPoint = wgs84Points.get(i + 1);
+        for (int i = 0; i < filterWgs84Points.size() - 1; i++) {
+            Wgs84Point currentPoint = filterWgs84Points.get(i);
+            Wgs84Point nextPoint = filterWgs84Points.get(i + 1);
 
             LocalDateTime currentTime = currentPoint.getGpsTime();
             LocalDateTime nextTime = nextPoint.getGpsTime();
@@ -4331,7 +4327,7 @@ public class GisUtil implements AutoCloseable {
 
         // 【核心过滤逻辑】使用Stream API进行链式过滤，支持并行处理大数据量
         // 每个过滤条件都有详细的trace日志，便于异常点位分析和问题定位
-        wgs84Points = wgs84Points.stream().filter(p -> {
+        List<Wgs84Point> filterWgs84Points = wgs84Points.stream().filter(p -> {
             // 【时间有效性验证】GPS时间是轨迹分析的基础，缺失会导致时序混乱
             if (p.getGpsTime() == null) {
                 log.trace("轨迹点时间为空，抛弃");
@@ -4357,27 +4353,22 @@ public class GisUtil implements AutoCloseable {
                 log.trace("定位时间: {} 轨迹点作业状态为 {} ，抛弃", p.getGpsTime(), p.getJobStatus());
                 return false;
             }
-            // todo 速度验证
-            if (p.getSpeed() != null && p.getSpeed() == 0) {
-                log.trace("定位时间: {} 速度为 0 ，抛弃", p.getGpsTime());
-                return false;
-            }
             return true;
         }).collect(Collectors.toList());
 
         // 【过滤结果统计】记录过滤后的点位数量，用于数据质量评估和性能监控
-        log.debug("过滤异常点位信息完成，剩余点位数量：{}", wgs84Points.size());
+        log.debug("过滤异常点位信息完成，剩余点位数量：{}", filterWgs84Points.size());
 
         // 【时序排序】按GPS时间升序排序，确保轨迹点的时序正确性
         // 这是后续轨迹分析、插值、聚类等算法的基础要求
-        wgs84Points.sort(Comparator.comparing(Wgs84Point::getGpsTime));
+        filterWgs84Points.sort(Comparator.comparing(Wgs84Point::getGpsTime));
 
         // 【空间去重阶段】去除完全重复的点位，减少数据冗余并提高后续处理效率
         log.debug("准备去重完全重复的轨迹点");
         // 【LinkedHashMap有序去重】使用LinkedHashMap保持点位的时间顺序
         // key使用"经度,纬度"格式，确保坐标完全相同的点位被识别为重复
         Map<String, Wgs84Point> pointMap = new LinkedHashMap<>();
-        for (Wgs84Point wgs84Point : wgs84Points) {
+        for (Wgs84Point wgs84Point : filterWgs84Points) {
             // 【坐标键值生成】创建唯一的坐标字符串作为去重key
             // 使用StrUtil.format确保坐标精度不丢失，格式统一便于比较
             String key = StrUtil.format("{}, {}", wgs84Point.getLongitude(), wgs84Point.getLatitude());
@@ -4386,11 +4377,11 @@ public class GisUtil implements AutoCloseable {
         }
 
         // 【去重结果转换】将Map值转换为List，保持原有的时间顺序
-        wgs84Points = new ArrayList<>(pointMap.values());
+        filterWgs84Points = new ArrayList<>(pointMap.values());
 
         // 【处理完成统计】记录最终点位数量，用于数据质量报告和性能分析
-        log.debug("去重完全重复的轨迹点完成，剩余点位数量：{}", wgs84Points.size());
-        return wgs84Points;
+        log.debug("去重完全重复的轨迹点完成，剩余点位数量：{}", filterWgs84Points.size());
+        return filterWgs84Points;
     }
 
 
@@ -6027,6 +6018,323 @@ public class GisUtil implements AutoCloseable {
         return splitRoad(wgs84Points, workingWidth, new SplitRoadParams());
     }
 
+    public SplitResult splitRoad(List<Wgs84Point> wgs84Points, double workingWidth, SplitRoadParams splitRoadParams) {
+        long splitRoadStartTime = System.currentTimeMillis();
+
+        // todo 初始化返回对象，设置默认值避免空指针异常
+        SplitResult splitResult = new SplitResult();
+        splitResult.setWorkingWidth(workingWidth);
+        splitResult.setWkt(config.EMPTY_GEOMETRY.toText());
+
+        // todo 输入点位列表非空检查，确保后续算法有有效数据
+        if (CollUtil.isEmpty(wgs84Points)) {
+            log.error("作业轨迹点列表不能为空");
+            return splitResult;
+        }
+
+        // todo 作业幅宽有效性检查
+        if (workingWidth < config.MIN_WORKING_WIDTH) {
+            log.error("作业幅宽必须大于等于 {} 米", config.MIN_WORKING_WIDTH);
+            return splitResult;
+        }
+
+        log.info("道路拆分入参 wgs84点位集合大小：{} 幅宽：{}米 聚类参数： {}", wgs84Points.size(), workingWidth, JSONUtil.toJsonStr(splitRoadParams));
+
+        // todo 方法变量定义
+        List<Geometry> allGeometry = new ArrayList<>();
+        // 最小返回亩数限制
+        double minReturnMu = config.MIN_RETURN_MU;
+        if (splitRoadParams.getMinReturnMu() != null) {
+            minReturnMu = splitRoadParams.getMinReturnMu();
+        }
+
+        // todo 过滤异常点位
+        List<Wgs84Point> filterWgs84Points = filterWgs84Points(wgs84Points);
+        // todo 过滤速度
+        filterWgs84Points = filterWgs84Points.stream().filter(wgs84Point -> {
+            if (wgs84Point.getSpeed() != null) {
+                if (wgs84Point.getSpeed() < config.MIN_SPEED || wgs84Point.getSpeed() > config.MAX_SPEED) {
+                    return false;
+                }
+            }
+            return true;
+        }).collect(Collectors.toList());
+        List<GaussPoint> allGaussPoints = toGaussPointList(filterWgs84Points);
+
+        log.debug("准备创建所有高斯点位的STRtree索引");
+        STRtree gaussPointSTRtreeIndex = new STRtree();
+        for (GaussPoint gaussPoint : allGaussPoints) {
+            // 创建Envelope作为索引键，存储GaussPoint对象作为值
+            Envelope envelope = new Envelope(
+                    gaussPoint.getGaussX(), gaussPoint.getGaussX(),
+                    gaussPoint.getGaussY(), gaussPoint.getGaussY()
+            );
+            gaussPointSTRtreeIndex.insert(envelope, gaussPoint);
+        }
+        gaussPointSTRtreeIndex.build(); // 构建索引
+        log.debug("构建索引完毕");
+
+        // todo 按时间间隔特征将轨迹分割成多个窗口
+        List<TimeWindow> timeWindows = splitTimeWindows(wgs84Points, config.TIME_WINDOW_MIN_CONSECUTIVE_COUNT, config.TIME_WINDOW_MAX_INTERVAL_SECONDS);
+        log.info("时间窗口分割完成，共 {} 个窗口", timeWindows.size());
+
+        // todo 循环每一个时间窗口，分别进行聚类
+        for (int timeWindowIndex = 0; timeWindowIndex < timeWindows.size(); timeWindowIndex++) {
+            TimeWindow window = timeWindows.get(timeWindowIndex);
+            int interval = (int) window.getInterval();
+            List<Wgs84Point> windowWgs84Points = window.getPoints();
+            log.info("窗口 {}: [{}]秒间隔 {}个点位 时间范围 {} - {}"
+                    , timeWindowIndex, interval, window.getPoints().size()
+                    , windowWgs84Points.get(0).getGpsTime(), windowWgs84Points.get(windowWgs84Points.size() - 1).getGpsTime());
+
+            // todo 过滤异常点位
+            windowWgs84Points = filterWgs84Points(windowWgs84Points);
+            // todo 过滤速度
+            windowWgs84Points = windowWgs84Points.stream().filter(wgs84Point -> {
+                if (wgs84Point.getSpeed() != null) {
+                    if (wgs84Point.getSpeed() < config.MIN_SPEED || wgs84Point.getSpeed() > config.MAX_SPEED) {
+                        return false;
+                    }
+                }
+                return true;
+            }).collect(Collectors.toList());
+            List<GaussPoint> gaussPoints = toGaussPointList(windowWgs84Points);
+            if (gaussPoints.size() >= 3) {
+                // 多边形参数
+                double halfWorkingWidth = workingWidth * 0.5;
+                // 正缓冲参数
+                double positiveBuffer = Math.max(2, workingWidth * 0.5);
+                // 负缓冲参数
+                double negativeBuffer = workingWidth * 0.99;
+                // 聚类参数
+                double eps;
+                int minPts;
+                // todo 根据窗口周期重新设置聚类参数
+                if (interval == 1) {
+                    eps = 10;
+                    minPts = 30;
+                } else {
+                    eps = 20;
+                    minPts = 10;
+                }
+                if (splitRoadParams.getDbScanEpsilon() != null) {
+                    eps = splitRoadParams.getDbScanEpsilon();
+                }
+                if (splitRoadParams.getDbScanMinPoints() != null) {
+                    minPts = splitRoadParams.getDbScanMinPoints();
+                }
+                if (splitRoadParams.getPositiveBuffer() != null) {
+                    positiveBuffer = splitRoadParams.getPositiveBuffer();
+                }
+                if (splitRoadParams.getNegativeBuffer() != null) {
+                    negativeBuffer = splitRoadParams.getNegativeBuffer();
+                }
+
+                // todo 将高斯点位集合进行抽稀，提升dbscan速度
+                gaussPoints = fastDistanceBasedSampling(gaussPoints, config.CLUSTER_SAMPLING_MIN_DISTANCE, config.CLUSTER_SAMPLING_KEEP_RATIO);
+                if (gaussPoints.size() >= 3) {
+                    log.info("聚类前参数固定：点位数量[{}]个 数据频率 [{}]秒 eps[{}]米 minPts[{}]个"
+                            , gaussPoints.size(), interval, eps, minPts);
+
+                    // todo 进行聚类
+                    List<List<GaussPoint>> clusters = dbScanClusters(gaussPoints, eps, minPts);
+                    log.info("聚类完成，总共有 {} 个聚类簇", clusters.size());
+
+                    if (!clusters.isEmpty()) {
+                        // todo 循环生成几何图形
+                        for (List<GaussPoint> cluster : clusters) {
+                            if (cluster.size() >= config.MIN_RETURN_POINTS) {
+                                // todo 将高斯点转换为JTS坐标数组
+                                Coordinate[] coords = cluster.stream()
+                                        .map(p -> new Coordinate(p.getGaussX(), p.getGaussY()))
+                                        .toArray(Coordinate[]::new);
+                                // todo 点位数量抽稀，提升多边形创建速度
+                                coords = simplifyByAngle(coords, config.SIMPLIFY_MIN_EDGE_LEN, config.SIMPLIFY_ANGLE, config.SIMPLIFY_MAX_EDGE_LEN);
+                                if (coords.length >= 3) {
+                                    // todo 构建线串并应用缓冲，形成作业区域
+                                    LineString line = config.GEOMETRY_FACTORY.createLineString(coords);
+                                    Geometry gaussGeometry = lowMemBuffer(line, halfWorkingWidth);
+
+                                    // todo 正缓冲，填补缝隙
+                                    gaussGeometry = gaussGeometry.buffer(0).buffer(+positiveBuffer).buffer(0).buffer(-positiveBuffer).buffer(0);
+
+                                    // todo 负缓冲，切割道路
+                                    gaussGeometry = gaussGeometry.buffer(0).buffer(-negativeBuffer).buffer(0).buffer(+negativeBuffer).buffer(0);
+
+                                    if (!gaussGeometry.isEmpty()) {
+                                        allGeometry.add(gaussGeometry);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        if (allGeometry.isEmpty()) {
+            log.info("没有任何几何图形");
+            return splitResult;
+        }
+
+        // todo 扁平化几何图形，并获取图形内的点位信息
+        Map<Integer, Geometry> geometryMap = new LinkedHashMap<>();
+        Map<Integer, List<GaussPoint>> gaussPointMap = new LinkedHashMap<>();
+        int geometryIndex = 0;
+        for (Geometry geometry : allGeometry) {
+            if (geometry instanceof MultiPolygon) {
+                MultiPolygon multiPolygon = (MultiPolygon) geometry;
+                for (int i = 0; i < multiPolygon.getNumGeometries(); i++) {
+                    Geometry subGeometry = multiPolygon.getGeometryN(i);
+                    if (subGeometry.getArea() * config.SQUARE_TO_MU_METER > minReturnMu) {
+                        List<GaussPoint> containsGeometryGaussPoints = getContainsGaussGeometryPoints(gaussPointSTRtreeIndex, subGeometry);
+                        if (!CollUtil.isEmpty(containsGeometryGaussPoints) && containsGeometryGaussPoints.size() > config.MIN_RETURN_POINTS) {
+                            geometryMap.put(geometryIndex, subGeometry);
+                            gaussPointMap.put(geometryIndex, containsGeometryGaussPoints);
+                            geometryIndex++;
+                        }
+                    }
+                }
+            } else if (geometry instanceof Polygon) {
+                if (geometry.getArea() * config.SQUARE_TO_MU_METER > minReturnMu) {
+                    List<GaussPoint> containsGeometryGaussPoints = getContainsGaussGeometryPoints(gaussPointSTRtreeIndex, geometry);
+                    if (!CollUtil.isEmpty(containsGeometryGaussPoints) && containsGeometryGaussPoints.size() > config.MIN_RETURN_POINTS) {
+                        geometryMap.put(geometryIndex, geometry);
+                        gaussPointMap.put(geometryIndex, containsGeometryGaussPoints);
+                        geometryIndex++;
+                    }
+                }
+            }
+        }
+
+        // todo 对所有几何图形，进行进入图形区域开始时间的升序排序
+        Map<Integer, Geometry> sortGeometryMap = new LinkedHashMap<>();
+        Map<Integer, List<GaussPoint>> sortGaussPointMap = new LinkedHashMap<>();
+        int sortGeometryIndex = 0;
+        // 将 gaussPointMap 的 entry 按第0个点的 gpsTime 升序排序
+        List<Map.Entry<Integer, List<GaussPoint>>> sortedEntries = gaussPointMap.entrySet().stream()
+                .sorted(Comparator.comparing(entry -> entry.getValue().get(0).getGpsTime()))
+                .collect(Collectors.toList());
+        // 按排序后的顺序重新填充 sortGeometryMap 和 sortGaussPointMap
+        for (Map.Entry<Integer, List<GaussPoint>> entry : sortedEntries) {
+            Integer originalIndex = entry.getKey();
+            List<GaussPoint> geometryPoints = entry.getValue();
+            Geometry geometry = geometryMap.get(originalIndex);
+            sortGeometryMap.put(sortGeometryIndex, geometry);
+            sortGaussPointMap.put(sortGeometryIndex, geometryPoints);
+            sortGeometryIndex++;
+        }
+        geometryMap = sortGeometryMap;
+        gaussPointMap = sortGaussPointMap;
+
+        // todo 合并时间交叉的多边形，并重新计算多边形以及多边形内的点位信息
+        Map<Integer, Geometry> mergeGeometryMap = new LinkedHashMap<>();
+        Map<Integer, List<GaussPoint>> mergeGaussPointMap = new LinkedHashMap<>();
+        int mergeGeometryIndex = 0;
+        Geometry currentGeometry = null;
+        List<GaussPoint> currentPoints = new ArrayList<>();
+        LocalDateTime currentEndTime = null;
+        // 直接遍历 entrySet，LinkedHashMap 保证插入顺序
+        for (Map.Entry<Integer, List<GaussPoint>> entry : gaussPointMap.entrySet()) {
+            Integer index = entry.getKey();
+            List<GaussPoint> points = entry.getValue();
+            Geometry geometry = geometryMap.get(index);
+            LocalDateTime startTime = points.get(0).getGpsTime();
+            LocalDateTime endTime = points.get(points.size() - 1).getGpsTime();
+            if (currentGeometry == null) {
+                // 第一个多边形，初始化当前合并组
+                currentGeometry = geometry;
+                currentPoints = new ArrayList<>(points);
+                currentEndTime = endTime;
+            } else {
+                // 判断时间是否有交叉：当前组的结束时间 > 下一个的开始时间
+                if (currentEndTime.isAfter(startTime)) {
+                    // 时间有交叉，合并多边形和点位
+                    currentGeometry = currentGeometry.union(geometry).buffer(0);
+                    currentPoints.addAll(points);
+                    // 按时间升序排序点位
+                    currentPoints.sort(Comparator.comparing(GaussPoint::getGpsTime));
+                    // 更新结束时间为较晚的那个
+                    if (endTime.isAfter(currentEndTime)) {
+                        currentEndTime = endTime;
+                    }
+                } else {
+                    // 时间没有交叉，保存当前合并组，开始新的合并组
+                    mergeGeometryMap.put(mergeGeometryIndex, currentGeometry);
+                    mergeGaussPointMap.put(mergeGeometryIndex, currentPoints);
+                    mergeGeometryIndex++;
+                    // 开始新的合并组
+                    currentGeometry = geometry;
+                    currentPoints = new ArrayList<>(points);
+                    currentEndTime = endTime;
+                }
+            }
+        }
+        // 保存最后一个合并组
+        if (currentGeometry != null) {
+            mergeGeometryMap.put(mergeGeometryIndex, currentGeometry);
+            mergeGaussPointMap.put(mergeGeometryIndex, currentPoints);
+            mergeGeometryIndex++;
+        }
+        // 更新 geometryMap 和 gaussPointMap 为合并后的结果
+        geometryMap = mergeGeometryMap;
+        gaussPointMap = mergeGaussPointMap;
+
+        // todo 拼装地块信息
+        List<FarmPlot> farmPlots = new ArrayList<>();
+        for (Map.Entry<Integer, Geometry> integerGeometryEntry : geometryMap.entrySet()) {
+            Integer index = integerGeometryEntry.getKey();
+            Geometry geometry = integerGeometryEntry.getValue();
+            List<GaussPoint> gaussPoints = gaussPointMap.get(index);
+            Geometry wgs84PartGeometry = toWgs84Geometry(geometry);
+            FarmPlot part = new FarmPlot();
+            part.setGaussGeometry(geometry);
+            part.setWgs84Geometry(wgs84PartGeometry);
+            part.setStartTime(gaussPoints.get(0).getGpsTime());
+            part.setEndTime(gaussPoints.get(gaussPoints.size() - 1).getGpsTime());
+            part.setWkt(wgs84PartGeometry.toText());
+            part.setMu(calcMu(wgs84PartGeometry));
+            part.setWorkingWidth(workingWidth);
+            part.setClusterPointCount(gaussPoints.size());
+            part.setGeometryPoints(gaussPoints);
+            farmPlots.add(part);
+        }
+        // todo 按每一个作业段的开始时间升序排序
+        farmPlots.sort(Comparator.comparing(FarmPlot::getStartTime));
+
+        // todo 将所有Part聚合成总的几何图形和统计信息
+        Geometry wgs84UnionGeometry = config.GEOMETRY_FACTORY.createGeometryCollection(
+                farmPlots.stream().map(FarmPlot::getWgs84Geometry).toArray(Geometry[]::new)).union().buffer(0);
+        double sumMu = farmPlots.stream().mapToDouble(FarmPlot::getMu).sum();
+        splitResult.setWgs84Geometry(wgs84UnionGeometry);
+        splitResult.setWkt(wgs84UnionGeometry.toText());
+        splitResult.setMu(sumMu);
+        splitResult.setStartTime(farmPlots.get(0).getStartTime());
+        splitResult.setEndTime(farmPlots.get(farmPlots.size() - 1).getEndTime());
+        splitResult.setSplitParts(farmPlots);
+
+        log.debug("拆分结果：");
+        for (int i1 = 0; i1 < splitResult.getFarmPlots().size(); i1++) {
+            FarmPlot farmPlot = splitResult.getFarmPlots().get(i1);
+            log.debug("第 {} 段作业信息：", i1 + 1);
+            log.debug("{} 至 {} 共 {} 亩"
+                    , LocalDateTimeUtil.format(farmPlot.getStartTime(), "yyyy-MM-dd HH:mm:ss")
+                    , LocalDateTimeUtil.format(farmPlot.getEndTime(), "yyyy-MM-dd HH:mm:ss")
+                    , farmPlot.getMu());
+        }
+
+        // 【性能统计】记录算法总耗时和最终结果统计
+        log.info("{} 至 {} 地块总面积 {} 亩 共 {} 个地块，耗时 {} 毫秒"
+                , LocalDateTimeUtil.format(splitResult.getStartTime(), "yyyy-MM-dd HH:mm:ss")
+                , LocalDateTimeUtil.format(splitResult.getEndTime(), "yyyy-MM-dd HH:mm:ss")
+                , splitResult.getMu(), splitResult.getFarmPlots().stream()
+                        .mapToInt(farmPlot -> farmPlot.getWgs84Geometry().getNumGeometries())
+                        .sum()
+                , System.currentTimeMillis() - splitRoadStartTime);
+
+        return splitResult;
+    }
+
     /**
      * 智能作业轨迹道路拆分引擎
      *
@@ -6080,7 +6388,7 @@ public class GisUtil implements AutoCloseable {
      * @see #optimizeLandParcelIntersectionRepair(Map, Map) 地块相交修复算法
      * @since 1.0.0
      */
-    public SplitResult splitRoad(List<Wgs84Point> wgs84Points, double workingWidth, SplitRoadParams splitRoadParams) {
+    public SplitResult splitRoad_Bak(List<Wgs84Point> wgs84Points, double workingWidth, SplitRoadParams splitRoadParams) {
         long splitRoadStartTime = System.currentTimeMillis();
 
         // todo 初始化返回对象，设置默认值避免空指针异常
