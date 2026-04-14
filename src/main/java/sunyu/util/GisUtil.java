@@ -3580,10 +3580,10 @@ public class GisUtil implements AutoCloseable {
         return new FarmPlotGeometryInfo(geometryMap, geometryGaussPointMap);
     }
 
-    private FarmPlotGeometryInfo differenceGeometrySafeBigArea(FarmPlotGeometryInfo farmPlotGeometryInfo, List<GaussPoint> gaussPoints, double halfWorkingWidth, double positiveBuffer, double negativeBuffer, STRtree gaussPointSTRtreeIndex, double minReturnMu) {
+    private Map<Integer, Geometry> differenceGeometry(Map<Integer, Geometry> geometryMap) {
         // 当两个多边形相交时，同时去掉A和B的相交部分，保留两个多边形的非相交部分
-        Map<Integer, Geometry> processedGeometryMap = new HashMap<>(farmPlotGeometryInfo.getGeometryMap());
-        List<Integer> sortedIndices = farmPlotGeometryInfo.getGeometryMap().keySet().stream().sorted().collect(Collectors.toList());
+        Map<Integer, Geometry> processedGeometryMap = new HashMap<>(geometryMap);
+        List<Integer> sortedIndices = geometryMap.keySet().stream().sorted().collect(Collectors.toList());
 
         // 构建空间索引，存储多边形索引（Quadtree支持动态插入）
         Quadtree spatialIndex = new Quadtree();
@@ -3645,23 +3645,7 @@ public class GisUtil implements AutoCloseable {
             }
         }
 
-        Map<Integer, Geometry> geometryMap = new HashMap<>();
-        Map<Integer, List<GaussPoint>> geometryGaussPointMap = new HashMap<>();
-        int geometryIndex = 0;
-        for (Map.Entry<Integer, Geometry> integerGeometryEntry : processedGeometryMap.entrySet()) {
-            Geometry geometry = integerGeometryEntry.getValue();
-
-            if (geometry.getArea() * config.SQUARE_TO_MU_METER > minReturnMu) {
-                List<GaussPoint> containsGeometryGaussPoints = getContainsGaussGeometryPoints(gaussPointSTRtreeIndex, geometry);
-                if (!containsGeometryGaussPoints.isEmpty()) {
-                    geometryMap.put(geometryIndex, geometry);
-                    geometryGaussPointMap.put(geometryIndex, containsGeometryGaussPoints);
-                    geometryIndex++;
-                }
-            }
-        }
-
-        return new FarmPlotGeometryInfo(geometryMap, geometryGaussPointMap);
+        return processedGeometryMap;
     }
 
     private boolean hasTimeOverlap(FarmPlotGeometryInfo farmPlotGeometryInfo) {
@@ -3692,6 +3676,102 @@ public class GisUtil implements AutoCloseable {
             clusters.add(timeRangeGaussPoints);
         }
         return genGeometryInfo(clusters, halfWorkingWidth, positiveBuffer, negativeBuffer, gaussPointSTRtreeIndex, minReturnMu, useNegativeBuffer);
+    }
+
+    private Map<Integer, Geometry> genGeometryMap(List<List<GaussPoint>> clusters, double halfWorkingWidth) {
+        Map<Integer, Geometry> geometryMap = new HashMap<>();
+        int geometryIndex = 0;
+        for (List<GaussPoint> cluster : clusters) {
+            if (cluster.size() > config.MIN_RETURN_POINTS) {
+                // todo 将高斯点转换为JTS坐标数组
+                Coordinate[] coords = cluster.stream()
+                        .map(p -> new Coordinate(p.getGaussX(), p.getGaussY()))
+                        .toArray(Coordinate[]::new);
+                // todo 进行坐标数组抽稀，提升轮廓创建速度
+                coords = simplifyByAngle(coords, config.SIMPLIFY_MIN_EDGE_LEN, config.SIMPLIFY_ANGLE, config.SIMPLIFY_MAX_EDGE_LEN);
+                if (coords.length > 2) {
+                    // todo 通过坐标数组构建线串并应用缓冲，形成作业区域
+                    LineString line = config.GEOMETRY_FACTORY.createLineString(coords);
+                    Geometry gaussGeometry = lowMemBuffer(line, halfWorkingWidth);
+                    geometryMap.put(geometryIndex, gaussGeometry);
+                    geometryIndex++;
+                }
+            }
+        }
+        return geometryMap;
+    }
+
+    private Map<Integer, Geometry> genPolygonMap(Map<Integer, Geometry> geometryMap, double minReturnMu) {
+        Map<Integer, Geometry> polygonMap = new HashMap<>();
+        int polygonIndex = 0;
+        for (Map.Entry<Integer, Geometry> integerGeometryEntry : geometryMap.entrySet()) {
+            Geometry geometry = integerGeometryEntry.getValue();
+            if (geometry instanceof MultiPolygon) {
+                MultiPolygon multiPolygon = (MultiPolygon) geometry;
+                for (int i = 0; i < multiPolygon.getNumGeometries(); i++) {
+                    Geometry subGeometry = multiPolygon.getGeometryN(i);
+                    if (subGeometry.getArea() * config.SQUARE_TO_MU_METER > minReturnMu) {
+                        polygonMap.put(polygonIndex, subGeometry);
+                        polygonIndex++;
+                    }
+                }
+            } else if (geometry instanceof Polygon) {
+                if (geometry.getArea() * config.SQUARE_TO_MU_METER > minReturnMu) {
+                    polygonMap.put(polygonIndex, geometry);
+                    polygonIndex++;
+                }
+            }
+        }
+        return polygonMap;
+    }
+
+    private FarmPlotGeometryInfo genPolygonMapAndPolygonPointsMap(Map<Integer, Geometry> polygonMap, STRtree gaussPointSTRtreeIndex, int minReturnPoints) {
+        Map<Integer, Geometry> geometryMap = new HashMap<>();
+        Map<Integer, List<GaussPoint>> geometryPointMap = new HashMap<>();
+        for (Map.Entry<Integer, Geometry> integerGeometryEntry : polygonMap.entrySet()) {
+            Integer index = integerGeometryEntry.getKey();
+            Geometry geometry = integerGeometryEntry.getValue();
+            List<GaussPoint> containsGeometryGaussPoints = getContainsGaussGeometryPoints(gaussPointSTRtreeIndex, geometry);
+            if (!containsGeometryGaussPoints.isEmpty() && containsGeometryGaussPoints.size() > minReturnPoints) {
+                geometryMap.put(index, geometry);
+                geometryPointMap.put(index, containsGeometryGaussPoints);
+            }
+        }
+        return new FarmPlotGeometryInfo(geometryMap, geometryPointMap);
+    }
+
+    private List<List<GaussPoint>> splitPolygonByTimeRange(Map<Integer, Geometry> geometryMap, List<GaussPoint> gaussPoints, int minReturnPoints) {
+        List<List<GaussPoint>> clusters = new ArrayList<>();
+        List<PolygonTimeRange> polygonTimeRanges = getPolygonTimeRanges(splitPolygonTimeRanges(geometryMap, gaussPoints));
+        for (PolygonTimeRange polygonTimeRange : polygonTimeRanges) {
+            long durationSeconds = Duration.between(polygonTimeRange.getStart(), polygonTimeRange.getEnd()).getSeconds();
+
+            // todo 获取时间段范围内的高斯点位置信息
+            List<GaussPoint> timeRangeGaussPoints = getGaussPointsByPolygonTimeRange(polygonTimeRange, gaussPoints);
+            log.debug("多边形 {}: {} - {} 有连续轨迹，持续时间 {} 秒"
+                    , polygonTimeRange.getPolygonIndex(), polygonTimeRange.getStart(), polygonTimeRange.getEnd(), durationSeconds);
+
+            if (timeRangeGaussPoints.size() > minReturnPoints) {
+                clusters.add(timeRangeGaussPoints);
+            }
+        }
+        return clusters;
+    }
+
+    private Map<Integer, Geometry> positiveAndNegativeBuffer(Map<Integer, Geometry> geometryMap, double positiveBuffer, double negativeBuffer) {
+        Map<Integer, Geometry> gm = new HashMap<>();
+        for (Map.Entry<Integer, Geometry> integerGeometryEntry : geometryMap.entrySet()) {
+            Integer index = integerGeometryEntry.getKey();
+            Geometry geometry = integerGeometryEntry.getValue();
+            // todo 填补缝隙，填补地块内垄沟与垄沟之间的缝隙
+            geometry = geometry.buffer(0).buffer(+positiveBuffer).buffer(0).buffer(-positiveBuffer).buffer(0);
+            // todo 裁切道路，切减掉疑似道路轨迹的区域
+            geometry = geometry.buffer(0).buffer(-negativeBuffer).buffer(0).buffer(+negativeBuffer).buffer(0);
+            if (!geometry.isEmpty()) {
+                gm.put(index, geometry);
+            }
+        }
+        return gm;
     }
 
     /**
@@ -6039,6 +6119,10 @@ public class GisUtil implements AutoCloseable {
         double minReturnMu = 0.1;
         // 最小返回点数限制
         int minReturnPoints = 59;
+        // 最小速度限制
+        double minSpeed = 0.3;
+        // 最大速度限制
+        double maxSpeed = 18;
 
         // todo 获取数据频率
         interval = getInterval(wgs84Points, interval);
@@ -6048,7 +6132,7 @@ public class GisUtil implements AutoCloseable {
         // todo 过滤速度
         wgs84Points = wgs84Points.stream().filter(wgs84Point -> {
             if (wgs84Point.getSpeed() != null) {
-                if (wgs84Point.getSpeed() < 0.3 || wgs84Point.getSpeed() > 18) {
+                if (wgs84Point.getSpeed() < minSpeed || wgs84Point.getSpeed() > maxSpeed) {
                     return false;
                 }
             }
@@ -6074,7 +6158,7 @@ public class GisUtil implements AutoCloseable {
         // todo 对高斯投影点位进行抽稀，能提升dbscan速度
         List<GaussPoint> samplingGaussPoints = fastDistanceBasedSampling(gaussPoints, config.CLUSTER_SAMPLING_MIN_DISTANCE, config.CLUSTER_SAMPLING_KEEP_RATIO);
         if (samplingGaussPoints.size() < 3) {
-            log.info("高斯点位抽稀后，数量少于3个点，不再进行后续计算");
+            log.info("高斯点位抽稀后，数量少于 {} 个点，不再进行后续计算", 3);
             return splitResult;
         }
 
@@ -6089,17 +6173,40 @@ public class GisUtil implements AutoCloseable {
             return splitResult;
         }
 
-        // todo 生成多边形集合和多边形点位集合
-        FarmPlotGeometryInfo farmPlotGeometryInfo = genGeometryInfo(clusters, halfWorkingWidth, positiveBuffer, negativeBuffer, gaussPointSTRtreeIndex, minReturnMu, true);
+        // todo 生成多边形集合
+        Map<Integer, Geometry> geometryMap = genGeometryMap(clusters, halfWorkingWidth);
 
-        // todo 将地块内的轨迹进行时间维度上的切割，进入地块记录时间开始，跑出地块记录时间结束，重新生成切割后的多边形集合和多边形点位集合
-        farmPlotGeometryInfo = getTiemRangeGeometryInfo(farmPlotGeometryInfo, gaussPoints, halfWorkingWidth, positiveBuffer, negativeBuffer, gaussPointSTRtreeIndex, minReturnMu, false);
+        // todo 进行膨胀->收缩，再收缩->膨胀（目的是初步将地块之间的道路切割掉）
+        geometryMap = positiveAndNegativeBuffer(geometryMap, positiveBuffer, negativeBuffer);
 
-        // todo 去掉多边形相交部分，如果两个多边形有相交，切割掉相交的部分（使用Quadtree(四叉树)动态空间索引优化，支持动态插入）
-        farmPlotGeometryInfo = differenceGeometrySafeBigArea(farmPlotGeometryInfo, gaussPoints, halfWorkingWidth, positiveBuffer, negativeBuffer, gaussPointSTRtreeIndex, minReturnMu);
+        // todo 扁平化多边形集合，使其每一项都是一个 Polygon（会过滤小于 minReturnMu 亩的Polygon）
+        Map<Integer, Geometry> polygonMap = genPolygonMap(geometryMap, minReturnMu);
 
-        /*do {
-        } while (hasTimeOverlap(farmPlotGeometryInfo));*/
+        // todo 为每一个Polygon创建与之匹配的点位集合（会过滤小于 minReturnPoints 点位的Polygon）
+        FarmPlotGeometryInfo farmPlotGeometryInfo = genPolygonMapAndPolygonPointsMap(polygonMap, gaussPointSTRtreeIndex, minReturnPoints);
+
+        if (hasTimeOverlap(farmPlotGeometryInfo)) {
+            // todo 为每一个Polygon进行时间维度上的切割，再次分离成 List<List<GaussPoint>> clusters 对象（会过滤小于 minReturnPoints 点位的cluster）
+            clusters = splitPolygonByTimeRange(farmPlotGeometryInfo.getGeometryMap(), gaussPoints, minReturnPoints);
+
+            // todo 通过时间维度的数据点位再次重新生成多边形集合
+            geometryMap = genGeometryMap(clusters, halfWorkingWidth);
+
+            // todo 进行膨胀->收缩，再收缩->膨胀（目的是初步将地块之间的道路切割掉）
+            geometryMap = positiveAndNegativeBuffer(geometryMap, positiveBuffer, negativeBuffer);
+
+            // todo 再次扁平化多边形集合，使其每一项都是一个 Polygon（会过滤小于 minReturnMu 亩的Polygon）
+            polygonMap = genPolygonMap(geometryMap, minReturnMu);
+
+            /*// todo 去掉多边形相交部分，如果两个多边形有相交，切割掉相交的部分（使用Quadtree(四叉树)动态空间索引优化）
+            Map<Integer, Geometry> diffGeometryMap = differenceGeometry(polygonMap);
+
+            // todo 再次扁平化多边形集合，使其每一项都是一个 Polygon（会过滤小于 minReturnMu 亩的Polygon）
+            polygonMap = genPolygonMap(diffGeometryMap, minReturnMu);*/
+
+            // todo 为每一个Polygon创建与之匹配的点位集合（会过滤小于 minReturnPoints 点位的Polygon）
+            farmPlotGeometryInfo = genPolygonMapAndPolygonPointsMap(polygonMap, gaussPointSTRtreeIndex, minReturnPoints);
+        }
 
         // todo 拼装地块信息
         List<FarmPlot> farmPlots = new ArrayList<>();
@@ -6159,6 +6266,5 @@ public class GisUtil implements AutoCloseable {
 
         return splitResult;
     }
-
 
 }
