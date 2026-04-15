@@ -22,6 +22,7 @@
         farm_work_split_day
         where
         jobDay = #{day} and jobWidth is not null
+        limit 0,10
     </select>
 
 </mapper>

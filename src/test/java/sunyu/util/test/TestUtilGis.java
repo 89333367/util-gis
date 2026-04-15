@@ -86,6 +86,81 @@ public class TestUtilGis {
         return l;
     }
 
+    void 测试不拆分数据(String did, String startTime, String endTime, double jobWidth) {
+        List<Wgs84Point> l = getWgs84Points(did, startTime, endTime, new SplitRoadParams());
+        List<String> partsInfo = new ArrayList<>();
+        FarmPlot farmPlot = gisUtil.getFarmPlot(l, jobWidth);
+        partsInfo.add(StrUtil.format("共有 {} 个地块", 1));
+        partsInfo.add(StrUtil.format("作业总幅宽（米）: {}", farmPlot.getWorkingWidth()));
+        partsInfo.add(StrUtil.format("总WKT: {}", farmPlot.getWkt()));
+        partsInfo.add(StrUtil.format("作业总面积（亩）: {}", farmPlot.getMu()));
+        partsInfo.add(StrUtil.format("作业时间范围: {} - {}", farmPlot.getStartTime(), farmPlot.getEndTime()));
+        partsInfo.add(StrUtil.format("聚类总点数: {}", farmPlot.getClusterPointCount()));
+        if (farmPlot.getCenterWgs84Point() != null) {
+            partsInfo.add(StrUtil.format("中心点：经度{},纬度{}", farmPlot.getCenterWgs84Point().getLongitude(),
+                    farmPlot.getCenterWgs84Point().getLatitude()));
+        }
+        partsInfo.add("\n");
+        int partIndex = 1;
+        List<String> partInfo = new ArrayList<>();
+        partInfo.add(StrUtil.format("地块 {}:", partIndex++));
+        if (farmPlot.getGaussGeometry() instanceof MultiPolygon) {
+            partInfo.add(StrUtil.format("包含 {} 个子地块", farmPlot.getGaussGeometry().getNumGeometries()));
+        }
+        partInfo.add(StrUtil.format("作业总幅宽（米）：{}", farmPlot.getWorkingWidth()));
+        partInfo.add(StrUtil.format("子WKT: {}", farmPlot.getWkt()));
+        String pointsStr = farmPlot.getGeometryPoints().stream()
+                .map(p -> StrUtil.format("{},{},{},{}",
+                        DateUtil.format(p.getGpsTime(), "yyyyMMddHHmmss"),
+                        p.getLongitude(),
+                        p.getLatitude(),
+                        p.getSpeed() != null ? p.getSpeed() : 0.0))
+                .collect(Collectors.joining("#"));
+        partInfo.add(StrUtil.format("子点位集合：{}", pointsStr));
+        partInfo.add(StrUtil.format("作业面积（亩）: {}", farmPlot.getMu()));
+        partInfo.add(StrUtil.format("作业时间范围: {} - {}", farmPlot.getStartTime(), farmPlot.getEndTime()));
+        partInfo.add(StrUtil.format("聚类点数: {}", farmPlot.getClusterPointCount()));
+        if (farmPlot.getCenterWgs84Point() != null) {
+            partInfo.add(StrUtil.format("中心点：经度{},纬度{}", farmPlot.getCenterWgs84Point().getLongitude(),
+                    farmPlot.getCenterWgs84Point().getLatitude()));
+        }
+        partsInfo.add(StrUtil.join("\n", partInfo) + "\n");
+        String partsFile = StrUtil.format(path + "/{}_{}_{}_{}_parts.txt", did, startTime, endTime,
+                farmPlot.getWorkingWidth());
+        FileUtil.writeUtf8Lines(partsInfo, partsFile);
+
+        List<Wgs84Point> fl = gisUtil.filterWgs84Points(l);
+        List<GaussPoint> gaussPointList = gisUtil.toGaussPointList(fl);
+        List<String> gaussXyList = new ArrayList<>();
+        for (GaussPoint gaussPoint : gaussPointList) {
+            gaussXyList.add(StrUtil.format("{},{}", gaussPoint.getGaussX(), gaussPoint.getGaussY()));
+        }
+        String fileName = path
+                + StrUtil.format("/{}_{}_{}_{}_gauss.txt", did, startTime, endTime, farmPlot.getWorkingWidth());
+        FileUtil.writeUtf8Lines(gaussXyList, fileName);
+
+        String html = ResourceUtil.readUtf8Str("showGeometrysTemplate_leaflet.html");
+        StringBuilder trace = new StringBuilder();
+        for (Wgs84Point wgs84Point : l) {
+            trace.append(
+                    StrUtil.format("{},{},{},{}\n", LocalDateTimeUtil.format(wgs84Point.getGpsTime(), "yyyyMMddHHmmss"),
+                            wgs84Point.getLongitude(), wgs84Point.getLatitude(), wgs84Point.getSpeed()));
+        }
+        html = StrUtil.replace(html, "${trace}", trace.toString());
+        FileUtil.writeUtf8String(trace.toString(), path
+                + StrUtil.format("/{}_{}_{}_{}_trace.txt", did, startTime, endTime, farmPlot.getWorkingWidth()));
+        StringBuilder outline = new StringBuilder();
+        outline.append(farmPlot.getWkt());
+        outline.append("\n");
+        if (StrUtil.isNotBlank(outline.toString())) {
+            html = StrUtil.replace(html, "${outline}", outline.toString());
+        } else {
+            html = StrUtil.replace(html, "${outline}", farmPlot.getWkt());
+        }
+        FileUtil.writeUtf8String(html,
+                path + StrUtil.format("/{}_{}_{}_{}.html", did, startTime, endTime, farmPlot.getWorkingWidth()));
+    }
+
     void 测试拆分数据(String did, String startTime, String endTime, double jobWidth) {
         测试拆分数据(did, startTime, endTime, jobWidth, new SplitRoadParams());
     }
@@ -1511,13 +1586,14 @@ public class TestUtilGis {
 
     @Test
     void 测试验证2() {
-        String did = "EC71GD2411150035";
+        String did = "EC73BD2512200162";
         double jobWidth;
-        String yyyyMMdd = "20260309";
+        String yyyyMMdd = "20260414";
         String startTime = yyyyMMdd + "000000";
         String endTime = yyyyMMdd + "235959";
-        jobWidth = 2.8;
+        jobWidth = 2.7;
         测试拆分数据(did, startTime, endTime, jobWidth, new SplitRoadParams());
+        //测试不拆分数据(did, startTime, endTime, jobWidth);
     }
 
     @Test
@@ -1537,7 +1613,7 @@ public class TestUtilGis {
 
     @Test
     void 重跑某一日测试() {
-        String yyyyMMdd = "20260412";
+        String yyyyMMdd = "20260414";
         String startTime = yyyyMMdd + "000000";
         String endTime = yyyyMMdd + "235959";
         FarmMapper mapper = MyBatis.getMapper(FarmMapper.class);
