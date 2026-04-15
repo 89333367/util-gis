@@ -10,7 +10,6 @@ import cn.hutool.core.util.StrUtil;
 import cn.hutool.json.JSONUtil;
 import cn.hutool.log.Log;
 import cn.hutool.log.LogFactory;
-import org.jspecify.annotations.NonNull;
 import org.junit.jupiter.api.Test;
 import org.locationtech.jts.geom.Geometry;
 import org.locationtech.jts.geom.MultiPolygon;
@@ -247,8 +246,8 @@ public class TestUtilGis {
                 path + StrUtil.format("/{}_{}_{}_{}.html", did, startTime, endTime, splitResult.getWorkingWidth()));
     }
 
-    private @NonNull List<Wgs84Point> getWgs84Points(String did, String startTime, String endTime,
-                                                     SplitRoadParams splitRoadParams) {
+    private List<Wgs84Point> getWgs84Points(String did, String startTime, String endTime,
+                                            SplitRoadParams splitRoadParams) {
         List<DP> dps = selectWorkPoints(did, LocalDateTimeUtil.parse(startTime, "yyyyMMddHHmmss"),
                 LocalDateTimeUtil.parse(endTime, "yyyyMMddHHmmss"));
         List<Wgs84Point> l = new ArrayList<>();
@@ -1586,12 +1585,12 @@ public class TestUtilGis {
 
     @Test
     void 测试验证2() {
-        String did = "EC73BD2512200162";
+        String did = "EC71BD2408280035";
         double jobWidth;
         String yyyyMMdd = "20260414";
         String startTime = yyyyMMdd + "000000";
         String endTime = yyyyMMdd + "235959";
-        jobWidth = 2.7;
+        jobWidth = 2.5;
         测试拆分数据(did, startTime, endTime, jobWidth, new SplitRoadParams());
         //测试不拆分数据(did, startTime, endTime, jobWidth);
     }

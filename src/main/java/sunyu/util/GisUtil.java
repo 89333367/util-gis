@@ -69,19 +69,25 @@ public class GisUtil implements AutoCloseable {
     private static class Config {
         /**
          * 几何工厂，用于创建各种几何对象
-         * <p>使用JTSFactoryFinder获取线程安全的几何工厂实例，避免重复创建</p>
+         * <p>
+         * 使用JTSFactoryFinder获取线程安全的几何工厂实例，避免重复创建
+         * </p>
          */
         private final GeometryFactory GEOMETRY_FACTORY = JTSFactoryFinder.getGeometryFactory();
 
         /**
          * 空几何集合，用于表示无效或空的几何结果
-         * <p>作为常量复用，避免每次创建新的空几何对象，提高内存效率</p>
+         * <p>
+         * 作为常量复用，避免每次创建新的空几何对象，提高内存效率
+         * </p>
          */
         private final Geometry EMPTY_GEOMETRY = GEOMETRY_FACTORY.createGeometryCollection();
 
         /**
          * WGS84坐标参考系统，使用默认地理CRS，避免重复创建
-         * <p>这是全球标准的地理坐标参考系统，所有输入输出都基于此坐标系</p>
+         * <p>
+         * 这是全球标准的地理坐标参考系统，所有输入输出都基于此坐标系
+         * </p>
          */
         private final CoordinateReferenceSystem WGS84_CRS = DefaultGeographicCRS.WGS84;
 
@@ -128,7 +134,9 @@ public class GisUtil implements AutoCloseable {
 
         /**
          * WGS84椭球长半轴（米），与Turf.js保持一致，用于计算球面距离
-         * <p>标准值：6378137.0米，这是WGS84椭球体的长半轴长度</p>
+         * <p>
+         * 标准值：6378137.0米，这是WGS84椭球体的长半轴长度
+         * </p>
          */
         private final double EARTH_RADIUS = 6378137.0;
 
@@ -341,9 +349,32 @@ public class GisUtil implements AutoCloseable {
         final double HIGH_ANGLE_RATIO_THRESHOLD = 0.3;
 
         /**
-         * 如果最后只有一个多边形，并且小于这个亩数，疑似停车飘点
+         * 如果多边形小于这个亩数，则幸亏判断是否疑似停车飘点
          */
-        final double PARKING_AREA_MU = 5;
+        final double PARKING_AREA_MU = 10;
+
+        /**
+         * 停车飘点检测网格大小（米）
+         * 将图形划分为网格，统计每个网格内的点位密度
+         */
+        final double PARKING_GRID_SIZE = 2.0;
+
+        /**
+         * 停车飘点检测阈值：单个网格内最大允许点数
+         * 超过此值认为该网格点位过于密集
+         */
+        final int PARKING_GRID_MAX_POINTS = 20;
+
+        /**
+         * 停车飘点检测阈值：密集网格占比（0-1）
+         * 密集网格数/总网格数 > 此值时判定为停车飘点
+         */
+        final double PARKING_DENSE_GRID_RATIO = 0.3;
+
+        /**
+         * km/h 转 m/s 的系数
+         */
+        final double KM_H_TO_M_S = 1.0 / 3.6;
     }
 
     public static class Builder {
@@ -387,14 +418,16 @@ public class GisUtil implements AutoCloseable {
             try {
                 log.debug("创建高斯投影CRS：投影带号 {} 假东距 {} 中央经线 {}", zone, falseEasting, centralMeridian);
                 // 构建WKT格式的高斯-克吕格投影定义：包含坐标系名称、基准面、椭球体参数和投影参数
-                // WKT格式：PROJCS[投影坐标系名称, GEOGCS[地理坐标系定义], PROJECTION[投影方法], PARAMETER[投影参数列表], UNIT[坐标单位]]
+                // WKT格式：PROJCS[投影坐标系名称, GEOGCS[地理坐标系定义], PROJECTION[投影方法], PARAMETER[投影参数列表],
+                // UNIT[坐标单位]]
                 String wktTemplate = "PROJCS[\"Gauss_Kruger_ZONE_%d\", GEOGCS[\"GCS_WGS_1984\", DATUM[\"WGS_1984\", SPHEROID[\"WGS_84\", 6378137.0, 298.257223563]], PRIMEM[\"Greenwich\", 0.0], UNIT[\"Degree\", 0.0174532925199433]], PROJECTION[\"Transverse_Mercator\"], PARAMETER[\"False_Easting\", %.12f], PARAMETER[\"False_Northing\", 0.0], PARAMETER[\"Central_Meridian\", %.12f], PARAMETER[\"Scale_Factor\", 1.0], PARAMETER[\"Latitude_Of_Origin\", 0.0], UNIT[\"Meter\", 1.0]]";
                 String gaussProjString = String.format(wktTemplate, zone, falseEasting, centralMeridian);
 
                 // 解析WKT字符串为CRS对象：GeoTools的CRS工具类负责解析和验证坐标系定义
                 return CRS.parseWKT(gaussProjString);
             } catch (Exception e) {
-                log.warn("创建高斯投影CRS失败：投影带号 {} 假东距 {}, 中央经线 {}, 错误 {}", zone, falseEasting, centralMeridian, e.getMessage());
+                log.warn("创建高斯投影CRS失败：投影带号 {} 假东距 {}, 中央经线 {}, 错误 {}", zone, falseEasting, centralMeridian,
+                        e.getMessage());
                 return null;
             }
         });
@@ -498,7 +531,8 @@ public class GisUtil implements AutoCloseable {
      * @param bufferWidth 缓冲区宽度（单位：米）
      * @return 带缓冲区的几何图形（LineString或Polygon类型）
      */
-    private Geometry processChunk(List<GaussPoint> points, int startIndex, int chunkSize, int totalPoints, double bufferWidth) {
+    private Geometry processChunk(List<GaussPoint> points, int startIndex, int chunkSize, int totalPoints,
+                                  double bufferWidth) {
         // 边界安全处理：确保数据块索引不超出轨迹点总数范围
         int end = Math.min(startIndex + chunkSize, totalPoints);
         List<GaussPoint> chunk = points.subList(startIndex, end);
@@ -527,7 +561,8 @@ public class GisUtil implements AutoCloseable {
             chunkBuffer = DouglasPeuckerSimplifier.simplify(chunkBuffer, 0.00001); // 轻微简化：保持几何形状特征的同时减少顶点数量
         }
 
-        log.debug("处理块: {}-{}, 点数: {}, buffer几何类型: {}, 耗时: {}ms", startIndex, end, chunkLength, chunkBuffer.getGeometryType(), System.currentTimeMillis() - chunkStartTime);
+        log.debug("处理块: {}-{}, 点数: {}, buffer几何类型: {}, 耗时: {}ms", startIndex, end, chunkLength,
+                chunkBuffer.getGeometryType(), System.currentTimeMillis() - chunkStartTime);
 
         // 返回优化后的缓冲区几何：经过边界安全、内存优化、智能简化等多重处理的高质量几何结果
         return chunkBuffer;
@@ -693,20 +728,24 @@ public class GisUtil implements AutoCloseable {
 
             for (int i = 0; i < result.size(); i++) {
                 Geometry geom1 = result.get(i);
-                if (geom1 == null || geom1.isEmpty()) continue;
+                if (geom1 == null || geom1.isEmpty())
+                    continue;
 
                 @SuppressWarnings("unchecked")
                 List<Integer> candidates = index.query(geom1.getEnvelopeInternal());
 
                 for (Integer j : candidates) {
-                    if (i >= j) continue; // 避免重复处理和自相交
+                    if (i >= j)
+                        continue; // 避免重复处理和自相交
 
                     String pairKey = i + "-" + j;
-                    if (processedPairs.contains(pairKey)) continue;
+                    if (processedPairs.contains(pairKey))
+                        continue;
                     processedPairs.add(pairKey);
 
                     Geometry geom2 = result.get(j);
-                    if (geom2 == null || geom2.isEmpty()) continue;
+                    if (geom2 == null || geom2.isEmpty())
+                        continue;
 
                     // 精确相交检测（过滤掉面积小于0.1亩的相交区域）
                     if (geom1.intersects(geom2) && !geom1.touches(geom2)) {
@@ -720,7 +759,8 @@ public class GisUtil implements AutoCloseable {
                 }
             }
 
-            if (!hasIntersections) break;
+            if (!hasIntersections)
+                break;
 
             // 处理相交对，按面积排序，优先处理大面积与小面积的相交
             // 使用final引用以兼容lambda表达式
@@ -740,19 +780,23 @@ public class GisUtil implements AutoCloseable {
                 int idx2 = pair[1];
 
                 // 如果这两个几何图形已经被处理过，跳过
-                if (modifiedIndices.contains(idx1) || modifiedIndices.contains(idx2)) continue;
+                if (modifiedIndices.contains(idx1) || modifiedIndices.contains(idx2))
+                    continue;
 
                 Geometry geom1 = result.get(idx1);
                 Geometry geom2 = result.get(idx2);
 
-                if (geom1 == null || geom1.isEmpty() || geom2 == null || geom2.isEmpty()) continue;
+                if (geom1 == null || geom1.isEmpty() || geom2 == null || geom2.isEmpty())
+                    continue;
 
                 // 重新检查是否仍然相交（可能之前的处理已经解决了）
-                if (!geom1.intersects(geom2) || geom1.touches(geom2)) continue;
+                if (!geom1.intersects(geom2) || geom1.touches(geom2))
+                    continue;
 
                 Geometry intersection = geom1.intersection(geom2);
                 if (intersection == null || intersection.isEmpty()
-                        || intersection.getArea() <= MIN_AREA_SQUARE_METERS) continue;
+                        || intersection.getArea() <= MIN_AREA_SQUARE_METERS)
+                    continue;
 
                 // 比较面积，保留大的，拆分小的
                 Geometry larger, smaller;
@@ -841,7 +885,8 @@ public class GisUtil implements AutoCloseable {
             GaussPoint currPoint = points.get(i);
 
             // 欧几里得距离计算：应用二维平面距离公式计算相邻点间直线距离，基于高斯投影坐标系保证距离精度
-            double distance = Math.sqrt(Math.pow(currPoint.getGaussX() - prevPoint.getGaussX(), 2) + Math.pow(currPoint.getGaussY() - prevPoint.getGaussY(), 2));
+            double distance = Math.sqrt(Math.pow(currPoint.getGaussX() - prevPoint.getGaussX(), 2)
+                    + Math.pow(currPoint.getGaussY() - prevPoint.getGaussY(), 2));
 
             if (distance > 0) { // 重复点过滤：排除坐标完全相同的重复采样点，确保距离统计的有效性和准确性
                 totalDistance += distance;
@@ -858,7 +903,8 @@ public class GisUtil implements AutoCloseable {
         double avgDistance = totalDistance / validSegments;
         double density = avgDistance > 0 ? 1.0 / avgDistance : 0.0;
 
-        log.info("密度计算：总点数={}, 有效段数={}, 总距离={}米, 平均距离={}米, 密度={}点/米", points.size(), validSegments, totalDistance, avgDistance, density);
+        log.info("密度计算：总点数={}, 有效段数={}, 总距离={}米, 平均距离={}米, 密度={}点/米", points.size(), validSegments, totalDistance,
+                avgDistance, density);
 
         return density;
     }
@@ -904,15 +950,15 @@ public class GisUtil implements AutoCloseable {
 
         if (density > 1.0) {
             // 高密度区域优化（>1点/米）：采用小块精细处理策略，避免复杂几何导致的性能退化，10%重叠度确保空间连续性
-            chunkSize = 250;  // 减少块大小以控制几何复杂度
+            chunkSize = 250; // 减少块大小以控制几何复杂度
             overlapSize = 25; // 10%重叠确保无缝连接
         } else if (density > 0.5) {
             // 中密度区域配置（0.5-1点/米）：平衡处理效率与几何精度，采用中等块大小和8%重叠度
-            chunkSize = 400;  // 中等块大小平衡效率与精度
+            chunkSize = 400; // 中等块大小平衡效率与精度
             overlapSize = 32; // 8%重叠度
         } else {
             // 低密度区域策略（<0.5点/米）：点稀疏场景使用大块处理减少计算量，6%重叠度降低合并复杂度
-            chunkSize = 600;  // 大块处理提升稀疏数据效率
+            chunkSize = 600; // 大块处理提升稀疏数据效率
             overlapSize = 36; // 6%重叠减少计算量
         }
 
@@ -1037,7 +1083,8 @@ public class GisUtil implements AutoCloseable {
      */
     private Geometry processChunkOptimized(List<GaussPoint> points, int startIndex, int endIndex, double bufferWidth) {
         int size = endIndex - startIndex;
-        if (size <= 1) return null;
+        if (size <= 1)
+            return null;
 
         // 内存预分配策略：基于区间大小一次性分配坐标数组，避免动态扩容和GC压力，为后续零拷贝几何构建提供基础
         Coordinate[] coords = new Coordinate[size];
@@ -1196,7 +1243,8 @@ public class GisUtil implements AutoCloseable {
             GaussPoint currPoint = cluster.get(i);
 
             // 高斯坐标欧几里得距离计算：基于平面直角坐标系计算两点间直线距离，保持高斯投影的空间精度，避免坐标转换误差
-            double distance = Math.sqrt(Math.pow(currPoint.getGaussX() - prevPoint.getGaussX(), 2) + Math.pow(currPoint.getGaussY() - prevPoint.getGaussY(), 2));
+            double distance = Math.sqrt(Math.pow(currPoint.getGaussX() - prevPoint.getGaussX(), 2)
+                    + Math.pow(currPoint.getGaussY() - prevPoint.getGaussY(), 2));
 
             if (distance > maxDistance) {
                 // 动态分段触发：当相邻点距离超过阈值时，将当前段添加到结果集合并重新开始新段，实现基于空间连续性的智能分段
@@ -1217,38 +1265,48 @@ public class GisUtil implements AutoCloseable {
     /**
      * 轨迹点集群时间切分引擎 - 基于时间序列连续性的智能分段算法
      *
-     * <p><b>算法核心：</b>单遍历 + 时间差阈值判断 + 动态分段策略</p>
+     * <p>
+     * <b>算法核心：</b>单遍历 + 时间差阈值判断 + 动态分段策略
+     * </p>
      *
-     * <p><b>核心优势：</b></p>
+     * <p>
+     * <b>核心优势：</b>
+     * </p>
      * <ul>
-     *   <li>时间序列保序：严格保持GPS时间戳的顺序性，确保轨迹时序逻辑正确</li>
-     *   <li>单遍历高效：O(n)线性扫描，无回溯，无嵌套循环，最优时间复杂度</li>
-     *   <li>零内存拷贝：段内数据直接引用，避免大数据量复制开销</li>
-     *   <li>边界完整性：自动处理末段数据，确保100%数据不丢失</li>
+     * <li>时间序列保序：严格保持GPS时间戳的顺序性，确保轨迹时序逻辑正确</li>
+     * <li>单遍历高效：O(n)线性扫描，无回溯，无嵌套循环，最优时间复杂度</li>
+     * <li>零内存拷贝：段内数据直接引用，避免大数据量复制开销</li>
+     * <li>边界完整性：自动处理末段数据，确保100%数据不丢失</li>
      * </ul>
      *
-     * <p><b>性能特点：</b></p>
+     * <p>
+     * <b>性能特点：</b>
+     * </p>
      * <ul>
-     *   <li>时间复杂度：O(n) - 单遍历线性处理</li>
-     *   <li>空间复杂度：O(k) - k为分段数量，额外空间最小化</li>
-     *   <li>内存模式：顺序访问友好，CPU缓存命中率高</li>
-     *   <li>并发安全：无共享状态，天然线程安全</li>
+     * <li>时间复杂度：O(n) - 单遍历线性处理</li>
+     * <li>空间复杂度：O(k) - k为分段数量，额外空间最小化</li>
+     * <li>内存模式：顺序访问友好，CPU缓存命中率高</li>
+     * <li>并发安全：无共享状态，天然线程安全</li>
      * </ul>
      *
-     * <p><b>应用场景：</b></p>
+     * <p>
+     * <b>应用场景：</b>
+     * </p>
      * <ul>
-     *   <li>轨迹数据预处理：处理GPS设备信号中断导致的长时间间隔</li>
-     *   <li>轨迹分段分析：将长轨迹按时间间隔切分为独立行程</li>
-     *   <li>数据质量优化：识别并分离时间异常的数据段</li>
-     *   <li>分块处理框架：作为空间切分的前置时间过滤组件</li>
+     * <li>轨迹数据预处理：处理GPS设备信号中断导致的长时间间隔</li>
+     * <li>轨迹分段分析：将长轨迹按时间间隔切分为独立行程</li>
+     * <li>数据质量优化：识别并分离时间异常的数据段</li>
+     * <li>分块处理框架：作为空间切分的前置时间过滤组件</li>
      * </ul>
      *
-     * <p><b>设计原理：</b></p>
+     * <p>
+     * <b>设计原理：</b>
+     * </p>
      * <ol>
-     *   <li><b>时间差计算：</b>基于Duration.between精确计算GPS时间戳差值</li>
-     *   <li><b>阈值比较：</b>严格大于判断，避免边界抖动导致的误判</li>
-     *   <li><b>动态分段：</b>超过阈值立即切分，保证段内时间连续性</li>
-     *   <li><b>末段处理：</b>遍历结束后强制收集剩余数据，确保数据完整性</li>
+     * <li><b>时间差计算：</b>基于Duration.between精确计算GPS时间戳差值</li>
+     * <li><b>阈值比较：</b>严格大于判断，避免边界抖动导致的误判</li>
+     * <li><b>动态分段：</b>超过阈值立即切分，保证段内时间连续性</li>
+     * <li><b>末段处理：</b>遍历结束后强制收集剩余数据，确保数据完整性</li>
      * </ol>
      *
      * @param cluster    轨迹点集群（GaussPoint类型），要求GPS时间戳有序且非空
@@ -1329,7 +1387,8 @@ public class GisUtil implements AutoCloseable {
      * @param maxDistance 最大距离阈值（米），超过此距离视为轨迹跳跃
      * @return 切分后的轨迹段列表，每个元素为一个连续的子轨迹段，保持原始时间顺序
      */
-    private List<List<GaussPoint>> splitClusterByTimeOrDistance(List<GaussPoint> cluster, double maxSeconds, double maxDistance) {
+    private List<List<GaussPoint>> splitClusterByTimeOrDistance(List<GaussPoint> cluster, double maxSeconds,
+                                                                double maxDistance) {
         // 结果容器预分配：避免动态扩容，提升内存分配效率
         List<List<GaussPoint>> segments = new ArrayList<>();
 
@@ -1352,7 +1411,8 @@ public class GisUtil implements AutoCloseable {
             long seconds = duration.getSeconds();
 
             // 欧几里得距离计算：基于高斯平面坐标，保证距离计算精度
-            double distance = Math.sqrt(Math.pow(currPoint.getGaussX() - prevPoint.getGaussX(), 2) + Math.pow(currPoint.getGaussY() - prevPoint.getGaussY(), 2));
+            double distance = Math.sqrt(Math.pow(currPoint.getGaussX() - prevPoint.getGaussX(), 2)
+                    + Math.pow(currPoint.getGaussY() - prevPoint.getGaussY(), 2));
 
             // 动态分段触发：时间或空间任一条件满足即触发分段，保证物理意义
             if (seconds > maxSeconds || distance > maxDistance) {
@@ -1369,7 +1429,8 @@ public class GisUtil implements AutoCloseable {
         segments.add(currentSegment);
 
         // 统计日志记录：提供性能监控关键指标，支持分段质量评估和阈值优化
-        log.debug("时空切分完成：原始 {} 个点 -> {} 个子段，最大时间阈值 {} 秒，最大距离阈值 {} 米", cluster.size(), segments.size(), maxSeconds, maxDistance);
+        log.debug("时空切分完成：原始 {} 个点 -> {} 个子段，最大时间阈值 {} 秒，最大距离阈值 {} 米", cluster.size(), segments.size(), maxSeconds,
+                maxDistance);
 
         // 返回优化结果：保持原始时空顺序的轨迹段列表，支持后续分析和处理
         return segments;
@@ -1408,7 +1469,8 @@ public class GisUtil implements AutoCloseable {
      * @param wgs84Points     候选点列表，作为匹配的参考数据源
      * @return 成功匹配的最近邻点列表，未找到匹配的点将被过滤掉，保持原始顺序
      */
-    private List<Wgs84Point> findClosestPointListSimple(List<Wgs84Point> targetPointList, List<Wgs84Point> wgs84Points) {
+    private List<Wgs84Point> findClosestPointListSimple(List<Wgs84Point> targetPointList,
+                                                        List<Wgs84Point> wgs84Points) {
         // 函数式流处理：基于Stream API实现声明式编程，提高代码可读性和维护性
         List<Wgs84Point> result = targetPointList.stream()
                 // 暴力搜索映射：对每个目标点执行最近邻搜索，使用渐进式容差提高匹配成功率
@@ -1421,7 +1483,8 @@ public class GisUtil implements AutoCloseable {
         // 统计日志记录：提供匹配成功率监控，支持算法性能评估
         log.debug("简单最近邻匹配完成：目标点 {} 个 -> 成功匹配 {} 个点，匹配率 {}%",
                 targetPointList.size(), result.size(),
-                !targetPointList.isEmpty() ? String.format("%.1f", (result.size() * 100.0 / targetPointList.size())) : "0.0");
+                !targetPointList.isEmpty() ? String.format("%.1f", (result.size() * 100.0 / targetPointList.size()))
+                        : "0.0");
 
         // 返回优化结果：成功匹配的最近邻点列表，保持与目标点列表相同的顺序
         return result;
@@ -1460,7 +1523,8 @@ public class GisUtil implements AutoCloseable {
      * @param wgs84Points     候选点列表，作为匹配的参考数据源，用于构建空间索引
      * @return 成功匹配的最近邻点列表，未找到匹配的点将被过滤掉，保持原始顺序
      */
-    private List<Wgs84Point> findClosestPointListOptimized(List<Wgs84Point> targetPointList, List<Wgs84Point> wgs84Points) {
+    private List<Wgs84Point> findClosestPointListOptimized(List<Wgs84Point> targetPointList,
+                                                           List<Wgs84Point> wgs84Points) {
         // 性能监控：记录算法开始时间
         long startTime = System.currentTimeMillis();
 
@@ -1482,15 +1546,16 @@ public class GisUtil implements AutoCloseable {
 
         // 并行流处理：利用多核CPU并行处理目标点列表，大幅提升处理速度
         List<Wgs84Point> result = targetPointList.parallelStream()
-                .unordered()  // 无序处理：允许并行流无序处理以提高性能
+                .unordered() // 无序处理：允许并行流无序处理以提高性能
                 .map(targetPoint -> findClosestPointWithSTRtree(targetPoint, spatialIndex))
-                .filter(Objects::nonNull)  // 空值过滤：过滤掉未找到匹配的点
-                .collect(Collectors.toList());  // 结果收集：将匹配结果收集到列表中
+                .filter(Objects::nonNull) // 空值过滤：过滤掉未找到匹配的点
+                .collect(Collectors.toList()); // 结果收集：将匹配结果收集到列表中
 
         // 性能统计：计算耗时并记录匹配结果
         long endTime = System.currentTimeMillis();
         log.info("空间索引最近邻匹配完成 - 成功匹配点数: {}, 处理耗时: {} ms, 匹配成功率: {}%",
-                result.size(), (endTime - startTime), String.format("%.2f", (double) result.size() / targetPointList.size() * 100));
+                result.size(), (endTime - startTime),
+                String.format("%.2f", (double) result.size() / targetPointList.size() * 100));
 
         return result;
     }
@@ -1516,8 +1581,7 @@ public class GisUtil implements AutoCloseable {
                     targetPoint.getLongitude() - toleranceDegrees,
                     targetPoint.getLongitude() + toleranceDegrees,
                     targetPoint.getLatitude() - toleranceDegrees,
-                    targetPoint.getLatitude() + toleranceDegrees
-            );
+                    targetPoint.getLatitude() + toleranceDegrees);
 
             // 空间索引查询
             @SuppressWarnings("unchecked")
@@ -1553,7 +1617,8 @@ public class GisUtil implements AutoCloseable {
      * @see Config#TOLERANCES 预定义的容差级别数组（单位：米）
      * @see #findClosestPoint(Wgs84Point, List, double) 基础单容差最近邻查找
      */
-    private Wgs84Point findClosestPointWithProgressiveToleranceFixed(Wgs84Point targetWgs84Point, List<Wgs84Point> wgs84Points) {
+    private Wgs84Point findClosestPointWithProgressiveToleranceFixed(Wgs84Point targetWgs84Point,
+                                                                     List<Wgs84Point> wgs84Points) {
         // 按容差级别升序遍历：优先小容差精确匹配，逐步放宽搜索条件
         for (double tolerance : config.TOLERANCES) {
             // 执行单容差最近邻查找
@@ -1586,7 +1651,8 @@ public class GisUtil implements AutoCloseable {
      * @see #haversine(Wgs84Point, Wgs84Point) 球面距离计算方法
      * @see Double#MAX_VALUE 初始最小距离值，确保任何有效距离都能更新
      */
-    private Wgs84Point findClosestPointInCandidates(Wgs84Point targetPoint, List<Wgs84Point> candidates, double maxDistance) {
+    private Wgs84Point findClosestPointInCandidates(Wgs84Point targetPoint, List<Wgs84Point> candidates,
+                                                    double maxDistance) {
         // 初始化最近点引用：null表示尚未找到有效候选点
         Wgs84Point closestPoint = null;
 
@@ -1603,8 +1669,8 @@ public class GisUtil implements AutoCloseable {
             // 最优性条件：只保留比当前最小距离更近的点
             if (distance <= maxDistance && distance < minDistance) {
                 // 更新最优解：记录新的最近点和对应距离
-                minDistance = distance;      // 更新最小距离记录
-                closestPoint = candidate;    // 更新最近点引用
+                minDistance = distance; // 更新最小距离记录
+                closestPoint = candidate; // 更新最近点引用
             }
         }
 
@@ -1736,10 +1802,12 @@ public class GisUtil implements AutoCloseable {
             double dtSec = duration.toMillis() / 1000.0;
 
             // 过滤条件1：跳过同一时刻或时间倒流的数据点
-            if (dtSec <= 0) continue;
+            if (dtSec <= 0)
+                continue;
 
             // 过滤条件2：仅保留符合标准上报间隔的点对（容差±0.1秒）
-            if (Math.abs(dtSec - minEffectiveInterval) > 0.1) continue;
+            if (Math.abs(dtSec - minEffectiveInterval) > 0.1)
+                continue;
 
             // 计算球面距离：使用Haversine公式确保经纬度距离准确性（单位：米）
             double dist = haversine(p1, p2);
@@ -1758,7 +1826,7 @@ public class GisUtil implements AutoCloseable {
 
             // 累加有效路段：距离和时间都参与加权平均计算
             totalDist += dist;
-            totalTime += duration.toMillis();   // 累计毫秒用于时间加权
+            totalTime += duration.toMillis(); // 累计毫秒用于时间加权
         }
 
         // 计算加权平均速度：总距离除以总时间，时间权重体现在分母中
@@ -1766,7 +1834,6 @@ public class GisUtil implements AutoCloseable {
         log.debug("全部切段：加权平均={} m/s", weightedAvg);
         return weightedAvg;
     }
-
 
     /**
      * 判断所有高斯投影点是否都在指定亩数的范围内
@@ -1933,27 +2000,32 @@ public class GisUtil implements AutoCloseable {
     /**
      * 地块相交修复优化算法
      *
-     * <p>算法原理：
+     * <p>
+     * 算法原理：
      * 通过空间索引和增量处理策略，高效解决多个地块之间的空间重叠问题。核心思想是构建累积并集，
      * 对每个新地块执行差集操作，去除已被占用的空间区域，确保最终得到的空间分布无重叠且最大化保留原始面积。
      *
-     * <p>适用场景：
+     * <p>
+     * 适用场景：
      * 适用于GPS轨迹聚类后地块重叠的场景，特别是车辆轨迹分析、地理围栏计算、空间占用分析等
      * 需要消除空间冲突的应用场景。
      *
-     * <p>性能特点：
+     * <p>
+     * 性能特点：
      * - 时间复杂度：O(n log n) - 使用STR树空间索引避免O(n²)的暴力检测
      * - 空间复杂度：O(n) - 存储处理后的几何图形和索引结构
      * - 优化策略：增量累积、定期重建、智能跳过无效地块
      *
-     * <p>实现亮点：
+     * <p>
+     * 实现亮点：
      * 1. 预处理统一精度并简化几何图形，提升后续计算稳定性
      * 2. STR树空间索引快速定位潜在相交区域，大幅减少不必要的几何计算
      * 3. 增量累积并集策略，避免重复计算已处理区域
      * 4. 定期重建累积并集，控制几何复杂度增长
      * 5. 智能跳过面积过小的差集结果，过滤无效地块
      *
-     * <p>注意事项：
+     * <p>
+     * 注意事项：
      * - 输入几何图形需为有效多边形，方法内会进行自动修复
      * - 差集结果面积小于0.001平方米的地块将被过滤
      * - 累积并集每处理5个地块后重建，平衡性能与精度
@@ -2095,26 +2167,31 @@ public class GisUtil implements AutoCloseable {
     /**
      * 计算安全缓冲值，防止几何图形在高斯投影坐标系下超出有效范围
      *
-     * <p>算法原理：
+     * <p>
+     * 算法原理：
      * 基于几何图形的外接矩形边界，计算到高斯投影安全边界的最近距离，并结合最小缓冲距离约束，
      * 确保缓冲操作不会导致几何图形超出高斯投影的有效坐标范围。
      *
-     * <p>高斯投影安全边界说明：
+     * <p>
+     * 高斯投影安全边界说明：
      * - X轴范围：500,000 至 64,000,000 米（考虑中央子午线偏移和投影带宽度）
      * - Y轴范围：-10,000,000 至 10,000,000 米（考虑南北半球覆盖和投影变形控制）
      * - 安全余量：10%（防止数值计算误差和边界效应）
      *
-     * <p>适用场景：
+     * <p>
+     * 适用场景：
      * 适用于需要在地形图投影范围内进行缓冲分析的场景，特别是国土测绘、工程测量、
      * 地理信息系统分析等需要精确控制几何图形范围的专业应用。
      *
-     * <p>算法特点：
+     * <p>
+     * 算法特点：
      * - 四维边界检测：同时考虑X轴和Y轴的最小/最大边界
      * - 保守安全策略：取四个方向中最小的安全距离作为缓冲上限
      * - 双重保护机制：结合投影边界约束和最小缓冲距离约束
      * - 自适应调整：根据几何图形位置动态计算最大安全缓冲值
      *
-     * <p>注意事项：
+     * <p>
+     * 注意事项：
      * - 输入几何图形必须在有效的高斯投影坐标范围内
      * - 返回的缓冲值不会超过投影边界的安全距离
      * - 当请求缓冲值超出安全范围时会记录警告日志
@@ -2132,21 +2209,21 @@ public class GisUtil implements AutoCloseable {
         Envelope env = geometry.getEnvelopeInternal();
 
         // 高斯投影安全边界定义：基于国家测绘标准和工程实践经验
-        final double MIN_X = 500000;      // 最小X坐标：考虑500km的中央子午线偏移
-        final double MAX_X = 64000000;  // 最大X坐标：约64个投影带，每带宽度约1000km
+        final double MIN_X = 500000; // 最小X坐标：考虑500km的中央子午线偏移
+        final double MAX_X = 64000000; // 最大X坐标：约64个投影带，每带宽度约1000km
         final double MIN_Y = -10000000; // 最小Y坐标：南半球覆盖，考虑赤道南移10000km
-        final double MAX_Y = 10000000;   // 最大Y坐标：北半球覆盖，考虑赤道北移10000km
+        final double MAX_Y = 10000000; // 最大Y坐标：北半球覆盖，考虑赤道北移10000km
 
         // 四维边界距离计算：分别计算几何图形到四个方向边界的安全距离
-        double distanceToMinX = env.getMinX() - MIN_X;      // 到西边界距离：正值表示在安全区域内
-        double distanceToMaxX = MAX_X - env.getMaxX();        // 到东边界距离：正值表示在安全区域内
-        double distanceToMinY = env.getMinY() - MIN_Y;        // 到南边界距离：正值表示在安全区域内
-        double distanceToMaxY = MAX_Y - env.getMaxY();       // 到北边界距离：正值表示在安全区域内
+        double distanceToMinX = env.getMinX() - MIN_X; // 到西边界距离：正值表示在安全区域内
+        double distanceToMaxX = MAX_X - env.getMaxX(); // 到东边界距离：正值表示在安全区域内
+        double distanceToMinY = env.getMinY() - MIN_Y; // 到南边界距离：正值表示在安全区域内
+        double distanceToMaxY = MAX_Y - env.getMaxY(); // 到北边界距离：正值表示在安全区域内
 
         // 最小安全距离确定：采用保守策略，取四个方向中最小的安全距离
         double maxSafeBuffer = Math.min(
-                Math.min(distanceToMinX, distanceToMaxX),  // X轴方向最小距离
-                Math.min(distanceToMinY, distanceToMaxY)   // Y轴方向最小距离
+                Math.min(distanceToMinX, distanceToMaxX), // X轴方向最小距离
+                Math.min(distanceToMinY, distanceToMaxY) // Y轴方向最小距离
         );
 
         // 安全余量应用：留出10%的安全缓冲，防止数值计算误差和边界效应
@@ -2175,45 +2252,48 @@ public class GisUtil implements AutoCloseable {
      * <p>
      * 【算法流程】
      * <ol>
-     *   <li>遍历坐标点序列，计算连续三点形成的向量夹角</li>
-     *   <li>累积从上一次保留点到当前点的距离</li>
-     *   <li>保留条件（满足任一）：
-     *       <ul>
-     *           <li>夹角大于阈值（拐角点）</li>
-     *           <li>累积距离超过最大边长（防止过度简化）</li>
-     *       </ul>
-     *   </li>
-     *   <li>短边过滤：小于最小边长的线段视为噪声，跳过但不重置累积距离</li>
-     *   <li>始终保留首尾点，确保几何图形的完整性</li>
+     * <li>遍历坐标点序列，计算连续三点形成的向量夹角</li>
+     * <li>累积从上一次保留点到当前点的距离</li>
+     * <li>保留条件（满足任一）：
+     * <ul>
+     * <li>夹角大于阈值（拐角点）</li>
+     * <li>累积距离超过最大边长（防止过度简化）</li>
+     * </ul>
+     * </li>
+     * <li>短边过滤：小于最小边长的线段视为噪声，跳过但不重置累积距离</li>
+     * <li>始终保留首尾点，确保几何图形的完整性</li>
      * </ol>
      * </p>
      * <p>
      * 【参数说明】
      * <ul>
-     *   <li><b>minEdgeLen</b>：最小边长阈值（米），建议 0.3-0.5 米
-     *       <br>作用：过滤GPS抖动产生的噪声点，小于此长度的边视为噪声</li>
-     *   <li><b>minAngleDeg</b>：最小拐角角度（度），建议 5-10 度
-     *       <br>作用：大于此角度的拐角被视为有效转弯，保留拐点</li>
-     *   <li><b>maxEdgeLen</b>：最大边长阈值（米），建议 1-2 米
-     *       <br>作用：即使直线，超过此距离也要保留一个点，防止过度简化</li>
+     * <li><b>minEdgeLen</b>：最小边长阈值（米），建议 0.3-0.5 米
+     * <br>
+     * 作用：过滤GPS抖动产生的噪声点，小于此长度的边视为噪声</li>
+     * <li><b>minAngleDeg</b>：最小拐角角度（度），建议 5-10 度
+     * <br>
+     * 作用：大于此角度的拐角被视为有效转弯，保留拐点</li>
+     * <li><b>maxEdgeLen</b>：最大边长阈值（米），建议 1-2 米
+     * <br>
+     * 作用：即使直线，超过此距离也要保留一个点，防止过度简化</li>
      * </ul>
      * </p>
      * <p>
      * 【使用场景建议】
      * <ul>
-     *   <li>农机作业轨迹：minEdgeLen=0.5, minAngleDeg=10, maxEdgeLen=1.0</li>
-     *   <li>车辆GPS轨迹：minEdgeLen=1.0, minAngleDeg=5, maxEdgeLen=2.0</li>
-     *   <li>步行/巡检轨迹：minEdgeLen=0.3, minAngleDeg=15, maxEdgeLen=0.5</li>
-     *   <li>无人机航线：minEdgeLen=0.3, minAngleDeg=5, maxEdgeLen=0.5</li>
+     * <li>农机作业轨迹：minEdgeLen=0.5, minAngleDeg=10, maxEdgeLen=1.0</li>
+     * <li>车辆GPS轨迹：minEdgeLen=1.0, minAngleDeg=5, maxEdgeLen=2.0</li>
+     * <li>步行/巡检轨迹：minEdgeLen=0.3, minAngleDeg=15, maxEdgeLen=0.5</li>
+     * <li>无人机航线：minEdgeLen=0.3, minAngleDeg=5, maxEdgeLen=0.5</li>
      * </ul>
      * </p>
      * <p>
      * 【注意事项】
      * <ul>
-     *   <li>输入坐标必须基于高斯投影坐标系，确保距离计算的准确性</li>
-     *   <li>少于3个点无法形成夹角，直接返回原数组</li>
-     *   <li>少于SIMPLIFY_MIN_POINT（默认1000）个点不抽稀，直接返回原数组</li>
-     *   <li>maxEdgeLen 应该明显大于 minEdgeLen，建议比例 2:1 到 5:1</li>
+     * <li>输入坐标必须基于高斯投影坐标系，确保距离计算的准确性</li>
+     * <li>少于3个点无法形成夹角，直接返回原数组</li>
+     * <li>少于SIMPLIFY_MIN_POINT（默认1000）个点不抽稀，直接返回原数组</li>
+     * <li>maxEdgeLen 应该明显大于 minEdgeLen，建议比例 2:1 到 5:1</li>
      * </ul>
      * </p>
      *
@@ -2228,7 +2308,8 @@ public class GisUtil implements AutoCloseable {
      */
     private Coordinate[] simplifyByAngle(Coordinate[] pts, double minEdgeLen, double minAngleDeg, double maxEdgeLen) {
         // 边界条件处理：少于3个点无法形成夹角，直接返回原数组
-        if (pts.length < 3) return pts;
+        if (pts.length < 3)
+            return pts;
 
         log.trace("原始点位数量：{}", pts.length);
 
@@ -2304,7 +2385,7 @@ public class GisUtil implements AutoCloseable {
     private Geometry lowMemBuffer(Geometry line, double distance) {
         // 用 BufferParameters 强行把"象限段数"降到 4（默认 16）
         BufferParameters bp = new BufferParameters();
-        bp.setQuadrantSegments(2);          // 4 段就是 90°/4=22.5°，农田场景足够
+        bp.setQuadrantSegments(2); // 4 段就是 90°/4=22.5°，农田场景足够
         bp.setEndCapStyle(BufferParameters.CAP_FLAT);
 
         // 如果线过长，做“分段缓冲”——每 500 坐标一段，分别缓冲后再 union
@@ -2333,7 +2414,6 @@ public class GisUtil implements AutoCloseable {
         // 流式 union，避免一次性大 Union 爆炸
         return UnaryUnionOp.union(segments);
     }
-
 
     /**
      * 获得在多边形内的点位集合
@@ -2442,7 +2522,8 @@ public class GisUtil implements AutoCloseable {
      * @param maxIntervalSeconds  最大间隔时间（秒），超过此时间强制切分
      * @return 分割后的时间窗口列表
      */
-    private List<TimeWindow> splitTimeWindows(List<Wgs84Point> wgs84Points, int minConsecutiveCount, long maxIntervalSeconds) {
+    private List<TimeWindow> splitTimeWindows(List<Wgs84Point> wgs84Points, int minConsecutiveCount,
+                                              long maxIntervalSeconds) {
         List<TimeWindow> windows = new ArrayList<>();
 
         // todo 异常时间过滤
@@ -2491,7 +2572,8 @@ public class GisUtil implements AutoCloseable {
             // 强制切分：超过最大间隔时间
             if (intervalSeconds > maxIntervalSeconds) {
                 if (!currentWindow.isEmpty()) {
-                    windows.add(new TimeWindow(currentIntervalType != null ? currentIntervalType : 0, new ArrayList<>(currentWindow)));
+                    windows.add(new TimeWindow(currentIntervalType != null ? currentIntervalType : 0,
+                            new ArrayList<>(currentWindow)));
                 }
                 currentWindow.clear();
                 currentWindow.add(nextPoint);
@@ -2540,7 +2622,44 @@ public class GisUtil implements AutoCloseable {
             windows.add(new TimeWindow(currentIntervalType != null ? currentIntervalType : 0, currentWindow));
         }
 
-        return windows;
+        // 合并相邻且间隔类型相同的窗口
+        return mergeAdjacentWindows(windows);
+    }
+
+    /**
+     * 合并相邻且间隔类型相同的时间窗口
+     *
+     * @param windows 原始时间窗口列表
+     * @return 合并后的时间窗口列表
+     */
+    private List<TimeWindow> mergeAdjacentWindows(List<TimeWindow> windows) {
+        if (windows == null || windows.size() <= 1) {
+            return windows;
+        }
+
+        List<TimeWindow> mergedWindows = new ArrayList<>();
+        TimeWindow currentMergedWindow = null;
+
+        for (TimeWindow window : windows) {
+            if (currentMergedWindow == null) {
+                // 第一个窗口，初始化
+                currentMergedWindow = new TimeWindow(window.getInterval(), new ArrayList<>(window.getPoints()));
+            } else if (currentMergedWindow.getInterval() == window.getInterval()) {
+                // 间隔类型相同，合并到当前窗口
+                currentMergedWindow.getPoints().addAll(window.getPoints());
+            } else {
+                // 间隔类型不同，保存当前窗口，开始新的窗口
+                mergedWindows.add(currentMergedWindow);
+                currentMergedWindow = new TimeWindow(window.getInterval(), new ArrayList<>(window.getPoints()));
+            }
+        }
+
+        // 添加最后一个合并后的窗口
+        if (currentMergedWindow != null) {
+            mergedWindows.add(currentMergedWindow);
+        }
+
+        return mergedWindows;
     }
 
     /**
@@ -2589,8 +2708,7 @@ public class GisUtil implements AutoCloseable {
             }
 
             return config.GEOMETRY_FACTORY.createMultiPolygon(
-                    processedPolygons.toArray(new Polygon[0])
-            );
+                    processedPolygons.toArray(new Polygon[0]));
         }
 
         // 其他类型直接返回原几何图形
@@ -2695,8 +2813,7 @@ public class GisUtil implements AutoCloseable {
             // 创建查询范围（以当前点为中心，parkingRange为半径的矩形）
             Envelope queryEnv = new Envelope(
                     center.getGaussX() - parkingRange, center.getGaussX() + parkingRange,
-                    center.getGaussY() - parkingRange, center.getGaussY() + parkingRange
-            );
+                    center.getGaussY() - parkingRange, center.getGaussY() + parkingRange);
 
             // 使用STRtree索引快速查询候选点
             @SuppressWarnings("unchecked")
@@ -2707,8 +2824,7 @@ public class GisUtil implements AutoCloseable {
             for (GaussPoint candidate : candidates) {
                 double dist = Math.sqrt(
                         Math.pow(center.getGaussX() - candidate.getGaussX(), 2) +
-                                Math.pow(center.getGaussY() - candidate.getGaussY(), 2)
-                );
+                                Math.pow(center.getGaussY() - candidate.getGaussY(), 2));
                 if (dist <= parkingRange) {
                     neighbors.add(candidate);
                 }
@@ -2720,8 +2836,7 @@ public class GisUtil implements AutoCloseable {
                 neighbors.sort(Comparator.comparing(GaussPoint::getGpsTime));
                 long duration = Duration.between(
                         neighbors.get(0).getGpsTime(),
-                        neighbors.get(neighbors.size() - 1).getGpsTime()
-                ).getSeconds();
+                        neighbors.get(neighbors.size() - 1).getGpsTime()).getSeconds();
 
                 // 计算空间范围（边界框）
                 double minX = Double.MAX_VALUE, maxX = -Double.MAX_VALUE;
@@ -2776,9 +2891,9 @@ public class GisUtil implements AutoCloseable {
      */
     private List<GaussPoint> filterParkingPointsByMedianFilter(
             List<GaussPoint> gaussPoints,
-            int filterWindow,         // 中值滤波窗口大小，如5个点
-            double speedThreshold,    // 速度阈值，如0.3 m/s
-            int minParkingTime        // 最少持续多少秒算停车，如60秒
+            int filterWindow, // 中值滤波窗口大小，如5个点
+            double speedThreshold, // 速度阈值，如0.3 m/s
+            int minParkingTime // 最少持续多少秒算停车，如60秒
     ) {
         if (gaussPoints.size() < filterWindow) {
             return gaussPoints; // 点太少，不过滤
@@ -2826,14 +2941,12 @@ public class GisUtil implements AutoCloseable {
             // 计算速度
             double dist1 = Math.sqrt(
                     Math.pow(curr.getGaussX() - prev.getGaussX(), 2) +
-                            Math.pow(curr.getGaussY() - prev.getGaussY(), 2)
-            );
+                            Math.pow(curr.getGaussY() - prev.getGaussY(), 2));
             long time1 = Duration.between(prev.getGpsTime(), curr.getGpsTime()).getSeconds();
 
             double dist2 = Math.sqrt(
                     Math.pow(next.getGaussX() - curr.getGaussX(), 2) +
-                            Math.pow(next.getGaussY() - curr.getGaussY(), 2)
-            );
+                            Math.pow(next.getGaussY() - curr.getGaussY(), 2));
             long time2 = Duration.between(curr.getGpsTime(), next.getGpsTime()).getSeconds();
 
             double speed1 = (time1 > 0) ? dist1 / time1 : Double.MAX_VALUE;
@@ -2860,8 +2973,7 @@ public class GisUtil implements AutoCloseable {
 
             long duration = Duration.between(
                     gaussPoints.get(start).getGpsTime(),
-                    gaussPoints.get(end - 1).getGpsTime()
-            ).getSeconds();
+                    gaussPoints.get(end - 1).getGpsTime()).getSeconds();
 
             if (duration < minParkingTime) {
                 for (int j = start; j < end; j++) {
@@ -2942,8 +3054,7 @@ public class GisUtil implements AutoCloseable {
             // 查询epsilon邻域内的点
             Envelope queryEnv = new Envelope(
                     point.getGaussX() - epsilon, point.getGaussX() + epsilon,
-                    point.getGaussY() - epsilon, point.getGaussY() + epsilon
-            );
+                    point.getGaussY() - epsilon, point.getGaussY() + epsilon);
             @SuppressWarnings("unchecked")
             List<GaussPoint> candidates = pointIndex.query(queryEnv);
 
@@ -2952,8 +3063,7 @@ public class GisUtil implements AutoCloseable {
             for (GaussPoint candidate : candidates) {
                 double dist = Math.sqrt(
                         Math.pow(point.getGaussX() - candidate.getGaussX(), 2) +
-                                Math.pow(point.getGaussY() - candidate.getGaussY(), 2)
-                );
+                                Math.pow(point.getGaussY() - candidate.getGaussY(), 2));
                 if (dist <= epsilon) {
                     neighborCount++;
                 }
@@ -2968,28 +3078,30 @@ public class GisUtil implements AutoCloseable {
             else if (neighborCount <= maxNeighbors) {
                 // 每3个点保留1个，保留时间序列上的代表性点
                 keep[i] = (i % 3 == 0);
-                if (keep[i]) keptCount++;
+                if (keep[i])
+                    keptCount++;
             }
             // 高密度区域（>maxNeighbors）：停车区域，大幅抽稀
             else {
                 // 每10个点保留1个，只保留少量代表点
                 keep[i] = (i % 10 == 0);
-                if (keep[i]) keptCount++;
+                if (keep[i])
+                    keptCount++;
             }
         }
 
         // 第二遍：确保每个epsilon邻域内至少保留minPts个点
         // 这是关键：保证DBSCAN的核心点判定仍然有效
         for (int i = 0; i < sortedPoints.size(); i++) {
-            if (keep[i]) continue; // 已保留，跳过
+            if (keep[i])
+                continue; // 已保留，跳过
 
             GaussPoint point = sortedPoints.get(i);
 
             // 查询epsilon邻域内已保留的点数
             Envelope queryEnv = new Envelope(
                     point.getGaussX() - epsilon, point.getGaussX() + epsilon,
-                    point.getGaussY() - epsilon, point.getGaussY() + epsilon
-            );
+                    point.getGaussY() - epsilon, point.getGaussY() + epsilon);
             @SuppressWarnings("unchecked")
             List<GaussPoint> candidates = pointIndex.query(queryEnv);
 
@@ -2999,8 +3111,7 @@ public class GisUtil implements AutoCloseable {
                 if (idx >= 0 && keep[idx]) {
                     double dist = Math.sqrt(
                             Math.pow(point.getGaussX() - candidate.getGaussX(), 2) +
-                                    Math.pow(point.getGaussY() - candidate.getGaussY(), 2)
-                    );
+                                    Math.pow(point.getGaussY() - candidate.getGaussY(), 2));
                     if (dist <= epsilon) {
                         keptNeighbors++;
                     }
@@ -3046,15 +3157,15 @@ public class GisUtil implements AutoCloseable {
      * <p>
      * 【参数建议】
      * <ul>
-     *   <li>minDistance：0.5-1.0米（小于作业宽度的一半）</li>
-     *   <li>keepRatio：0.05-0.1（停车点只保留5%-10%）</li>
+     * <li>minDistance：0.5-1.0米（小于作业宽度的一半）</li>
+     * <li>keepRatio：0.05-0.1（停车点只保留5%-10%）</li>
      * </ul>
      * <p>
      * 【注意事项】
      * <ul>
-     *   <li>minDistance应明显小于eps，避免误伤正常行驶点</li>
-     *   <li>停车点即使抽稀到5%，对于eps=10,minPts=30，0.5米内保留的几个点仍可能被聚类</li>
-     *   <li>如果作业速度很慢（<0.5米/秒），可能需要调大minDistance</li>
+     * <li>minDistance应明显小于eps，避免误伤正常行驶点</li>
+     * <li>停车点即使抽稀到5%，对于eps=10,minPts=30，0.5米内保留的几个点仍可能被聚类</li>
+     * <li>如果作业速度很慢（<0.5米/秒），可能需要调大minDistance</li>
      * </ul>
      * <p>
      * 【性能优势】
@@ -3091,8 +3202,7 @@ public class GisUtil implements AutoCloseable {
             // 计算与上一个保留点的空间距离
             double dist = Math.sqrt(
                     Math.pow(curr.getGaussX() - lastKept.getGaussX(), 2) +
-                            Math.pow(curr.getGaussY() - lastKept.getGaussY(), 2)
-            );
+                            Math.pow(curr.getGaussY() - lastKept.getGaussY(), 2));
 
             if (dist < minDistance) {
                 // 距离太近，可能是停车或密集区域，进行抽稀
@@ -3129,9 +3239,9 @@ public class GisUtil implements AutoCloseable {
     private List<GaussPoint> filterParkingByTimeWindow(
             List<GaussPoint> gaussPoints,
             STRtree pointIndex,
-            int windowMinutes,      // 时间窗口大小，如5分钟
-            double maxRange,        // 最大空间范围，如10米
-            int minPointsInWindow   // 窗口内最少点数，如50个
+            int windowMinutes, // 时间窗口大小，如5分钟
+            double maxRange, // 最大空间范围，如10米
+            int minPointsInWindow // 窗口内最少点数，如50个
     ) {
         if (gaussPoints.size() < minPointsInWindow) {
             return gaussPoints;
@@ -3154,8 +3264,7 @@ public class GisUtil implements AutoCloseable {
             while (endIdx < sortedPoints.size()) {
                 long minutes = Duration.between(
                         startPoint.getGpsTime(),
-                        sortedPoints.get(endIdx).getGpsTime()
-                ).toMinutes();
+                        sortedPoints.get(endIdx).getGpsTime()).toMinutes();
                 if (minutes >= windowMinutes) {
                     break;
                 }
@@ -3241,26 +3350,26 @@ public class GisUtil implements AutoCloseable {
      * <p>
      * 【算法原理】采用圆形区域法计算分布面积：
      * <ol>
-     *   <li>计算所有点的中心点（平均经纬度）</li>
-     *   <li>计算所有点到中心点的距离</li>
-     *   <li>取指定比例点的最远距离作为圆半径</li>
-     *   <li>计算圆形面积（π × r²）</li>
+     * <li>计算所有点的中心点（平均经纬度）</li>
+     * <li>计算所有点到中心点的距离</li>
+     * <li>取指定比例点的最远距离作为圆半径</li>
+     * <li>计算圆形面积（π × r²）</li>
      * </ol>
      * </p>
      * <p>
      * 【离群点处理】
      * <ul>
-     *   <li>如果ratio < 1.0，按到中心点的距离排序</li>
-     *   <li>只取前ratio比例的点参与半径计算，排除离群点干扰</li>
-     *   <li>例如ratio=0.9表示排除最远的10%的点</li>
+     * <li>如果ratio < 1.0，按到中心点的距离排序</li>
+     * <li>只取前ratio比例的点参与半径计算，排除离群点干扰</li>
+     * <li>例如ratio=0.9表示排除最远的10%的点</li>
      * </ul>
      * </p>
      * <p>
      * 【应用场景】
      * <ul>
-     *   <li>飘点检测前置判断：轨迹分布面积>3亩视为正常作业</li>
-     *   <li>轨迹聚集度分析：判断设备是否长时间停留在某区域</li>
-     *   <li>GPS信号质量评估：分布面积异常小可能表示信号问题</li>
+     * <li>飘点检测前置判断：轨迹分布面积>3亩视为正常作业</li>
+     * <li>轨迹聚集度分析：判断设备是否长时间停留在某区域</li>
+     * <li>GPS信号质量评估：分布面积异常小可能表示信号问题</li>
      * </ul>
      * </p>
      *
@@ -3370,7 +3479,8 @@ public class GisUtil implements AutoCloseable {
         return gaussPoints;
     }
 
-    private List<PolygonTimeRange> splitPolygonTimeRanges(Map<Integer, Geometry> geometryMap, List<GaussPoint> gaussPoints) {
+    private List<PolygonTimeRange> splitPolygonTimeRanges(Map<Integer, Geometry> geometryMap,
+                                                          List<GaussPoint> gaussPoints) {
         // 按时间顺序追踪每个多边形内的连续时间段
         // 使用空间索引优化点在多边形内的判断
         STRtree geometrySTRtree = new STRtree();
@@ -3465,7 +3575,8 @@ public class GisUtil implements AutoCloseable {
                 }
             } else {
                 // 不同多边形，打印当前合并的时间段
-                //log.debug("多边形 {}: {} - {} 有连续轨迹", currentPolygonIndex, currentStart, currentEnd);
+                // log.debug("多边形 {}: {} - {} 有连续轨迹", currentPolygonIndex, currentStart,
+                // currentEnd);
                 mergeTimeRanges.add(new PolygonTimeRange(currentPolygonIndex, currentStart, currentEnd));
                 // 切换到新的多边形
                 currentPolygonIndex = range.getPolygonIndex();
@@ -3474,7 +3585,8 @@ public class GisUtil implements AutoCloseable {
             }
         }
         // 打印最后一个合并的时间段
-        //log.debug("多边形 {}: {} - {} 有连续轨迹", currentPolygonIndex, currentStart, currentEnd);
+        // log.debug("多边形 {}: {} - {} 有连续轨迹", currentPolygonIndex, currentStart,
+        // currentEnd);
         mergeTimeRanges.add(new PolygonTimeRange(currentPolygonIndex, currentStart, currentEnd));
         return mergeTimeRanges;
     }
@@ -3502,7 +3614,8 @@ public class GisUtil implements AutoCloseable {
         return interval;
     }
 
-    private List<GaussPoint> getGaussPointsByPolygonTimeRange(PolygonTimeRange polygonTimeRange, List<GaussPoint> gaussPoints) {
+    private List<GaussPoint> getGaussPointsByPolygonTimeRange(PolygonTimeRange polygonTimeRange,
+                                                              List<GaussPoint> gaussPoints) {
         List<GaussPoint> timeRangeGaussPoints = new ArrayList<>();
         for (GaussPoint gaussPoint : gaussPoints) {
             LocalDateTime gpsTime = gaussPoint.getGpsTime();
@@ -3516,14 +3629,16 @@ public class GisUtil implements AutoCloseable {
         return timeRangeGaussPoints;
     }
 
-    private Geometry genGeometry(List<GaussPoint> cluster, double halfWorkingWidth, double positiveBuffer, double negativeBuffer, boolean useNegativeBuffer) {
+    private Geometry genGeometry(List<GaussPoint> cluster, double halfWorkingWidth, double positiveBuffer,
+                                 double negativeBuffer, boolean useNegativeBuffer) {
         if (cluster.size() > config.MIN_RETURN_POINTS) {
             // todo 将高斯点转换为JTS坐标数组
             Coordinate[] coords = cluster.stream()
                     .map(p -> new Coordinate(p.getGaussX(), p.getGaussY()))
                     .toArray(Coordinate[]::new);
             // todo 进行坐标数组抽稀，提升轮廓创建速度
-            coords = simplifyByAngle(coords, config.SIMPLIFY_MIN_EDGE_LEN, config.SIMPLIFY_ANGLE, config.SIMPLIFY_MAX_EDGE_LEN);
+            coords = simplifyByAngle(coords, config.SIMPLIFY_MIN_EDGE_LEN, config.SIMPLIFY_ANGLE,
+                    config.SIMPLIFY_MAX_EDGE_LEN);
 
             if (coords.length > 2) {
                 // todo 通过坐标数组构建线串并应用缓冲，形成作业区域
@@ -3531,10 +3646,12 @@ public class GisUtil implements AutoCloseable {
                 Geometry gaussGeometry = lowMemBuffer(line, halfWorkingWidth);
 
                 // todo 填补缝隙，填补地块内垄沟与垄沟之间的缝隙
-                gaussGeometry = gaussGeometry.buffer(0).buffer(+positiveBuffer).buffer(0).buffer(-positiveBuffer).buffer(0);
+                gaussGeometry = gaussGeometry.buffer(0).buffer(+positiveBuffer).buffer(0).buffer(-positiveBuffer)
+                        .buffer(0);
                 if (useNegativeBuffer) {
                     // todo 裁切道路，切减掉疑似道路轨迹的区域
-                    gaussGeometry = gaussGeometry.buffer(0).buffer(-negativeBuffer).buffer(0).buffer(+negativeBuffer).buffer(0);
+                    gaussGeometry = gaussGeometry.buffer(0).buffer(-negativeBuffer).buffer(0).buffer(+negativeBuffer)
+                            .buffer(0);
                 }
 
                 return gaussGeometry;
@@ -3543,12 +3660,15 @@ public class GisUtil implements AutoCloseable {
         return config.EMPTY_GEOMETRY;
     }
 
-    private FarmPlotGeometryInfo genGeometryInfo(List<List<GaussPoint>> clusters, double halfWorkingWidth, double positiveBuffer, double negativeBuffer, STRtree gaussPointSTRtreeIndex, double minReturnMu, boolean useNegativeBuffer) {
+    private FarmPlotGeometryInfo genGeometryInfo(List<List<GaussPoint>> clusters, double halfWorkingWidth,
+                                                 double positiveBuffer, double negativeBuffer, STRtree gaussPointSTRtreeIndex, double minReturnMu,
+                                                 boolean useNegativeBuffer) {
         Map<Integer, Geometry> geometryMap = new HashMap<>();
         Map<Integer, List<GaussPoint>> geometryGaussPointMap = new HashMap<>();
         int geometryIndex = 0;
         for (List<GaussPoint> cluster : clusters) {
-            Geometry gaussGeometry = genGeometry(cluster, halfWorkingWidth, positiveBuffer, negativeBuffer, useNegativeBuffer);
+            Geometry gaussGeometry = genGeometry(cluster, halfWorkingWidth, positiveBuffer, negativeBuffer,
+                    useNegativeBuffer);
             // todo 存入多边形集合变量和多边形点位集合变量中
             if (!gaussGeometry.isEmpty()) {
                 if (gaussGeometry instanceof MultiPolygon) {
@@ -3557,7 +3677,8 @@ public class GisUtil implements AutoCloseable {
                         Geometry subGeometry = multiPolygon.getGeometryN(i);
                         if (subGeometry.getArea() * config.SQUARE_TO_MU_METER > minReturnMu) {
                             // todo 获取每个多边形内的高斯点位集合
-                            List<GaussPoint> containsGeometryGaussPoints = getContainsGaussGeometryPoints(gaussPointSTRtreeIndex, subGeometry);
+                            List<GaussPoint> containsGeometryGaussPoints = getContainsGaussGeometryPoints(
+                                    gaussPointSTRtreeIndex, subGeometry);
                             if (!containsGeometryGaussPoints.isEmpty()) {
                                 geometryMap.put(geometryIndex, subGeometry);
                                 geometryGaussPointMap.put(geometryIndex, containsGeometryGaussPoints);
@@ -3568,7 +3689,8 @@ public class GisUtil implements AutoCloseable {
                 } else if (gaussGeometry instanceof Polygon) {
                     if (gaussGeometry.getArea() * config.SQUARE_TO_MU_METER > minReturnMu) {
                         // todo 获取每个多边形内的高斯点位集合
-                        List<GaussPoint> containsGeometryGaussPoints = getContainsGaussGeometryPoints(gaussPointSTRtreeIndex, gaussGeometry);
+                        List<GaussPoint> containsGeometryGaussPoints = getContainsGaussGeometryPoints(
+                                gaussPointSTRtreeIndex, gaussGeometry);
                         if (!containsGeometryGaussPoints.isEmpty()) {
                             geometryMap.put(geometryIndex, gaussGeometry);
                             geometryGaussPointMap.put(geometryIndex, containsGeometryGaussPoints);
@@ -3663,20 +3785,25 @@ public class GisUtil implements AutoCloseable {
         return false;
     }
 
-    private FarmPlotGeometryInfo getTiemRangeGeometryInfo(FarmPlotGeometryInfo farmPlotGeometryInfo, List<GaussPoint> gaussPoints, double halfWorkingWidth, double positiveBuffer, double negativeBuffer, STRtree gaussPointSTRtreeIndex, double minReturnMu, boolean useNegativeBuffer) {
+    private FarmPlotGeometryInfo getTiemRangeGeometryInfo(FarmPlotGeometryInfo farmPlotGeometryInfo,
+                                                          List<GaussPoint> gaussPoints, double halfWorkingWidth, double positiveBuffer, double negativeBuffer,
+                                                          STRtree gaussPointSTRtreeIndex, double minReturnMu, boolean useNegativeBuffer) {
         List<List<GaussPoint>> clusters = new ArrayList<>();
-        List<PolygonTimeRange> polygonTimeRanges = getPolygonTimeRanges(splitPolygonTimeRanges(farmPlotGeometryInfo.getGeometryMap(), gaussPoints));
+        List<PolygonTimeRange> polygonTimeRanges = getPolygonTimeRanges(
+                splitPolygonTimeRanges(farmPlotGeometryInfo.getGeometryMap(), gaussPoints));
         for (PolygonTimeRange polygonTimeRange : polygonTimeRanges) {
-            long durationSeconds = Duration.between(polygonTimeRange.getStart(), polygonTimeRange.getEnd()).getSeconds();
+            long durationSeconds = Duration.between(polygonTimeRange.getStart(), polygonTimeRange.getEnd())
+                    .getSeconds();
 
             // todo 获取时间段范围内的高斯点位置信息
             List<GaussPoint> timeRangeGaussPoints = getGaussPointsByPolygonTimeRange(polygonTimeRange, gaussPoints);
-            log.debug("多边形 {}: {} - {} 有连续轨迹，持续时间 {} 秒"
-                    , polygonTimeRange.getPolygonIndex(), polygonTimeRange.getStart(), polygonTimeRange.getEnd(), durationSeconds);
+            log.debug("多边形 {}: {} - {} 有连续轨迹，持续时间 {} 秒", polygonTimeRange.getPolygonIndex(),
+                    polygonTimeRange.getStart(), polygonTimeRange.getEnd(), durationSeconds);
 
             clusters.add(timeRangeGaussPoints);
         }
-        return genGeometryInfo(clusters, halfWorkingWidth, positiveBuffer, negativeBuffer, gaussPointSTRtreeIndex, minReturnMu, useNegativeBuffer);
+        return genGeometryInfo(clusters, halfWorkingWidth, positiveBuffer, negativeBuffer, gaussPointSTRtreeIndex,
+                minReturnMu, useNegativeBuffer);
     }
 
     private Map<Integer, Geometry> genGeometryMap(List<List<GaussPoint>> clusters, double halfWorkingWidth) {
@@ -3689,7 +3816,8 @@ public class GisUtil implements AutoCloseable {
                         .map(p -> new Coordinate(p.getGaussX(), p.getGaussY()))
                         .toArray(Coordinate[]::new);
                 // todo 进行坐标数组抽稀，提升轮廓创建速度
-                coords = simplifyByAngle(coords, config.SIMPLIFY_MIN_EDGE_LEN, config.SIMPLIFY_ANGLE, config.SIMPLIFY_MAX_EDGE_LEN);
+                coords = simplifyByAngle(coords, config.SIMPLIFY_MIN_EDGE_LEN, config.SIMPLIFY_ANGLE,
+                        config.SIMPLIFY_MAX_EDGE_LEN);
                 if (coords.length > 2) {
                     // todo 通过坐标数组构建线串并应用缓冲，形成作业区域
                     LineString line = config.GEOMETRY_FACTORY.createLineString(coords);
@@ -3726,13 +3854,15 @@ public class GisUtil implements AutoCloseable {
         return polygonMap;
     }
 
-    private FarmPlotGeometryInfo genPolygonMapAndPolygonPointsMap(Map<Integer, Geometry> polygonMap, STRtree gaussPointSTRtreeIndex, int minReturnPoints) {
+    private FarmPlotGeometryInfo genPolygonMapAndPolygonPointsMap(Map<Integer, Geometry> polygonMap,
+                                                                  STRtree gaussPointSTRtreeIndex, int minReturnPoints) {
         Map<Integer, Geometry> geometryMap = new HashMap<>();
         Map<Integer, List<GaussPoint>> geometryPointMap = new HashMap<>();
         for (Map.Entry<Integer, Geometry> integerGeometryEntry : polygonMap.entrySet()) {
             Integer index = integerGeometryEntry.getKey();
             Geometry geometry = integerGeometryEntry.getValue();
-            List<GaussPoint> containsGeometryGaussPoints = getContainsGaussGeometryPoints(gaussPointSTRtreeIndex, geometry);
+            List<GaussPoint> containsGeometryGaussPoints = getContainsGaussGeometryPoints(gaussPointSTRtreeIndex,
+                    geometry);
             if (!containsGeometryGaussPoints.isEmpty() && containsGeometryGaussPoints.size() > minReturnPoints) {
                 geometryMap.put(index, geometry);
                 geometryPointMap.put(index, containsGeometryGaussPoints);
@@ -3741,16 +3871,19 @@ public class GisUtil implements AutoCloseable {
         return new FarmPlotGeometryInfo(geometryMap, geometryPointMap);
     }
 
-    private List<List<GaussPoint>> splitPolygonByTimeRange(Map<Integer, Geometry> geometryMap, List<GaussPoint> gaussPoints, int minReturnPoints) {
+    private List<List<GaussPoint>> splitPolygonByTimeRange(Map<Integer, Geometry> geometryMap,
+                                                           List<GaussPoint> gaussPoints, int minReturnPoints) {
         List<List<GaussPoint>> clusters = new ArrayList<>();
-        List<PolygonTimeRange> polygonTimeRanges = getPolygonTimeRanges(splitPolygonTimeRanges(geometryMap, gaussPoints));
+        List<PolygonTimeRange> polygonTimeRanges = getPolygonTimeRanges(
+                splitPolygonTimeRanges(geometryMap, gaussPoints));
         for (PolygonTimeRange polygonTimeRange : polygonTimeRanges) {
-            long durationSeconds = Duration.between(polygonTimeRange.getStart(), polygonTimeRange.getEnd()).getSeconds();
+            long durationSeconds = Duration.between(polygonTimeRange.getStart(), polygonTimeRange.getEnd())
+                    .getSeconds();
 
             // todo 获取时间段范围内的高斯点位置信息
             List<GaussPoint> timeRangeGaussPoints = getGaussPointsByPolygonTimeRange(polygonTimeRange, gaussPoints);
-            log.debug("多边形 {}: {} - {} 有连续轨迹，持续时间 {} 秒"
-                    , polygonTimeRange.getPolygonIndex(), polygonTimeRange.getStart(), polygonTimeRange.getEnd(), durationSeconds);
+            log.debug("多边形 {}: {} - {} 有连续轨迹，持续时间 {} 秒", polygonTimeRange.getPolygonIndex(),
+                    polygonTimeRange.getStart(), polygonTimeRange.getEnd(), durationSeconds);
 
             if (timeRangeGaussPoints.size() > minReturnPoints) {
                 clusters.add(timeRangeGaussPoints);
@@ -3759,7 +3892,8 @@ public class GisUtil implements AutoCloseable {
         return clusters;
     }
 
-    private Map<Integer, Geometry> positiveAndNegativeBuffer(Map<Integer, Geometry> geometryMap, double positiveBuffer, double negativeBuffer) {
+    private Map<Integer, Geometry> positiveAndNegativeBuffer(Map<Integer, Geometry> geometryMap, double positiveBuffer,
+                                                             double negativeBuffer) {
         Map<Integer, Geometry> gm = new HashMap<>();
         for (Map.Entry<Integer, Geometry> integerGeometryEntry : geometryMap.entrySet()) {
             Integer index = integerGeometryEntry.getKey();
@@ -3776,6 +3910,129 @@ public class GisUtil implements AutoCloseable {
     }
 
     /**
+     * 计算高斯点列表的速度分布
+     */
+    private Map<Double, Integer> calcSpeedDistribution(List<GaussPoint> gaussPoints) {
+        Map<Double, Integer> distribution = new TreeMap<>();
+        if (CollUtil.isEmpty(gaussPoints)) {
+            return distribution;
+        }
+
+        for (GaussPoint point : gaussPoints) {
+            if (point == null || point.getSpeed() == null) {
+                continue;
+            }
+            // speed属性单位是km/h，转换为m/s
+            double speedKmh = point.getSpeed();
+            double speedMs = speedKmh * config.KM_H_TO_M_S;
+
+            double k;
+            if (speedMs == 0) {
+                k = 0.0;
+            } else if (speedMs > 0 && speedMs <= 0.1) {
+                k = 0.1;
+            } else if (speedMs > 0.1 && speedMs <= 0.2) {
+                k = 0.2;
+            } else if (speedMs > 0.2 && speedMs <= 0.3) {
+                k = 0.3;
+            } else if (speedMs > 0.3 && speedMs <= 0.4) {
+                k = 0.4;
+            } else if (speedMs > 0.4 && speedMs <= 0.5) {
+                k = 0.5;
+            } else if (speedMs > 0.5 && speedMs <= 0.6) {
+                k = 0.6;
+            } else if (speedMs > 0.6 && speedMs <= 0.7) {
+                k = 0.7;
+            } else if (speedMs > 0.7 && speedMs <= 0.8) {
+                k = 0.8;
+            } else if (speedMs > 0.8 && speedMs <= 0.9) {
+                k = 0.9;
+            } else {
+                k = 1.0;
+            }
+
+            distribution.put(k, distribution.getOrDefault(k, 0) + 1);
+        }
+
+        return distribution;
+    }
+
+    /**
+     * 判断是否为停车飘点
+     * <p>
+     * 使用网格密度分析：将图形区域划分为固定面积n米×n米的网格，
+     * 统计每个网格内的点位数量。计算密集网格（点位数超过阈值）占总网格数的比例，
+     * 如果比例过高，则判定为停车飘点。
+     *
+     * @param gaussPoints 高斯投影坐标点列表
+     * @return true-是停车飘点，false-不是停车飘点
+     */
+    private boolean isParkingDriftPoint(List<GaussPoint> gaussPoints) {
+        if (CollUtil.isEmpty(gaussPoints) || gaussPoints.size() < 10) {
+            // 点位太少，不判定为停车飘点
+            return false;
+        }
+
+        // 计算点位的边界框
+        double minX = Double.MAX_VALUE, maxX = -Double.MAX_VALUE;
+        double minY = Double.MAX_VALUE, maxY = -Double.MAX_VALUE;
+        for (GaussPoint point : gaussPoints) {
+            double x = point.getGaussX();
+            double y = point.getGaussY();
+            minX = Math.min(minX, x);
+            maxX = Math.max(maxX, x);
+            minY = Math.min(minY, y);
+            maxY = Math.max(maxY, y);
+        }
+
+        // 计算区域宽度和高度
+        double width = maxX - minX;
+        double height = maxY - minY;
+
+        // 固定网格大小为 n米×n米
+        double gridSize = 5;
+
+        // 计算网格行列数
+        int gridCols = Math.max(1, (int) Math.ceil(width / gridSize));
+        int gridRows = Math.max(1, (int) Math.ceil(height / gridSize));
+        int totalGrids = gridRows * gridCols;
+
+        // 使用Map统计每个网格的点数：key="row_col", value=点数
+        Map<String, Integer> gridPointCount = new HashMap<>();
+
+        for (GaussPoint point : gaussPoints) {
+            int col = (int) ((point.getGaussX() - minX) / gridSize);
+            int row = (int) ((point.getGaussY() - minY) / gridSize);
+            // 边界处理
+            col = Math.min(col, gridCols - 1);
+            row = Math.min(row, gridRows - 1);
+            String key = row + "_" + col;
+            gridPointCount.merge(key, 1, Integer::sum);
+        }
+
+        // 统计有效网格数（≥1点的格子）和密集网格数（超过阈值的格子）
+        int validGridCount = gridPointCount.size();
+        int denseGridCount = 0;
+        for (int count : gridPointCount.values()) {
+            if (count > config.PARKING_GRID_MAX_POINTS) {
+                denseGridCount++;
+            }
+        }
+
+        // 计算密集网格占有效网格的比例
+        double denseRatio = validGridCount > 0 ? (double) denseGridCount / validGridCount : 0;
+
+        log.debug("停车飘点检测：总点位={}, 网格={}×{}={}, 有效网格={}, 密集网格={}, 密集占比={}%",
+                gaussPoints.size(), gridRows, gridCols, totalGrids, validGridCount, denseGridCount,
+                String.format("%.2f", denseRatio * 100));
+
+        // 判定逻辑：密集网格占有效网格的比例超过阈值
+        boolean isDrift = denseRatio > config.PARKING_DENSE_GRID_RATIO;
+
+        return isDrift;
+    }
+
+    /**
      * 计算两点间的航向角（方位角）
      * <p>
      * 【核心功能】基于球面三角学计算从起点到终点的航向角，即相对于正北方向的顺时针角度。
@@ -3783,42 +4040,44 @@ public class GisUtil implements AutoCloseable {
      * </p>
      * <p>
      * 【技术原理】采用球面方位角公式（Forward Azimuth）：
+     *
      * <pre>
      * θ = atan2(sin(Δlon) * cos(lat2),
-     *           cos(lat1) * sin(lat2) - sin(lat1) * cos(lat2) * cos(Δlon))
+     *         cos(lat1) * sin(lat2) - sin(lat1) * cos(lat2) * cos(Δlon))
      * </pre>
+     * <p>
      * 其中：
      * <ul>
-     *   <li>Δlon = lon2 - lon1（经度差，单位为弧度）</li>
-     *   <li>lat1, lat2分别为起点和终点的纬度（弧度）</li>
-     *   <li>atan2函数确保结果在正确的象限</li>
+     * <li>Δlon = lon2 - lon1（经度差，单位为弧度）</li>
+     * <li>lat1, lat2分别为起点和终点的纬度（弧度）</li>
+     * <li>atan2函数确保结果在正确的象限</li>
      * </ul>
      * </p>
      * <p>
      * 【返回值说明】
      * <ul>
-     *   <li>0°：正北方向</li>
-     *   <li>90°：正东方向</li>
-     *   <li>180°：正南方向</li>
-     *   <li>270°：正西方向</li>
-     *   <li>范围：0° ≤ 航向角 < 360°</li>
+     * <li>0°：正北方向</li>
+     * <li>90°：正东方向</li>
+     * <li>180°：正南方向</li>
+     * <li>270°：正西方向</li>
+     * <li>范围：0° ≤ 航向角 < 360°</li>
      * </ul>
      * </p>
      * <p>
      * 【应用场景】
      * <ul>
-     *   <li>GPS轨迹角度变化分析</li>
-     *   <li>飘点检测中的角度突变判断</li>
-     *   <li>农机作业方向一致性检查</li>
-     *   <li>导航路径规划</li>
+     * <li>GPS轨迹角度变化分析</li>
+     * <li>飘点检测中的角度突变判断</li>
+     * <li>农机作业方向一致性检查</li>
+     * <li>导航路径规划</li>
      * </ul>
      * </p>
      * <p>
      * 【注意事项】
      * <ul>
-     *   <li>输入坐标必须为WGS84坐标系</li>
-     *   <li>当两点重合时返回0度</li>
-     *   <li>该方法计算的是大圆航向，非平面角度</li>
+     * <li>输入坐标必须为WGS84坐标系</li>
+     * <li>当两点重合时返回0度</li>
+     * <li>该方法计算的是大圆航向，非平面角度</li>
      * </ul>
      * </p>
      *
@@ -3856,7 +4115,6 @@ public class GisUtil implements AutoCloseable {
         return heading;
     }
 
-
     /**
      * 停车飘点检测器 - 基于圆形区域和角度变化的两步判断算法
      * <p>
@@ -3867,62 +4125,87 @@ public class GisUtil implements AutoCloseable {
      * <p>
      * 【判定逻辑】采用两步判断机制：
      * <ol>
-     *   <li><b>第一步（空间范围判断）</b>：计算90%点的圆形分布面积
-     *       <ul>
-     *         <li>如果面积 ≤ 3亩（约2000㎡）：疑似停车状态，进入第二步</li>
-     *         <li>如果面积 > 3亩：设备在移动，直接返回false（正常轨迹）</li>
-     *       </ul>
-     *   </li>
-     *   <li><b>第二步（角度变化判断）</b>：统计角度变化剧烈的点比例
-     *       <ul>
-     *         <li>计算每个点的航向角变化（与前一点的方向差）</li>
-     *         <li>统计角度变化 > 45° 的点比例</li>
-     *         <li>如果比例 ≥ 50%：返回true（停车飘点）</li>
-     *         <li>如果比例 < 50%：返回false（疑似停车但方向稳定）</li>
-     *       </ul>
-     *   </li>
+     * <li><b>第一步（空间范围判断）</b>：计算90%点的圆形分布面积
+     * <ul>
+     * <li>如果面积 ≤ 3亩（约2000㎡）：疑似停车状态，进入第二步</li>
+     * <li>如果面积 > 3亩：设备在移动，直接返回false（正常轨迹）</li>
+     * </ul>
+     * </li>
+     * <li><b>第二步（角度变化判断）</b>：统计角度变化剧烈的点比例
+     * <ul>
+     * <li>计算每个点的航向角变化（与前一点的方向差）</li>
+     * <li>统计角度变化 > 45° 的点比例</li>
+     * <li>如果比例 ≥ 50%：返回true（停车飘点）</li>
+     * <li>如果比例 < 50%：返回false（疑似停车但方向稳定）</li>
+     * </ul>
+     * </li>
      * </ol>
      * </p>
      * <p>
      * 【阈值参数说明】（固定值配置）
      * <table border="1">
-     *   <tr><th>参数名称</th><th>固定值</th><th>含义</th><th>业务逻辑</th></tr>
-     *   <tr><td>空间范围阈值（AREA_THRESHOLD_MU）</td><td>3 亩</td><td>90%点分布面积上限</td><td>超过此面积视为正常作业，不在小范围内</td></tr>
-     *   <tr><td>分布比例阈值（DISTRIBUTION_RATIO）</td><td>90%</td><td>参与面积计算的点比例</td><td>排除10%的离群点，避免异常值影响</td></tr>
-     *   <tr><td>角度变化阈值（ANGLE_THRESHOLD）</td><td>45°</td><td>角度剧烈变化界限</td><td>超过此角度视为方向剧烈变化</td></tr>
-     *   <tr><td>大角度点比例阈值（HIGH_ANGLE_RATIO_THRESHOLD）</td><td>50%</td><td>飘点判定界限</td><td>大角度点超过此比例确定为飘点</td></tr>
+     * <tr>
+     * <th>参数名称</th>
+     * <th>固定值</th>
+     * <th>含义</th>
+     * <th>业务逻辑</th>
+     * </tr>
+     * <tr>
+     * <td>空间范围阈值（AREA_THRESHOLD_MU）</td>
+     * <td>3 亩</td>
+     * <td>90%点分布面积上限</td>
+     * <td>超过此面积视为正常作业，不在小范围内</td>
+     * </tr>
+     * <tr>
+     * <td>分布比例阈值（DISTRIBUTION_RATIO）</td>
+     * <td>90%</td>
+     * <td>参与面积计算的点比例</td>
+     * <td>排除10%的离群点，避免异常值影响</td>
+     * </tr>
+     * <tr>
+     * <td>角度变化阈值（ANGLE_THRESHOLD）</td>
+     * <td>45°</td>
+     * <td>角度剧烈变化界限</td>
+     * <td>超过此角度视为方向剧烈变化</td>
+     * </tr>
+     * <tr>
+     * <td>大角度点比例阈值（HIGH_ANGLE_RATIO_THRESHOLD）</td>
+     * <td>50%</td>
+     * <td>飘点判定界限</td>
+     * <td>大角度点超过此比例确定为飘点</td>
+     * </tr>
      * </table>
      * </p>
      * <p>
      * 【返回值定义】
      * <ul>
-     *   <li><b>true（停车飘点）</b>：90%点在3亩内，且50%以上点角度>45°，轨迹为停车漂移</li>
-     *   <li><b>false（正常轨迹）</b>：不满足上述条件，轨迹为正常作业或静止但方向稳定</li>
+     * <li><b>true（停车飘点）</b>：90%点在3亩内，且50%以上点角度>45°，轨迹为停车漂移</li>
+     * <li><b>false（正常轨迹）</b>：不满足上述条件，轨迹为正常作业或静止但方向稳定</li>
      * </ul>
      * </p>
      * <p>
      * 【使用前提】
      * <ul>
-     *   <li>输入列表必须按时间顺序排序（从早到晚）</li>
-     *   <li>每个点需包含有效的经度、纬度、时间信息</li>
-     *   <li>最少需要10个点才能进行有效分析（少于10个点直接返回false）</li>
+     * <li>输入列表必须按时间顺序排序（从早到晚）</li>
+     * <li>每个点需包含有效的经度、纬度、时间信息</li>
+     * <li>最少需要10个点才能进行有效分析（少于10个点直接返回false）</li>
      * </ul>
      * </p>
      * <p>
      * 【业务应用场景】
      * <ul>
-     *   <li>农机作业轨迹质量预检</li>
-     *   <li>GPS数据入库前清洗判断</li>
-     *   <li>作业面积计算前的轨迹有效性验证</li>
-     *   <li>设备GPS性能监控</li>
+     * <li>农机作业轨迹质量预检</li>
+     * <li>GPS数据入库前清洗判断</li>
+     * <li>作业面积计算前的轨迹有效性验证</li>
+     * <li>设备GPS性能监控</li>
      * </ul>
      * </p>
      * <p>
      * 【性能指标】
      * <ul>
-     *   <li>时间复杂度：O(n log n)，n为轨迹点数量（主要是排序）</li>
-     *   <li>空间复杂度：O(n)，需要存储每个点的航向角信息</li>
-     *   <li>处理速度：1000个点 < 2ms</li>
+     * <li>时间复杂度：O(n log n)，n为轨迹点数量（主要是排序）</li>
+     * <li>空间复杂度：O(n)，需要存储每个点的航向角信息</li>
+     * <li>处理速度：1000个点 < 2ms</li>
      * </ul>
      * </p>
      *
@@ -4081,8 +4364,7 @@ public class GisUtil implements AutoCloseable {
             // 创建Envelope作为索引键，存储GaussPoint对象作为值
             Envelope envelope = new Envelope(
                     gaussPoint.getGaussX(), gaussPoint.getGaussX(),
-                    gaussPoint.getGaussY(), gaussPoint.getGaussY()
-            );
+                    gaussPoint.getGaussY(), gaussPoint.getGaussY());
             gaussPointSTRtreeIndex.insert(envelope, gaussPoint);
         }
         gaussPointSTRtreeIndex.build(); // 构建索引
@@ -4261,57 +4543,57 @@ public class GisUtil implements AutoCloseable {
      * 数据清洗流程。通过多维度验证机制，有效识别并移除异常点位，确保后续
      * 空间分析和轨迹挖掘的准确性。相比简单的坐标范围检查，该过滤器具有以下特点：
      * <ul>
-     *   <li><b>业务针对性强</b>：专门针对农机作业轨迹设计，考虑作业状态、GPS定位状态等业务特征</li>
-     *   <li><b>验证维度全</b>：涵盖时间有效性、坐标有效性、业务状态、定位质量等多个维度</li>
-     *   <li><b>容错能力强</b>：对各种异常情况进行分类处理，避免级联错误</li>
-     *   <li><b>性能效率高</b>：采用Stream API并行处理，支持大数据量清洗</li>
+     * <li><b>业务针对性强</b>：专门针对农机作业轨迹设计，考虑作业状态、GPS定位状态等业务特征</li>
+     * <li><b>验证维度全</b>：涵盖时间有效性、坐标有效性、业务状态、定位质量等多个维度</li>
+     * <li><b>容错能力强</b>：对各种异常情况进行分类处理，避免级联错误</li>
+     * <li><b>性能效率高</b>：采用Stream API并行处理，支持大数据量清洗</li>
      * </ul>
      * </p>
      * <p>
      * <b>过滤规则体系：</b>
      * <ol>
-     *   <li><b>时间有效性验证</b>：GPS时间不能为空，确保时序分析的基础</li>
-     *   <li><b>坐标零值检测</b>：经纬度不能同时为0，识别未定位或无效坐标</li>
-     *   <li><b>地理范围验证</b>：经纬度必须在WGS84有效范围内(-180,180/-90,90)</li>
-     *   <li><b>定位状态验证</b>：GPS状态必须为0(已定位)或1(差分定位)</li>
-     *   <li><b>作业状态验证</b>：作业状态必须为0(作业中)或1(作业暂停)</li>
-     *   <li><b>空间重复去除</b>：基于坐标精确匹配去除完全重复的点位</li>
+     * <li><b>时间有效性验证</b>：GPS时间不能为空，确保时序分析的基础</li>
+     * <li><b>坐标零值检测</b>：经纬度不能同时为0，识别未定位或无效坐标</li>
+     * <li><b>地理范围验证</b>：经纬度必须在WGS84有效范围内(-180,180/-90,90)</li>
+     * <li><b>定位状态验证</b>：GPS状态必须为0(已定位)或1(差分定位)</li>
+     * <li><b>作业状态验证</b>：作业状态必须为0(作业中)或1(作业暂停)</li>
+     * <li><b>空间重复去除</b>：基于坐标精确匹配去除完全重复的点位</li>
      * </ol>
      * </p>
      * <p>
      * <b>业务价值：</b>
      * <ul>
-     *   <li>提高轨迹质量：去除异常点位，提升轨迹连续性和准确性</li>
-     *   <li>优化存储效率：减少冗余数据，降低存储和传输成本</li>
-     *   <li>增强分析准确性：为轨迹聚类、作业面积计算等提供可靠数据基础</li>
-     *   <li>支持实时监控：快速识别设备故障和异常作业状态</li>
+     * <li>提高轨迹质量：去除异常点位，提升轨迹连续性和准确性</li>
+     * <li>优化存储效率：减少冗余数据，降低存储和传输成本</li>
+     * <li>增强分析准确性：为轨迹聚类、作业面积计算等提供可靠数据基础</li>
+     * <li>支持实时监控：快速识别设备故障和异常作业状态</li>
      * </ul>
      * </p>
      * <p>
      * <b>异常处理策略：</b>
      * <ul>
-     *   <li>时间异常：记录trace日志，用于后续时间同步问题诊断</li>
-     *   <li>坐标异常：分级记录warn/trace日志，区分零值和越界异常</li>
-     *   <li>状态异常：记录trace日志，用于设备状态监控和故障分析</li>
-     *   <li>重复点位：保留首次出现的点位，确保时间序列完整性</li>
+     * <li>时间异常：记录trace日志，用于后续时间同步问题诊断</li>
+     * <li>坐标异常：分级记录warn/trace日志，区分零值和越界异常</li>
+     * <li>状态异常：记录trace日志，用于设备状态监控和故障分析</li>
+     * <li>重复点位：保留首次出现的点位，确保时间序列完整性</li>
      * </ul>
      * </p>
      * <p>
      * <b>性能优化：</b>
      * <ul>
-     *   <li>Stream API并行流处理：充分利用多核CPU资源</li>
-     *   <li>LinkedHashMap去重：保持点位时间顺序的同时高效去重</li>
-     *   <li>惰性求值机制：避免中间集合的重复创建和复制</li>
-     *   <li>日志级别优化：debug/trace分级，避免生产环境性能损耗</li>
+     * <li>Stream API并行流处理：充分利用多核CPU资源</li>
+     * <li>LinkedHashMap去重：保持点位时间顺序的同时高效去重</li>
+     * <li>惰性求值机制：避免中间集合的重复创建和复制</li>
+     * <li>日志级别优化：debug/trace分级，避免生产环境性能损耗</li>
      * </ul>
      * </p>
      * <p>
      * <b>使用注意：</b>
      * <ul>
-     *   <li>输入列表为null时将触发NullPointerException，调用前需确保非空</li>
-     *   <li>过滤后的列表按GPS时间升序排序，确保时序分析的正确性</li>
-     *   <li>去重基于坐标精确匹配，相近但不完全相同的点位会保留</li>
-     *   <li>日志输出包含详细的异常信息，建议配置适当的日志级别</li>
+     * <li>输入列表为null时将触发NullPointerException，调用前需确保非空</li>
+     * <li>过滤后的列表按GPS时间升序排序，确保时序分析的正确性</li>
+     * <li>去重基于坐标精确匹配，相近但不完全相同的点位会保留</li>
+     * <li>日志输出包含详细的异常信息，建议配置适当的日志级别</li>
      * </ul>
      * </p>
      *
@@ -4344,7 +4626,8 @@ public class GisUtil implements AutoCloseable {
                 return false;
             }
             // 【地理范围验证】确保坐标在WGS84标准范围内，排除明显错误的异常值
-            if (p.getLongitude() < -180.0 || p.getLongitude() > 180.0 || p.getLatitude() < -90.0 || p.getLatitude() > 90.0) {
+            if (p.getLongitude() < -180.0 || p.getLongitude() > 180.0 || p.getLatitude() < -90.0
+                    || p.getLatitude() > 90.0) {
                 log.trace("定位时间: {} 轨迹点经纬度超出范围：[{},{}] 抛弃", p.getGpsTime(), p.getLongitude(), p.getLatitude());
                 return false;
             }
@@ -4389,7 +4672,6 @@ public class GisUtil implements AutoCloseable {
         return filterWgs84Points;
     }
 
-
     /**
      * 基于Haversine公式的高精度球面距离计算器 - WGS84坐标系专用实现
      * <p>
@@ -4399,19 +4681,19 @@ public class GisUtil implements AutoCloseable {
      * <p>
      * 【技术特点】
      * <ul>
-     *   <li><b>数学严谨性</b>：基于球面几何学，考虑了地球曲率对距离计算的影响</li>
-     *   <li><b>精度保证</b>：使用WGS84椭球体的赤道半径（6378137.0米）作为基准，中短距离计算精度可达0.5%</li>
-     *   <li><b>数值稳定性</b>：通过atan2函数避免asin函数的数值精度问题，确保计算稳定性</li>
-     *   <li><b>性能优化</b>：纯数学运算，无外部依赖，单点计算耗时<0.1ms</li>
-     *   <li><b>适用范围</b>：适用于全球任意两点间距离计算，特别适合中短距离（<1000km）场景</li>
+     * <li><b>数学严谨性</b>：基于球面几何学，考虑了地球曲率对距离计算的影响</li>
+     * <li><b>精度保证</b>：使用WGS84椭球体的赤道半径（6378137.0米）作为基准，中短距离计算精度可达0.5%</li>
+     * <li><b>数值稳定性</b>：通过atan2函数避免asin函数的数值精度问题，确保计算稳定性</li>
+     * <li><b>性能优化</b>：纯数学运算，无外部依赖，单点计算耗时<0.1ms</li>
+     * <li><b>适用范围</b>：适用于全球任意两点间距离计算，特别适合中短距离（<1000km）场景</li>
      * </ul>
      * <p>
      * 【业务价值】
      * <ul>
-     *   <li>轨迹相似度分析：计算轨迹点间距，识别停留点、异常跳点</li>
-     *   <li>地理围栏判断：配合inCircle()方法实现圆形区域进出检测</li>
-     *   <li>路径规划优化：计算路段长度，支持最优路径算法</li>
-     *   <li>数据统计分析：聚合区域活动范围，计算总行程距离</li>
+     * <li>轨迹相似度分析：计算轨迹点间距，识别停留点、异常跳点</li>
+     * <li>地理围栏判断：配合inCircle()方法实现圆形区域进出检测</li>
+     * <li>路径规划优化：计算路段长度，支持最优路径算法</li>
+     * <li>数据统计分析：聚合区域活动范围，计算总行程距离</li>
      * </ul>
      * <p>
      * 【算法原理】
@@ -4448,7 +4730,8 @@ public class GisUtil implements AutoCloseable {
         // 【Haversine公式核心】应用半正矢公式计算球面距离的中间参数
         // a = sin²(Δlat/2) + cos(lat1) * cos(lat2) * sin²(Δlon/2)
         // 该公式通过球面余弦定理推导，能够准确反映球面上两点间的最短距离
-        double a = Math.sin(dlat / 2.0) * Math.sin(dlat / 2.0) + Math.cos(lat1) * Math.cos(lat2) * Math.sin(dlon / 2.0) * Math.sin(dlon / 2.0);
+        double a = Math.sin(dlat / 2.0) * Math.sin(dlat / 2.0)
+                + Math.cos(lat1) * Math.cos(lat2) * Math.sin(dlon / 2.0) * Math.sin(dlon / 2.0);
 
         // 【角距离计算阶段】通过atan2函数计算两点间的中心角距离
         // 使用atan2(y,x)而非asin()避免数值精度问题，确保计算稳定性
@@ -4471,20 +4754,20 @@ public class GisUtil implements AutoCloseable {
      * <p>
      * 【技术优势】
      * <ul>
-     *   <li><b>球面精度</b>：基于Haversine公式的大圆距离计算，确保在全球任意位置的计算精度</li>
-     *   <li><b>边界处理</b>：采用"小于"判断，不包含圆形边界，符合地理围栏标准规范</li>
-     *   <li><b>性能卓越</b>：单次检测耗时<0.1ms，支持高频实时位置监控</li>
-     *   <li><b>数值稳定</b>：复用已优化的haversine()方法，避免重复计算和精度损失</li>
-     *   <li><b>全球适用</b>：完美处理跨经度线、极地区域等特殊地理情况</li>
+     * <li><b>球面精度</b>：基于Haversine公式的大圆距离计算，确保在全球任意位置的计算精度</li>
+     * <li><b>边界处理</b>：采用"小于"判断，不包含圆形边界，符合地理围栏标准规范</li>
+     * <li><b>性能卓越</b>：单次检测耗时<0.1ms，支持高频实时位置监控</li>
+     * <li><b>数值稳定</b>：复用已优化的haversine()方法，避免重复计算和精度损失</li>
+     * <li><b>全球适用</b>：完美处理跨经度线、极地区域等特殊地理情况</li>
      * </ul>
      * <p>
      * 【业务应用场景】
      * <ul>
-     *   <li><b>智能围栏系统</b>：车辆进出指定区域自动报警，支持圆形电子围栏</li>
-     *   <li><b>轨迹异常检测</b>：识别车辆偏离预定路线或进入禁止区域</li>
-     *   <li><b>服务范围判断</b>：确定用户是否在服务提供商的覆盖范围内</li>
-     *   <li><b>位置营销</b>：当用户进入商家周边区域时推送个性化优惠信息</li>
-     *   <li><b>安全监控</b>：实时监控重要设施周边的人员/车辆活动情况</li>
+     * <li><b>智能围栏系统</b>：车辆进出指定区域自动报警，支持圆形电子围栏</li>
+     * <li><b>轨迹异常检测</b>：识别车辆偏离预定路线或进入禁止区域</li>
+     * <li><b>服务范围判断</b>：确定用户是否在服务提供商的覆盖范围内</li>
+     * <li><b>位置营销</b>：当用户进入商家周边区域时推送个性化优惠信息</li>
+     * <li><b>安全监控</b>：实时监控重要设施周边的人员/车辆活动情况</li>
      * </ul>
      * <p>
      * 【算法原理】
@@ -4530,42 +4813,42 @@ public class GisUtil implements AutoCloseable {
      * <p>
      * 【算法核心】基于JTS拓扑套件的空间关系判断引擎，实现了OGC标准的空间关系运算：
      * <ul>
-     *   <li><b>拓扑精确性</b>：支持点、线、面、多点、多线、多面等所有标准几何类型</li>
-     *   <li><b>边界处理</b>：contains()方法严格判断内部关系，边界点返回false；如需包含边界请使用covers()</li>
-     *   <li><b>性能优化</b>：JTS内部采用R树空间索引，对复杂几何图形具有优秀的查询性能</li>
-     *   <li><b>异常安全</b>：完整的异常捕获机制，确保无效输入不会导致系统崩溃</li>
+     * <li><b>拓扑精确性</b>：支持点、线、面、多点、多线、多面等所有标准几何类型</li>
+     * <li><b>边界处理</b>：contains()方法严格判断内部关系，边界点返回false；如需包含边界请使用covers()</li>
+     * <li><b>性能优化</b>：JTS内部采用R树空间索引，对复杂几何图形具有优秀的查询性能</li>
+     * <li><b>异常安全</b>：完整的异常捕获机制，确保无效输入不会导致系统崩溃</li>
      * </ul>
      * <p>
      * 【业务价值】
      * <ul>
-     *   <li><b>地理围栏</b>：电子围栏、禁入区域、授权区域等边界管理</li>
-     *   <li><b>空间分析</b>：轨迹分析、热点区域识别、空间分布统计</li>
-     *   <li><b>数据质量</b>：坐标有效性验证、异常点过滤、区域归属判断</li>
-     *   <li><b>可视化支持</b>：地图选点、区域高亮、空间查询结果展示</li>
+     * <li><b>地理围栏</b>：电子围栏、禁入区域、授权区域等边界管理</li>
+     * <li><b>空间分析</b>：轨迹分析、热点区域识别、空间分布统计</li>
+     * <li><b>数据质量</b>：坐标有效性验证、异常点过滤、区域归属判断</li>
+     * <li><b>可视化支持</b>：地图选点、区域高亮、空间查询结果展示</li>
      * </ul>
      * <p>
      * 【技术特点】
      * <ul>
-     *   <li><b>标准兼容</b>：遵循OGC Simple Features Specification标准</li>
-     *   <li><b>数值稳定</b>：处理浮点数精度问题，避免拓扑错误</li>
-     *   <li><b>内存高效</b>：临时几何对象及时释放，避免内存泄漏</li>
-     *   <li><b>线程安全</b>：不修改输入参数，支持并发调用</li>
+     * <li><b>标准兼容</b>：遵循OGC Simple Features Specification标准</li>
+     * <li><b>数值稳定</b>：处理浮点数精度问题，避免拓扑错误</li>
+     * <li><b>内存高效</b>：临时几何对象及时释放，避免内存泄漏</li>
+     * <li><b>线程安全</b>：不修改输入参数，支持并发调用</li>
      * </ul>
      * </p>
      * <p>
      * 【使用场景】
      * <ul>
-     *   <li>电子围栏系统：判断设备是否进入/离开指定区域</li>
-     *   <li>轨迹分析：统计轨迹点在特定区域内的分布情况</li>
-     *   <li>空间查询：查找指定区域内的所有地理要素</li>
-     *   <li>数据清洗：过滤掉位于异常区域的坐标点</li>
+     * <li>电子围栏系统：判断设备是否进入/离开指定区域</li>
+     * <li>轨迹分析：统计轨迹点在特定区域内的分布情况</li>
+     * <li>空间查询：查找指定区域内的所有地理要素</li>
+     * <li>数据清洗：过滤掉位于异常区域的坐标点</li>
      * </ul>
      * <p>
      * 【注意事项】
      * <ul>
-     *   <li>输入几何图形必须是无效拓扑错误的有效几何</li>
-     *   <li>复杂几何图形（如带洞多边形）判断性能相对较低</li>
-     *   <li>对于大规模批量判断，建议先构建空间索引</li>
+     * <li>输入几何图形必须是无效拓扑错误的有效几何</li>
+     * <li>复杂几何图形（如带洞多边形）判断性能相对较低</li>
+     * <li>对于大规模批量判断，建议先构建空间索引</li>
      * </ul>
      *
      * @param wgs84Point    待测试的WGS84坐标点，必须包含有效的经纬度值（经度范围-180~180，纬度范围-90~90）
@@ -4580,7 +4863,8 @@ public class GisUtil implements AutoCloseable {
         try {
             // 【坐标转换】将WGS84坐标点转换为JTS Point几何对象
             // 使用配置的几何工厂创建点对象，确保坐标系统一致性
-            Point point = config.GEOMETRY_FACTORY.createPoint(new Coordinate(wgs84Point.getLongitude(), wgs84Point.getLatitude()));
+            Point point = config.GEOMETRY_FACTORY
+                    .createPoint(new Coordinate(wgs84Point.getLongitude(), wgs84Point.getLatitude()));
 
             // 【空间关系判断】执行OGC标准的contains空间关系运算
             // contains()方法严格判断内部关系：点在几何内部返回true，在边界上或外部返回false
@@ -4601,43 +4885,43 @@ public class GisUtil implements AutoCloseable {
      * <p>
      * 【算法核心】基于经纬度边界框的高效点位置判断引擎，实现了严格内部关系运算：
      * <ul>
-     *   <li><b>严格内部判断</b>：使用开区间比较，点在边界上时返回false，确保与OGC标准一致</li>
-     *   <li><b>对角点自适应</b>：支持任意顺序的对角点输入，自动计算正确的边界范围</li>
-     *   <li><b>性能优化</b>：6次浮点比较操作，时间复杂度O(1)，适合大规模数据过滤</li>
-     *   <li><b>异常安全</b>：完整的异常捕获机制，确保无效输入不会导致系统崩溃</li>
+     * <li><b>严格内部判断</b>：使用开区间比较，点在边界上时返回false，确保与OGC标准一致</li>
+     * <li><b>对角点自适应</b>：支持任意顺序的对角点输入，自动计算正确的边界范围</li>
+     * <li><b>性能优化</b>：6次浮点比较操作，时间复杂度O(1)，适合大规模数据过滤</li>
+     * <li><b>异常安全</b>：完整的异常捕获机制，确保无效输入不会导致系统崩溃</li>
      * </ul>
      * <p>
      * 【业务价值】
      * <ul>
-     *   <li><b>精确区域划分</b>：行政区划边界、地块划分、网格化管理等需要严格内部判断的场景</li>
-     *   <li><b>空间索引构建</b>：R树、四叉树等空间索引的节点边界判断，提高查询效率</li>
-     *   <li><b>数据分区过滤</b>：大数据量的地理分区、并行处理、分布式计算等</li>
-     *   <li><b>边界冲突避免</b>：避免点在边界上的歧义情况，确保业务逻辑的确定性</li>
+     * <li><b>精确区域划分</b>：行政区划边界、地块划分、网格化管理等需要严格内部判断的场景</li>
+     * <li><b>空间索引构建</b>：R树、四叉树等空间索引的节点边界判断，提高查询效率</li>
+     * <li><b>数据分区过滤</b>：大数据量的地理分区、并行处理、分布式计算等</li>
+     * <li><b>边界冲突避免</b>：避免点在边界上的歧义情况，确保业务逻辑的确定性</li>
      * </ul>
      * <p>
      * 【技术特点】
      * <ul>
-     *   <li><b>平面坐标假设</b>：基于经纬度平面投影，不考虑地球曲率，适合小范围区域（<1°×1°）</li>
-     *   <li><b>数值稳定性</b>：处理浮点数精度问题，避免边界值的数值误差</li>
-     *   <li><b>内存零分配</b>：除基本变量外无额外内存分配，适合高频调用</li>
-     *   <li><b>线程安全</b>：不修改输入参数，支持并发调用</li>
+     * <li><b>平面坐标假设</b>：基于经纬度平面投影，不考虑地球曲率，适合小范围区域（<1°×1°）</li>
+     * <li><b>数值稳定性</b>：处理浮点数精度问题，避免边界值的数值误差</li>
+     * <li><b>内存零分配</b>：除基本变量外无额外内存分配，适合高频调用</li>
+     * <li><b>线程安全</b>：不修改输入参数，支持并发调用</li>
      * </ul>
      * </p>
      * <p>
      * 【使用场景】
      * <ul>
-     *   <li>严格内部区域判断：点在区域内且不在边界上</li>
-     *   <li>空间索引查询：快速过滤不在查询范围内的点</li>
-     *   <li>数据预处理：清洗掉位于区域边界上的异常点</li>
-     *   <li>网格化分析：将地理空间划分为规则网格进行统计分析</li>
+     * <li>严格内部区域判断：点在区域内且不在边界上</li>
+     * <li>空间索引查询：快速过滤不在查询范围内的点</li>
+     * <li>数据预处理：清洗掉位于区域边界上的异常点</li>
+     * <li>网格化分析：将地理空间划分为规则网格进行统计分析</li>
      * </ul>
      * <p>
      * 【注意事项】
      * <ul>
-     *   <li>仅适用于小范围区域（建议<1°×1°），大范围请使用球面几何算法</li>
-     *   <li>边界点会被判定为false，如需包含边界请使用闭区间比较</li>
-     *   <li>输入坐标必须在有效范围内（经度-180~180，纬度-90~90）</li>
-     *   <li>矩形区域不应跨越国际日期变更线或极点</li>
+     * <li>仅适用于小范围区域（建议<1°×1°），大范围请使用球面几何算法</li>
+     * <li>边界点会被判定为false，如需包含边界请使用闭区间比较</li>
+     * <li>输入坐标必须在有效范围内（经度-180~180，纬度-90~90）</li>
+     * <li>矩形区域不应跨越国际日期变更线或极点</li>
      * </ul>
      *
      * @param wgs84Point            待测试的WGS84坐标点，必须包含有效的经纬度值（经度范围-180~180，纬度范围-90~90）
@@ -4683,52 +4967,52 @@ public class GisUtil implements AutoCloseable {
         }
     }
 
-
     /**
      * WGS84 WKT字符串解析引擎 - 高精度地理文本转几何图形转换器。
      * <p>
      * 【算法核心】基于JTS拓扑套件的高性能WKT解析引擎，实现了标准OGC文本格式到内存几何对象的快速转换：
      * <ul>
-     *   <li><b>标准兼容</b>：完全支持OGC Simple Features Access标准，兼容所有标准几何类型</li>
-     *   <li><b>类型丰富</b>：支持点(POINT)、线(LINESTRING)、面(POLYGON)、多点(MULTIPOINT)、多线(MULTILINESTRING)、多面(MULTIPOLYGON)等</li>
-     *   <li><b>容错机制</b>：完善的输入验证和异常处理，确保解析失败时返回安全默认值</li>
-     *   <li><b>性能优化</b>：使用预配置的GeometryFactory，避免重复对象创建，提高解析效率</li>
+     * <li><b>标准兼容</b>：完全支持OGC Simple Features Access标准，兼容所有标准几何类型</li>
+     * <li><b>类型丰富</b>：支持点(POINT)、线(LINESTRING)、面(POLYGON)、多点(MULTIPOINT)、多线(MULTILINESTRING)、多面(MULTIPOLYGON)等</li>
+     * <li><b>容错机制</b>：完善的输入验证和异常处理，确保解析失败时返回安全默认值</li>
+     * <li><b>性能优化</b>：使用预配置的GeometryFactory，避免重复对象创建，提高解析效率</li>
      * </ul>
      * <p>
      * 【业务价值】
      * <ul>
-     *   <li><b>数据标准化</b>：将异构GIS数据源的WKT文本统一转换为标准几何对象</li>
-     *   <li><b>空间分析基础</b>：为缓冲区分析、叠加分析、空间查询等提供输入数据准备</li>
-     *   <li><b>系统集成</b>：支持从数据库、文件、网络等多种来源的WKT数据解析</li>
-     *   <li><b>可视化支持</b>：为地图渲染、要素标注、图层叠加等提供几何数据基础</li>
+     * <li><b>数据标准化</b>：将异构GIS数据源的WKT文本统一转换为标准几何对象</li>
+     * <li><b>空间分析基础</b>：为缓冲区分析、叠加分析、空间查询等提供输入数据准备</li>
+     * <li><b>系统集成</b>：支持从数据库、文件、网络等多种来源的WKT数据解析</li>
+     * <li><b>可视化支持</b>：为地图渲染、要素标注、图层叠加等提供几何数据基础</li>
      * </ul>
      * <p>
      * 【技术特点】
      * <ul>
-     *   <li><b>内存安全</b>：解析失败时返回预定义的空几何对象，避免null指针异常</li>
-     *   <li><b>异常分级</b>：区分ParseException和其他异常，提供详细的错误诊断信息</li>
-     *   <li><b>日志追踪</b>：完整的解析过程日志记录，便于问题定位和性能分析</li>
-     *   <li><b>线程安全</b>：WKTReader为线程安全设计，支持并发解析操作</li>
+     * <li><b>内存安全</b>：解析失败时返回预定义的空几何对象，避免null指针异常</li>
+     * <li><b>异常分级</b>：区分ParseException和其他异常，提供详细的错误诊断信息</li>
+     * <li><b>日志追踪</b>：完整的解析过程日志记录，便于问题定位和性能分析</li>
+     * <li><b>线程安全</b>：WKTReader为线程安全设计，支持并发解析操作</li>
      * </ul>
      * </p>
      * <p>
      * 【使用场景】
      * <ul>
-     *   <li>数据库WKT字段解析：PostGIS、MySQL Spatial等空间数据库的几何数据读取</li>
-     *   <li>文件格式转换：Shapefile、GeoJSON等格式转换为内部几何表示</li>
-     *   <li>网络数据传输：通过WKT文本进行跨系统的几何数据交换</li>
-     *   <li>用户输入处理：解析用户输入的空间查询条件或几何定义</li>
+     * <li>数据库WKT字段解析：PostGIS、MySQL Spatial等空间数据库的几何数据读取</li>
+     * <li>文件格式转换：Shapefile、GeoJSON等格式转换为内部几何表示</li>
+     * <li>网络数据传输：通过WKT文本进行跨系统的几何数据交换</li>
+     * <li>用户输入处理：解析用户输入的空间查询条件或几何定义</li>
      * </ul>
      * <p>
      * 【注意事项】
      * <ul>
-     *   <li>输入WKT必须符合OGC标准格式，坐标值使用空格分隔</li>
-     *   <li>坐标顺序为经度在前，纬度在后（X,Y顺序），符合GIS惯例</li>
-     *   <li>多边形坐标串必须闭合（首尾点相同），且不自相交</li>
-     *   <li>解析失败会返回空几何对象，调用方应检查结果有效性</li>
+     * <li>输入WKT必须符合OGC标准格式，坐标值使用空格分隔</li>
+     * <li>坐标顺序为经度在前，纬度在后（X,Y顺序），符合GIS惯例</li>
+     * <li>多边形坐标串必须闭合（首尾点相同），且不自相交</li>
+     * <li>解析失败会返回空几何对象，调用方应检查结果有效性</li>
      * </ul>
      *
-     * @param wgs84WKT WGS84坐标系下的标准WKT字符串，格式如"POINT(经度 纬度)"、"LINESTRING(经度1 纬度1,经度2 纬度2)"、"POLYGON((经度1 纬度1,...,经度1 纬度1))"
+     * @param wgs84WKT WGS84坐标系下的标准WKT字符串，格式如"POINT(经度 纬度)"、"LINESTRING(经度1 纬度1,经度2
+     *                 纬度2)"、"POLYGON((经度1 纬度1,...,经度1 纬度1))"
      * @return 解析成功的WGS84坐标系Geometry几何对象；解析失败返回预定义的空几何对象（非null）
      * @throws IllegalArgumentException 当输入参数为null时可能抛出此异常
      * @see GisUtil#toGaussGeometry(Geometry) WGS84几何转高斯投影几何
@@ -4773,43 +5057,43 @@ public class GisUtil implements AutoCloseable {
      * <p>
      * 【算法核心】基于横轴墨卡托投影原理的高精度坐标转换引擎，实现了全球范围内WGS84经纬度到高斯投影平面坐标的精确转换：
      * <ul>
-     *   <li><b>智能投影带选择</b>：根据几何中心经度自动计算最佳6°分带投影带号（1-60带）</li>
-     *   <li><b>坐标精度验证</b>：输入输出双重坐标范围验证，确保转换结果的地理合理性</li>
-     *   <li><b>投影参数计算</b>：自动计算中央经线、假东距等关键投影参数</li>
-     *   <li><b>线程安全缓存</b>：使用ConcurrentHashMap缓存CRS和坐标转换器，避免重复创建</li>
+     * <li><b>智能投影带选择</b>：根据几何中心经度自动计算最佳6°分带投影带号（1-60带）</li>
+     * <li><b>坐标精度验证</b>：输入输出双重坐标范围验证，确保转换结果的地理合理性</li>
+     * <li><b>投影参数计算</b>：自动计算中央经线、假东距等关键投影参数</li>
+     * <li><b>线程安全缓存</b>：使用ConcurrentHashMap缓存CRS和坐标转换器，避免重复创建</li>
      * </ul>
      * <p>
      * 【业务价值】
      * <ul>
-     *   <li><b>面积计算精度提升</b>：将球面坐标转换为平面坐标，消除地球曲率影响，面积计算精度提升10倍以上</li>
-     *   <li><b>距离测量标准化</b>：提供米制单位下的精确距离测量，满足工程测量和土地管理需求</li>
-     *   <li><b>空间分析基础</b>：为缓冲区分析、叠加分析、空间查询等提供高精度平面坐标基础</li>
-     *   <li><b>工程应用支持</b>：支持国土测绘、城乡规划、工程建设等领域的精确测量需求</li>
+     * <li><b>面积计算精度提升</b>：将球面坐标转换为平面坐标，消除地球曲率影响，面积计算精度提升10倍以上</li>
+     * <li><b>距离测量标准化</b>：提供米制单位下的精确距离测量，满足工程测量和土地管理需求</li>
+     * <li><b>空间分析基础</b>：为缓冲区分析、叠加分析、空间查询等提供高精度平面坐标基础</li>
+     * <li><b>工程应用支持</b>：支持国土测绘、城乡规划、工程建设等领域的精确测量需求</li>
      * </ul>
      * <p>
      * 【技术特点】
      * <ul>
-     *   <li><b>全球范围覆盖</b>：支持全球1-60投影带，覆盖所有经度范围（-180°到+180°）</li>
-     *   <li><b>智能误差控制</b>：投影变形控制在厘米级，中央经线附近精度最高</li>
-     *   <li><b>鲁棒性设计</b>：完善的输入验证和异常处理，无效输入返回安全默认值</li>
-     *   <li><b>性能优化</b>：基于ConcurrentHashMap的缓存机制，转换性能提升显著</li>
+     * <li><b>全球范围覆盖</b>：支持全球1-60投影带，覆盖所有经度范围（-180°到+180°）</li>
+     * <li><b>智能误差控制</b>：投影变形控制在厘米级，中央经线附近精度最高</li>
+     * <li><b>鲁棒性设计</b>：完善的输入验证和异常处理，无效输入返回安全默认值</li>
+     * <li><b>性能优化</b>：基于ConcurrentHashMap的缓存机制，转换性能提升显著</li>
      * </ul>
      * </p>
      * <p>
      * 【使用场景】
      * <ul>
-     *   <li>土地面积精确计算：国土调查、农田测量、林地测绘等面积统计应用</li>
-     *   <li>工程测量坐标转换：施工放样、地形测量、地籍测量等工程测量场景</li>
-     *   <li>空间分析精度提升：缓冲区分析、叠加分析等需要高精度计算的空间分析</li>
-     *   <li>地图投影标准化：将GPS经纬度数据转换为地方坐标系，实现与其他测绘数据的集成</li>
+     * <li>土地面积精确计算：国土调查、农田测量、林地测绘等面积统计应用</li>
+     * <li>工程测量坐标转换：施工放样、地形测量、地籍测量等工程测量场景</li>
+     * <li>空间分析精度提升：缓冲区分析、叠加分析等需要高精度计算的空间分析</li>
+     * <li>地图投影标准化：将GPS经纬度数据转换为地方坐标系，实现与其他测绘数据的集成</li>
      * </ul>
      * <p>
      * 【注意事项】
      * <ul>
-     *   <li>输入几何必须在WGS84坐标系下，经纬度范围：经度±180°，纬度±90°</li>
-     *   <li>高斯投影适用于中纬度地区，赤道附近和极地区域变形较大</li>
-     *   <li>单个投影带覆盖6°经度范围，跨带几何应选择中心经线最接近的投影带</li>
-     *   <li>转换失败返回空几何对象，调用方应检查结果有效性</li>
+     * <li>输入几何必须在WGS84坐标系下，经纬度范围：经度±180°，纬度±90°</li>
+     * <li>高斯投影适用于中纬度地区，赤道附近和极地区域变形较大</li>
+     * <li>单个投影带覆盖6°经度范围，跨带几何应选择中心经线最接近的投影带</li>
+     * <li>转换失败返回空几何对象，调用方应检查结果有效性</li>
      * </ul>
      *
      * @param wgs84Geometry WGS84坐标系下的几何图形（经纬度），支持点、线、面等所有标准几何类型
@@ -4835,7 +5119,8 @@ public class GisUtil implements AutoCloseable {
             // 【坐标范围验证】验证WGS84坐标的地理合理性，防止异常数据导致的错误转换
             // 经度范围：-180°到+180°，纬度范围：-90°到+90°，超出范围的几何将被拒绝
             if (env.getMinX() < -180 || env.getMaxX() > 180 || env.getMinY() < -90 || env.getMaxY() > 90) {
-                log.warn("WGS84坐标超出合理范围：MinLon={}, MaxLon={}, MinLat={}, MaxLat={}", env.getMinX(), env.getMaxX(), env.getMinY(), env.getMaxY());
+                log.warn("WGS84坐标超出合理范围：MinLon={}, MaxLon={}, MinLat={}, MaxLat={}", env.getMinX(), env.getMaxX(),
+                        env.getMinY(), env.getMaxY());
                 return config.EMPTY_GEOMETRY;
             }
 
@@ -4874,7 +5159,8 @@ public class GisUtil implements AutoCloseable {
                     return CRS.findMathTransform(config.WGS84_CRS, gaussCRS, true);
                 } catch (Exception e) {
                     // 【转换器创建失败】记录详细的错误信息，包括投影参数和异常类型
-                    log.warn("创建坐标转换失败：zone={}, falseEasting={}, centralMeridian={}, 错误={}", zone, falseEasting, centralMeridian, e.getMessage());
+                    log.warn("创建坐标转换失败：zone={}, falseEasting={}, centralMeridian={}, 错误={}", zone, falseEasting,
+                            centralMeridian, e.getMessage());
                     return null;
                 }
             });
@@ -4886,8 +5172,10 @@ public class GisUtil implements AutoCloseable {
             // 【输出坐标验证】验证转换后的高斯投影坐标的合理性
             // X坐标范围：50万-6400万米（对应全球1-60带），Y坐标范围：±1000万米（对应全球纬度范围）
             Envelope gaussEnv = gaussGeometry.getEnvelopeInternal();
-            if (gaussEnv.getMinX() < 500000 || gaussEnv.getMaxX() > 64000000 || gaussEnv.getMinY() < -10000000 || gaussEnv.getMaxY() > 10000000) {
-                log.warn("转换后的高斯投影坐标超出合理范围：MinX={}, MaxX={}, MinY={}, MaxY={}", gaussEnv.getMinX(), gaussEnv.getMaxX(), gaussEnv.getMinY(), gaussEnv.getMaxY());
+            if (gaussEnv.getMinX() < 500000 || gaussEnv.getMaxX() > 64000000 || gaussEnv.getMinY() < -10000000
+                    || gaussEnv.getMaxY() > 10000000) {
+                log.warn("转换后的高斯投影坐标超出合理范围：MinX={}, MaxX={}, MinY={}, MaxY={}", gaussEnv.getMinX(), gaussEnv.getMaxX(),
+                        gaussEnv.getMinY(), gaussEnv.getMaxY());
                 return config.EMPTY_GEOMETRY;
             }
             // 【转换成功】返回转换后的高斯投影几何对象，坐标单位为米
@@ -4998,7 +5286,8 @@ public class GisUtil implements AutoCloseable {
             }
 
             // 【投影日志】记录投影转换成功信息，监控转换质量
-            log.debug("高斯投影转换成功：几何1类型={}, 几何2类型={}", gaussGeometry1.getGeometryType(), gaussGeometry2.getGeometryType());
+            log.debug("高斯投影转换成功：几何1类型={}, 几何2类型={}", gaussGeometry1.getGeometryType(),
+                    gaussGeometry2.getGeometryType());
 
             // 【阶段3：相交计算】在高斯投影坐标系下执行空间相交操作
             // JTS intersection方法支持所有几何类型组合，计算结果精确可靠
@@ -5116,8 +5405,10 @@ public class GisUtil implements AutoCloseable {
             // 坐标合理性验证：确保高斯投影坐标在合理范围内
             // X坐标范围：50万-6400万米（对应全球1-60投影带，覆盖所有合理范围）
             // Y坐标范围：±1000万米（对应全球纬度范围，包含南北极区域）
-            if (env.getMinX() < 500000 || env.getMaxX() > 64000000 || env.getMinY() < -10000000 || env.getMaxY() > 10000000) {
-                log.warn("高斯投影坐标超出合理范围：MinX={}, MaxX={}, MinY={}, MaxY={}", env.getMinX(), env.getMaxX(), env.getMinY(), env.getMaxY());
+            if (env.getMinX() < 500000 || env.getMaxX() > 64000000 || env.getMinY() < -10000000
+                    || env.getMaxY() > 10000000) {
+                log.warn("高斯投影坐标超出合理范围：MinX={}, MaxX={}, MinY={}, MaxY={}", env.getMinX(), env.getMaxX(), env.getMinY(),
+                        env.getMaxY());
                 return config.EMPTY_GEOMETRY;
             }
 
@@ -5170,7 +5461,8 @@ public class GisUtil implements AutoCloseable {
                 try {
                     return CRS.findMathTransform(gaussCRS, config.WGS84_CRS, true);
                 } catch (Exception e) {
-                    log.warn("创建坐标转换失败：zone={}, falseEasting={}, centralMeridian={}, 错误={}", finalZone, falseEasting, centralMeridian, e.getMessage());
+                    log.warn("创建坐标转换失败：zone={}, falseEasting={}, centralMeridian={}, 错误={}", finalZone, falseEasting,
+                            centralMeridian, e.getMessage());
                     return null;
                 }
             });
@@ -5187,8 +5479,10 @@ public class GisUtil implements AutoCloseable {
             // WGS84坐标验证：确保转换结果在合理范围内
             // 经度范围：±180°，纬度范围：±90°，超出范围表明转换异常
             Envelope wgs84Env = wgs84Geometry.getEnvelopeInternal();
-            if (wgs84Env.getMinX() < -180 || wgs84Env.getMaxX() > 180 || wgs84Env.getMinY() < -90 || wgs84Env.getMaxY() > 90) {
-                log.warn("转换后的WGS84坐标超出合理范围：MinLon={}, MaxLon={}, MinLat={}, MaxLat={}", wgs84Env.getMinX(), wgs84Env.getMaxX(), wgs84Env.getMinY(), wgs84Env.getMaxY());
+            if (wgs84Env.getMinX() < -180 || wgs84Env.getMaxX() > 180 || wgs84Env.getMinY() < -90
+                    || wgs84Env.getMaxY() > 90) {
+                log.warn("转换后的WGS84坐标超出合理范围：MinLon={}, MaxLon={}, MinLat={}, MaxLat={}", wgs84Env.getMinX(),
+                        wgs84Env.getMaxX(), wgs84Env.getMinY(), wgs84Env.getMaxY());
                 return config.EMPTY_GEOMETRY;
             }
             // 转换成功：返回有效的WGS84几何对象
@@ -5198,7 +5492,6 @@ public class GisUtil implements AutoCloseable {
             return config.EMPTY_GEOMETRY;
         }
     }
-
 
     /**
      * WGS84坐标容差匹配引擎 - 高精度最近邻搜索算法
@@ -5284,8 +5577,8 @@ public class GisUtil implements AutoCloseable {
 
             // 双重条件筛选：距离必须在容差范围内且为当前最小距离
             if (distance <= tolerance && distance < minDistance) {
-                minDistance = distance;      // 更新最小距离记录
-                closestPoint = sourcePoint;  // 更新最佳匹配点
+                minDistance = distance; // 更新最小距离记录
+                closestPoint = sourcePoint; // 更新最佳匹配点
             }
         }
 
@@ -5298,13 +5591,13 @@ public class GisUtil implements AutoCloseable {
                     targetWgs84Point.getLongitude(), targetWgs84Point.getLatitude());
         } else {
             // 匹配失败：记录警告信息，帮助定位坐标转换精度问题
-            log.warn("在容差{}米范围内未找到匹配点，目标坐标=[{}, {}]", tolerance, targetWgs84Point.getLongitude(), targetWgs84Point.getLatitude());
+            log.warn("在容差{}米范围内未找到匹配点，目标坐标=[{}, {}]", tolerance, targetWgs84Point.getLongitude(),
+                    targetWgs84Point.getLatitude());
         }
 
         // 返回最终结果：包含完整业务属性的原始点，或null（未找到匹配）
         return closestPoint;
     }
-
 
     /**
      * WGS84坐标批量容差匹配引擎 - 智能算法选择与性能优化
@@ -5405,41 +5698,41 @@ public class GisUtil implements AutoCloseable {
      * 业务价值：支撑轨迹数据上传、地图瓦片生成、空间分析等核心业务流程<br>
      * 技术特点：
      * <ul>
-     *   <li>智能投影带识别：基于经度自动计算3°/6°带号，支持全球范围</li>
-     *   <li>分组批量处理：按投影带分组后批量转换，减少CRS创建开销50%+</li>
-     *   <li>线程安全转换：ConcurrentHashMap缓存MathTransform，支持高并发</li>
-     *   <li>结果验证：坐标范围校验过滤异常值，确保数据质量</li>
+     * <li>智能投影带识别：基于经度自动计算3°/6°带号，支持全球范围</li>
+     * <li>分组批量处理：按投影带分组后批量转换，减少CRS创建开销50%+</li>
+     * <li>线程安全转换：ConcurrentHashMap缓存MathTransform，支持高并发</li>
+     * <li>结果验证：坐标范围校验过滤异常值，确保数据质量</li>
      * </ul>
      * </p>
      * <p>
      * 算法流程：
      * <ol>
-     *   <li>处理规模日志：记录输入点数量，用于性能分析</li>
-     *   <li>输入参数验证：空列表快速返回，避免后续空指针</li>
-     *   <li>投影带智能分组：遍历所有点，按(floor((longitude+180)/6)+1)计算带号</li>
-     *   <li>投影参数计算：中央经线=(zone-1)*6-180+3，东偏移=zone*1e6+500000</li>
-     *   <li>线程安全转换器：缓存键格式"zone_{}_{}_{}"，避免重复创建开销</li>
-     *   <li>核心坐标转换：JTS.transform批量执行，精度达毫米级</li>
-     *   <li>结果范围验证：X∈[500000,64000000]，Y∈[-10000000,10000000]</li>
-     *   <li>异常点过滤：记录失败点位日志，保障整体任务成功</li>
+     * <li>处理规模日志：记录输入点数量，用于性能分析</li>
+     * <li>输入参数验证：空列表快速返回，避免后续空指针</li>
+     * <li>投影带智能分组：遍历所有点，按(floor((longitude+180)/6)+1)计算带号</li>
+     * <li>投影参数计算：中央经线=(zone-1)*6-180+3，东偏移=zone*1e6+500000</li>
+     * <li>线程安全转换器：缓存键格式"zone_{}_{}_{}"，避免重复创建开销</li>
+     * <li>核心坐标转换：JTS.transform批量执行，精度达毫米级</li>
+     * <li>结果范围验证：X∈[500000,64000000]，Y∈[-10000000,10000000]</li>
+     * <li>异常点过滤：记录失败点位日志，保障整体任务成功</li>
      * </ol>
      * </p>
      * <p>
      * 使用场景：
      * <ul>
-     *   <li>轨迹数据上传：WGS84轨迹转高斯投影后存储到空间数据库</li>
-     *   <li>地图瓦片生成：将WGS84坐标批量转为墨卡托或高斯投影</li>
-     *   <li>空间分析：缓冲区分析、叠加分析前统一坐标系</li>
-     *   <li>多系统数据融合：GPS设备WGS84数据与CAD高斯数据对齐</li>
+     * <li>轨迹数据上传：WGS84轨迹转高斯投影后存储到空间数据库</li>
+     * <li>地图瓦片生成：将WGS84坐标批量转为墨卡托或高斯投影</li>
+     * <li>空间分析：缓冲区分析、叠加分析前统一坐标系</li>
+     * <li>多系统数据融合：GPS设备WGS84数据与CAD高斯数据对齐</li>
      * </ul>
      * </p>
      * <p>
      * 注意事项：
      * <ul>
-     *   <li>原始经度依赖：必须包含合法经度值，否则无法计算投影带</li>
-     *   <li>性能优化：单批次建议≤10000点，避免单次转换耗时过长</li>
-     *   <li>线程安全：转换器缓存为线程安全设计，可放心并发调用</li>
-     *   <li>异常处理：单点转换失败仅跳过该点，不影响整体批次</li>
+     * <li>原始经度依赖：必须包含合法经度值，否则无法计算投影带</li>
+     * <li>性能优化：单批次建议≤10000点，避免单次转换耗时过长</li>
+     * <li>线程安全：转换器缓存为线程安全设计，可放心并发调用</li>
+     * <li>异常处理：单点转换失败仅跳过该点，不影响整体批次</li>
      * </ul>
      * </p>
      *
@@ -5498,7 +5791,8 @@ public class GisUtil implements AutoCloseable {
                         // 创建WGS84到高斯投影的数学转换，lenient=true容忍微小误差
                         return CRS.findMathTransform(config.WGS84_CRS, gaussCRS, true);
                     } catch (Exception e) {
-                        log.warn("创建坐标转换失败：zone={}, falseEasting={}, centralMeridian={}, 错误={}", zone, falseEasting, centralMeridian, e.getMessage());
+                        log.warn("创建坐标转换失败：zone={}, falseEasting={}, centralMeridian={}, 错误={}", zone, falseEasting,
+                                centralMeridian, e.getMessage());
                         return null;
                     }
                 });
@@ -5519,12 +5813,15 @@ public class GisUtil implements AutoCloseable {
                         JTS.transform(sourceCoord, targetCoord, transform);
 
                         // 【步骤6.3】结果范围验证：X∈[500000,64000000]，Y∈[-10000000,10000000]，过滤异常值
-                        if (targetCoord.x >= 500000 && targetCoord.x <= 64000000 && targetCoord.y >= -10000000 && targetCoord.y <= 10000000) {
+                        if (targetCoord.x >= 500000 && targetCoord.x <= 64000000 && targetCoord.y >= -10000000
+                                && targetCoord.y <= 10000000) {
                             GaussPoint result = new GaussPoint();
                             result.setGpsTime(wgs84Point.getGpsTime());
+                            result.setGpsStatus(wgs84Point.getGpsStatus());
                             result.setLongitude(wgs84Point.getLongitude());
                             result.setLatitude(wgs84Point.getLatitude());
                             result.setSpeed(wgs84Point.getSpeed());
+                            result.setJobStatus(wgs84Point.getJobStatus());
                             result.setGaussX(targetCoord.x);
                             result.setGaussY(targetCoord.y);
                             gaussPoints.add(result);
@@ -5533,7 +5830,8 @@ public class GisUtil implements AutoCloseable {
                         }
                     } catch (Exception e) {
                         // 【步骤6.4】单点异常处理：记录失败点位，继续处理后续点，保障整体批次成功
-                        log.warn("转换WGS84点到高斯投影失败：zone={}, 经度={}, 纬度={}, 错误={}", zone, wgs84Point.getLongitude(), wgs84Point.getLatitude(), e.getMessage());
+                        log.warn("转换WGS84点到高斯投影失败：zone={}, 经度={}, 纬度={}, 错误={}", zone, wgs84Point.getLongitude(),
+                                wgs84Point.getLatitude(), e.getMessage());
                     }
                 }
             }
@@ -5554,37 +5852,37 @@ public class GisUtil implements AutoCloseable {
      * 业务价值：为土地丈量、补贴核算、作业监控、合规审计提供精准面积基础数据<br>
      * 技术特点：
      * <ul>
-     *   <li>类型安全分发：instanceof精准识别Polygon/MultiPolygon，拒绝非法输入</li>
-     *   <li>高精度球面算法：基于椭球面公式，误差&lt;0.3%，远优于平面投影</li>
-     *   <li>累加求和策略：MultiPolygon自动拆分为单Polygon并行计算，复杂度O(n)</li>
-     *   <li>结果绝对值保护：防御负面积异常，确保下游业务无符号困扰</li>
+     * <li>类型安全分发：instanceof精准识别Polygon/MultiPolygon，拒绝非法输入</li>
+     * <li>高精度球面算法：基于椭球面公式，误差&lt;0.3%，远优于平面投影</li>
+     * <li>累加求和策略：MultiPolygon自动拆分为单Polygon并行计算，复杂度O(n)</li>
+     * <li>结果绝对值保护：防御负面积异常，确保下游业务无符号困扰</li>
      * </ul>
      * </p>
      * <p>
      * 算法流程：
      * <ol>
-     *   <li>类型安全分发：按instanceof路由到专用计算逻辑，拒绝非面状几何</li>
-     *   <li>单多边形计算：直接调用calculatePolygonSphericalArea，返回双精度面积</li>
-     *   <li>多多边形累加：循环getNumGeometries()，逐Polygon累加面积</li>
-     *   <li>绝对值修正：Math.abs()兜底，防御顺时针/逆时针导致的负值</li>
+     * <li>类型安全分发：按instanceof路由到专用计算逻辑，拒绝非面状几何</li>
+     * <li>单多边形计算：直接调用calculatePolygonSphericalArea，返回双精度面积</li>
+     * <li>多多边形累加：循环getNumGeometries()，逐Polygon累加面积</li>
+     * <li>绝对值修正：Math.abs()兜底，防御顺时针/逆时针导致的负值</li>
      * </ol>
      * </p>
      * <p>
      * 使用场景：
      * <ul>
-     *   <li>土地丈量：农户地块、村集体土地的精准面积量算</li>
-     *   <li>补贴核算：农业补贴按面积分级，需高精度面积输入</li>
-     *   <li>作业监控：农机作业面积实时统计，防止虚报/漏报</li>
-     *   <li>合规审计：项目验收时第三方独立面积核验</li>
+     * <li>土地丈量：农户地块、村集体土地的精准面积量算</li>
+     * <li>补贴核算：农业补贴按面积分级，需高精度面积输入</li>
+     * <li>作业监控：农机作业面积实时统计，防止虚报/漏报</li>
+     * <li>合规审计：项目验收时第三方独立面积核验</li>
      * </ul>
      * </p>
      * <p>
      * 注意事项：
      * <ul>
-     *   <li>仅支持面状几何：Polygon或MultiPolygon，其余类型返回0.0</li>
-     *   <li>坐标系要求：输入必须基于WGS84椭球，否则精度无法保证</li>
-     *   <li>性能提示：MultiPolygon子要素过多时建议先做几何简化</li>
-     *   <li>单位意识：返回单位为平方米，需除以10000换算为公顷</li>
+     * <li>仅支持面状几何：Polygon或MultiPolygon，其余类型返回0.0</li>
+     * <li>坐标系要求：输入必须基于WGS84椭球，否则精度无法保证</li>
+     * <li>性能提示：MultiPolygon子要素过多时建议先做几何简化</li>
+     * <li>单位意识：返回单位为平方米，需除以10000换算为公顷</li>
      * </ul>
      * </p>
      *
@@ -5627,37 +5925,37 @@ public class GisUtil implements AutoCloseable {
      * 业务价值：为农业补贴、土地交易、项目验收、合规审计提供标准亩数依据<br>
      * 技术特点：
      * <ul>
-     *   <li>标准亩换算：采用国家统一标准1亩=666.6667平方米，保证官方一致性</li>
-     *   <li>四舍五入控制：保留4位小数，兼顾财务精度与数据库存储效率</li>
-     *   <li>异常兜底：捕获任何异常并返回0.0，防止服务中断与资金差错</li>
-     *   <li>零侵入式：复用现有球面面积算法，无需额外参数，降低维护成本</li>
+     * <li>标准亩换算：采用国家统一标准1亩=666.6667平方米，保证官方一致性</li>
+     * <li>四舍五入控制：保留4位小数，兼顾财务精度与数据库存储效率</li>
+     * <li>异常兜底：捕获任何异常并返回0.0，防止服务中断与资金差错</li>
+     * <li>零侵入式：复用现有球面面积算法，无需额外参数，降低维护成本</li>
      * </ul>
      * </p>
      * <p>
      * 算法流程：
      * <ol>
-     *   <li>球面面积计算：调用calculateSphericalArea，确保高精度平方米基础</li>
-     *   <li>单位换算：乘以config.SQUARE_TO_MU_METER系数，完成平方米到亩转换</li>
-     *   <li>四舍五入：先×10000再÷10000，保留4位小数，符合财务结算要求</li>
-     *   <li>异常兜底：任何异常返回0.0并记录日志，保障系统健壮性</li>
+     * <li>球面面积计算：调用calculateSphericalArea，确保高精度平方米基础</li>
+     * <li>单位换算：乘以config.SQUARE_TO_MU_METER系数，完成平方米到亩转换</li>
+     * <li>四舍五入：先×10000再÷10000，保留4位小数，符合财务结算要求</li>
+     * <li>异常兜底：任何异常返回0.0并记录日志，保障系统健壮性</li>
      * </ol>
      * </p>
      * <p>
      * 使用场景：
      * <ul>
-     *   <li>农业补贴：按种植面积分级补贴，需标准亩数作为发放依据</li>
-     *   <li>土地交易：耕地买卖以亩计价，要求精度高且官方认可</li>
-     *   <li>项目验收：高标准农田、垦造水田等按亩结算，需第三方核验</li>
-     *   <li>合规审计：自然资源部门对用地面积进行年度审计</li>
+     * <li>农业补贴：按种植面积分级补贴，需标准亩数作为发放依据</li>
+     * <li>土地交易：耕地买卖以亩计价，要求精度高且官方认可</li>
+     * <li>项目验收：高标准农田、垦造水田等按亩结算，需第三方核验</li>
+     * <li>合规审计：自然资源部门对用地面积进行年度审计</li>
      * </ul>
      * </p>
      * <p>
      * 注意事项：
      * <ul>
-     *   <li>单位意识：返回单位为“亩”，非公顷或分，避免误用</li>
-     *   <li>精度认知：保留4位小数，即0.0001亩≈0.067平方米，足够财务使用</li>
-     *   <li>异常处理：返回0.0时需检查日志，防止资金差错</li>
-     *   <li>换算系数：依赖config.SQUARE_TO_MU_METER，确保与国家规定一致</li>
+     * <li>单位意识：返回单位为“亩”，非公顷或分，避免误用</li>
+     * <li>精度认知：保留4位小数，即0.0001亩≈0.067平方米，足够财务使用</li>
+     * <li>异常处理：返回0.0时需检查日志，防止资金差错</li>
+     * <li>换算系数：依赖config.SQUARE_TO_MU_METER，确保与国家规定一致</li>
      * </ul>
      * </p>
      *
@@ -5687,43 +5985,55 @@ public class GisUtil implements AutoCloseable {
     /**
      * WKT字符串面积亩数转换引擎
      *
-     * <p><b>算法核心：</b>WKT解析→几何验证→面积计算→亩数转换四步策略</p>
+     * <p>
+     * <b>算法核心：</b>WKT解析→几何验证→面积计算→亩数转换四步策略
+     * </p>
      *
-     * <p><b>业务价值：</b>
+     * <p>
+     * <b>业务价值：</b>
      * <ul>
-     *   <li>农业补贴核算：精确计算地块面积，确保补贴资金准确发放</li>
-     *   <li>土地交易评估：为土地流转提供权威面积数据支撑</li>
-     *   <li>统计分析：支持各类面积统计报表生成</li>
-     * </ul></p>
+     * <li>农业补贴核算：精确计算地块面积，确保补贴资金准确发放</li>
+     * <li>土地交易评估：为土地流转提供权威面积数据支撑</li>
+     * <li>统计分析：支持各类面积统计报表生成</li>
+     * </ul>
+     * </p>
      *
-     * <p><b>技术特点：</b>
+     * <p>
+     * <b>技术特点：</b>
      * <ul>
-     *   <li>零配置调用：直接解析WKT字符串，无需手动坐标转换</li>
-     *   <li>异常安全：解析失败返回0.0，避免程序崩溃</li>
-     *   <li>⚡ 性能优化：复用现有calcMu(Geometry)核心算法</li>
-     * </ul></p>
+     * <li>零配置调用：直接解析WKT字符串，无需手动坐标转换</li>
+     * <li>异常安全：解析失败返回0.0，避免程序崩溃</li>
+     * <li>⚡ 性能优化：复用现有calcMu(Geometry)核心算法</li>
+     * </ul>
+     * </p>
      *
-     * <p><b>算法流程：</b>
+     * <p>
+     * <b>算法流程：</b>
      * <ol>
-     *   <li>WKT字符串解析：调用toWgs84Geometry转换为Geometry对象</li>
-     *   <li>几何验证：确保输入为有效面状几何</li>
-     *   <li>面积计算：复用高精度球面面积算法</li>
-     *   <li>亩数转换：应用国家标准换算系数</li>
-     * </ol></p>
+     * <li>WKT字符串解析：调用toWgs84Geometry转换为Geometry对象</li>
+     * <li>几何验证：确保输入为有效面状几何</li>
+     * <li>面积计算：复用高精度球面面积算法</li>
+     * <li>亩数转换：应用国家标准换算系数</li>
+     * </ol>
+     * </p>
      *
-     * <p><b>使用场景：</b>
+     * <p>
+     * <b>使用场景：</b>
      * <ul>
-     *   <li>GIS数据导入：处理第三方WKT格式地块数据</li>
-     *   <li>移动端集成：支持手机端面积计算功能</li>
-     *   <li>Web服务：为在线地图应用提供面积计算API</li>
-     * </ul></p>
+     * <li>GIS数据导入：处理第三方WKT格式地块数据</li>
+     * <li>移动端集成：支持手机端面积计算功能</li>
+     * <li>Web服务：为在线地图应用提供面积计算API</li>
+     * </ul>
+     * </p>
      *
-     * <p><b>注意事项：</b>
+     * <p>
+     * <b>注意事项：</b>
      * <ul>
-     *   <li>WKT格式依赖：必须为标准WKT格式，否则返回0.0</li>
-     *   <li>坐标系意识：输入需为WGS84坐标系，其他坐标系结果不准确</li>
-     *   <li>单位认知：返回值为亩数，非平方米或其他单位</li>
-     * </ul></p>
+     * <li>WKT格式依赖：必须为标准WKT格式，否则返回0.0</li>
+     * <li>坐标系意识：输入需为WGS84坐标系，其他坐标系结果不准确</li>
+     * <li>单位认知：返回值为亩数，非平方米或其他单位</li>
+     * </ul>
+     * </p>
      *
      * @param wgs84Wkt WGS84坐标系下的WKT字符串，如"POLYGON((...))"或"MULTIPOLYGON(((...)))"
      * @return 几何图形的面积（亩），四舍五入保留4位小数；解析或计算失败返回0.0
@@ -5877,7 +6187,6 @@ public class GisUtil implements AutoCloseable {
         }
     }
 
-
     /**
      * 创建地块信息
      * <p>
@@ -5935,7 +6244,8 @@ public class GisUtil implements AutoCloseable {
                 .map(p -> new Coordinate(p.getGaussX(), p.getGaussY()))
                 .toArray(Coordinate[]::new);
         // 【数据优化】点位过多时进行抽稀，平衡精度与性能
-        coords = simplifyByAngle(coords, config.SIMPLIFY_MIN_EDGE_LEN, config.SIMPLIFY_ANGLE, config.SIMPLIFY_MAX_EDGE_LEN);
+        coords = simplifyByAngle(coords, config.SIMPLIFY_MIN_EDGE_LEN, config.SIMPLIFY_ANGLE,
+                config.SIMPLIFY_MAX_EDGE_LEN);
         if (coords.length >= 3) {
             // 【几何创建】构建线串并应用缓冲，形成作业区域
             LineString line = config.GEOMETRY_FACTORY.createLineString(coords);
@@ -5954,57 +6264,68 @@ public class GisUtil implements AutoCloseable {
             farmPlot.setGeometryPoints(gaussPoints);
         }
 
-        log.info("{} 至 {} 地块总面积 {} 亩，耗时 {} 毫秒"
-                , LocalDateTimeUtil.format(farmPlot.getStartTime(), "yyyy-MM-dd HH:mm:ss")
-                , LocalDateTimeUtil.format(farmPlot.getEndTime(), "yyyy-MM-dd HH:mm:ss")
-                , farmPlot.getMu()
-                , System.currentTimeMillis() - getFarmPlotStartTime);
+        log.info("{} 至 {} 地块总面积 {} 亩，耗时 {} 毫秒",
+                LocalDateTimeUtil.format(farmPlot.getStartTime(), "yyyy-MM-dd HH:mm:ss"),
+                LocalDateTimeUtil.format(farmPlot.getEndTime(), "yyyy-MM-dd HH:mm:ss"), farmPlot.getMu(),
+                System.currentTimeMillis() - getFarmPlotStartTime);
         return farmPlot;
     }
 
     /**
      * 智能作业轨迹道路拆分引擎
      *
-     * <p><b>算法核心：</b>轨迹预处理→密度聚类→几何重构→缓冲优化→时间合并五步策略</p>
+     * <p>
+     * <b>算法核心：</b>轨迹预处理→密度聚类→几何重构→缓冲优化→时间合并五步策略
+     * </p>
      *
-     * <p><b>业务价值：</b>
+     * <p>
+     * <b>业务价值：</b>
      * <ul>
-     *   <li>精准农业：自动识别有效作业区域，剔除道路行驶轨迹</li>
-     *   <li>作业统计：精确计算实际作业面积，避免重复统计</li>
-     *   <li>补贴核算：为农业作业补贴提供可靠的数据支撑</li>
-     * </ul></p>
+     * <li>精准农业：自动识别有效作业区域，剔除道路行驶轨迹</li>
+     * <li>作业统计：精确计算实际作业面积，避免重复统计</li>
+     * <li>补贴核算：为农业作业补贴提供可靠的数据支撑</li>
+     * </ul>
+     * </p>
      *
-     * <p><b>技术特点：</b>
+     * <p>
+     * <b>技术特点：</b>
      * <ul>
-     *   <li>智能聚类：基于DBSCAN算法自动识别作业簇群</li>
-     *   <li>双重缓冲：正向缓冲填补缝隙，负向缓冲切除道路</li>
-     *   <li>时间合并：解决相邻作业段时间重叠问题</li>
-     *   <li>自适应参数：根据轨迹密度动态调整聚类参数</li>
-     * </ul></p>
+     * <li>智能聚类：基于DBSCAN算法自动识别作业簇群</li>
+     * <li>双重缓冲：正向缓冲填补缝隙，负向缓冲切除道路</li>
+     * <li>时间合并：解决相邻作业段时间重叠问题</li>
+     * <li>自适应参数：根据轨迹密度动态调整聚类参数</li>
+     * </ul>
+     * </p>
      *
-     * <p><b>算法流程：</b>
+     * <p>
+     * <b>算法流程：</b>
      * <ol>
-     *   <li>轨迹预处理：过滤异常点位，计算最小时间间隔</li>
-     *   <li>密度聚类：DBSCAN算法识别作业簇群，自适应调整参数</li>
-     *   <li>几何重构：线段缓冲生成初步作业区域，角度抽稀优化</li>
-     *   <li>缓冲优化：正缓冲减少缝隙，负缓冲切除道路轨迹</li>
-     *   <li>时间合并：扫描线算法合并时间重叠的相邻作业段</li>
-     * </ol></p>
+     * <li>轨迹预处理：过滤异常点位，计算最小时间间隔</li>
+     * <li>密度聚类：DBSCAN算法识别作业簇群，自适应调整参数</li>
+     * <li>几何重构：线段缓冲生成初步作业区域，角度抽稀优化</li>
+     * <li>缓冲优化：正缓冲减少缝隙，负缓冲切除道路轨迹</li>
+     * <li>时间合并：扫描线算法合并时间重叠的相邻作业段</li>
+     * </ol>
+     * </p>
      *
-     * <p><b>使用场景：</b>
+     * <p>
+     * <b>使用场景：</b>
      * <ul>
-     *   <li>农机作业监控：拖拉机、收割机等作业轨迹处理</li>
-     *   <li>无人机植保：植保无人机作业区域精确识别</li>
-     *   <li>移动端应用：手机APP实时作业轨迹分析</li>
-     * </ul></p>
+     * <li>农机作业监控：拖拉机、收割机等作业轨迹处理</li>
+     * <li>无人机植保：植保无人机作业区域精确识别</li>
+     * <li>移动端应用：手机APP实时作业轨迹分析</li>
+     * </ul>
+     * </p>
      *
-     * <p><b>注意事项：</b>
+     * <p>
+     * <b>注意事项：</b>
      * <ul>
-     *   <li>幅宽限制：作业幅宽必须≥1米，确保几何计算有效性</li>
-     *   <li>点位密度：最少需要3个有效点位才能形成作业区域</li>
-     *   <li>坐标系要求：输入必须为WGS84坐标系，保证计算精度</li>
-     *   <li>面积过滤：小于最小返回面积的地块将被自动剔除</li>
-     * </ul></p>
+     * <li>幅宽限制：作业幅宽必须≥1米，确保几何计算有效性</li>
+     * <li>点位密度：最少需要3个有效点位才能形成作业区域</li>
+     * <li>坐标系要求：输入必须为WGS84坐标系，保证计算精度</li>
+     * <li>面积过滤：小于最小返回面积的地块将被自动剔除</li>
+     * </ul>
+     * </p>
      *
      * @param wgs84Points  输入的WGS84坐标系下的点列表（Wgs84Point类型）
      * @param workingWidth 作业幅宽（米），必须≥1米
@@ -6038,7 +6359,8 @@ public class GisUtil implements AutoCloseable {
             return splitResult;
         }
 
-        log.info("道路拆分入参 wgs84点位集合大小：{} 幅宽：{}米 聚类参数： {}", wgs84Points.size(), workingWidth, JSONUtil.toJsonStr(splitRoadParams));
+        log.info("道路拆分入参 wgs84点位集合大小：{} 幅宽：{}米 聚类参数： {}", wgs84Points.size(), workingWidth,
+                JSONUtil.toJsonStr(splitRoadParams));
 
         // todo 方法变量定义
         List<Geometry> allGeometry = new ArrayList<>();
@@ -6047,6 +6369,7 @@ public class GisUtil implements AutoCloseable {
         if (splitRoadParams.getMinReturnMu() != null) {
             minReturnMu = splitRoadParams.getMinReturnMu();
         }
+        log.info("最小返回亩数限制 {} 亩", minReturnMu);
 
         // todo 过滤异常点位
         List<Wgs84Point> filterWgs84Points = filterWgs84Points(wgs84Points);
@@ -6067,15 +6390,15 @@ public class GisUtil implements AutoCloseable {
             // 创建Envelope作为索引键，存储GaussPoint对象作为值
             Envelope envelope = new Envelope(
                     gaussPoint.getGaussX(), gaussPoint.getGaussX(),
-                    gaussPoint.getGaussY(), gaussPoint.getGaussY()
-            );
+                    gaussPoint.getGaussY(), gaussPoint.getGaussY());
             gaussPointSTRtreeIndex.insert(envelope, gaussPoint);
         }
         gaussPointSTRtreeIndex.build(); // 构建索引
         log.debug("构建索引完毕");
 
         // todo 按时间间隔特征将轨迹分割成多个窗口
-        List<TimeWindow> timeWindows = splitTimeWindows(wgs84Points, config.TIME_WINDOW_MIN_CONSECUTIVE_COUNT, config.TIME_WINDOW_MAX_INTERVAL_SECONDS);
+        List<TimeWindow> timeWindows = splitTimeWindows(wgs84Points, config.TIME_WINDOW_MIN_CONSECUTIVE_COUNT,
+                config.TIME_WINDOW_MAX_INTERVAL_SECONDS);
         log.info("时间窗口分割完成，共 {} 个窗口", timeWindows.size());
 
         // todo 循环每一个时间窗口，分别进行聚类
@@ -6083,9 +6406,9 @@ public class GisUtil implements AutoCloseable {
             TimeWindow window = timeWindows.get(timeWindowIndex);
             int interval = (int) window.getInterval();
             List<Wgs84Point> windowWgs84Points = window.getPoints();
-            log.info("窗口 {}: [{}]秒间隔 {}个点位 时间范围 {} - {}"
-                    , timeWindowIndex, interval, window.getPoints().size()
-                    , windowWgs84Points.get(0).getGpsTime(), windowWgs84Points.get(windowWgs84Points.size() - 1).getGpsTime());
+            log.info("窗口 {}: [{}]秒间隔 {}个点位 时间范围 {} - {}", timeWindowIndex, interval, window.getPoints().size(),
+                    windowWgs84Points.get(0).getGpsTime(),
+                    windowWgs84Points.get(windowWgs84Points.size() - 1).getGpsTime());
 
             if (interval > 20) {
                 log.warn("数据时间间隔 {} 太长，抛弃计算", interval);
@@ -6147,10 +6470,11 @@ public class GisUtil implements AutoCloseable {
                 }
 
                 // todo 将高斯点位集合进行抽稀，提升dbscan速度
-                gaussPoints = fastDistanceBasedSampling(gaussPoints, config.CLUSTER_SAMPLING_MIN_DISTANCE, config.CLUSTER_SAMPLING_KEEP_RATIO);
+                gaussPoints = fastDistanceBasedSampling(gaussPoints, config.CLUSTER_SAMPLING_MIN_DISTANCE,
+                        config.CLUSTER_SAMPLING_KEEP_RATIO);
                 if (gaussPoints.size() >= 3) {
-                    log.info("聚类前参数固定：点位数量[{}]个 数据频率 [{}]秒 eps[{}]米 minPts[{}]个"
-                            , gaussPoints.size(), interval, eps, minPts);
+                    log.info("聚类前参数固定：点位数量[{}]个 数据频率 [{}]秒 eps[{}]米 minPts[{}]个 膨胀参数[{}]米 收缩参数[{}]米",
+                            gaussPoints.size(), interval, eps, minPts, positiveBuffer, negativeBuffer);
 
                     // todo 进行聚类
                     List<List<GaussPoint>> clusters = dbScanClusters(gaussPoints, eps, minPts);
@@ -6159,25 +6483,28 @@ public class GisUtil implements AutoCloseable {
                     if (!clusters.isEmpty()) {
                         // todo 循环生成几何图形
                         for (List<GaussPoint> cluster : clusters) {
-                            if (cluster.size() >= config.MIN_RETURN_POINTS) {
+                            if (cluster.size() >= 3) {
                                 // todo 将高斯点转换为JTS坐标数组
                                 Coordinate[] coords = cluster.stream()
                                         .map(p -> new Coordinate(p.getGaussX(), p.getGaussY()))
                                         .toArray(Coordinate[]::new);
                                 // todo 点位数量抽稀，提升多边形创建速度
-                                coords = simplifyByAngle(coords, config.SIMPLIFY_MIN_EDGE_LEN, config.SIMPLIFY_ANGLE, config.SIMPLIFY_MAX_EDGE_LEN);
+                                coords = simplifyByAngle(coords, config.SIMPLIFY_MIN_EDGE_LEN, config.SIMPLIFY_ANGLE,
+                                        config.SIMPLIFY_MAX_EDGE_LEN);
                                 if (coords.length >= 3) {
                                     // todo 构建线串并应用缓冲，形成作业区域
                                     LineString line = config.GEOMETRY_FACTORY.createLineString(coords);
                                     Geometry gaussGeometry = lowMemBuffer(line, halfWorkingWidth);
 
                                     // todo 正缓冲，填补缝隙
-                                    log.debug("膨胀->收缩，填补缝隙，参数：{}米", positiveBuffer);
-                                    gaussGeometry = gaussGeometry.buffer(0).buffer(+positiveBuffer).buffer(0).buffer(-positiveBuffer).buffer(0);
+                                    gaussGeometry = gaussGeometry.buffer(0).buffer(+positiveBuffer).buffer(0)
+                                            .buffer(-positiveBuffer).buffer(0);
 
                                     // todo 负缓冲，切割道路
-                                    log.debug("收缩->膨胀，切割道路，参数：{}米", negativeBuffer);
-                                    gaussGeometry = gaussGeometry.buffer(0).buffer(-negativeBuffer).buffer(0).buffer(+negativeBuffer).buffer(0);
+                                    gaussGeometry = gaussGeometry.buffer(0).buffer(-negativeBuffer).buffer(0)
+                                            .buffer(+negativeBuffer).buffer(0);
+
+                                    log.debug("生成几何图形大小 {} 亩", gaussGeometry.getArea() * config.SQUARE_TO_MU_METER);
 
                                     if (!gaussGeometry.isEmpty()) {
                                         allGeometry.add(gaussGeometry);
@@ -6194,8 +6521,9 @@ public class GisUtil implements AutoCloseable {
             log.info("没有任何几何图形");
             return splitResult;
         }
+        log.debug("生成了 {} 个集合图形", allGeometry.size());
 
-        // todo 扁平化几何图形，并获取图形内的点位信息
+        // todo 扁平化几何图形，并获取图形内的点位信息，会过滤亩数小于 minReturnMu 的几何图形
         Map<Integer, Geometry> geometryMap = new LinkedHashMap<>();
         Map<Integer, List<GaussPoint>> gaussPointMap = new LinkedHashMap<>();
         int geometryIndex = 0;
@@ -6205,8 +6533,9 @@ public class GisUtil implements AutoCloseable {
                 for (int i = 0; i < multiPolygon.getNumGeometries(); i++) {
                     Geometry subGeometry = multiPolygon.getGeometryN(i);
                     if (subGeometry.getArea() * config.SQUARE_TO_MU_METER > minReturnMu) {
-                        List<GaussPoint> containsGeometryGaussPoints = getContainsGaussGeometryPoints(gaussPointSTRtreeIndex, subGeometry);
-                        if (!CollUtil.isEmpty(containsGeometryGaussPoints) && containsGeometryGaussPoints.size() > config.MIN_RETURN_POINTS) {
+                        List<GaussPoint> containsGeometryGaussPoints = getContainsGaussGeometryPoints(
+                                gaussPointSTRtreeIndex, subGeometry);
+                        if (!CollUtil.isEmpty(containsGeometryGaussPoints)) {
                             geometryMap.put(geometryIndex, subGeometry);
                             gaussPointMap.put(geometryIndex, containsGeometryGaussPoints);
                             geometryIndex++;
@@ -6215,8 +6544,9 @@ public class GisUtil implements AutoCloseable {
                 }
             } else if (geometry instanceof Polygon) {
                 if (geometry.getArea() * config.SQUARE_TO_MU_METER > minReturnMu) {
-                    List<GaussPoint> containsGeometryGaussPoints = getContainsGaussGeometryPoints(gaussPointSTRtreeIndex, geometry);
-                    if (!CollUtil.isEmpty(containsGeometryGaussPoints) && containsGeometryGaussPoints.size() > config.MIN_RETURN_POINTS) {
+                    List<GaussPoint> containsGeometryGaussPoints = getContainsGaussGeometryPoints(
+                            gaussPointSTRtreeIndex, geometry);
+                    if (!CollUtil.isEmpty(containsGeometryGaussPoints)) {
                         geometryMap.put(geometryIndex, geometry);
                         gaussPointMap.put(geometryIndex, containsGeometryGaussPoints);
                         geometryIndex++;
@@ -6226,97 +6556,120 @@ public class GisUtil implements AutoCloseable {
         }
 
         if (geometryMap.isEmpty()) {
-            log.info("没有任何几何图形");
+            log.info("没有任何多边形");
+            return splitResult;
+        }
+        log.debug("生成了 {} 个多边形", geometryMap.size());
+
+        // todo 循环所有集合图形，去掉疑似停车飘点的图形
+        /*Map<Integer, Geometry> noParkGeometryMap = new LinkedHashMap<>();
+        Map<Integer, List<GaussPoint>> noParkGaussPointMap = new LinkedHashMap<>();
+        int noParkGeometryIndex = 0;
+        for (Map.Entry<Integer, Geometry> integerGeometryEntry : geometryMap.entrySet()) {
+            Integer index = integerGeometryEntry.getKey();
+            Geometry geometry = integerGeometryEntry.getValue();
+            List<GaussPoint> gaussPoints = gaussPointMap.get(index);
+
+            // 大于等于10亩的图形直接保留
+            if (geometry.getArea() * config.SQUARE_TO_MU_METER >= config.PARKING_AREA_MU) {
+                noParkGeometryMap.put(noParkGeometryIndex, geometry);
+                noParkGaussPointMap.put(noParkGeometryIndex, gaussPoints);
+                noParkGeometryIndex++;
+                continue;
+            }
+
+            // 小于10亩的图形，使用网格密度分析判断是否疑似停车飘点
+            if (isParkingDriftPoint(gaussPoints)) {
+                // 是停车飘点，跳过不保留
+                log.info("图形 {} 被判定为停车飘点，已过滤", index);
+                continue;
+            }
+
+            // 不是停车飘点，保留
+            noParkGeometryMap.put(noParkGeometryIndex, geometry);
+            noParkGaussPointMap.put(noParkGeometryIndex, gaussPoints);
+            noParkGeometryIndex++;
+        }
+        geometryMap = noParkGeometryMap;
+        gaussPointMap = noParkGaussPointMap;*/
+
+        if (geometryMap.isEmpty()) {
+            log.info("没有任何多边形");
             return splitResult;
         }
 
-        if (geometryMap.size() == 1 && geometryMap.get(0).getArea() * config.SQUARE_TO_MU_METER < config.PARKING_AREA_MU) {
-            // todo 只有一个几何图形，并且亩数小于5亩，再次判断是不是停车飘点
-            int workStatusCount = 0;
-            List<GaussPoint> gaussPoints = gaussPointMap.get(0);
-            for (GaussPoint gaussPoint : gaussPoints) {
-                if (gaussPoint.getJobStatus() == 1) {
-                    workStatusCount++;
-                }
-            }
-            if (workStatusCount < config.MIN_RETURN_POINTS) {
-                log.info("只有一个几何图形，并且亩数小于 {} 亩，并且作业点位数量少于 {} 个", config.PARKING_AREA_MU, config.MIN_RETURN_POINTS);
-                return splitResult;
-            }
-        } else {
-            // todo 对所有几何图形，进行进入图形区域开始时间的升序排序
-            Map<Integer, Geometry> sortGeometryMap = new LinkedHashMap<>();
-            Map<Integer, List<GaussPoint>> sortGaussPointMap = new LinkedHashMap<>();
-            int sortGeometryIndex = 0;
-            // 将 gaussPointMap 的 entry 按第0个点的 gpsTime 升序排序
-            List<Map.Entry<Integer, List<GaussPoint>>> sortedEntries = gaussPointMap.entrySet().stream()
-                    .sorted(Comparator.comparing(entry -> entry.getValue().get(0).getGpsTime()))
-                    .collect(Collectors.toList());
-            // 按排序后的顺序重新填充 sortGeometryMap 和 sortGaussPointMap
-            for (Map.Entry<Integer, List<GaussPoint>> entry : sortedEntries) {
-                Integer originalIndex = entry.getKey();
-                List<GaussPoint> geometryPoints = entry.getValue();
-                Geometry geometry = geometryMap.get(originalIndex);
-                sortGeometryMap.put(sortGeometryIndex, geometry);
-                sortGaussPointMap.put(sortGeometryIndex, geometryPoints);
-                sortGeometryIndex++;
-            }
-            geometryMap = sortGeometryMap;
-            gaussPointMap = sortGaussPointMap;
+        // todo 对所有几何图形，进行进入图形区域开始时间的升序排序
+        Map<Integer, Geometry> sortGeometryMap = new LinkedHashMap<>();
+        Map<Integer, List<GaussPoint>> sortGaussPointMap = new LinkedHashMap<>();
+        int sortGeometryIndex = 0;
+        // 将 gaussPointMap 的 entry 按第0个点的 gpsTime 升序排序
+        List<Map.Entry<Integer, List<GaussPoint>>> sortedEntries = gaussPointMap.entrySet().stream()
+                .sorted(Comparator.comparing(entry -> entry.getValue().get(0).getGpsTime()))
+                .collect(Collectors.toList());
+        // 按排序后的顺序重新填充 sortGeometryMap 和 sortGaussPointMap
+        for (Map.Entry<Integer, List<GaussPoint>> entry : sortedEntries) {
+            Integer originalIndex = entry.getKey();
+            List<GaussPoint> geometryPoints = entry.getValue();
+            Geometry geometry = geometryMap.get(originalIndex);
+            sortGeometryMap.put(sortGeometryIndex, geometry);
+            sortGaussPointMap.put(sortGeometryIndex, geometryPoints);
+            sortGeometryIndex++;
+        }
+        geometryMap = sortGeometryMap;
+        gaussPointMap = sortGaussPointMap;
 
-            // todo 合并时间交叉的多边形，并重新计算多边形以及多边形内的点位信息
-            Map<Integer, Geometry> mergeGeometryMap = new LinkedHashMap<>();
-            Map<Integer, List<GaussPoint>> mergeGaussPointMap = new LinkedHashMap<>();
-            int mergeGeometryIndex = 0;
-            Geometry currentGeometry = null;
-            List<GaussPoint> currentPoints = new ArrayList<>();
-            LocalDateTime currentEndTime = null;
-            // 直接遍历 entrySet，LinkedHashMap 保证插入顺序
-            for (Map.Entry<Integer, List<GaussPoint>> entry : gaussPointMap.entrySet()) {
-                Integer index = entry.getKey();
-                List<GaussPoint> points = entry.getValue();
-                Geometry geometry = geometryMap.get(index);
-                LocalDateTime startTime = points.get(0).getGpsTime();
-                LocalDateTime endTime = points.get(points.size() - 1).getGpsTime();
-                if (currentGeometry == null) {
-                    // 第一个多边形，初始化当前合并组
+        // todo 合并时间交叉的多边形，并重新计算多边形以及多边形内的点位信息
+        Map<Integer, Geometry> mergeGeometryMap = new LinkedHashMap<>();
+        Map<Integer, List<GaussPoint>> mergeGaussPointMap = new LinkedHashMap<>();
+        int mergeGeometryIndex = 0;
+        Geometry currentGeometry = null;
+        List<GaussPoint> currentPoints = new ArrayList<>();
+        LocalDateTime currentEndTime = null;
+        // 直接遍历 entrySet，LinkedHashMap 保证插入顺序
+        for (Map.Entry<Integer, List<GaussPoint>> entry : gaussPointMap.entrySet()) {
+            Integer index = entry.getKey();
+            List<GaussPoint> points = entry.getValue();
+            Geometry geometry = geometryMap.get(index);
+            LocalDateTime startTime = points.get(0).getGpsTime();
+            LocalDateTime endTime = points.get(points.size() - 1).getGpsTime();
+            if (currentGeometry == null) {
+                // 第一个多边形，初始化当前合并组
+                currentGeometry = geometry;
+                currentPoints = new ArrayList<>(points);
+                currentEndTime = endTime;
+            } else {
+                // 判断时间是否有交叉：当前组的结束时间 > 下一个的开始时间
+                if (currentEndTime.isAfter(startTime)) {
+                    // 时间有交叉，合并多边形和点位
+                    currentGeometry = currentGeometry.union(geometry).buffer(0);
+                    currentPoints.addAll(points);
+                    // 按时间升序排序点位
+                    currentPoints.sort(Comparator.comparing(GaussPoint::getGpsTime));
+                    // 更新结束时间为较晚的那个
+                    if (endTime.isAfter(currentEndTime)) {
+                        currentEndTime = endTime;
+                    }
+                } else {
+                    // 时间没有交叉，保存当前合并组，开始新的合并组
+                    mergeGeometryMap.put(mergeGeometryIndex, currentGeometry);
+                    mergeGaussPointMap.put(mergeGeometryIndex, currentPoints);
+                    mergeGeometryIndex++;
+                    // 开始新的合并组
                     currentGeometry = geometry;
                     currentPoints = new ArrayList<>(points);
                     currentEndTime = endTime;
-                } else {
-                    // 判断时间是否有交叉：当前组的结束时间 > 下一个的开始时间
-                    if (currentEndTime.isAfter(startTime)) {
-                        // 时间有交叉，合并多边形和点位
-                        currentGeometry = currentGeometry.union(geometry).buffer(0);
-                        currentPoints.addAll(points);
-                        // 按时间升序排序点位
-                        currentPoints.sort(Comparator.comparing(GaussPoint::getGpsTime));
-                        // 更新结束时间为较晚的那个
-                        if (endTime.isAfter(currentEndTime)) {
-                            currentEndTime = endTime;
-                        }
-                    } else {
-                        // 时间没有交叉，保存当前合并组，开始新的合并组
-                        mergeGeometryMap.put(mergeGeometryIndex, currentGeometry);
-                        mergeGaussPointMap.put(mergeGeometryIndex, currentPoints);
-                        mergeGeometryIndex++;
-                        // 开始新的合并组
-                        currentGeometry = geometry;
-                        currentPoints = new ArrayList<>(points);
-                        currentEndTime = endTime;
-                    }
                 }
             }
-            // 保存最后一个合并组
-            if (currentGeometry != null) {
-                mergeGeometryMap.put(mergeGeometryIndex, currentGeometry);
-                mergeGaussPointMap.put(mergeGeometryIndex, currentPoints);
-                mergeGeometryIndex++;
-            }
-            // 更新 geometryMap 和 gaussPointMap 为合并后的结果
-            geometryMap = mergeGeometryMap;
-            gaussPointMap = mergeGaussPointMap;
         }
+        // 保存最后一个合并组
+        if (currentGeometry != null) {
+            mergeGeometryMap.put(mergeGeometryIndex, currentGeometry);
+            mergeGaussPointMap.put(mergeGeometryIndex, currentPoints);
+            mergeGeometryIndex++;
+        }
+        // 更新 geometryMap 和 gaussPointMap 为合并后的结果
+        geometryMap = mergeGeometryMap;
+        gaussPointMap = mergeGaussPointMap;
 
         // todo 拼装地块信息
         List<FarmPlot> farmPlots = new ArrayList<>();
@@ -6355,20 +6708,18 @@ public class GisUtil implements AutoCloseable {
         for (int i1 = 0; i1 < splitResult.getFarmPlots().size(); i1++) {
             FarmPlot farmPlot = splitResult.getFarmPlots().get(i1);
             log.debug("第 {} 段作业信息：", i1 + 1);
-            log.debug("{} 至 {} 共 {} 亩"
-                    , LocalDateTimeUtil.format(farmPlot.getStartTime(), "yyyy-MM-dd HH:mm:ss")
-                    , LocalDateTimeUtil.format(farmPlot.getEndTime(), "yyyy-MM-dd HH:mm:ss")
-                    , farmPlot.getMu());
+            log.debug("{} 至 {} 共 {} 亩", LocalDateTimeUtil.format(farmPlot.getStartTime(), "yyyy-MM-dd HH:mm:ss"),
+                    LocalDateTimeUtil.format(farmPlot.getEndTime(), "yyyy-MM-dd HH:mm:ss"), farmPlot.getMu());
         }
 
         // 【性能统计】记录算法总耗时和最终结果统计
-        log.info("{} 至 {} 地块总面积 {} 亩 共 {} 个地块，耗时 {} 毫秒"
-                , LocalDateTimeUtil.format(splitResult.getStartTime(), "yyyy-MM-dd HH:mm:ss")
-                , LocalDateTimeUtil.format(splitResult.getEndTime(), "yyyy-MM-dd HH:mm:ss")
-                , splitResult.getMu(), splitResult.getFarmPlots().stream()
+        log.info("{} 至 {} 地块总面积 {} 亩 共 {} 个地块，耗时 {} 毫秒",
+                LocalDateTimeUtil.format(splitResult.getStartTime(), "yyyy-MM-dd HH:mm:ss"),
+                LocalDateTimeUtil.format(splitResult.getEndTime(), "yyyy-MM-dd HH:mm:ss"), splitResult.getMu(),
+                splitResult.getFarmPlots().stream()
                         .mapToInt(farmPlot -> farmPlot.getWgs84Geometry().getNumGeometries())
-                        .sum()
-                , System.currentTimeMillis() - splitRoadStartTime);
+                        .sum(),
+                System.currentTimeMillis() - splitRoadStartTime);
 
         return splitResult;
     }
