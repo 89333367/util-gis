@@ -279,7 +279,7 @@ public class GisUtil implements AutoCloseable {
          * 时间窗口分割的最大间隔（秒）
          * 超过此间隔视为新的时间窗口
          */
-        private final long TIME_WINDOW_MAX_INTERVAL_SECONDS = 60 * 2;
+        private final long TIME_WINDOW_MAX_INTERVAL_SECONDS = 60 * 5;
 
         /**
          * 是否将聚类结果再次按照时间或者距离切分
@@ -6087,7 +6087,7 @@ public class GisUtil implements AutoCloseable {
                     , timeWindowIndex, interval, window.getPoints().size()
                     , windowWgs84Points.get(0).getGpsTime(), windowWgs84Points.get(windowWgs84Points.size() - 1).getGpsTime());
 
-            if (interval > 15) {
+            if (interval > 20) {
                 log.warn("数据时间间隔 {} 太长，抛弃计算", interval);
                 continue;
             }
