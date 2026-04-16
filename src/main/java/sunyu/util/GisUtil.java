@@ -2516,6 +2516,7 @@ public class GisUtil implements AutoCloseable {
      * 分割规则：
      * 1. 间隔秒数完全相同的才算同类型
      * 2. 必须连续 minConsecutiveCount 个同类型间隔才切换窗口
+     * 3. 窗口类型由窗口内间隔的多数票决定（避免单个异常间隔影响整个窗口类型）
      *
      * @param wgs84Points         WGS84点位列表（已按时间排序）
      * @param minConsecutiveCount 最小连续间隔数，达到此数量才切换窗口类型
@@ -2545,6 +2546,8 @@ public class GisUtil implements AutoCloseable {
 
         // 当前窗口
         List<Wgs84Point> currentWindow = new ArrayList<>();
+        // 当前窗口内各间隔类型的计数（用于投票决定窗口类型）
+        Map<Long, Integer> currentWindowIntervalCounts = new HashMap<>();
         // 当前窗口的间隔类型（用秒数作为类型标识）
         Long currentIntervalType = null;
         // 连续计数器
@@ -2572,10 +2575,12 @@ public class GisUtil implements AutoCloseable {
             // 强制切分：超过最大间隔时间
             if (intervalSeconds > maxIntervalSeconds) {
                 if (!currentWindow.isEmpty()) {
-                    windows.add(new TimeWindow(currentIntervalType != null ? currentIntervalType : 0,
-                            new ArrayList<>(currentWindow)));
+                    // 使用投票机制确定窗口类型
+                    long votedInterval = getMostFrequentInterval(currentWindowIntervalCounts);
+                    windows.add(new TimeWindow(votedInterval, new ArrayList<>(currentWindow)));
                 }
                 currentWindow.clear();
+                currentWindowIntervalCounts.clear();
                 currentWindow.add(nextPoint);
                 currentIntervalType = null;
                 consecutiveCount = 0;
@@ -2585,6 +2590,9 @@ public class GisUtil implements AutoCloseable {
 
             // 使用间隔秒数作为类型标识
             Long intervalType = intervalSeconds;
+
+            // 统计当前窗口内的间隔类型
+            currentWindowIntervalCounts.merge(intervalType, 1, Integer::sum);
 
             // 初始化当前窗口类型
             if (currentIntervalType == null) {
@@ -2602,11 +2610,16 @@ public class GisUtil implements AutoCloseable {
             if (!intervalType.equals(currentIntervalType) && consecutiveCount >= minConsecutiveCount) {
                 // 切换窗口，保存当前窗口
                 if (!currentWindow.isEmpty()) {
-                    windows.add(new TimeWindow(currentIntervalType, new ArrayList<>(currentWindow)));
+                    // 使用投票机制确定窗口类型
+                    long votedInterval = getMostFrequentInterval(currentWindowIntervalCounts);
+                    windows.add(new TimeWindow(votedInterval, new ArrayList<>(currentWindow)));
                 }
                 currentWindow.clear();
+                currentWindowIntervalCounts.clear();
                 currentWindow.add(currentPoint); // 当前点作为新窗口的第一个点
                 currentWindow.add(nextPoint);
+                // 新窗口的初始间隔类型
+                currentWindowIntervalCounts.merge(intervalType, 1, Integer::sum);
                 currentIntervalType = intervalType;
                 consecutiveCount = 0;
             } else {
@@ -2619,11 +2632,29 @@ public class GisUtil implements AutoCloseable {
 
         // 添加最后一个窗口
         if (!currentWindow.isEmpty()) {
-            windows.add(new TimeWindow(currentIntervalType != null ? currentIntervalType : 0, currentWindow));
+            // 使用投票机制确定窗口类型
+            long votedInterval = getMostFrequentInterval(currentWindowIntervalCounts);
+            windows.add(new TimeWindow(votedInterval, currentWindow));
         }
 
         // 合并相邻且间隔类型相同的窗口
         return mergeAdjacentWindows(windows);
+    }
+
+    /**
+     * 获取出现频次最高的间隔类型
+     *
+     * @param intervalCounts 间隔类型计数Map
+     * @return 频次最高的间隔类型，如果Map为空则返回0
+     */
+    private long getMostFrequentInterval(Map<Long, Integer> intervalCounts) {
+        if (intervalCounts.isEmpty()) {
+            return 0;
+        }
+        return intervalCounts.entrySet().stream()
+                .max(Map.Entry.comparingByValue())
+                .map(Map.Entry::getKey)
+                .orElse(0L);
     }
 
     /**
