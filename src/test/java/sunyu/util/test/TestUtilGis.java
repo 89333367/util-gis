@@ -103,8 +103,8 @@ public class TestUtilGis {
         int partIndex = 1;
         List<String> partInfo = new ArrayList<>();
         partInfo.add(StrUtil.format("地块 {}:", partIndex++));
-        if (farmPlot.getGaussGeometry() instanceof MultiPolygon) {
-            partInfo.add(StrUtil.format("包含 {} 个子地块", farmPlot.getGaussGeometry().getNumGeometries()));
+        if (farmPlot.getWgs84Geometry() instanceof MultiPolygon) {
+            partInfo.add(StrUtil.format("包含 {} 个子地块", farmPlot.getWgs84Geometry().getNumGeometries()));
         }
         partInfo.add(StrUtil.format("作业总幅宽（米）：{}", farmPlot.getWorkingWidth()));
         partInfo.add(StrUtil.format("子WKT: {}", farmPlot.getWkt()));
@@ -186,8 +186,8 @@ public class TestUtilGis {
         for (FarmPlot farmPlot : splitResult.getFarmPlots()) {
             List<String> partInfo = new ArrayList<>();
             partInfo.add(StrUtil.format("地块 {}:", partIndex++));
-            if (farmPlot.getGaussGeometry() instanceof MultiPolygon) {
-                partInfo.add(StrUtil.format("包含 {} 个子地块", farmPlot.getGaussGeometry().getNumGeometries()));
+            if (farmPlot.getWgs84Geometry() instanceof MultiPolygon) {
+                partInfo.add(StrUtil.format("包含 {} 个子地块", farmPlot.getWgs84Geometry().getNumGeometries()));
             }
             partInfo.add(StrUtil.format("作业总幅宽（米）：{}", farmPlot.getWorkingWidth()));
             partInfo.add(StrUtil.format("子WKT: {}", farmPlot.getWkt()));
@@ -1612,7 +1612,7 @@ public class TestUtilGis {
 
     @Test
     void 重跑某一日测试() {
-        String yyyyMMdd = "20260414";
+        String yyyyMMdd = "20260309";
         String startTime = yyyyMMdd + "000000";
         String endTime = yyyyMMdd + "235959";
         FarmMapper mapper = MyBatis.getMapper(FarmMapper.class);

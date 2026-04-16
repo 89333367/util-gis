@@ -25,6 +25,20 @@
     "day": "20260414",
     "width": 2.6,
     "msg": "丢了一块？",
-    "debug": true
+    "debug": false
+  },
+  {
+    "did": "EC71BD2408280035",
+    "day": "20260414",
+    "width": 2.5,
+    "msg": "聚类不成功",
+    "debug": false
+  },
+  {
+    "did": "EC73BD2512250206",
+    "day": "20260414",
+    "width": 2.8,
+    "msg": "高斯投影带号计算错误，导致一块地拆成了两块",
+    "debug": false
   }
 ]

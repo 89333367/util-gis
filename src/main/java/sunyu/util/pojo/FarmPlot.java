@@ -27,10 +27,6 @@ public class FarmPlot {
      */
     private String wkt;
     /**
-     * 地块的高斯投影几何图形（高斯投影坐标系）
-     */
-    private Geometry gaussGeometry;
-    /**
      * 地块的WGS84坐标系几何图形
      */
     private Geometry wgs84Geometry;
@@ -90,14 +86,6 @@ public class FarmPlot {
 
     public void setWkt(String wkt) {
         this.wkt = wkt;
-    }
-
-    public Geometry getGaussGeometry() {
-        return gaussGeometry;
-    }
-
-    public void setGaussGeometry(Geometry gaussGeometry) {
-        this.gaussGeometry = gaussGeometry;
     }
 
     public double getWorkingWidth() {

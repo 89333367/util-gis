@@ -5752,87 +5752,91 @@ public class GisUtil implements AutoCloseable {
         // 【步骤3】结果容器预初始化：按输入规模预分配容量，减少扩容开销
         List<GaussPoint> gaussPoints = new ArrayList<>(wgs84Points.size());
         try {
-            // 【步骤4】投影带智能分组：按6°分带规则分组，减少CRS重复创建
-            // 优化原理：同一投影带共享CRS与转换器，降低50%+内存与CPU开销
-            Map<Integer, List<Wgs84Point>> pointsByZone = new HashMap<>();
+            // 【步骤4】统一投影带计算：基于所有点的中心经度计算一个统一的投影带
+            // 修复问题：避免同一批点位跨越投影带边界时被分到不同带，导致坐标不连续
+            double minLon = Double.MAX_VALUE;
+            double maxLon = -Double.MAX_VALUE;
             for (Wgs84Point wgs84Point : wgs84Points) {
-                // 【步骤4.1】计算6°投影带号：全球1-60带，公式floor((longitude+180)/6)+1
                 double longitude = wgs84Point.getLongitude();
-                int zone = (int) Math.floor((longitude + 180) / 6) + 1;
+                if (longitude < minLon) minLon = longitude;
+                if (longitude > maxLon) maxLon = longitude;
+            }
+            double centerLon = (minLon + maxLon) / 2.0;
+            int unifiedZone = (int) Math.floor((centerLon + 180) / 6) + 1;
 
-                // 【步骤4.2】投影带合法性验证：确保带号在[1,60]范围内，过滤异常经度
-                if (zone >= 1 && zone <= 60) {
-                    pointsByZone.computeIfAbsent(zone, k -> new ArrayList<>()).add(wgs84Point);
-                }
+            // 验证统一投影带的合法性
+            if (unifiedZone < 1 || unifiedZone > 60) {
+                log.warn("统一投影带号超出合理范围：zone={}，经度范围=[{}, {}]", unifiedZone, minLon, maxLon);
+                return gaussPoints;
             }
 
-            // 【步骤5】按投影带批量处理：每个带只需一次CRS与转换器初始化
-            for (Map.Entry<Integer, List<Wgs84Point>> entry : pointsByZone.entrySet()) {
-                int zone = entry.getKey();
-                List<Wgs84Point> zonePoints = entry.getValue();
+            log.debug("统一使用投影带号 {} 转换所有点位，经度范围=[{}, {}]", unifiedZone, minLon, maxLon);
 
-                // 【步骤5.1】投影参数计算：中央经线=(zone-1)*6-180+3，东偏移=zone*1e6+500000
-                double centralMeridian = (zone - 1) * 6 - 180 + 3;
-                double falseEasting = zone * 1000000.0 + 500000.0;
+            // 【步骤5】使用统一投影带批量处理所有点位
+            int zone = unifiedZone;
+            List<Wgs84Point> zonePoints = wgs84Points;
 
-                // 【步骤5.2】获取高斯投影CRS：基于带号、东偏移、中央经线创建坐标参考系统
-                CoordinateReferenceSystem gaussCRS = getGaussCRS(zone, falseEasting, centralMeridian);
-                if (gaussCRS == null) {
-                    log.warn("创建高斯投影CRS失败，跳过投影带zone={}", zone);
-                    continue;
+            // 【步骤5.1】投影参数计算：中央经线=(zone-1)*6-180+3，东偏移=zone*1e6+500000
+            double centralMeridian = (zone - 1) * 6 - 180 + 3;
+            double falseEasting = zone * 1000000.0 + 500000.0;
+
+            // 【步骤5.2】获取高斯投影CRS：基于带号、东偏移、中央经线创建坐标参考系统
+            CoordinateReferenceSystem gaussCRS = getGaussCRS(zone, falseEasting, centralMeridian);
+            if (gaussCRS == null) {
+                log.warn("创建高斯投影CRS失败，zone={}", zone);
+                return gaussPoints;
+            }
+
+            // 【步骤5.3】线程安全转换器获取：ConcurrentHashMap缓存避免重复创建开销
+            String cacheKey = String.format(config.CACHE_KEY_FORMAT, zone, falseEasting, centralMeridian);
+            log.trace("获取WGS84到高斯投影的坐标转换器：缓存键 {}", cacheKey);
+
+            MathTransform transform = config.WGS84_TO_GAUSS_TRANSFORM_CACHE.computeIfAbsent(cacheKey, key -> {
+                try {
+                    // 创建WGS84到高斯投影的数学转换，lenient=true容忍微小误差
+                    return CRS.findMathTransform(config.WGS84_CRS, gaussCRS, true);
+                } catch (Exception e) {
+                    log.warn("创建坐标转换失败：zone={}, falseEasting={}, centralMeridian={}, 错误={}", zone, falseEasting,
+                            centralMeridian, e.getMessage());
+                    return null;
                 }
+            });
 
-                // 【步骤5.3】线程安全转换器获取：ConcurrentHashMap缓存避免重复创建开销
-                String cacheKey = String.format(config.CACHE_KEY_FORMAT, zone, falseEasting, centralMeridian);
-                log.trace("获取WGS84到高斯投影的坐标转换器：缓存键 {}", cacheKey);
+            if (transform == null) {
+                log.warn("转换器初始化失败，zone={}", zone);
+                return gaussPoints;
+            }
 
-                MathTransform transform = config.WGS84_TO_GAUSS_TRANSFORM_CACHE.computeIfAbsent(cacheKey, key -> {
-                    try {
-                        // 创建WGS84到高斯投影的数学转换，lenient=true容忍微小误差
-                        return CRS.findMathTransform(config.WGS84_CRS, gaussCRS, true);
-                    } catch (Exception e) {
-                        log.warn("创建坐标转换失败：zone={}, falseEasting={}, centralMeridian={}, 错误={}", zone, falseEasting,
-                                centralMeridian, e.getMessage());
-                        return null;
+            // 【步骤6】核心坐标转换：遍历所有点，执行JTS.transform高精度转换
+            for (Wgs84Point wgs84Point : zonePoints) {
+                try {
+                    // 【步骤6.1】构造源坐标：经度->X，纬度->Y，符合GIS惯例
+                    Coordinate sourceCoord = new Coordinate(wgs84Point.getLongitude(), wgs84Point.getLatitude());
+                    Coordinate targetCoord = new Coordinate();
+
+                    // 【步骤6.2】执行坐标转换：GeoTools JTS转换，精度达毫米级
+                    JTS.transform(sourceCoord, targetCoord, transform);
+
+                    // 【步骤6.3】结果范围验证：X∈[500000,64000000]，Y∈[-10000000,10000000]，过滤异常值
+                    if (targetCoord.x >= 500000 && targetCoord.x <= 64000000 && targetCoord.y >= -10000000
+                            && targetCoord.y <= 10000000) {
+                        GaussPoint result = new GaussPoint();
+                        result.setGpsTime(wgs84Point.getGpsTime());
+                        result.setGpsStatus(wgs84Point.getGpsStatus());
+                        result.setLongitude(wgs84Point.getLongitude());
+                        result.setLatitude(wgs84Point.getLatitude());
+                        result.setSpeed(wgs84Point.getSpeed());
+                        result.setJobStatus(wgs84Point.getJobStatus());
+                        result.setGaussX(targetCoord.x);
+                        result.setGaussY(targetCoord.y);
+                        gaussPoints.add(result);
+                    } else {
+                        log.warn("转换结果超出合理范围：zone={}, x={}, y={}", zone, targetCoord.x, targetCoord.y);
                     }
-                });
-
-                if (transform == null) {
-                    log.warn("转换器初始化失败，跳过投影带zone={}", zone);
-                    continue;
-                }
-
-                // 【步骤6】核心坐标转换：遍历投影带内所有点，执行JTS.transform高精度转换
-                for (Wgs84Point wgs84Point : zonePoints) {
-                    try {
-                        // 【步骤6.1】构造源坐标：经度->X，纬度->Y，符合GIS惯例
-                        Coordinate sourceCoord = new Coordinate(wgs84Point.getLongitude(), wgs84Point.getLatitude());
-                        Coordinate targetCoord = new Coordinate();
-
-                        // 【步骤6.2】执行坐标转换：GeoTools JTS转换，精度达毫米级
-                        JTS.transform(sourceCoord, targetCoord, transform);
-
-                        // 【步骤6.3】结果范围验证：X∈[500000,64000000]，Y∈[-10000000,10000000]，过滤异常值
-                        if (targetCoord.x >= 500000 && targetCoord.x <= 64000000 && targetCoord.y >= -10000000
-                                && targetCoord.y <= 10000000) {
-                            GaussPoint result = new GaussPoint();
-                            result.setGpsTime(wgs84Point.getGpsTime());
-                            result.setGpsStatus(wgs84Point.getGpsStatus());
-                            result.setLongitude(wgs84Point.getLongitude());
-                            result.setLatitude(wgs84Point.getLatitude());
-                            result.setSpeed(wgs84Point.getSpeed());
-                            result.setJobStatus(wgs84Point.getJobStatus());
-                            result.setGaussX(targetCoord.x);
-                            result.setGaussY(targetCoord.y);
-                            gaussPoints.add(result);
-                        } else {
-                            log.warn("转换结果超出合理范围：zone={}, x={}, y={}", zone, targetCoord.x, targetCoord.y);
-                        }
-                    } catch (Exception e) {
-                        // 【步骤6.4】单点异常处理：记录失败点位，继续处理后续点，保障整体批次成功
-                        log.warn("转换WGS84点到高斯投影失败：zone={}, 经度={}, 纬度={}, 错误={}", zone, wgs84Point.getLongitude(),
-                                wgs84Point.getLatitude(), e.getMessage());
-                    }
+                } catch (Exception e) {
+                    // 【步骤6.4】单点异常处理：记录失败点位，继续处理后续点，保障整体批次成功
+                    log.warn("转换WGS84点到高斯投影失败：zone={}, 经度={}, 纬度={}, 错误={}", zone, wgs84Point.getLongitude(),
+                            wgs84Point.getLatitude(), e.getMessage());
                 }
             }
 
@@ -6174,7 +6178,6 @@ public class GisUtil implements AutoCloseable {
             farmPlot.setMu(calcMu(wgs84Geometry));
             farmPlot.setWkt(wgs84Geometry.toText());
             farmPlot.setWgs84Geometry(wgs84Geometry);
-            farmPlot.setGaussGeometry(mergedGaussGeo);
 
             return farmPlot;
         } catch (Exception e) {
@@ -6200,7 +6203,6 @@ public class GisUtil implements AutoCloseable {
         long getFarmPlotStartTime = System.currentTimeMillis();
 
         FarmPlot farmPlot = new FarmPlot();
-        farmPlot.setGaussGeometry(config.EMPTY_GEOMETRY);
         farmPlot.setWorkingWidth(workingWidth);
         farmPlot.setWkt(config.EMPTY_GEOMETRY.toText());
 
@@ -6255,7 +6257,6 @@ public class GisUtil implements AutoCloseable {
             log.debug("几何图形创建完毕 {}亩", gaussGeometry.getArea() * config.SQUARE_TO_MU_METER);
             Geometry wgs84PartGeometry = toWgs84Geometry(gaussGeometry);
             farmPlot.setWgs84Geometry(wgs84PartGeometry);
-            farmPlot.setGaussGeometry(gaussGeometry);
             farmPlot.setStartTime(gaussPoints.get(0).getGpsTime());
             farmPlot.setEndTime(gaussPoints.get(gaussPoints.size() - 1).getGpsTime());
             farmPlot.setWkt(wgs84PartGeometry.toText());
@@ -6447,11 +6448,11 @@ public class GisUtil implements AutoCloseable {
                 int minPts;
                 // todo 根据窗口周期重新设置聚类参数
                 if (interval == 1) {
-                    eps = 10;
+                    eps = 15;
                     minPts = 35;
                 } else if (interval <= 5) {
-                    eps = 10;
-                    minPts = 30;
+                    eps = 15;
+                    minPts = 25;
                 } else {
                     eps = 20;
                     minPts = 10;
@@ -6561,43 +6562,6 @@ public class GisUtil implements AutoCloseable {
         }
         log.debug("生成了 {} 个多边形", geometryMap.size());
 
-        // todo 循环所有集合图形，去掉疑似停车飘点的图形
-        /*Map<Integer, Geometry> noParkGeometryMap = new LinkedHashMap<>();
-        Map<Integer, List<GaussPoint>> noParkGaussPointMap = new LinkedHashMap<>();
-        int noParkGeometryIndex = 0;
-        for (Map.Entry<Integer, Geometry> integerGeometryEntry : geometryMap.entrySet()) {
-            Integer index = integerGeometryEntry.getKey();
-            Geometry geometry = integerGeometryEntry.getValue();
-            List<GaussPoint> gaussPoints = gaussPointMap.get(index);
-
-            // 大于等于10亩的图形直接保留
-            if (geometry.getArea() * config.SQUARE_TO_MU_METER >= config.PARKING_AREA_MU) {
-                noParkGeometryMap.put(noParkGeometryIndex, geometry);
-                noParkGaussPointMap.put(noParkGeometryIndex, gaussPoints);
-                noParkGeometryIndex++;
-                continue;
-            }
-
-            // 小于10亩的图形，使用网格密度分析判断是否疑似停车飘点
-            if (isParkingDriftPoint(gaussPoints)) {
-                // 是停车飘点，跳过不保留
-                log.info("图形 {} 被判定为停车飘点，已过滤", index);
-                continue;
-            }
-
-            // 不是停车飘点，保留
-            noParkGeometryMap.put(noParkGeometryIndex, geometry);
-            noParkGaussPointMap.put(noParkGeometryIndex, gaussPoints);
-            noParkGeometryIndex++;
-        }
-        geometryMap = noParkGeometryMap;
-        gaussPointMap = noParkGaussPointMap;*/
-
-        if (geometryMap.isEmpty()) {
-            log.info("没有任何多边形");
-            return splitResult;
-        }
-
         // todo 对所有几何图形，进行进入图形区域开始时间的升序排序
         Map<Integer, Geometry> sortGeometryMap = new LinkedHashMap<>();
         Map<Integer, List<GaussPoint>> sortGaussPointMap = new LinkedHashMap<>();
@@ -6679,7 +6643,6 @@ public class GisUtil implements AutoCloseable {
             List<GaussPoint> gaussPoints = gaussPointMap.get(index);
             Geometry wgs84PartGeometry = toWgs84Geometry(geometry);
             FarmPlot part = new FarmPlot();
-            part.setGaussGeometry(geometry);
             part.setWgs84Geometry(wgs84PartGeometry);
             part.setStartTime(gaussPoints.get(0).getGpsTime());
             part.setEndTime(gaussPoints.get(gaussPoints.size() - 1).getGpsTime());
