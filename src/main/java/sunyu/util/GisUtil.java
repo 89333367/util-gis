@@ -6478,8 +6478,8 @@ public class GisUtil implements AutoCloseable {
                 int minPts;
                 // todo 根据窗口周期重新设置聚类参数
                 if (interval == 1) {
-                    eps = 15;
-                    minPts = 35;
+                    eps = 8;
+                    minPts = 30;
                 } else if (interval <= 5) {
                     eps = 15;
                     minPts = 25;
