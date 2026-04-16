@@ -4385,7 +4385,6 @@ public class GisUtil implements AutoCloseable {
      * @see #getInGaussGeometryPoints(STRtree, Geometry) 空间查询方法
      */
     public List<GaussPoint> getContainsWgs84GeometryPoints(String wgs84Wkt, List<Wgs84Point> wgs84Points) {
-        List<Wgs84Point> l = new ArrayList<>();
         Geometry wgs84Geomtry = toWgs84Geometry(wgs84Wkt);
         Geometry gaussGeometry = toGaussGeometry(wgs84Geomtry);
         List<GaussPoint> gaussPoints = toGaussPointList(wgs84Points);
