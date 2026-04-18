@@ -869,6 +869,12 @@
                                     <input type="checkbox" id="showTrackDirectionCheckbox" style="cursor:pointer;">
                                     <label for="showTrackDirectionCheckbox" style="font-size:12px;cursor:pointer;">显示方向箭头</label>
                                 </div>
+                                <div style="display:flex;align-items:center;gap:4px;">
+                                    <label for="trackLineWeightInput" style="font-size:12px;cursor:pointer;">轨迹线粗细:</label>
+                                    <input type="number" id="trackLineWeightInput" value="0.5" step="0.5" min="0.5" max="20"
+                                           style="width:50px;padding:2px 4px;border:1px solid #ddd;border-radius:4px;font-size:12px;cursor:pointer;"
+                                           title="轨迹线粗细，数值越大线越粗">
+                                </div>
                             </div>
                         </div>
                         <!-- 轨迹回放 -->
@@ -2752,9 +2758,12 @@
         // 绘制轨迹线
         const latlngs = points.map(p => [p.lat, p.lng]);
 
+        // 获取轨迹线粗细设置
+        const trackLineWeight = parseFloat(document.getElementById('trackLineWeightInput').value) || 0.5;
+
         currentTrack = L.polyline(latlngs, {
             color: currentTrackLineColor,
-            weight: 0.5,  // 最细的线
+            weight: trackLineWeight,
             opacity: 0.9
         });
 
