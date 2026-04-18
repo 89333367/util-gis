@@ -1585,15 +1585,83 @@ public class TestUtilGis {
 
     @Test
     void 测试验证2() {
-        String did = "EC71BD2408280035";
+        String did = "EC73BD2502270173";
         double jobWidth;
-        String yyyyMMdd = "20260414";
+        String yyyyMMdd = "20260413";
+        String startTime = yyyyMMdd + "000000";
+        String endTime = yyyyMMdd + "235959";
+        jobWidth = 2.6;
+        测试拆分数据(did, startTime, endTime, jobWidth, new SplitRoadParams());
+        //测试不拆分数据(did, startTime, endTime, jobWidth);
+    }
+
+    @Test
+    void 测试验证3() {
+        String did = "EC73BD2512220168";
+        double jobWidth;
+        String yyyyMMdd = "20260417";
+        /*String startTime = yyyyMMdd + "182523";
+        String endTime = yyyyMMdd + "185334";*/
+        String startTime = yyyyMMdd + "000000";
+        String endTime = yyyyMMdd + "235959";
+        /*String startTime = yyyyMMdd + "185334";
+        String endTime = yyyyMMdd + "235959";*/
+        jobWidth = 2.4;
+        测试拆分数据(did, startTime, endTime, jobWidth, new SplitRoadParams());
+        //测试不拆分数据(did, startTime, endTime, jobWidth);
+    }
+
+
+    @Test
+    void 测试验证4() {
+        String did = "EC73BD2512200062";
+        double jobWidth;
+        String yyyyMMdd = "20260417";
+        String startTime = yyyyMMdd + "000000";
+        String endTime = yyyyMMdd + "235959";
+        jobWidth = 2;
+        测试拆分数据(did, startTime, endTime, jobWidth, new SplitRoadParams());
+        //测试不拆分数据(did, startTime, endTime, jobWidth);
+    }
+
+    @Test
+    void 测试验证5() {
+        String did = "EC71BD2411180234";
+        double jobWidth;
+        String yyyyMMdd = "20260416";
+        String startTime = yyyyMMdd + "000000";
+        String endTime = yyyyMMdd + "235959";
+        jobWidth = 9;
+        测试拆分数据(did, startTime, endTime, jobWidth, new SplitRoadParams());
+        //测试不拆分数据(did, startTime, endTime, jobWidth);
+    }
+
+    @Test
+    void 测试验证6() {
+        String did = "EC71BD2408230043";
+        double jobWidth;
+        String yyyyMMdd = "20250702";
         String startTime = yyyyMMdd + "000000";
         String endTime = yyyyMMdd + "235959";
         jobWidth = 2.5;
         测试拆分数据(did, startTime, endTime, jobWidth, new SplitRoadParams());
         //测试不拆分数据(did, startTime, endTime, jobWidth);
     }
+
+    @Test
+    void 测试验证7() {
+        String did = "EC73BD2512200154";
+        double jobWidth;
+        String yyyyMMdd = "20260417";
+        String startTime = yyyyMMdd + "000000";
+        String endTime = yyyyMMdd + "235959";
+        /*String startTime = yyyyMMdd + "215208";
+        String endTime = yyyyMMdd + "225126";*/
+        jobWidth = 2.6;
+        测试拆分数据(did, startTime, endTime, jobWidth, new SplitRoadParams());
+        //测试不拆分数据(did, startTime, endTime, jobWidth);
+    }
+
 
     @Test
     void 批量测试() {
@@ -1612,7 +1680,7 @@ public class TestUtilGis {
 
     @Test
     void 重跑某一日测试() {
-        String yyyyMMdd = "20260309";
+        String yyyyMMdd = "20260417";
         String startTime = yyyyMMdd + "000000";
         String endTime = yyyyMMdd + "235959";
         FarmMapper mapper = MyBatis.getMapper(FarmMapper.class);

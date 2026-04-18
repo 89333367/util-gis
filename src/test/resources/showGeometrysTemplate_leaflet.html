@@ -824,7 +824,7 @@
 
                     <div class="tab-content active" id="outline-tab">
                         <div class="input-group">
-                            <textarea id="outlineWkt" style="height: 400px;"
+                            <textarea id="outlineWkt" style="height: 200px;"
                                       placeholder="输入多边形WKT，支持多行输入，每行一个WKT">${outline}</textarea>
                         </div>
                         <div class="button-group">
@@ -844,7 +844,7 @@
                                    placeholder="格式：yyyy-MM-ddTHH:mm:ss - yyyy-MM-ddTHH:mm:ss">
                         </div>
                         <textarea id="trackTextarea"
-                                  style="width:100%;height:400px;margin-bottom:10px;padding:8px;border:1px solid #ddd;border-radius:4px;font-family:monospace;resize:vertical;box-sizing:border-box;">${trace}</textarea>
+                                  style="width:100%;height:200px;margin-bottom:10px;padding:8px;border:1px solid #ddd;border-radius:4px;font-family:monospace;resize:vertical;box-sizing:border-box;">${trace}</textarea>
                         <div class="button-group">
                             <button id="drawTrackButton" class="btn btn-primary">🎯 轨迹</button>
                             <button id="showTrackPointsButton" class="btn btn-warning">📍 打点</button>
@@ -864,6 +864,10 @@
                                     <div id="trackPointColorPicker" class="color-picker"
                                          style="width:24px;height:24px;border:1px solid #ccc;cursor:pointer;background-color:#FF0000;"></div>
                                     <input type="color" id="trackPointColorInput" value="#FF0000" style="display:none;">
+                                </div>
+                                <div style="display:flex;align-items:center;gap:4px;">
+                                    <input type="checkbox" id="showTrackDirectionCheckbox" style="cursor:pointer;">
+                                    <label for="showTrackDirectionCheckbox" style="font-size:12px;cursor:pointer;">显示方向箭头</label>
                                 </div>
                             </div>
                         </div>
@@ -2174,13 +2178,14 @@
                 if (geojson.type === "Polygon") {
                     polygonData.push({ index: 1, geojson: geojson, colorIndex: 0 });
                 } else if (geojson.type === "MultiPolygon") {
+                    // 单行WKT中的MULTIPOLYGON，所有子多边形使用同一种颜色
                     geojson.coordinates.forEach((polygon, index) => {
                         // 将MultiPolygon的每个子多边形转换为单独的Polygon
                         const singlePolygon = {
                             type: "Polygon",
                             coordinates: polygon
                         };
-                        polygonData.push({ index: index + 1, geojson: singlePolygon, colorIndex: index });
+                        polygonData.push({ index: index + 1, geojson: singlePolygon, colorIndex: 0 });
                     });
                 }
             } else {
@@ -2755,39 +2760,42 @@
 
         trackLayerGroup.addLayer(currentTrack);
 
-        // 绘制方向箭头（每隔50米添加一个箭头）
-        const arrowDistance = 50;  // 每隔50米添加一个箭头
-        let accumulatedDistance = 0;  // 累积距离
-        
-        for (let i = 1; i < latlngs.length; i++) {
-            const start = latlngs[i - 1];  // [lat, lng]
-            const end = latlngs[i];        // [lat, lng]
+        // 绘制方向箭头（每隔50米添加一个箭头）- 仅当复选框勾选时显示
+        const showDirection = document.getElementById('showTrackDirectionCheckbox').checked;
+        if (showDirection) {
+            const arrowDistance = 50;  // 每隔50米添加一个箭头
+            let accumulatedDistance = 0;  // 累积距离
             
-            // 计算两点之间的距离（使用简单的欧几里得距离，近似即可）
-            const dx = end[1] - start[1];  // 经度差
-            const dy = end[0] - start[0];  // 纬度差
-            
-            // 经纬度转换为米的近似计算（1度 ≈ 111000米）
-            const distance = Math.sqrt(dx * dx + dy * dy) * 111000;
-            accumulatedDistance += distance;
-            
-            // 累积距离超过50米时添加箭头
-            if (accumulatedDistance >= arrowDistance) {
-                // 计算方向角
-                const angle = Math.atan2(dy, dx) * 180 / Math.PI;
+            for (let i = 1; i < latlngs.length; i++) {
+                const start = latlngs[i - 1];  // [lat, lng]
+                const end = latlngs[i];        // [lat, lng]
                 
-                // 创建箭头标记
-                const arrowMarker = L.marker(end, {
-                    icon: L.divIcon({
-                        className: 'track-arrow',
-                        html: `<div style="transform: rotate(${-angle}deg); color: ${currentTrackLineColor}; font-size: 8px; font-weight: bold;">&gt;</div>`,
-                        iconSize: [8, 8],
-                        iconAnchor: [4, 4]
-                    })
-                });
+                // 计算两点之间的距离（使用简单的欧几里得距离，近似即可）
+                const dx = end[1] - start[1];  // 经度差
+                const dy = end[0] - start[0];  // 纬度差
                 
-                trackLayerGroup.addLayer(arrowMarker);
-                accumulatedDistance = 0;  // 重置累积距离
+                // 经纬度转换为米的近似计算（1度 ≈ 111000米）
+                const distance = Math.sqrt(dx * dx + dy * dy) * 111000;
+                accumulatedDistance += distance;
+                
+                // 累积距离超过50米时添加箭头
+                if (accumulatedDistance >= arrowDistance) {
+                    // 计算方向角
+                    const angle = Math.atan2(dy, dx) * 180 / Math.PI;
+                    
+                    // 创建箭头标记
+                    const arrowMarker = L.marker(end, {
+                        icon: L.divIcon({
+                            className: 'track-arrow',
+                            html: `<div style="transform: rotate(${-angle}deg); color: ${currentTrackLineColor}; font-size: 8px; font-weight: bold;">&gt;</div>`,
+                            iconSize: [8, 8],
+                            iconAnchor: [4, 4]
+                        })
+                    });
+                    
+                    trackLayerGroup.addLayer(arrowMarker);
+                    accumulatedDistance = 0;  // 重置累积距离
+                }
             }
         }
 

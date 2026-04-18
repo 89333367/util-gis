@@ -53,6 +53,20 @@
     "day": "20260415",
     "width": 2.8,
     "msg": "没算出来",
+    "debug": false
+  },
+  {
+    "did": "EC73BD2512260088",
+    "day": "20260416",
+    "width": 2.2,
+    "msg": "15s没连上",
+    "debug": false
+  },
+  {
+    "did": "EC73BD2512220168",
+    "day": "20260417",
+    "width": 2.4,
+    "msg": "",
     "debug": true
   }
 ]
