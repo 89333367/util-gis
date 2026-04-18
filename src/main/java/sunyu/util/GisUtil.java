@@ -323,7 +323,7 @@ public class GisUtil implements AutoCloseable {
         /**
          * 点过滤使用的速度限制，大于此速度的点位保留
          */
-        private final double MIN_SPEED = 0.3;
+        private final double MIN_SPEED = 0.1;
 
         /**
          * 点过滤使用的速度限制，小于此速度的点位保留
@@ -6254,7 +6254,7 @@ public class GisUtil implements AutoCloseable {
         // 【几何参数】计算机具半幅宽，用于后续缓冲半径计算
         double halfWorkingWidth = workingWidth * 0.5;
         // 正缓冲参数
-        double positiveBuffer = workingWidth * config.ADD_POSITIVE_BUFFER;
+        double positiveBuffer = workingWidth;
         if (positiveBuffer < 2) {
             positiveBuffer = 2;
         } else if (positiveBuffer > 8) {
@@ -6462,27 +6462,30 @@ public class GisUtil implements AutoCloseable {
                 // 多边形参数
                 double halfWorkingWidth = workingWidth * 0.5;
                 // 正缓冲参数
-                double positiveBuffer = workingWidth * config.ADD_POSITIVE_BUFFER;
+                double positiveBuffer = workingWidth;
                 if (positiveBuffer < 2) {
                     positiveBuffer = 2;
                 } else if (positiveBuffer > 8) {
                     positiveBuffer = 8;
                 }
                 // 负缓冲参数
-                double negativeBuffer = workingWidth * 0.99;
-                if (negativeBuffer > 6) {
-                    negativeBuffer = 6;
-                }
+                double negativeBuffer = workingWidth;
                 // 聚类参数
                 double eps;
                 int minPts;
                 // todo 根据窗口周期重新设置聚类参数
                 if (interval == 1) {
-                    /*eps = 8;
-                    minPts = 30;*/
+                    /*eps = 6;
+                    minPts = 15;*/
 
-                    eps = 15;
-                    minPts = 55;
+                    eps = 8;
+                    minPts = 30;
+
+                    /*eps = 15;
+                    minPts = 35;*/
+
+                    /*eps = 15;
+                    minPts = 55;*/
                 } else if (interval <= 5) {
                     eps = 20;
                     minPts = 15;

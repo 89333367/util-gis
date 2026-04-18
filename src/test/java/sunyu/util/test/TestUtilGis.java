@@ -1650,14 +1650,14 @@ public class TestUtilGis {
 
     @Test
     void 测试验证7() {
-        String did = "EC73BD2512200154";
+        String did = "EC73BD2504110025";
         double jobWidth;
         String yyyyMMdd = "20260417";
         String startTime = yyyyMMdd + "000000";
         String endTime = yyyyMMdd + "235959";
         /*String startTime = yyyyMMdd + "215208";
         String endTime = yyyyMMdd + "225126";*/
-        jobWidth = 2.6;
+        jobWidth = 3.9;
         测试拆分数据(did, startTime, endTime, jobWidth, new SplitRoadParams());
         //测试不拆分数据(did, startTime, endTime, jobWidth);
     }

@@ -67,6 +67,13 @@
     "day": "20260417",
     "width": 2.4,
     "msg": "",
+    "debug": false
+  },
+  {
+    "did": "EC71BD2408280035",
+    "day": "20260417",
+    "width": 2.5,
+    "msg": "",
     "debug": true
   }
 ]
