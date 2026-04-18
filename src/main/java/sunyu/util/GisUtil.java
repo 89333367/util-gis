@@ -6728,8 +6728,65 @@ public class GisUtil implements AutoCloseable {
             }
             geometryMap = reGeometryMap;
             gaussPointMap = reGaussPointMap;
-            // todo 再次循环所有多边形，如果相邻两个多边形有相交，并且相交面积达到90%以上，那么将这两个多边形进行合并
-
+            // todo 再次循环所有多边形，如果相邻两个多边形有相交，那么合并这两个多边形
+            // 使用TreeMap确保按索引顺序处理
+            TreeMap<Integer, Geometry> sortedGeometryMap = new TreeMap<>(geometryMap);
+            TreeMap<Integer, List<GaussPoint>> sortedGaussPointMap = new TreeMap<>(gaussPointMap);
+            log.info("开始多边形合并，总数量 {}", sortedGeometryMap.size());
+            // 获取所有索引列表，按顺序处理
+            List<Integer> indexList = new ArrayList<>(sortedGeometryMap.keySet());
+            // 存储合并后的结果
+            List<Geometry> mergedGeometries = new ArrayList<>();
+            List<List<GaussPoint>> mergedGaussPoints = new ArrayList<>();
+            int i = 0;
+            while (i < indexList.size()) {
+                int currentIdx = indexList.get(i);
+                Geometry currentGeometry = sortedGeometryMap.get(currentIdx);
+                List<GaussPoint> currentPoints = new ArrayList<>(sortedGaussPointMap.get(currentIdx));
+                log.debug("开始处理多边形 {}，准备与后面的多边形比较", currentIdx);
+                // 尝试与后面的多边形合并
+                int j = i + 1;
+                while (j < indexList.size()) {
+                    int nextIdx = indexList.get(j);
+                    Geometry nextGeometry = sortedGeometryMap.get(nextIdx);
+                    List<GaussPoint> nextPoints = sortedGaussPointMap.get(nextIdx);
+                    log.debug("  比较多边形 {} 与 {}", currentIdx, nextIdx);
+                    // 判断是否相交（使用intersects性能更好）
+                    if (currentGeometry.intersects(nextGeometry)) {
+                        // 有相交，合并两个多边形
+                        log.debug("  -> 多边形 {} 与 {} 有相交，进行合并", currentIdx, nextIdx);
+                        currentGeometry = currentGeometry.union(nextGeometry).buffer(0);
+                        currentPoints.addAll(nextPoints);
+                        // 按时间排序合并后的点位
+                        currentPoints.sort(Comparator.comparing(GaussPoint::getGpsTime));
+                        // 继续与下一个比较
+                        j++;
+                    } else {
+                        // 不相交，停止合并
+                        log.debug("  -> 多边形 {} 与 {} 不相交，停止合并，保存当前合并结果", currentIdx, nextIdx);
+                        break;
+                    }
+                }
+                // 保存当前合并后的多边形
+                mergedGeometries.add(currentGeometry);
+                mergedGaussPoints.add(currentPoints);
+                log.debug("多边形 {} 处理完成，共合并了 {} 个多边形（索引 {} 到 {}）", currentIdx, j - i, i, j - 1);
+                // 从j开始处理下一个
+                i = j;
+            }
+            // 构建新的geometryMap和gaussPointMap
+            Map<Integer, Geometry> newGeometryMap = new LinkedHashMap<>();
+            Map<Integer, List<GaussPoint>> newGaussPointMap = new LinkedHashMap<>();
+            for (int k = 0; k < mergedGeometries.size(); k++) {
+                Geometry geometry = mergedGeometries.get(k);
+                if (geometry.getArea() * config.SQUARE_TO_MU_METER > minReturnMu) {
+                    newGeometryMap.put(k, geometry);
+                    newGaussPointMap.put(k, mergedGaussPoints.get(k));
+                }
+            }
+            log.info("多边形合并完成，原始 {} 个，合并后 {} 个", sortedGeometryMap.size(), newGeometryMap.size());
+            geometryMap = newGeometryMap;
+            gaussPointMap = newGaussPointMap;
         }
 
         // todo 拼装地块信息
