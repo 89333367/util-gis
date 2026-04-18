@@ -1,14 +1,17 @@
 package sunyu.util.pojo;
 
 import java.time.LocalDateTime;
+import java.util.List;
 
 public class TimeRange {
     private LocalDateTime start;
     private LocalDateTime end;
+    private List<GaussPoint> gaussPoints;
 
-    public TimeRange(LocalDateTime start, LocalDateTime end) {
+    public TimeRange(LocalDateTime start, LocalDateTime end, List<GaussPoint> gaussPoints) {
         this.start = start;
         this.end = end;
+        this.gaussPoints = gaussPoints;
     }
 
     public LocalDateTime getStart() {
@@ -25,5 +28,13 @@ public class TimeRange {
 
     public void setEnd(LocalDateTime end) {
         this.end = end;
+    }
+
+    public List<GaussPoint> getGaussPoints() {
+        return gaussPoints;
+    }
+
+    public void setGaussPoints(List<GaussPoint> gaussPoints) {
+        this.gaussPoints = gaussPoints;
     }
 }

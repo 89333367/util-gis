@@ -1662,6 +1662,20 @@ public class TestUtilGis {
         //测试不拆分数据(did, startTime, endTime, jobWidth);
     }
 
+    @Test
+    void 测试时间交叉() {
+        String did = "EC73BD2510300173";
+        double jobWidth;
+        String yyyyMMdd = "20260415";
+        String startTime = yyyyMMdd + "000000";
+        String endTime = yyyyMMdd + "235959";
+        /*String startTime = yyyyMMdd + "215208";
+        String endTime = yyyyMMdd + "225126";*/
+        jobWidth = 2.4;
+        测试拆分数据(did, startTime, endTime, jobWidth, new SplitRoadParams());
+        //测试不拆分数据(did, startTime, endTime, jobWidth);
+    }
+
 
     @Test
     void 批量测试() {

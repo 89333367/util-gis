@@ -46,6 +46,13 @@ public class SplitRoadParams {
      */
     private Boolean checkWorkingStatus = false;
 
+    /**
+     * 算法索引
+     * 0：代表如果地块之间有时间交叉，那么将时间交叉的地块进行合并
+     * 1：代表如果地块之间有时间交叉，那么将地块内再次进行时间窗口拆分
+     */
+    private int algorithmIndex = 1;
+
     public SplitRoadParams() {
     }
 
@@ -140,5 +147,13 @@ public class SplitRoadParams {
     public SplitRoadParams setNegativeBuffer(Double negativeBuffer) {
         this.negativeBuffer = negativeBuffer;
         return this;
+    }
+
+    public int getAlgorithmIndex() {
+        return algorithmIndex;
+    }
+
+    public void setAlgorithmIndex(int algorithmIndex) {
+        this.algorithmIndex = algorithmIndex;
     }
 }
