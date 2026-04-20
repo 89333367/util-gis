@@ -74,6 +74,20 @@
     "day": "20260417",
     "width": 2.5,
     "msg": "",
+    "debug": false
+  },
+  {
+    "did": "EC73BD2510300173",
+    "day": "20260415",
+    "width": 2.2,
+    "msg": "",
+    "debug": false
+  },
+  {
+    "did": "EC73BD2503190136",
+    "day": "20260417",
+    "width": 2.3,
+    "msg": "",
     "debug": true
   }
 ]

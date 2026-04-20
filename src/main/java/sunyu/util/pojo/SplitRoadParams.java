@@ -51,7 +51,7 @@ public class SplitRoadParams {
      * 0：代表如果地块之间有时间交叉，那么将时间交叉的地块进行合并
      * 1：代表如果地块之间有时间交叉，那么将地块内再次进行时间窗口拆分
      */
-    private int algorithmIndex = 1;
+    private int algorithmIndex = 0;
 
     public SplitRoadParams() {
     }

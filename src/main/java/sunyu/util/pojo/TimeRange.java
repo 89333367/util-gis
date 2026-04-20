@@ -14,6 +14,14 @@ public class TimeRange {
         this.gaussPoints = gaussPoints;
     }
 
+    public TimeRange(LocalDateTime start, LocalDateTime end) {
+        this.start = start;
+        this.end = end;
+    }
+
+    public TimeRange() {
+    }
+
     public LocalDateTime getStart() {
         return start;
     }
