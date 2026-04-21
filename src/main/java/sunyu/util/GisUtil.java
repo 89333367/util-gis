@@ -6826,6 +6826,59 @@ public class GisUtil implements AutoCloseable {
                     }
                     geometryMap = splitGeometryMap;
                     gaussPointMap = splitGaussPointMap;
+
+                    // todo 再次判断是否有大图形包含小图形的情况，如果重叠率超过阈值，则删掉小图形
+                    Map<Integer, Geometry> uniqueGeometryMap = new LinkedHashMap<>();
+                    Map<Integer, List<GaussPoint>> uniqueGaussPointMap = new LinkedHashMap<>();
+                    int uniqueGeometryIndex = 0;
+                    // 将geometryMap转为List并按面积降序排序（大的在前）
+                    List<Map.Entry<Integer, Geometry>> sortedGeometryEntries = geometryMap.entrySet().stream()
+                            .sorted((e1, e2) -> Double.compare(e2.getValue().getArea(), e1.getValue().getArea()))
+                            .collect(Collectors.toList());
+                    // 逐个判断多边形是否被已保留的大多边形包含
+                    for (Map.Entry<Integer, Geometry> entry : sortedGeometryEntries) {
+                        Integer originalKey = entry.getKey();
+                        Geometry currentGeometry = entry.getValue();
+                        List<GaussPoint> currentGaussPoints = gaussPointMap.get(originalKey);
+                        boolean isContained = false;
+                        // 检查当前多边形是否被已保留的大多边形包含（重叠率>=95%）
+                        for (Map.Entry<Integer, Geometry> retainedEntry : uniqueGeometryMap.entrySet()) {
+                            Integer retainedKey = retainedEntry.getKey();
+                            Geometry retainedGeometry = retainedEntry.getValue();
+                            // 先判断Envelope是否相交，避免不必要的精确计算
+                            if (!retainedGeometry.getEnvelopeInternal().intersects(currentGeometry.getEnvelopeInternal())) {
+                                log.debug("多边形对比：当前key={} vs 已保留key={}，Envelope不相交，跳过",
+                                        originalKey, retainedKey);
+                                continue;
+                            }
+                            // 计算交集面积
+                            Geometry intersection = retainedGeometry.intersection(currentGeometry);
+                            if (intersection != null && !intersection.isEmpty()) {
+                                double overlapRatio = intersection.getArea() / currentGeometry.getArea();
+                                log.debug("多边形对比：当前key={} vs 已保留key={}，重叠率={}%",
+                                        originalKey, retainedKey, String.format("%.2f", overlapRatio * 100));
+                                if (overlapRatio >= 0.8) {
+                                    isContained = true;
+                                    log.debug("多边形被包含，舍弃。当前key={}, 已保留key={}, 面积={}平方米, 重叠率={}%",
+                                            originalKey, retainedKey, currentGeometry.getArea(), String.format("%.2f", overlapRatio * 100));
+                                    break;
+                                }
+                            } else {
+                                log.debug("多边形对比：当前key={} vs 已保留key={}，无交集",
+                                        originalKey, retainedKey);
+                            }
+                        }
+                        // 如果未被包含，则保留该多边形及其点位信息
+                        if (!isContained) {
+                            uniqueGeometryMap.put(uniqueGeometryIndex, currentGeometry);
+                            uniqueGaussPointMap.put(uniqueGeometryIndex, currentGaussPoints);
+                            log.debug("多边形保留：key={}, 面积={}平方米", originalKey, currentGeometry.getArea());
+                            uniqueGeometryIndex++;
+                        }
+                    }
+                    log.info("去重前多边形数量：{}，去重后多边形数量：{}", geometryMap.size(), uniqueGeometryMap.size());
+                    geometryMap = uniqueGeometryMap;
+                    gaussPointMap = uniqueGaussPointMap;
                 }
             }
         }
