@@ -6883,6 +6883,11 @@ public class GisUtil implements AutoCloseable {
             }
         }
 
+        if (geometryMap.isEmpty()) {
+            log.info("没有任何多边形");
+            return splitResult;
+        }
+
         // todo 拼装地块信息
         List<FarmPlot> farmPlots = new ArrayList<>();
         for (Map.Entry<Integer, Geometry> integerGeometryEntry : geometryMap.entrySet()) {
