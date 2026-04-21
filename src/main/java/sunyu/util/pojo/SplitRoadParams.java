@@ -48,10 +48,10 @@ public class SplitRoadParams {
 
     /**
      * 算法索引
-     * 0：代表如果地块之间有时间交叉，那么将时间交叉的地块进行合并
-     * 1：代表如果地块之间有时间交叉，那么将地块内再次进行时间窗口拆分
+     * 0：空间算法，使用空间聚类，如果地块之间有时间交叉，那么将时间交叉的地块进行合并
+     * 1：时间算法，先使用空间聚类，再使用时间切割，如果地块之间有时间交叉，那么将地块内再次进行时间窗口拆分
      */
-    private int algorithmIndex = 0;
+    private int algorithmIndex = 1;
 
     public SplitRoadParams() {
     }
@@ -153,7 +153,8 @@ public class SplitRoadParams {
         return algorithmIndex;
     }
 
-    public void setAlgorithmIndex(int algorithmIndex) {
+    public SplitRoadParams setAlgorithmIndex(int algorithmIndex) {
         this.algorithmIndex = algorithmIndex;
+        return this;
     }
 }

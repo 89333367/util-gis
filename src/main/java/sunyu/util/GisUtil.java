@@ -6684,6 +6684,7 @@ public class GisUtil implements AutoCloseable {
                     geometryMap = mergeGeometryMap;
                     gaussPointMap = mergeGaussPointMap;
                 } else if (splitRoadParams.getAlgorithmIndex() == 1) {
+                    // todo 填充每一个点位属于哪个多边形
                     List<GaussPoint> polygonGaussPoints = new ArrayList<>();
                     for (Map.Entry<Integer, Geometry> integerGeometryEntry : geometryMap.entrySet()) {
                         Integer index = integerGeometryEntry.getKey();
@@ -6719,7 +6720,7 @@ public class GisUtil implements AutoCloseable {
                             segments.add(currentSegment);
                         }
                     }
-                    // 打印每一段的信息
+                    // todo 处理每一段
                     Map<Integer, Geometry> splitGeometryMap = new LinkedHashMap<>();
                     Map<Integer, List<GaussPoint>> splitGaussPointMap = new LinkedHashMap<>();
                     int splitGeometryIndex = 0;
@@ -6752,10 +6753,49 @@ public class GisUtil implements AutoCloseable {
                                 Geometry newGaussGeometry = gaussGeometry.buffer(0).buffer(-negativeBuffer).buffer(0).buffer(+negativeBuffer).buffer(0);
                                 log.debug("收缩后生成几何图形大小 {} 亩", newGaussGeometry.getArea() * config.SQUARE_TO_MU_METER);
                                 if (newGaussGeometry.isEmpty()) {
+                                    log.debug("全都是道路，切割掉了");
                                     continue;
                                 }
 
-                                if (!newGaussGeometry.isEmpty() && newGaussGeometry instanceof Polygon && newGaussGeometry.getArea() * config.SQUARE_TO_MU_METER > minReturnMu) {
+                                // todo 只剩下一个几何图形，直接保存
+                                if (newGaussGeometry instanceof Polygon) {
+                                    if (newGaussGeometry.getArea() * config.SQUARE_TO_MU_METER > minReturnMu) {
+                                        STRtree strTreeIndex = new STRtree();
+                                        for (GaussPoint gaussPoint : segment) {
+                                            // 创建Envelope作为索引键，存储GaussPoint对象作为值
+                                            Envelope envelope = new Envelope(
+                                                    gaussPoint.getGaussX(), gaussPoint.getGaussX(),
+                                                    gaussPoint.getGaussY(), gaussPoint.getGaussY());
+                                            strTreeIndex.insert(envelope, gaussPoint);
+                                        }
+                                        strTreeIndex.build(); // 构建索引
+                                        List<GaussPoint> containsGeometryGaussPoints = getContainsGaussGeometryPoints(
+                                                strTreeIndex, newGaussGeometry);
+                                        if (!CollUtil.isEmpty(containsGeometryGaussPoints)) {
+                                            splitGeometryMap.put(splitGeometryIndex, newGaussGeometry);
+                                            splitGaussPointMap.put(splitGeometryIndex, containsGeometryGaussPoints);
+                                            splitGeometryIndex++;
+                                        }
+                                    }
+                                    continue;
+                                }
+
+                                // todo 去掉小多边形
+                                List<Geometry> bigGeometrys = new ArrayList<>();
+                                MultiPolygon multiPolygon = (MultiPolygon) newGaussGeometry;
+                                for (int k = 0; k < multiPolygon.getNumGeometries(); k++) {
+                                    Geometry subGeometry = multiPolygon.getGeometryN(k);
+                                    if (subGeometry.getArea() * config.SQUARE_TO_MU_METER > minReturnMu) {
+                                        bigGeometrys.add(subGeometry);
+                                    }
+                                }
+                                if (bigGeometrys.isEmpty()) {
+                                    log.debug("全都是小图形，切割掉了");
+                                    continue;
+                                }
+                                if (bigGeometrys.size() == 1) {
+                                    // 只剩下1个几何图形
+                                    Geometry geometry = bigGeometrys.get(0);
                                     STRtree strTreeIndex = new STRtree();
                                     for (GaussPoint gaussPoint : segment) {
                                         // 创建Envelope作为索引键，存储GaussPoint对象作为值
@@ -6766,43 +6806,20 @@ public class GisUtil implements AutoCloseable {
                                     }
                                     strTreeIndex.build(); // 构建索引
                                     List<GaussPoint> containsGeometryGaussPoints = getContainsGaussGeometryPoints(
-                                            strTreeIndex, newGaussGeometry);
+                                            strTreeIndex, geometry);
                                     if (!CollUtil.isEmpty(containsGeometryGaussPoints)) {
-                                        splitGeometryMap.put(splitGeometryIndex, newGaussGeometry);
+                                        splitGeometryMap.put(splitGeometryIndex, geometry);
                                         splitGaussPointMap.put(splitGeometryIndex, containsGeometryGaussPoints);
                                         splitGeometryIndex++;
                                     }
-                                } else if (!gaussGeometry.isEmpty()) {
-                                    if (gaussGeometry instanceof MultiPolygon) {
-                                        MultiPolygon multiPolygon = (MultiPolygon) gaussGeometry;
-                                        for (int k = 0; k < multiPolygon.getNumGeometries(); k++) {
-                                            Geometry subGeometry = multiPolygon.getGeometryN(k);
-                                            if (subGeometry.getArea() * config.SQUARE_TO_MU_METER > minReturnMu) {
-                                                STRtree strTreeIndex = new STRtree();
-                                                for (GaussPoint gaussPoint : segment) {
-                                                    // 创建Envelope作为索引键，存储GaussPoint对象作为值
-                                                    Envelope envelope = new Envelope(
-                                                            gaussPoint.getGaussX(), gaussPoint.getGaussX(),
-                                                            gaussPoint.getGaussY(), gaussPoint.getGaussY());
-                                                    strTreeIndex.insert(envelope, gaussPoint);
-                                                }
-                                                strTreeIndex.build(); // 构建索引
-                                                List<GaussPoint> containsGeometryGaussPoints = getContainsGaussGeometryPoints(
-                                                        strTreeIndex, subGeometry);
-                                                if (!CollUtil.isEmpty(containsGeometryGaussPoints)) {
-                                                    splitGeometryMap.put(splitGeometryIndex, subGeometry);
-                                                    splitGaussPointMap.put(splitGeometryIndex, containsGeometryGaussPoints);
-                                                    splitGeometryIndex++;
-                                                }
-                                            }
-                                        }
-                                    } else if (gaussGeometry instanceof Polygon) {
-                                        if (gaussGeometry.getArea() * config.SQUARE_TO_MU_METER > minReturnMu) {
-                                            splitGeometryMap.put(splitGeometryIndex, gaussGeometry);
-                                            splitGaussPointMap.put(splitGeometryIndex, segment);
-                                            splitGeometryIndex++;
-                                        }
-                                    }
+                                    continue;
+                                }
+
+                                // todo 切割后是多个几何图形，不能使用了，因为有时间交叉，需要重新使用未切割的多边形
+                                if (gaussGeometry.getArea() * config.SQUARE_TO_MU_METER > minReturnMu) {
+                                    splitGeometryMap.put(splitGeometryIndex, gaussGeometry);
+                                    splitGaussPointMap.put(splitGeometryIndex, segment);
+                                    splitGeometryIndex++;
                                 }
                             }
                         }

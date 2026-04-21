@@ -1700,7 +1700,7 @@ public class TestUtilGis {
         /*String startTime = yyyyMMdd + "215208";
         String endTime = yyyyMMdd + "225126";*/
         jobWidth = 2.3;
-        测试拆分数据(did, startTime, endTime, jobWidth, new SplitRoadParams().setNegativeBuffer(6.0));
+        测试拆分数据(did, startTime, endTime, jobWidth, new SplitRoadParams().setNegativeBuffer(6.0).setAlgorithmIndex(1));
         //测试不拆分数据(did, startTime, endTime, jobWidth);
     }
 
@@ -1722,7 +1722,7 @@ public class TestUtilGis {
 
     @Test
     void 重跑某一日测试() {
-        String yyyyMMdd = "20260417";
+        String yyyyMMdd = "20260309";
         String startTime = yyyyMMdd + "000000";
         String endTime = yyyyMMdd + "235959";
         FarmMapper mapper = MyBatis.getMapper(FarmMapper.class);
