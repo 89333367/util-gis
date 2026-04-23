@@ -6494,7 +6494,7 @@ public class GisUtil implements AutoCloseable {
                     /*eps = 8;
                     minPts = 30;*/
 
-                    eps = 9;
+                    eps = 10;
                     minPts = 30;
 
                     /*eps = 15;
