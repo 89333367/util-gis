@@ -26,6 +26,8 @@ import org.geotools.geometry.jts.JTSFactoryFinder;
 import org.geotools.referencing.CRS;
 import org.geotools.referencing.crs.DefaultGeographicCRS;
 import org.locationtech.jts.geom.*;
+import org.locationtech.jts.geom.prep.PreparedGeometry;
+import org.locationtech.jts.geom.prep.PreparedGeometryFactory;
 import org.locationtech.jts.index.quadtree.Quadtree;
 import org.locationtech.jts.index.strtree.STRtree;
 import org.locationtech.jts.io.ParseException;
@@ -2440,7 +2442,19 @@ public class GisUtil implements AutoCloseable {
      * @return
      */
     private List<GaussPoint> getContainsGaussGeometryPoints(STRtree pointIndex, Geometry gaussGeometry) {
+        // 先检查几何对象是否有效
+        if (!gaussGeometry.isValid()) {
+            log.info("尝试修复几何对象");
+            gaussGeometry = gaussGeometry.buffer(0);
+            log.info("修复几何图形完毕");
+        }
+
         List<GaussPoint> candidatePoints = getInGaussGeometryPoints(pointIndex, gaussGeometry);
+        log.debug("getInGaussGeometryPoints调用完毕, 候选点数量: {}", candidatePoints.size());
+
+        // 使用 PreparedGeometry 预处理，大幅提升 contains 性能
+        PreparedGeometry prepGeom = PreparedGeometryFactory.prepare(gaussGeometry);
+
         List<GaussPoint> subGaussPoints = new ArrayList<>();
         for (GaussPoint gaussPoint : candidatePoints) {
             // 创建JTS点对象进行精确的空间关系判断
@@ -2448,7 +2462,8 @@ public class GisUtil implements AutoCloseable {
             Point point = config.GEOMETRY_FACTORY.createPoint(coord);
             // contains()方法严格判断内部关系：点在几何内部返回true，在边界上或外部返回false
             // 与covers()的区别：contains不包含边界，covers包含边界
-            if (gaussGeometry.contains(point)) {
+            // PreparedGeometry 的 contains 性能更好
+            if (prepGeom.contains(point)) {
                 subGaussPoints.add(gaussPoint);
             }
         }
