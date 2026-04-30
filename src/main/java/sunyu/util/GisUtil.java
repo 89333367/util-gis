@@ -39,7 +39,6 @@ import org.opengis.referencing.crs.CoordinateReferenceSystem;
 import org.opengis.referencing.operation.MathTransform;
 import sunyu.util.pojo.*;
 
-import java.math.BigDecimal;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.time.temporal.Temporal;
@@ -4071,6 +4070,24 @@ public class GisUtil implements AutoCloseable {
     }
 
     /**
+     * 计算作业里程：累加相邻高斯坐标点之间的欧几里得距离（单位：米）
+     *
+     * @param gaussPoints
+     * @return
+     */
+    private double getJobMileage(List<GaussPoint> gaussPoints) {
+        double jobMileage = 0.0;
+        for (int i = 1; i < gaussPoints.size(); i++) {
+            GaussPoint prevPoint = gaussPoints.get(i - 1);
+            GaussPoint currPoint = gaussPoints.get(i);
+            double dx = currPoint.getGaussX() - prevPoint.getGaussX();
+            double dy = currPoint.getGaussY() - prevPoint.getGaussY();
+            jobMileage += Math.sqrt(dx * dx + dy * dy);
+        }
+        return jobMileage;
+    }
+
+    /**
      * 计算两点间的航向角（方位角）
      * <p>
      * 【核心功能】基于球面三角学计算从起点到终点的航向角，即相对于正北方向的顺时针角度。
@@ -6300,11 +6317,13 @@ public class GisUtil implements AutoCloseable {
             farmPlot.setMu(calcMu(wgs84PartGeometry));
             farmPlot.setClusterPointCount(gaussPoints.size());
             farmPlot.setGeometryPoints(gaussPoints);
+            farmPlot.setJobMileage(getJobMileage(gaussPoints));
         }
 
-        log.info("{} 至 {} 地块总面积 {} 亩，耗时 {} 毫秒",
+        log.info("{} 至 {} 地块总面积 {} 亩 作业里程 {} 米，耗时 {} 毫秒",
                 LocalDateTimeUtil.format(farmPlot.getStartTime(), "yyyy-MM-dd HH:mm:ss"),
-                LocalDateTimeUtil.format(farmPlot.getEndTime(), "yyyy-MM-dd HH:mm:ss"), farmPlot.getMu(),
+                LocalDateTimeUtil.format(farmPlot.getEndTime(), "yyyy-MM-dd HH:mm:ss"),
+                farmPlot.getMu(), farmPlot.getJobMileage(),
                 System.currentTimeMillis() - getFarmPlotStartTime);
         return farmPlot;
     }
@@ -6907,6 +6926,7 @@ public class GisUtil implements AutoCloseable {
             part.setWorkingWidth(workingWidth);
             part.setClusterPointCount(gaussPoints.size());
             part.setGeometryPoints(gaussPoints);
+            part.setJobMileage(getJobMileage(gaussPoints));
             farmPlots.add(part);
         }
         // todo 按每一个作业段的开始时间升序排序
@@ -6915,12 +6935,8 @@ public class GisUtil implements AutoCloseable {
         // todo 将所有Part聚合成总的几何图形和统计信息
         Geometry wgs84UnionGeometry = config.GEOMETRY_FACTORY.createGeometryCollection(
                 farmPlots.stream().map(FarmPlot::getWgs84Geometry).toArray(Geometry[]::new)).union().buffer(0);
-        BigDecimal sumMu = farmPlots.stream()
-                .map(farmPlot -> BigDecimal.valueOf(farmPlot.getMu()))
-                .reduce(BigDecimal.ZERO, BigDecimal::add);
         splitResult.setWgs84Geometry(wgs84UnionGeometry);
         splitResult.setWkt(wgs84UnionGeometry.toText());
-        splitResult.setMu(sumMu.doubleValue());
         splitResult.setStartTime(farmPlots.get(0).getStartTime());
         splitResult.setEndTime(farmPlots.get(farmPlots.size() - 1).getEndTime());
         splitResult.setSplitParts(farmPlots);
@@ -6929,14 +6945,15 @@ public class GisUtil implements AutoCloseable {
         for (int i1 = 0; i1 < splitResult.getFarmPlots().size(); i1++) {
             FarmPlot farmPlot = splitResult.getFarmPlots().get(i1);
             log.debug("第 {} 段作业信息：", i1 + 1);
-            log.debug("{} 至 {} 共 {} 亩", LocalDateTimeUtil.format(farmPlot.getStartTime(), "yyyy-MM-dd HH:mm:ss"),
-                    LocalDateTimeUtil.format(farmPlot.getEndTime(), "yyyy-MM-dd HH:mm:ss"), farmPlot.getMu());
+            log.debug("{} 至 {} 共 {} 亩 作业里程 {} 米", LocalDateTimeUtil.format(farmPlot.getStartTime(), "yyyy-MM-dd HH:mm:ss"),
+                    LocalDateTimeUtil.format(farmPlot.getEndTime(), "yyyy-MM-dd HH:mm:ss"), farmPlot.getMu(), farmPlot.getJobMileage());
         }
 
         // 【性能统计】记录算法总耗时和最终结果统计
-        log.info("{} 至 {} 地块总面积 {} 亩 共 {} 个地块，耗时 {} 毫秒",
+        log.info("{} 至 {} 地块总面积 {} 亩 总作业里程 {} 米 共 {} 个地块，耗时 {} 毫秒",
                 LocalDateTimeUtil.format(splitResult.getStartTime(), "yyyy-MM-dd HH:mm:ss"),
-                LocalDateTimeUtil.format(splitResult.getEndTime(), "yyyy-MM-dd HH:mm:ss"), splitResult.getMu(),
+                LocalDateTimeUtil.format(splitResult.getEndTime(), "yyyy-MM-dd HH:mm:ss"),
+                splitResult.getMu(), splitResult.getTotalJobMileage(),
                 splitResult.getFarmPlots().stream()
                         .mapToInt(farmPlot -> farmPlot.getWgs84Geometry().getNumGeometries())
                         .sum(),

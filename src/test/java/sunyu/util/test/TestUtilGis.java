@@ -93,6 +93,7 @@ public class TestUtilGis {
         partsInfo.add(StrUtil.format("作业总幅宽（米）: {}", farmPlot.getWorkingWidth()));
         partsInfo.add(StrUtil.format("总WKT: {}", farmPlot.getWkt()));
         partsInfo.add(StrUtil.format("作业总面积（亩）: {}", farmPlot.getMu()));
+        partsInfo.add(StrUtil.format("作业总里程（米）: {}", farmPlot.getJobMileage()));
         partsInfo.add(StrUtil.format("作业时间范围: {} - {}", farmPlot.getStartTime(), farmPlot.getEndTime()));
         partsInfo.add(StrUtil.format("聚类总点数: {}", farmPlot.getClusterPointCount()));
         if (farmPlot.getCenterWgs84Point() != null) {
@@ -117,6 +118,7 @@ public class TestUtilGis {
                 .collect(Collectors.joining("#"));
         partInfo.add(StrUtil.format("子点位集合：{}", pointsStr));
         partInfo.add(StrUtil.format("作业面积（亩）: {}", farmPlot.getMu()));
+        partInfo.add(StrUtil.format("作业里程（米）: {}", farmPlot.getJobMileage()));
         partInfo.add(StrUtil.format("作业时间范围: {} - {}", farmPlot.getStartTime(), farmPlot.getEndTime()));
         partInfo.add(StrUtil.format("聚类点数: {}", farmPlot.getClusterPointCount()));
         if (farmPlot.getCenterWgs84Point() != null) {
@@ -175,6 +177,7 @@ public class TestUtilGis {
         partsInfo.add(StrUtil.format("作业总幅宽（米）: {}", splitResult.getWorkingWidth()));
         partsInfo.add(StrUtil.format("总WKT: {}", splitResult.getWkt()));
         partsInfo.add(StrUtil.format("作业总面积（亩）: {}", splitResult.getMu()));
+        partsInfo.add(StrUtil.format("作业总里程（米）: {}", splitResult.getTotalJobMileage()));
         partsInfo.add(StrUtil.format("作业时间范围: {} - {}", splitResult.getStartTime(), splitResult.getEndTime()));
         partsInfo.add(StrUtil.format("聚类总点数: {}", splitResult.getClusterPointCount()));
         if (splitResult.getCenterWgs84Point() != null) {
@@ -200,6 +203,7 @@ public class TestUtilGis {
                     .collect(Collectors.joining("#"));
             partInfo.add(StrUtil.format("子点位集合：{}", pointsStr));
             partInfo.add(StrUtil.format("作业面积（亩）: {}", farmPlot.getMu()));
+            partInfo.add(StrUtil.format("作业里程（米）: {}", farmPlot.getJobMileage()));
             partInfo.add(StrUtil.format("作业时间范围: {} - {}", farmPlot.getStartTime(), farmPlot.getEndTime()));
             partInfo.add(StrUtil.format("聚类点数: {}", farmPlot.getClusterPointCount()));
             if (farmPlot.getCenterWgs84Point() != null) {

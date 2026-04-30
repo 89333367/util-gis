@@ -23,6 +23,10 @@ public class FarmPlot {
      */
     private double mu;
     /**
+     * 作业里程（米)
+     */
+    private double jobMileage;
+    /**
      * 地块的WKT表示（WGS84坐标系）
      */
     private String wkt;
@@ -78,6 +82,14 @@ public class FarmPlot {
 
     public void setMu(double mu) {
         this.mu = mu;
+    }
+
+    public double getJobMileage() {
+        return jobMileage;
+    }
+
+    public void setJobMileage(double jobMileage) {
+        this.jobMileage = jobMileage;
     }
 
     public String getWkt() {

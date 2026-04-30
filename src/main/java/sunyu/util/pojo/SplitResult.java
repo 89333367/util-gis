@@ -3,6 +3,7 @@ package sunyu.util.pojo;
 import org.locationtech.jts.geom.Geometry;
 import org.locationtech.jts.geom.Point;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -32,6 +33,10 @@ public class SplitResult {
      * 整体轮廓面积（亩）
      */
     private double mu;
+    /**
+     * 总作业里程(米)
+     */
+    private double totalJobMileage;
     /**
      * 拆分后的地块列表
      */
@@ -66,11 +71,25 @@ public class SplitResult {
     }
 
     public double getMu() {
-        return mu;
+        BigDecimal sumMu = farmPlots.stream()
+                .map(farmPlot -> BigDecimal.valueOf(farmPlot.getMu()))
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+        return sumMu.doubleValue();
     }
 
     public void setMu(double mu) {
         this.mu = mu;
+    }
+
+    public double getTotalJobMileage() {
+        BigDecimal sumJobMileage = farmPlots.stream()
+                .map(farmPlot -> BigDecimal.valueOf(farmPlot.getJobMileage()))
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+        return sumJobMileage.doubleValue();
+    }
+
+    public void setTotalJobMileage(double totalJobMileage) {
+        this.totalJobMileage = totalJobMileage;
     }
 
     public LocalDateTime getStartTime() {
