@@ -2442,13 +2442,6 @@ public class GisUtil implements AutoCloseable {
      * @return
      */
     private List<GaussPoint> getContainsGaussGeometryPoints(STRtree pointIndex, Geometry gaussGeometry) {
-        // 先检查几何对象是否有效
-        if (!gaussGeometry.isValid()) {
-            log.info("尝试修复几何对象");
-            gaussGeometry = gaussGeometry.buffer(0);
-            log.info("修复几何图形完毕");
-        }
-
         List<GaussPoint> candidatePoints = getInGaussGeometryPoints(pointIndex, gaussGeometry);
         log.debug("getInGaussGeometryPoints调用完毕, 候选点数量: {}", candidatePoints.size());
 
@@ -5101,6 +5094,10 @@ public class GisUtil implements AutoCloseable {
             // WKTReader是线程安全的，支持并发解析；使用预配置的GeometryFactory避免重复创建
             Geometry geometry = new WKTReader(config.GEOMETRY_FACTORY).read(wgs84WKT);
 
+            if (!geometry.isValid()) {
+                geometry = geometry.buffer(0);
+            }
+
             // 【成功日志】记录解析成功的几何类型，便于调试和性能分析
             // getGeometryType()返回标准OGC几何类型名称，如"Point"、"LineString"、"Polygon"等
             log.debug("WKT字符串解析成功：几何类型={}", geometry.getGeometryType());
@@ -5247,7 +5244,12 @@ public class GisUtil implements AutoCloseable {
                         gaussEnv.getMinY(), gaussEnv.getMaxY());
                 return config.EMPTY_GEOMETRY;
             }
+
             // 【转换成功】返回转换后的高斯投影几何对象，坐标单位为米
+            if (!gaussGeometry.isValid()) {
+                gaussGeometry = gaussGeometry.buffer(0);
+            }
+
             return gaussGeometry;
         } catch (Exception e) {
             // 【异常处理】捕获所有可能的运行时异常，包括坐标转换失败、CRS创建错误等
