@@ -6530,7 +6530,10 @@ public class GisUtil implements AutoCloseable {
                     /*eps = 8;
                     minPts = 30;*/
 
-                    eps = 10;
+                    /*eps = 10;
+                    minPts = 30;*/
+
+                    eps = 11;
                     minPts = 30;
 
                     /*eps = 15;
@@ -6959,9 +6962,9 @@ public class GisUtil implements AutoCloseable {
         splitResult.setSplitParts(farmPlots);
 
         log.debug("拆分结果：");
-        for (int i1 = 0; i1 < splitResult.getFarmPlots().size(); i1++) {
-            FarmPlot farmPlot = splitResult.getFarmPlots().get(i1);
-            log.debug("第 {} 段作业信息：", i1 + 1);
+        for (int i = 0; i < splitResult.getFarmPlots().size(); i++) {
+            FarmPlot farmPlot = splitResult.getFarmPlots().get(i);
+            log.debug("第 {} 段作业信息：", i + 1);
             log.debug("{} 至 {} 共 {} 亩 作业里程 {} 米", LocalDateTimeUtil.format(farmPlot.getStartTime(), "yyyy-MM-dd HH:mm:ss"),
                     LocalDateTimeUtil.format(farmPlot.getEndTime(), "yyyy-MM-dd HH:mm:ss"), farmPlot.getMu(), farmPlot.getJobMileage());
         }
