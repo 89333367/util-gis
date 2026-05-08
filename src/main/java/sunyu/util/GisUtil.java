@@ -6433,8 +6433,8 @@ public class GisUtil implements AutoCloseable {
             return splitResult;
         }
 
-        log.info("道路拆分入参 wgs84点位集合大小：{} 幅宽：{}米 聚类参数： {}", wgs84Points.size(), workingWidth,
-                JSONUtil.toJsonStr(splitRoadParams));
+        log.info("道路拆分入参 wgs84点位集合大小：{} 幅宽：{}米 聚类参数： {}，使用算法 {}", wgs84Points.size(), workingWidth,
+                JSONUtil.toJsonStr(splitRoadParams), splitRoadParams.getAlgorithmIndex());
 
         // todo 方法变量定义
         List<Geometry> allGeometry = new ArrayList<>();
@@ -6524,23 +6524,8 @@ public class GisUtil implements AutoCloseable {
                 int minPts;
                 // todo 根据窗口周期重新设置聚类参数
                 if (interval == 1) {
-                    /*eps = 6;
-                    minPts = 15;*/
-
-                    /*eps = 8;
-                    minPts = 30;*/
-
-                    /*eps = 10;
-                    minPts = 30;*/
-
                     eps = 11;
                     minPts = 30;
-
-                    /*eps = 15;
-                    minPts = 35;*/
-
-                    /*eps = 15;
-                    minPts = 55;*/
                 } else if (interval <= 5) {
                     eps = 20;
                     minPts = 15;
