@@ -165,6 +165,13 @@
     "day": "20260503",
     "width": 2.5,
     "msg": "",
+    "debug": false
+  },
+  {
+    "did": "HM75101D15BAR0008",
+    "day": "20260512",
+    "width": 2.03,
+    "msg": "",
     "debug": true
   }
 ]

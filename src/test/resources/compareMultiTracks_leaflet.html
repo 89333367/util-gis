@@ -1,0 +1,1690 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>多段轨迹对比</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://unpkg.com/@turf/turf@6/turf.min.js"></script>
+    <script>
+        const TIANDITU_MAP_TK = '9ed3674d01dd7c129ab38e3c38bf651a';
+    </script>
+    <script>
+        const tiandituScript = document.createElement('script');
+        tiandituScript.src = 'https://api.tianditu.gov.cn/api?v=4.0&tk=' + TIANDITU_MAP_TK;
+        tiandituScript.async = true;
+        document.head.appendChild(tiandituScript);
+    </script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Microsoft YaHei', Arial, sans-serif;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            background: #1a1a2e;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #16213e 0%, #0f3460 100%);
+            color: white;
+            padding: 8px 16px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.3);
+            z-index: 1000;
+            flex-shrink: 0;
+        }
+
+        .header h1 {
+            font-size: 16px;
+            font-weight: 600;
+            letter-spacing: 1px;
+        }
+
+        .container {
+            display: flex;
+            flex: 1;
+            overflow: hidden;
+            position: relative;
+        }
+
+        .left-panel {
+            width: 420px;
+            min-width: 420px;
+            background: #1a1a2e;
+            border-right: 1px solid #2a2a4a;
+            display: flex;
+            flex-direction: column;
+            overflow-y: auto;
+            overflow-x: hidden;
+            transition: all 0.3s ease;
+            z-index: 500;
+        }
+
+        .left-panel.collapsed {
+            width: 0;
+            min-width: 0;
+            border-right: none;
+        }
+
+        .toolbar {
+            padding: 12px;
+            border-bottom: 1px solid #2a2a4a;
+        }
+
+        .toolbar h3 {
+            color: #e0e0e0;
+            font-size: 13px;
+            margin-bottom: 8px;
+            font-weight: 500;
+        }
+
+        .tool-buttons {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+        }
+
+        .tool-btn {
+            padding: 6px 12px;
+            border: 1px solid #3a3a5a;
+            background: #2a2a4a;
+            color: #c0c0c0;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 12px;
+            transition: all 0.2s;
+            white-space: nowrap;
+        }
+
+        .tool-btn:hover {
+            background: #3a3a6a;
+            border-color: #5a5a8a;
+            color: #fff;
+        }
+
+        .tool-btn.active {
+            background: #e94560;
+            border-color: #e94560;
+            color: #fff;
+        }
+
+        .tool-btn:disabled {
+            opacity: 0.4;
+            cursor: not-allowed;
+        }
+
+        .track-section {
+            padding: 12px;
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            overflow-y: auto;
+        }
+
+        .section-title {
+            color: #e0e0e0;
+            font-size: 13px;
+            font-weight: 500;
+            margin-bottom: 8px;
+        }
+
+        .section-label {
+            color: #a0a0b0;
+            font-size: 11px;
+            margin-bottom: 4px;
+        }
+
+        .segments-container {
+            margin-bottom: 12px;
+        }
+
+        .segment-card {
+            background: #0d0d1a;
+            border: 1px solid #2a2a4a;
+            border-radius: 6px;
+            padding: 10px;
+            margin-bottom: 10px;
+            animation: slideIn 0.2s ease;
+        }
+
+        @keyframes slideIn {
+            from { opacity: 0; transform: translateY(-10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .segment-card-header {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 8px;
+        }
+
+        .segment-card-seq {
+            color: #a0a0b0;
+            font-size: 12px;
+            font-weight: 600;
+            flex-shrink: 0;
+        }
+
+        .segment-card-color {
+            width: 18px;
+            height: 18px;
+            border-radius: 3px;
+            border: 1px solid #555;
+            flex-shrink: 0;
+            cursor: pointer;
+        }
+
+        .segment-card-title {
+            color: #c0c0c0;
+            font-size: 12px;
+            flex: 1;
+        }
+
+        .segment-card-actions {
+            display: flex;
+            gap: 4px;
+            flex-shrink: 0;
+        }
+
+        .segment-card-eye-btn {
+            width: 24px;
+            height: 24px;
+            border: 1px solid #3a5a3a;
+            background: #2a3a2a;
+            color: #4caf84;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+            padding: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+            transition: all 0.2s;
+        }
+
+        .segment-card-eye-btn:hover {
+            background: #3a5a3a;
+        }
+
+        .segment-card-eye-btn.hidden {
+            background: #3a2020;
+            border-color: #5a3030;
+            color: #e94560;
+            opacity: 0.5;
+        }
+
+        .segment-card-delete-btn {
+            width: 24px;
+            height: 24px;
+            border: 1px solid #5a3030;
+            background: #3a2020;
+            color: #e94560;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+            padding: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+            transition: all 0.2s;
+        }
+
+        .segment-card-delete-btn:hover {
+            background: #5a3030;
+        }
+
+        .segment-card-points-label {
+            color: #a0a0b0;
+            font-size: 11px;
+            margin-bottom: 4px;
+        }
+
+        .segment-card-textarea {
+            width: 100%;
+            height: 100px;
+            background: #12122a;
+            color: #c0c0c0;
+            border: 1px solid #3a3a5a;
+            border-radius: 4px;
+            padding: 6px 8px;
+            font-family: 'Consolas', 'Courier New', monospace;
+            font-size: 11px;
+            resize: vertical;
+            margin-bottom: 8px;
+        }
+
+        .segment-card-textarea:focus {
+            outline: none;
+            border-color: #5a5a8a;
+        }
+
+        .segment-card-time-label {
+            color: #a0a0b0;
+            font-size: 11px;
+            margin-bottom: 4px;
+        }
+
+        .segment-card-time-input {
+            width: 100%;
+            padding: 6px 8px;
+            background: #12122a;
+            color: #c0c0c0;
+            border: 1px solid #3a3a5a;
+            border-radius: 4px;
+            font-family: 'Consolas', 'Courier New', monospace;
+            font-size: 11px;
+        }
+
+        .segment-card-time-input:focus {
+            outline: none;
+            border-color: #5a5a8a;
+        }
+
+        .btn-row {
+            display: flex;
+            gap: 6px;
+            margin-bottom: 12px;
+        }
+
+        .btn {
+            padding: 6px 14px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 12px;
+            font-weight: 500;
+            transition: all 0.2s;
+        }
+
+        .btn-primary {
+            background: #0f3460;
+            color: #fff;
+        }
+
+        .btn-primary:hover {
+            background: #1a4a80;
+        }
+
+        .btn-success {
+            background: #1a6b3c;
+            color: #fff;
+        }
+
+        .btn-success:hover {
+            background: #228b4a;
+        }
+
+        .btn-secondary {
+            background: #3a3a5a;
+            color: #c0c0c0;
+        }
+
+        .btn-secondary:hover {
+            background: #4a4a6a;
+        }
+
+        .appearance-settings {
+            border-top: 1px solid #2a2a4a;
+            padding-top: 12px;
+            margin-top: 8px;
+        }
+
+        .setting-row {
+            display: flex;
+            align-items: center;
+            margin-bottom: 8px;
+            gap: 8px;
+        }
+
+        .setting-row label {
+            color: #a0a0b0;
+            font-size: 11px;
+            width: 70px;
+            flex-shrink: 0;
+        }
+
+        .setting-row input[type="range"] {
+            flex: 1;
+            accent-color: #0f3460;
+            min-width: 0;
+        }
+
+        .setting-row .range-value {
+            color: #c0c0c0;
+            font-size: 11px;
+            width: 36px;
+            text-align: right;
+            flex-shrink: 0;
+        }
+
+        .map-container {
+            flex: 1;
+            position: relative;
+            overflow: hidden;
+        }
+
+        #map {
+            width: 100%;
+            height: 100%;
+        }
+
+        .coordinate-info {
+            position: absolute;
+            bottom: 8px;
+            right: 8px;
+            background: rgba(0, 0, 0, 0.7);
+            color: #fff;
+            padding: 4px 10px;
+            border-radius: 4px;
+            font-size: 12px;
+            z-index: 1000;
+            pointer-events: none;
+        }
+
+        .scale-info {
+            position: absolute;
+            bottom: 32px;
+            right: 8px;
+            background: rgba(0, 0, 0, 0.7);
+            color: #fff;
+            padding: 4px 10px;
+            border-radius: 4px;
+            font-size: 12px;
+            z-index: 1000;
+            pointer-events: none;
+        }
+
+        .status-bar {
+            position: absolute;
+            top: 8px;
+            right: 8px;
+            background: rgba(0, 0, 0, 0.7);
+            color: #ffd700;
+            padding: 4px 10px;
+            border-radius: 4px;
+            font-size: 12px;
+            z-index: 1000;
+            pointer-events: none;
+            max-width: 300px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .panel-toggle-fixed {
+            position: absolute;
+            left: 0;
+            top: 50%;
+            transform: translateY(-50%);
+            background: rgba(26, 26, 46, 0.9);
+            color: #c0c0c0;
+            border: 1px solid #2a2a4a;
+            border-left: none;
+            border-radius: 0 4px 4px 0;
+            padding: 12px 4px;
+            cursor: pointer;
+            z-index: 600;
+            font-size: 12px;
+            writing-mode: vertical-lr;
+            letter-spacing: 2px;
+            transition: all 0.3s ease;
+        }
+
+        .panel-toggle-fixed:hover {
+            background: rgba(42, 42, 74, 0.9);
+            color: #fff;
+        }
+
+        .measure-label {
+            background: transparent !important;
+            border: none !important;
+        }
+
+        .measure-total-label {
+            background: transparent !important;
+            border: none !important;
+        }
+
+        .segment-legend {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-bottom: 8px;
+            padding: 6px;
+            background: #0d0d1a;
+            border-radius: 4px;
+            border: 1px solid #2a2a4a;
+        }
+
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            font-size: 10px;
+            color: #a0a0b0;
+        }
+
+        .legend-color {
+            width: 14px;
+            height: 4px;
+            border-radius: 2px;
+            flex-shrink: 0;
+        }
+
+        .legend-point-count {
+            color: #808090;
+        }
+
+        ::-webkit-scrollbar {
+            width: 6px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: #1a1a2e;
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: #3a3a5a;
+            border-radius: 3px;
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: #4a4a6a;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>多段轨迹对比</h1>
+    </div>
+
+    <div class="container">
+        <div class="left-panel" id="leftPanel">
+            <div class="toolbar">
+                <div class="tool-buttons">
+                    <button class="tool-btn" id="measureDistanceBtn" title="测距"> 测距</button>
+                    <button class="tool-btn" id="measureAreaBtn" title="测面"> 测面</button>
+                    <button class="tool-btn" id="mapTypeBtn" title="切换地图"> 卫星图</button>
+                    <button class="tool-btn" id="clearAllBtn" title="清空所有"> 清空</button>
+                </div>
+            </div>
+
+            <div class="track-section">
+                <div class="section-title">轨迹段列表</div>
+                <div class="section-label">每段轨迹独立输入点位数据和时间范围，用于多段轨迹对比</div>
+                <div class="segments-container" id="segmentsContainer">
+                </div>
+
+                <div class="btn-row">
+                    <button class="btn btn-primary" id="addSegmentBtn">+ 增加轨迹段</button>
+                </div>
+
+                <div class="btn-row">
+                    <button class="btn btn-success" id="drawTrackBtn"> 绘制轨迹</button>
+                    <button class="btn btn-secondary" id="clearTrackBtn"> 清空轨迹</button>
+                    <button class="btn btn-warning" id="drawPointsBtn"> 绘制点位</button>
+                    <button class="btn btn-secondary" id="clearPointsBtn"> 清空点位</button>
+                </div>
+
+                <div class="segment-legend" id="segmentLegend" style="display:none;">
+                </div>
+
+                <div class="appearance-settings">
+                    <div class="section-title">外观设置</div>
+                    <div class="setting-row">
+                        <label>轨迹线粗细</label>
+                        <input type="range" id="lineWeightSlider" min="0.5" max="6" step="0.5" value="0.5">
+                        <span class="range-value" id="lineWeightValue">0.5</span>
+                    </div>
+                    <div class="setting-row">
+                        <label>点的大小</label>
+                        <input type="range" id="pointSizeSlider" min="0.5" max="8" step="0.5" value="0.5">
+                        <span class="range-value" id="pointSizeValue">0.5</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="map-container">
+            <div id="map"></div>
+            <div class="status-bar" id="statusBar">就绪</div>
+            <div class="scale-info" id="scaleInfo">缩放级别: -</div>
+            <div class="coordinate-info" id="coordinateInfo">经度: -, 纬度: -</div>
+        </div>
+
+        <div class="panel-toggle-fixed" id="panelToggleFixed" title="收缩工具栏"> </div>
+    </div>
+
+    <script>
+        var map;
+        var currentMapType = 'satellite';
+        var currentBaseLayer;
+        var currentBaseLabelLayer;
+        var currentSatelliteLayer;
+        var currentSatelliteLabelLayer;
+        var currentWhiteLayer;
+
+        var trackLayerGroup = L.layerGroup();
+        var pointLayerGroup = L.layerGroup();
+        var measureLayerGroup = L.layerGroup();
+
+        var measureState = {
+            isActive: false,
+            mode: '',
+            points: [],
+            tempLine: null,
+            lines: [],
+            markers: [],
+            labels: [],
+            polygon: null,
+            areaLabel: null
+        };
+
+        var usedColors = [];
+
+        function generateRandomColor() {
+            var hue = Math.floor(Math.random() * 360);
+            var saturation = 55 + Math.floor(Math.random() * 30);
+            var lightness = 40 + Math.floor(Math.random() * 20);
+            return 'hsl(' + hue + ', ' + saturation + '%, ' + lightness + '%)';
+        }
+
+        function getUniqueColor() {
+            var color;
+            var attempts = 0;
+            do {
+                color = generateRandomColor();
+                attempts++;
+                if (attempts > 100) break;
+            } while (usedColors.indexOf(color) !== -1);
+            usedColors.push(color);
+            return color;
+        }
+
+        function releaseColor(color) {
+            var idx = usedColors.indexOf(color);
+            if (idx !== -1) {
+                usedColors.splice(idx, 1);
+            }
+        }
+
+        function initMap() {
+            map = L.map('map', {
+                center: [39.9042, 116.4074],
+                zoom: 13,
+                maxZoom: 23,
+                zoomControl: false,
+                attributionControl: false,
+                preferCanvas: true
+            });
+
+            addBaseLayers();
+
+            trackLayerGroup.addTo(map);
+            pointLayerGroup.addTo(map);
+            measureLayerGroup.addTo(map);
+
+            map.on('zoomend', function() {
+                var zoom = map.getZoom();
+                var center = map.getCenter();
+                var lat = center.lat;
+                var metersPerPixel = 156543.03392 * Math.cos(lat * Math.PI / 180) / Math.pow(2, zoom);
+                var displayText;
+                if (metersPerPixel >= 1000) {
+                    displayText = zoom + '级(约' + (metersPerPixel / 1000).toFixed(1) + '公里)';
+                } else if (metersPerPixel >= 1) {
+                    displayText = zoom + '级(约' + Math.round(metersPerPixel) + '米)';
+                } else {
+                    displayText = zoom + '级(约' + metersPerPixel.toFixed(1) + '米)';
+                }
+                document.getElementById('scaleInfo').textContent = displayText;
+            });
+
+            map.on('mousemove', function(e) {
+                document.getElementById('coordinateInfo').textContent =
+                    '经度: ' + e.latlng.lng.toFixed(6) + ', 纬度: ' + e.latlng.lat.toFixed(6);
+            });
+
+            var zoom = map.getZoom();
+            var lat = map.getCenter().lat;
+            var metersPerPixel = 156543.03392 * Math.cos(lat * Math.PI / 180) / Math.pow(2, zoom);
+            var displayText;
+            if (metersPerPixel >= 1000) {
+                displayText = zoom + '级(约' + (metersPerPixel / 1000).toFixed(1) + '公里)';
+            } else if (metersPerPixel >= 1) {
+                displayText = zoom + '级(约' + Math.round(metersPerPixel) + '米)';
+            } else {
+                displayText = zoom + '级(约' + metersPerPixel.toFixed(1) + '米)';
+            }
+            document.getElementById('scaleInfo').textContent = displayText;
+        }
+
+        function addBaseLayers() {
+            if (currentBaseLayer) map.removeLayer(currentBaseLayer);
+            if (currentBaseLabelLayer) map.removeLayer(currentBaseLabelLayer);
+            if (currentSatelliteLayer) map.removeLayer(currentSatelliteLayer);
+            if (currentSatelliteLabelLayer) map.removeLayer(currentSatelliteLabelLayer);
+            if (currentWhiteLayer) map.removeLayer(currentWhiteLayer);
+
+            var tk = TIANDITU_MAP_TK;
+
+            if (currentMapType === 'street') {
+                currentBaseLayer = L.tileLayer('https://t{s}.tianditu.gov.cn/vec_w/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=vec&STYLE=default&TILEMATRIXSET=w&FORMAT=tiles&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}&tk=' + tk, {
+                    maxZoom: 23,
+                    tileSize: 256,
+                    subdomains: ['0', '1', '2', '3', '4', '5', '6', '7']
+                }).addTo(map);
+                currentBaseLabelLayer = L.tileLayer('https://t{s}.tianditu.gov.cn/cva_w/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=cva&STYLE=default&TILEMATRIXSET=w&FORMAT=tiles&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}&tk=' + tk, {
+                    maxZoom: 23,
+                    tileSize: 256,
+                    subdomains: ['0', '1', '2', '3', '4', '5', '6', '7']
+                }).addTo(map);
+            } else if (currentMapType === 'satellite') {
+                currentSatelliteLayer = L.tileLayer('https://t{s}.tianditu.gov.cn/img_w/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=img&STYLE=default&TILEMATRIXSET=w&FORMAT=tiles&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}&tk=' + tk, {
+                    maxZoom: 23,
+                    tileSize: 256,
+                    subdomains: ['0', '1', '2', '3', '4', '5', '6', '7']
+                }).addTo(map);
+                currentSatelliteLabelLayer = L.tileLayer('https://t{s}.tianditu.gov.cn/cia_w/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=cia&STYLE=default&TILEMATRIXSET=w&FORMAT=tiles&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}&tk=' + tk, {
+                    maxZoom: 23,
+                    tileSize: 256,
+                    subdomains: ['0', '1', '2', '3', '4', '5', '6', '7']
+                }).addTo(map);
+            } else if (currentMapType === 'white') {
+                var WhiteTileLayer = L.TileLayer.extend({
+                    createTile: function(coords, done) {
+                        var tile = document.createElement('canvas');
+                        var size = this.getTileSize();
+                        tile.width = size.x;
+                        tile.height = size.y;
+                        var ctx = tile.getContext('2d');
+                        ctx.fillStyle = '#FFFFFF';
+                        ctx.fillRect(0, 0, tile.width, tile.height);
+                        setTimeout(function() { done(null, tile); }, 0);
+                        return tile;
+                    }
+                });
+                currentWhiteLayer = new WhiteTileLayer({
+                    maxZoom: 23,
+                    tileSize: 256
+                }).addTo(map);
+            }
+        }
+
+        function toggleMapType() {
+            if (currentMapType === 'satellite') {
+                currentMapType = 'street';
+            } else if (currentMapType === 'street') {
+                currentMapType = 'white';
+            } else {
+                currentMapType = 'satellite';
+            }
+
+            var mapTypeBtn = document.getElementById('mapTypeBtn');
+            if (currentMapType === 'satellite') {
+                mapTypeBtn.innerHTML = ' 卫星图';
+                mapTypeBtn.title = '当前：卫星图，点击切换街道图';
+            } else if (currentMapType === 'street') {
+                mapTypeBtn.innerHTML = ' 街道图';
+                mapTypeBtn.title = '当前：街道图，点击切换白底图';
+            } else {
+                mapTypeBtn.innerHTML = ' 白底图';
+                mapTypeBtn.title = '当前：白底图，点击切换卫星图';
+            }
+
+            addBaseLayers();
+
+            var typeName = currentMapType === 'satellite' ? '卫星图' : (currentMapType === 'street' ? '街道图' : '白底图');
+            updateStatus('已切换到' + typeName);
+        }
+
+        var statusTimer = null;
+
+        function updateStatus(msg) {
+            var bar = document.getElementById('statusBar');
+            bar.textContent = msg;
+            bar.style.display = 'block';
+            if (statusTimer) clearTimeout(statusTimer);
+            statusTimer = setTimeout(function() {
+                bar.style.display = 'none';
+            }, 10000);
+        }
+
+        function addSegmentCard() {
+            var container = document.getElementById('segmentsContainer');
+            var seq = container.children.length + 1;
+            var color = getUniqueColor();
+
+            var card = document.createElement('div');
+            card.className = 'segment-card';
+            card.dataset.color = color;
+
+            var header = document.createElement('div');
+            header.className = 'segment-card-header';
+
+            var seqSpan = document.createElement('span');
+            seqSpan.className = 'segment-card-seq';
+            seqSpan.textContent = '轨迹段 ' + seq;
+
+            var colorBox = document.createElement('div');
+            colorBox.className = 'segment-card-color';
+            colorBox.style.backgroundColor = color;
+            colorBox.title = '点击更换颜色';
+            colorBox.addEventListener('click', function() {
+                var input = document.createElement('input');
+                input.type = 'color';
+                input.value = hslToHex(colorBox.style.backgroundColor);
+                input.style.position = 'absolute';
+                input.style.opacity = '0';
+                input.style.width = '0';
+                input.style.height = '0';
+                document.body.appendChild(input);
+                input.click();
+                input.addEventListener('input', function() {
+                    var oldColor = card.dataset.color;
+                    releaseColor(oldColor);
+                    colorBox.style.backgroundColor = input.value;
+                    card.dataset.color = input.value;
+                    usedColors.push(input.value);
+                });
+                input.addEventListener('change', function() {
+                    var oldColor = card.dataset.color;
+                    releaseColor(oldColor);
+                    colorBox.style.backgroundColor = input.value;
+                    card.dataset.color = input.value;
+                    usedColors.push(input.value);
+                    document.body.removeChild(input);
+                });
+                input.addEventListener('blur', function() {
+                    document.body.removeChild(input);
+                });
+            });
+
+            var titleSpan = document.createElement('span');
+            titleSpan.className = 'segment-card-title';
+            titleSpan.textContent = '点位数据格式：yyyyMMddHHmmss,经度,纬度,速度（速度可省略）';
+
+            var actionsDiv = document.createElement('div');
+            actionsDiv.className = 'segment-card-actions';
+
+            var eyeBtn = document.createElement('button');
+            eyeBtn.className = 'segment-card-eye-btn';
+            eyeBtn.innerHTML = '👁';
+            eyeBtn.title = '点击隐藏此段轨迹';
+            eyeBtn.dataset.visible = 'true';
+            eyeBtn.addEventListener('click', function() {
+                if (eyeBtn.dataset.visible === 'true') {
+                    eyeBtn.dataset.visible = 'false';
+                    eyeBtn.classList.add('hidden');
+                    eyeBtn.title = '点击显示此段轨迹';
+                } else {
+                    eyeBtn.dataset.visible = 'true';
+                    eyeBtn.classList.remove('hidden');
+                    eyeBtn.title = '点击隐藏此段轨迹';
+                }
+            });
+
+            var deleteBtn = document.createElement('button');
+            deleteBtn.className = 'segment-card-delete-btn';
+            deleteBtn.innerHTML = '✕';
+            deleteBtn.title = '删除此轨迹段';
+            deleteBtn.addEventListener('click', function() {
+                releaseColor(card.dataset.color);
+                container.removeChild(card);
+                updateSegmentNumbers();
+            });
+
+            actionsDiv.appendChild(eyeBtn);
+            actionsDiv.appendChild(deleteBtn);
+
+            header.appendChild(seqSpan);
+            header.appendChild(colorBox);
+            header.appendChild(titleSpan);
+            header.appendChild(actionsDiv);
+
+            var pointsLabel = document.createElement('div');
+            pointsLabel.className = 'segment-card-points-label';
+            pointsLabel.textContent = '轨迹点位数据：';
+
+            var textarea = document.createElement('textarea');
+            textarea.className = 'segment-card-textarea';
+            textarea.placeholder = '示例：\n20251023085649,116.397428,39.909204,45.5\n20251023085719,116.398123,39.909876,42.3\n20251023085749,116.398876,39.910432,40.1';
+
+            var timeLabel = document.createElement('div');
+            timeLabel.className = 'segment-card-time-label';
+            timeLabel.textContent = '时间范围（可选，留空则使用首尾点时间）：';
+
+            var timeInput = document.createElement('input');
+            timeInput.type = 'text';
+            timeInput.className = 'segment-card-time-input';
+            timeInput.placeholder = 'yyyy-MM-ddTHH:mm:ss - yyyy-MM-ddTHH:mm:ss';
+
+            card.appendChild(header);
+            card.appendChild(pointsLabel);
+            card.appendChild(textarea);
+            card.appendChild(timeLabel);
+            card.appendChild(timeInput);
+            container.appendChild(card);
+
+            updateSegmentNumbers();
+        }
+
+        function updateSegmentNumbers() {
+            var cards = document.querySelectorAll('.segment-card');
+            cards.forEach(function(card, idx) {
+                var seqSpan = card.querySelector('.segment-card-seq');
+                if (seqSpan) {
+                    seqSpan.textContent = '轨迹段 ' + (idx + 1);
+                }
+            });
+        }
+
+        function hslToHex(hsl) {
+            if (!hsl || hsl === '') return '#FF4444';
+            if (hsl.startsWith('#')) return hsl;
+            if (hsl.startsWith('rgb')) {
+                var match = hsl.match(/rgb\((\d+),\s*(\d+),\s*(\d+)\)/);
+                if (!match) return '#FF4444';
+                return '#' + [1, 2, 3].map(function(i) {
+                    var hex = parseInt(match[i]).toString(16);
+                    return hex.length === 1 ? '0' + hex : hex;
+                }).join('');
+            }
+            var dummy = document.createElement('div');
+            dummy.style.color = hsl;
+            document.body.appendChild(dummy);
+            var rgb = getComputedStyle(dummy).color;
+            document.body.removeChild(dummy);
+            var match = rgb.match(/rgb\((\d+),\s*(\d+),\s*(\d+)\)/);
+            if (!match) return '#FF4444';
+            return '#' + [1, 2, 3].map(function(i) {
+                var hex = parseInt(match[i]).toString(16);
+                return hex.length === 1 ? '0' + hex : hex;
+            }).join('');
+        }
+
+        function parseTimestamp(timestamp) {
+            var tstr = (timestamp || '').replace(/\D/g, '');
+            var m = tstr && tstr.match(/^\d{14}$/);
+            if (!m) return null;
+
+            var y = parseInt(tstr.slice(0, 4), 10);
+            var M = parseInt(tstr.slice(4, 6), 10) - 1;
+            var d = parseInt(tstr.slice(6, 8), 10);
+            var h = parseInt(tstr.slice(8, 10), 10);
+            var m2 = parseInt(tstr.slice(10, 12), 10);
+            var s = parseInt(tstr.slice(12, 14), 10);
+            var dt = new Date(y, M, d, h, m2, s);
+            return isNaN(dt.getTime()) ? null : dt;
+        }
+
+        function parsePointsFromText(text) {
+            if (!text) return [];
+
+            var points = [];
+            var lines = text.split('\n');
+
+            lines.forEach(function(line) {
+                line = line.trim();
+                if (!line) return;
+
+                var parts = line.split(',');
+                if (parts.length < 3) return;
+
+                var timestamp = parts[0].trim();
+                var lng = parseFloat(parts[1].trim());
+                var lat = parseFloat(parts[2].trim());
+                var speed = parts.length >= 4 ? parseFloat(parts[3].trim()) : null;
+
+                if (isNaN(lng) || isNaN(lat) || lat === 0 || lng === 0) return;
+
+                var pointTime = parseTimestamp(timestamp);
+                if (!pointTime) return;
+
+                points.push({
+                    lat: lat,
+                    lng: lng,
+                    timestamp: timestamp,
+                    time: pointTime,
+                    speed: isNaN(speed) ? null : speed
+                });
+            });
+
+            points.sort(function(a, b) { return a.time - b.time; });
+            return points;
+        }
+
+        function parseTimeRange(timeRangeStr) {
+            if (!timeRangeStr) return null;
+
+            var parts = timeRangeStr.split(' - ');
+            if (parts.length !== 2) return null;
+
+            var startTime = new Date(parts[0].trim());
+            var endTime = new Date(parts[1].trim());
+
+            if (isNaN(startTime.getTime()) || isNaN(endTime.getTime())) return null;
+
+            return { start: startTime, end: endTime };
+        }
+
+        function filterPointsByTimeRange(points, timeRange) {
+            if (!timeRange) return points;
+
+            return points.filter(function(p) {
+                return p.time >= timeRange.start && p.time <= timeRange.end;
+            });
+        }
+
+        function collectSegmentData() {
+            var cards = document.querySelectorAll('.segment-card');
+            var segments = [];
+
+            cards.forEach(function(card, idx) {
+                var textarea = card.querySelector('.segment-card-textarea');
+                var timeInput = card.querySelector('.segment-card-time-input');
+                var eyeBtn = card.querySelector('.segment-card-eye-btn');
+                var color = card.dataset.color;
+
+                var pointsText = textarea.value.trim();
+                var timeRangeStr = timeInput.value.trim();
+
+                segments.push({
+                    seq: idx + 1,
+                    color: color,
+                    pointsText: pointsText,
+                    timeRangeStr: timeRangeStr,
+                    enabled: eyeBtn ? eyeBtn.dataset.visible === 'true' : true
+                });
+            });
+
+            return segments;
+        }
+
+        function drawTrack() {
+            var segments = collectSegmentData();
+
+            var hasData = segments.some(function(s) { return s.pointsText !== ''; });
+            if (!hasData) {
+                alert('请至少为一个轨迹段输入点位数据');
+                return;
+            }
+
+            clearTrack();
+
+            var lineWeight = parseFloat(document.getElementById('lineWeightSlider').value) || 2;
+            var pointSize = parseFloat(document.getElementById('pointSizeSlider').value) || 3;
+
+            var legendContainer = document.getElementById('segmentLegend');
+            legendContainer.innerHTML = '';
+            legendContainer.style.display = 'block';
+
+            var allBounds = null;
+            var totalDrawn = 0;
+
+            segments.forEach(function(segment) {
+                if (!segment.pointsText) return;
+                if (!segment.enabled) return;
+
+                var allPoints = parsePointsFromText(segment.pointsText);
+                if (allPoints.length === 0) {
+                    updateStatus('轨迹段' + segment.seq + '未能解析到有效的轨迹点，已跳过');
+                    return;
+                }
+
+                var timeRange = null;
+                if (segment.timeRangeStr) {
+                    timeRange = parseTimeRange(segment.timeRangeStr);
+                    if (!timeRange) {
+                        updateStatus('轨迹段' + segment.seq + '时间范围格式无效，已跳过');
+                        return;
+                    }
+                }
+
+                var filteredPoints;
+                if (timeRange) {
+                    filteredPoints = filterPointsByTimeRange(allPoints, timeRange);
+                } else {
+                    filteredPoints = allPoints;
+                }
+
+                if (filteredPoints.length < 2) {
+                    updateStatus('轨迹段' + segment.seq + '有效轨迹点不足（需要至少2个点），已跳过');
+                    return;
+                }
+
+                var latlngs = filteredPoints.map(function(p) { return [p.lat, p.lng]; });
+
+                var polyline = L.polyline(latlngs, {
+                    color: segment.color,
+                    weight: lineWeight,
+                    opacity: 0.9
+                });
+                trackLayerGroup.addLayer(polyline);
+
+                filteredPoints.forEach(function(point) {
+                    var circleMarker = L.circleMarker([point.lat, point.lng], {
+                        radius: pointSize,
+                        fillColor: segment.color,
+                        color: segment.color,
+                        weight: 0,
+                        opacity: 0.8,
+                        fillOpacity: 0.8
+                    });
+                    circleMarker.bindPopup(
+                        '轨迹段' + segment.seq + '<br>' +
+                        '时间: ' + point.timestamp + '<br>' +
+                        '经度: ' + point.lng.toFixed(6) + '<br>' +
+                        '纬度: ' + point.lat.toFixed(6) +
+                        (point.speed !== null ? '<br>速度: ' + point.speed.toFixed(1) + ' km/h' : '')
+                    );
+                    trackLayerGroup.addLayer(circleMarker);
+                });
+
+                var legendItem = document.createElement('div');
+                legendItem.className = 'legend-item';
+                legendItem.innerHTML =
+                    '<div class="legend-color" style="background-color:' + segment.color + ';"></div>' +
+                    '<span>段' + segment.seq + '</span>' +
+                    '<span class="legend-point-count">(' + filteredPoints.length + '点)</span>';
+                legendContainer.appendChild(legendItem);
+
+                if (!allBounds) {
+                    allBounds = polyline.getBounds();
+                } else {
+                    allBounds.extend(polyline.getBounds());
+                }
+
+                totalDrawn++;
+            });
+
+            if (totalDrawn === 0) {
+                legendContainer.style.display = 'none';
+                updateStatus('没有成功绘制任何轨迹段');
+                return;
+            }
+
+            if (allBounds && allBounds.isValid()) {
+                map.fitBounds(allBounds, { padding: [30, 30] });
+            }
+
+            updateStatus('轨迹绘制完成，共' + totalDrawn + '段轨迹');
+        }
+
+        function clearTrack() {
+            trackLayerGroup.clearLayers();
+            document.getElementById('segmentLegend').innerHTML = '';
+            document.getElementById('segmentLegend').style.display = 'none';
+            updateStatus('轨迹已清空');
+        }
+
+        function drawPoints() {
+            var segments = collectSegmentData();
+
+            var hasData = segments.some(function(s) { return s.pointsText !== ''; });
+            if (!hasData) {
+                alert('请至少为一个轨迹段输入点位数据');
+                return;
+            }
+
+            var enabledSegments = segments.filter(function(s) { return s.enabled && s.pointsText !== ''; });
+            if (enabledSegments.length === 0) {
+                alert('请至少开启一个有效轨迹段的眼睛');
+                return;
+            }
+
+            pointLayerGroup.clearLayers();
+
+            var pointSize = parseFloat(document.getElementById('pointSizeSlider').value) || 0.5;
+            var allBounds = null;
+            var totalDrawn = 0;
+
+            enabledSegments.forEach(function(segment) {
+                var allPoints = parsePointsFromText(segment.pointsText);
+                if (allPoints.length === 0) return;
+
+                var timeRange = null;
+                if (segment.timeRangeStr) {
+                    timeRange = parseTimeRange(segment.timeRangeStr);
+                    if (!timeRange) return;
+                }
+
+                var filteredPoints;
+                if (timeRange) {
+                    filteredPoints = filterPointsByTimeRange(allPoints, timeRange);
+                } else {
+                    filteredPoints = allPoints;
+                }
+
+                if (filteredPoints.length === 0) return;
+
+                filteredPoints.forEach(function(point) {
+                    var circleMarker = L.circleMarker([point.lat, point.lng], {
+                        radius: pointSize,
+                        fillColor: segment.color,
+                        color: segment.color,
+                        weight: 0,
+                        opacity: 0.8,
+                        fillOpacity: 0.8
+                    });
+                    circleMarker.bindPopup(
+                        '轨迹段' + segment.seq + '<br>' +
+                        '时间: ' + point.timestamp + '<br>' +
+                        '经度: ' + point.lng.toFixed(6) + '<br>' +
+                        '纬度: ' + point.lat.toFixed(6) +
+                        (point.speed !== null ? '<br>速度: ' + point.speed.toFixed(1) + ' km/h' : '')
+                    );
+                    pointLayerGroup.addLayer(circleMarker);
+                });
+
+                var latlngs = filteredPoints.map(function(p) { return [p.lat, p.lng]; });
+                var bounds = L.latLngBounds(latlngs);
+                if (!allBounds) {
+                    allBounds = bounds;
+                } else {
+                    allBounds.extend(bounds);
+                }
+
+                totalDrawn += filteredPoints.length;
+            });
+
+            if (totalDrawn === 0) {
+                updateStatus('没有成功绘制任何点位');
+                return;
+            }
+
+            if (allBounds && allBounds.isValid()) {
+                map.fitBounds(allBounds, { padding: [30, 30] });
+            }
+
+            updateStatus('点位绘制完成，共' + totalDrawn + '个点');
+        }
+
+        function clearPoints() {
+            pointLayerGroup.clearLayers();
+            updateStatus('点位已清空');
+        }
+
+        function clearAll() {
+            clearMeasureResult();
+            updateStatus('测量结果已清空');
+        }
+
+        function startMeasureDistance() {
+            if (!map) return;
+
+            measureState.isActive = true;
+            measureState.mode = 'distance';
+            measureState.points = [];
+            measureState.tempLine = null;
+            measureState.lines = [];
+            measureState.markers = [];
+            measureState.labels = [];
+            measureState.polygon = null;
+            measureState.areaLabel = null;
+
+            document.getElementById('measureDistanceBtn').classList.add('active');
+            document.getElementById('measureAreaBtn').disabled = true;
+
+            map.getContainer().style.cursor = 'crosshair';
+
+            map.doubleClickZoom.disable();
+
+            map.on('click', handleMeasureClick);
+            map.on('mousemove', handleMeasureMouseMove);
+            map.on('contextmenu', handleDistanceMeasureRightClick);
+
+            updateStatus('测距模式已激活，点击地图开始测量，右键结束测量');
+        }
+
+        function handleDistanceMeasureRightClick(e) {
+            if (e && e.originalEvent) {
+                e.originalEvent.preventDefault();
+                e.originalEvent.stopPropagation();
+            }
+            if (measureState.points.length >= 2) {
+                finishMeasureDistance();
+            } else {
+                alert('请至少点击2个点形成线段后再右键结束测量');
+            }
+            return false;
+        }
+
+        function startMeasureArea() {
+            if (!map) return;
+
+            measureState.isActive = true;
+            measureState.mode = 'area';
+            measureState.points = [];
+            measureState.tempLine = null;
+            measureState.lines = [];
+            measureState.markers = [];
+            measureState.labels = [];
+            measureState.polygon = null;
+            measureState.areaLabel = null;
+
+            document.getElementById('measureAreaBtn').classList.add('active');
+            document.getElementById('measureDistanceBtn').disabled = true;
+
+            map.getContainer().style.cursor = 'crosshair';
+
+            map.doubleClickZoom.disable();
+
+            map.on('click', handleMeasureClick);
+            map.on('mousemove', handleMeasureMouseMove);
+            map.on('contextmenu', handleAreaMeasureRightClick);
+
+            updateStatus('测面模式已激活，点击地图开始测量，右键结束测量');
+        }
+
+        function handleAreaMeasureRightClick(e) {
+            if (e && e.originalEvent) {
+                e.originalEvent.preventDefault();
+                e.originalEvent.stopPropagation();
+            }
+            if (measureState.points.length >= 3) {
+                finishMeasureArea();
+            } else {
+                alert('请至少点击3个点形成多边形后再右键结束测量');
+            }
+            return false;
+        }
+
+        function handleMeasureClick(e) {
+            if (!measureState.isActive) return;
+
+            if (e && e.originalEvent) {
+                e.originalEvent.stopPropagation();
+            }
+
+            var point = e.latlng;
+            measureState.points.push(point);
+
+            var marker = L.circleMarker(point, {
+                color: '#FFD700',
+                fillColor: '#FFD700',
+                fillOpacity: 1,
+                radius: 3
+            });
+            measureLayerGroup.addLayer(marker);
+            measureState.markers.push(marker);
+
+            if (measureState.mode === 'distance') {
+                if (measureState.points.length > 1) {
+                    var lastPoint = measureState.points[measureState.points.length - 2];
+                    var newLine = L.polyline([lastPoint, point], {
+                        color: '#FFD700',
+                        weight: 2,
+                        opacity: 1
+                    });
+                    measureLayerGroup.addLayer(newLine);
+                    measureState.lines.push(newLine);
+
+                    var distance = calculateDistance(lastPoint, point);
+                    var center = L.latLng(
+                        (lastPoint.lat + point.lat) / 2,
+                        (lastPoint.lng + point.lng) / 2
+                    );
+                    showDistanceLabel(center, distance);
+                }
+            } else if (measureState.mode === 'area') {
+                if (measureState.points.length > 1) {
+                    var lastPoint2 = measureState.points[measureState.points.length - 2];
+                    var newLine2 = L.polyline([lastPoint2, point], {
+                        color: '#FFD700',
+                        weight: 2,
+                        opacity: 1
+                    });
+                    measureLayerGroup.addLayer(newLine2);
+                    measureState.lines.push(newLine2);
+                }
+                if (measureState.points.length >= 3) {
+                    if (measureState.polygon) {
+                        measureLayerGroup.removeLayer(measureState.polygon);
+                    }
+                    measureState.polygon = L.polygon(measureState.points, {
+                        color: '#FFD700',
+                        weight: 2,
+                        opacity: 1,
+                        fillColor: '#FFD700',
+                        fillOpacity: 0.3
+                    });
+                    measureLayerGroup.addLayer(measureState.polygon);
+                }
+            }
+        }
+
+        function handleMeasureMouseMove(e) {
+            if (!measureState.isActive || measureState.points.length === 0) return;
+
+            var lastPoint = measureState.points[measureState.points.length - 1];
+            var currentPoint = e.latlng;
+
+            if (measureState.tempLine) {
+                measureLayerGroup.removeLayer(measureState.tempLine);
+            }
+
+            var tempCoords = [lastPoint, currentPoint];
+            if (measureState.mode === 'area' && measureState.points.length >= 2) {
+                tempCoords.push(measureState.points[0]);
+            }
+
+            measureState.tempLine = L.polyline(tempCoords, {
+                color: '#FFFF00',
+                weight: 1,
+                opacity: 1,
+                dashArray: '5, 5'
+            });
+            measureLayerGroup.addLayer(measureState.tempLine);
+        }
+
+        function finishMeasureDistance() {
+            if (!measureState.isActive || measureState.mode !== 'distance') return;
+
+            map.off('click', handleMeasureClick);
+            map.off('mousemove', handleMeasureMouseMove);
+            map.off('contextmenu', handleDistanceMeasureRightClick);
+
+            map.doubleClickZoom.enable();
+
+            if (measureState.tempLine) {
+                measureLayerGroup.removeLayer(measureState.tempLine);
+                measureState.tempLine = null;
+            }
+
+            if (measureState.points.length > 1) {
+                var totalDistance = calculateTotalDistance();
+                showTotalDistanceLabel(totalDistance);
+            }
+
+            measureState.isActive = false;
+            measureState.mode = '';
+
+            document.getElementById('measureDistanceBtn').classList.remove('active');
+            document.getElementById('measureAreaBtn').disabled = false;
+
+            map.getContainer().style.cursor = '';
+
+            updateStatus('测距完成，总距离已显示');
+        }
+
+        function finishMeasureArea() {
+            if (!measureState.isActive || measureState.mode !== 'area') return;
+
+            map.off('click', handleMeasureClick);
+            map.off('mousemove', handleMeasureMouseMove);
+            map.off('contextmenu', handleAreaMeasureRightClick);
+
+            map.doubleClickZoom.enable();
+
+            if (measureState.tempLine) {
+                measureLayerGroup.removeLayer(measureState.tempLine);
+                measureState.tempLine = null;
+            }
+
+            if (measureState.points.length >= 3) {
+                var lastPoint = measureState.points[measureState.points.length - 1];
+                var firstPoint = measureState.points[0];
+                if (lastPoint.lat !== firstPoint.lat || lastPoint.lng !== firstPoint.lng) {
+                    measureState.points.push(L.latLng(firstPoint.lat, firstPoint.lng));
+                }
+
+                var area = calculatePolygonArea(measureState.points);
+                var center = getPolygonCenter(measureState.points);
+
+                if (measureState.areaLabel) {
+                    measureLayerGroup.removeLayer(measureState.areaLabel);
+                    measureState.areaLabel = null;
+                }
+
+                showTotalAreaLabel(center, area);
+
+                if (measureState.polygon) {
+                    measureLayerGroup.removeLayer(measureState.polygon);
+                }
+                measureState.polygon = L.polygon(measureState.points, {
+                    color: '#FFD700',
+                    weight: 2,
+                    opacity: 1,
+                    fillColor: '#FFD700',
+                    fillOpacity: 0.3
+                });
+                measureLayerGroup.addLayer(measureState.polygon);
+            } else {
+                clearMeasureResult();
+            }
+
+            measureState.isActive = false;
+            measureState.mode = '';
+
+            document.getElementById('measureAreaBtn').classList.remove('active');
+            document.getElementById('measureDistanceBtn').disabled = false;
+
+            map.getContainer().style.cursor = '';
+
+            updateStatus('测面完成，总面积已显示');
+        }
+
+        function calculateDistance(point1, point2) {
+            return point1.distanceTo(point2);
+        }
+
+        function calculateTotalDistance() {
+            var total = 0;
+            for (var i = 1; i < measureState.points.length; i++) {
+                total += calculateDistance(measureState.points[i - 1], measureState.points[i]);
+            }
+            return total;
+        }
+
+        function calculatePolygonArea(points) {
+            if (points.length < 3) return 0;
+            try {
+                var coords = points.map(function(p) {
+                    if (p.lng !== undefined && p.lat !== undefined) {
+                        return [p.lng, p.lat];
+                    } else if (Array.isArray(p) && p.length >= 2) {
+                        return [p[1], p[0]];
+                    }
+                    return null;
+                }).filter(function(c) { return c !== null; });
+
+                if (coords.length >= 3) {
+                    if (coords[0][0] !== coords[coords.length - 1][0] ||
+                        coords[0][1] !== coords[coords.length - 1][1]) {
+                        coords.push(coords[0]);
+                    }
+                }
+
+                var polygon = turf.polygon([coords]);
+                return turf.area(polygon);
+            } catch (e) {
+                console.error('计算多边形面积时出错:', e);
+                return 0;
+            }
+        }
+
+        function getPolygonCenter(points) {
+            if (points.length === 0) return null;
+            var latSum = 0, lngSum = 0;
+            points.forEach(function(p) {
+                latSum += p.lat;
+                lngSum += p.lng;
+            });
+            return L.latLng(latSum / points.length, lngSum / points.length);
+        }
+
+        function showDistanceLabel(latlng, distance) {
+            var label = L.divIcon({
+                className: 'measure-label',
+                html: '<div style="background: rgba(255,255,255,0.9); color: #333; padding: 2px 6px; border-radius: 3px; font-size: 12px; box-shadow: 0 1px 2px rgba(0,0,0,0.3);">' + distance.toFixed(2) + ' 米</div>',
+                iconSize: null,
+                iconAnchor: [0, -10]
+            });
+            var marker = L.marker(latlng, { icon: label });
+            measureLayerGroup.addLayer(marker);
+            measureState.labels.push(marker);
+        }
+
+        function showTotalDistanceLabel(totalDistance) {
+            if (measureState.points.length === 0) return;
+            var lastPoint = measureState.points[measureState.points.length - 1];
+            var label = L.divIcon({
+                className: 'measure-total-label',
+                html: '<div style="background: rgba(0,0,0,0.7); color: white; padding: 4px 8px; border-radius: 4px; font-size: 14px; font-weight: bold; box-shadow: 0 2px 4px rgba(0,0,0,0.3);">总距离: ' + totalDistance.toFixed(2) + ' 米</div>',
+                iconSize: null,
+                iconAnchor: [0, -20]
+            });
+            var marker = L.marker(lastPoint, { icon: label });
+            measureLayerGroup.addLayer(marker);
+            measureState.labels.push(marker);
+        }
+
+        function showTotalAreaLabel(latlng, area) {
+            var areaInMu = area / 666.6667;
+            var label = L.divIcon({
+                className: 'measure-total-label',
+                html: '<div style="background: rgba(0,0,0,0.7); color: white; padding: 4px 8px; border-radius: 4px; font-size: 14px; font-weight: bold; box-shadow: 0 2px 4px rgba(0,0,0,0.3); line-height: 1.4;">总面积: ' + area.toFixed(2) + ' 平方米<br>' + areaInMu.toFixed(2) + ' 亩</div>',
+                iconSize: null,
+                iconAnchor: [0, -40]
+            });
+            var marker = L.marker(latlng, { icon: label });
+            measureLayerGroup.addLayer(marker);
+            measureState.labels.push(marker);
+        }
+
+        function clearMeasureResult() {
+            measureLayerGroup.clearLayers();
+            measureState = {
+                isActive: false,
+                mode: '',
+                points: [],
+                tempLine: null,
+                lines: [],
+                markers: [],
+                labels: [],
+                polygon: null,
+                areaLabel: null
+            };
+
+            document.getElementById('measureDistanceBtn').classList.remove('active');
+            document.getElementById('measureAreaBtn').classList.remove('active');
+            document.getElementById('measureDistanceBtn').disabled = false;
+            document.getElementById('measureAreaBtn').disabled = false;
+
+            if (map && map.doubleClickZoom) {
+                map.doubleClickZoom.enable();
+            }
+
+            if (map) {
+                map.getContainer().style.cursor = '';
+            }
+        }
+
+        function toggleLeftPanel() {
+            var panel = document.getElementById('leftPanel');
+            var fixedToggle = document.getElementById('panelToggleFixed');
+
+            if (panel.classList.contains('collapsed')) {
+                panel.classList.remove('collapsed');
+                if (fixedToggle) {
+                    fixedToggle.innerHTML = ' ';
+                    fixedToggle.title = '收缩工具栏';
+                }
+            } else {
+                panel.classList.add('collapsed');
+                if (fixedToggle) {
+                    fixedToggle.innerHTML = ' ';
+                    fixedToggle.title = '展开工具栏';
+                }
+            }
+        }
+
+        function bindEvents() {
+            document.getElementById('measureDistanceBtn').addEventListener('click', function() {
+                if (measureState.isActive && measureState.mode === 'distance') {
+                    clearMeasureResult();
+                    updateStatus('测距已取消');
+                } else {
+                    startMeasureDistance();
+                }
+            });
+
+            document.getElementById('measureAreaBtn').addEventListener('click', function() {
+                if (measureState.isActive && measureState.mode === 'area') {
+                    clearMeasureResult();
+                    updateStatus('测面已取消');
+                } else {
+                    startMeasureArea();
+                }
+            });
+
+            document.getElementById('mapTypeBtn').addEventListener('click', toggleMapType);
+            document.getElementById('clearAllBtn').addEventListener('click', clearAll);
+
+            document.getElementById('addSegmentBtn').addEventListener('click', function() {
+                addSegmentCard();
+            });
+
+            document.getElementById('drawTrackBtn').addEventListener('click', drawTrack);
+            document.getElementById('clearTrackBtn').addEventListener('click', clearTrack);
+
+            document.getElementById('drawPointsBtn').addEventListener('click', drawPoints);
+            document.getElementById('clearPointsBtn').addEventListener('click', clearPoints);
+
+            document.getElementById('lineWeightSlider').addEventListener('input', function() {
+                document.getElementById('lineWeightValue').textContent = this.value;
+            });
+
+            document.getElementById('pointSizeSlider').addEventListener('input', function() {
+                document.getElementById('pointSizeValue').textContent = this.value;
+            });
+
+            var panelToggleFixed = document.getElementById('panelToggleFixed');
+
+            if (panelToggleFixed) {
+                panelToggleFixed.addEventListener('click', toggleLeftPanel);
+            }
+        }
+
+        document.addEventListener('DOMContentLoaded', function() {
+            initMap();
+            bindEvents();
+
+            var savedPanelState = localStorage.getItem('leftPanelCollapsed');
+            var panel = document.getElementById('leftPanel');
+            var fixedToggle = document.getElementById('panelToggleFixed');
+
+            if (savedPanelState === 'true') {
+                panel.classList.add('collapsed');
+                if (fixedToggle) {
+                    fixedToggle.innerHTML = ' ';
+                    fixedToggle.title = '展开工具栏';
+                }
+            } else {
+                if (fixedToggle) {
+                    fixedToggle.innerHTML = ' ';
+                    fixedToggle.title = '收缩工具栏';
+                }
+            }
+
+            addSegmentCard();
+
+            updateStatus('就绪');
+        });
+    </script>
+</body>
+</html>
